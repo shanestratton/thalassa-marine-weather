@@ -12,6 +12,7 @@ import {
     buildCatzocZones,
     buildCoastlines,
     buildHazardsForCell,
+    buildSoundingHazards,
     explodeSoundings,
     featuresToHazards,
     readNumber,
@@ -146,6 +147,45 @@ describe('buildHazardsForCell — aggregation', () => {
     it('never pulls COALNE or M_QUAL into the hazard set', () => {
         const h = buildHazardsForCell(blob({ COALNE: fc([pt({})]), M_QUAL: fc([pt({ CATZOC: 1 })]) }));
         expect(h).toEqual([]);
+    });
+    it('folds shoal SOUNDG spot soundings into the hazard model (defense-in-depth)', () => {
+        const soundg: Feature = {
+            type: 'Feature',
+            geometry: { type: 'MultiPoint', coordinates: [[153, -27]] },
+            properties: { depths: [1.2] },
+        };
+        const h = buildHazardsForCell(blob({ DEPARE: fc([pt({ DRVAL1: 25 })]), SOUNDG: fc([soundg]) }));
+        expect(h.some((x) => x.layer === 'SOUNDG' && x.minDepthM === 1.2)).toBe(true);
+    });
+});
+
+describe('buildSoundingHazards — shoal soundings only', () => {
+    const soundg = (depths: number[]): EncConversionResult =>
+        blob({
+            SOUNDG: fc([
+                {
+                    type: 'Feature',
+                    geometry: { type: 'MultiPoint', coordinates: depths.map((_, i) => [153 + i * 0.001, -27]) },
+                    properties: { depths },
+                },
+            ]),
+        });
+
+    it('keeps a shoal sounding as a Point SOUNDG hazard carrying its depth', () => {
+        const h = buildSoundingHazards(soundg([1.2]));
+        expect(h).toHaveLength(1);
+        expect(h[0]).toMatchObject({ layer: 'SOUNDG', minDepthM: 1.2 });
+        expect(h[0].geometry.type).toBe('Point');
+    });
+    it('drops deep soundings (≥ 15 m) — they can never ground a modelled vessel', () => {
+        expect(buildSoundingHazards(soundg([20, 30]))).toHaveLength(0);
+        expect(buildSoundingHazards(soundg([2, 20]))).toHaveLength(1); // keeps only the shoal one
+    });
+    it('keeps a drying (negative) sounding — it is the shallowest of all', () => {
+        expect(buildSoundingHazards(soundg([-0.4]))[0].minDepthM).toBe(-0.4);
+    });
+    it('no SOUNDG layer → no sounding hazards', () => {
+        expect(buildSoundingHazards(blob({}))).toEqual([]);
     });
 });
 
