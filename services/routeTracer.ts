@@ -895,6 +895,37 @@ export function traceHealth(verdicts: ReadonlyArray<TraceLegVerdict | null | und
     };
 }
 
+/**
+ * "Newport - Lady Musgrave" → "Lady Musgrave - Newport" for the tracer's
+ * ⇄ reverse (Shane 2026-07-15: flipping a saved route should flip its
+ * name too). Only SPACED separators and arrows count, so hyphenated
+ * place names ("Tin Can Bay") survive; multi-leg names reverse whole
+ * ("A → B → C" → "C → B → A"); a name with no recognisable separator
+ * returns unchanged. The user's separator style is preserved.
+ */
+export function reverseRouteName(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) return name;
+    const SEPS: Array<{ re: RegExp; join: string }> = [
+        { re: / — /, join: ' — ' },
+        { re: / – /, join: ' – ' },
+        { re: / - /, join: ' - ' },
+        { re: /\s*→\s*/, join: ' → ' },
+        { re: /\s*->\s*/, join: ' -> ' },
+        { re: /\s+to\s+/i, join: ' to ' },
+    ];
+    for (const { re, join } of SEPS) {
+        if (!re.test(trimmed)) continue;
+        const parts = trimmed
+            .split(new RegExp(re.source, re.flags.includes('i') ? 'gi' : 'g'))
+            .map((p) => p.trim())
+            .filter(Boolean);
+        if (parts.length < 2) continue;
+        return parts.reverse().join(join);
+    }
+    return name;
+}
+
 // ── P4: save / load / flywheel / sail ──────────────────────────────────────
 
 export interface SavedTrace {

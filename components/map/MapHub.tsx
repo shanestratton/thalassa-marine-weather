@@ -124,6 +124,7 @@ import {
     tracePinBlocked,
     snapTraceTapToWater,
     rdpTracePoints,
+    reverseRouteName,
     bearingDegBetween,
     courseArrow,
     curatedLanesNear,
@@ -1096,6 +1097,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         setInsertAfter(null);
         insertAfterRef.current = null;
         setCapturedCoords((prev) => [...prev].reverse());
+        // The name flips with the pins ("Newport - Lady Musgrave" →
+        // "Lady Musgrave - Newport", Shane 2026-07-15) — so saving the
+        // return run creates ITS OWN route instead of colliding with
+        // the outbound's overwrite guard. No-op for separator-less names.
+        setTraceName((n) => reverseRouteName(n));
+        setOverwriteArm(null);
         flashTraceFeedback('Reversed — checking the return run now');
     }, [capturedCoords.length, flashTraceFeedback]);
     const copyFairwaySnippet = useCallback(async () => {

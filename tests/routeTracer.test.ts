@@ -23,6 +23,7 @@ import {
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     loadSavedTraces,
+    reverseRouteName,
     saveTrace,
     deleteTrace,
     type TracerContext,
@@ -461,6 +462,18 @@ describe('routeTracer — trace plumbing (P4)', () => {
         ]);
         expect(refused.persisted).toBe(false);
         delete (globalThis as Record<string, unknown>).localStorage;
+    });
+
+    it('reverseRouteName flips A-B names and leaves the rest alone', () => {
+        expect(reverseRouteName('Newport - Lady Musgrave')).toBe('Lady Musgrave - Newport');
+        expect(reverseRouteName('Newport → Mooloolaba')).toBe('Mooloolaba → Newport');
+        expect(reverseRouteName('Newport to Tin Can Bay')).toBe('Tin Can Bay to Newport');
+        // Multi-leg reverses whole; separator style survives.
+        expect(reverseRouteName('A - B - C')).toBe('C - B - A');
+        // Hyphenated place names (no SPACED separator) are untouched.
+        expect(reverseRouteName('Lady-Musgrave run')).toBe('Lady-Musgrave run');
+        expect(reverseRouteName('Bay run')).toBe('Bay run');
+        expect(reverseRouteName('')).toBe('');
     });
 
     it('overwrite-save replaces in place — same id, fresh updatedAt, no twin', () => {
