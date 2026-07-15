@@ -4,6 +4,8 @@
  * module can reference layers without a dependency cycle.
  */
 
+import type { S57PointMarkClass } from '../../services/enc/types';
+
 // ── Source IDs ─────────────────────────────────────────────────────
 
 export const ENC_VEC_SRC = {
@@ -144,37 +146,28 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.POINTS_LABEL,
 ];
 
+// S-57 point-mark class taxonomy — the DOMAIN registry lives in
+// services/enc/types (so the merge can derive from it WITHOUT a
+// services→components import); re-exported here beside the render bindings.
+// See that file for the hazard-points ∪ navaids partition.
+export {
+    S57_POINT_MARK_CLASSES,
+    S57_HAZARD_POINT_CLASSES,
+    S57_NAVAID_CLASSES,
+    S57_BUOY_BEACON_CLASSES,
+} from '../../services/enc/types';
+
+// Compile-time render binding: every point-mark class MUST own a layer id
+// in ENC_VEC_LAYERS — a registry addition that forgets one fails HERE, in
+// lock-step with encClassRegistry.test's runtime coverage guard.
+type _EveryMarkClassHasLayer = [S57PointMarkClass] extends [keyof typeof ENC_VEC_LAYERS] ? true : never;
+export const S57_MARK_CLASSES_HAVE_LAYERS: _EveryMarkClassHasLayer = true;
+
 // Layers that take click handlers. Excludes the text-only label
 // layers — a tap on a label should fall through to the symbol or
 // polygon underneath, not open a generic popup. RECTRC is excluded
 // too: a thin lead line under a tracer tap must never swallow the
 // pin drop with a popup.
-/** The S-57 POINT-MARK classes — every navaid/hazard that renders as a
- *  tap-target SYMBOL. This is the canonical set the parallel machinery
- *  must agree on: each needs a layer id in ENC_VEC_LAYERS, a slot in
- *  ALL_LAYER_IDS, fat-finger membership (POINT_LAYER_IDS — DERIVED from
- *  this), a merge tagAndPush, and a popup branch. `satisfies` binds it to
- *  ENC_VEC_LAYERS at compile time; tests/enc/encClassRegistry.test guards
- *  the runtime lists. Together they turn a missed parallel list from a
- *  SILENT no-op into a loud failure (mission-audit #2a — the ~18-class set
- *  was hand-mirrored across unlinked sites). */
-export const S57_POINT_MARK_CLASSES = [
-    'OBSTRN',
-    'WRECKS',
-    'UWTROC',
-    'LIGHTS',
-    'BOYLAT',
-    'BOYCAR',
-    'BCNLAT',
-    'BCNCAR',
-    'BOYSPP',
-    'BCNSPP',
-    'BOYSAW',
-    'BCNSAW',
-    'BOYISD',
-    'BCNISD',
-] as const satisfies readonly (keyof typeof ENC_VEC_LAYERS)[];
-
 export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
     (id) =>
         id !== ENC_VEC_LAYERS.NAVAIDS_LABEL &&

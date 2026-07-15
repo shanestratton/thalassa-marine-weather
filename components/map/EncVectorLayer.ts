@@ -43,7 +43,16 @@ import type { FeatureCollection } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { registerSeamarkIcons } from './seamarkIcons';
-import { ALL_LAYER_IDS, CLICKABLE_LAYER_IDS, ENC_VEC_LAYERS, ENC_VEC_SRC, S57_POINT_MARK_CLASSES } from './encLayerIds';
+import {
+    ALL_LAYER_IDS,
+    CLICKABLE_LAYER_IDS,
+    ENC_VEC_LAYERS,
+    ENC_VEC_SRC,
+    S57_BUOY_BEACON_CLASSES,
+    S57_HAZARD_POINT_CLASSES,
+    S57_NAVAID_CLASSES,
+    S57_POINT_MARK_CLASSES,
+} from './encLayerIds';
 import { isScrubHidden } from './encDetailScrubber';
 import { buildFeaturePopupHtml, type PopupExtras } from './encPopup';
 
@@ -132,21 +141,14 @@ function findInsertionAnchor(map: mapboxgl.Map): string | undefined {
  * Mapbox's worker-side tile generation.
  */
 function buildMergedPoints(data: EncMergedVectorData): FeatureCollection {
-    const features = [
-        ...data.OBSTRN.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'OBSTRN' },
-        })),
-        ...data.WRECKS.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'WRECKS' },
-        })),
-        ...data.UWTROC.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'UWTROC' },
-        })),
-    ];
-    return { type: 'FeatureCollection', features };
+    // Derived from the canonical hazard-point registry (#2a full bind): a new
+    // hazard class added there flows into this source automatically.
+    return {
+        type: 'FeatureCollection',
+        features: S57_HAZARD_POINT_CLASSES.flatMap((cls) =>
+            data[cls].features.map((f) => ({ ...f, properties: { ...(f.properties ?? {}), _kind: cls } })),
+        ),
+    };
 }
 
 /**
@@ -155,53 +157,16 @@ function buildMergedPoints(data: EncMergedVectorData): FeatureCollection {
  * sources holding the same Point geometries.
  */
 function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
-    const features = [
-        ...data.LIGHTS.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'LIGHTS' },
-        })),
-        ...data.BOYLAT.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BOYLAT' },
-        })),
-        ...data.BOYCAR.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BOYCAR' },
-        })),
-        ...data.BCNLAT.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BCNLAT' },
-        })),
-        ...data.BCNCAR.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BCNCAR' },
-        })),
-        ...data.BOYSPP.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BOYSPP' },
-        })),
-        ...data.BCNSPP.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BCNSPP' },
-        })),
-        ...data.BOYSAW.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BOYSAW' },
-        })),
-        ...data.BCNSAW.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BCNSAW' },
-        })),
-        ...data.BOYISD.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BOYISD' },
-        })),
-        ...data.BCNISD.features.map((f) => ({
-            ...f,
-            properties: { ...(f.properties ?? {}), _kind: 'BCNISD' },
-        })),
-    ];
-    return { type: 'FeatureCollection', features };
+    // Derived from the canonical navaid registry (#2a full bind): each class
+    // is _kind-tagged so the per-mark layer filters resolve, and adding a
+    // navaid class to the registry wires it here + into navaidSymbolLayer
+    // without editing this function.
+    return {
+        type: 'FeatureCollection',
+        features: S57_NAVAID_CLASSES.flatMap((cls) =>
+            data[cls].features.map((f) => ({ ...f, properties: { ...(f.properties ?? {}), _kind: cls } })),
+        ),
+    };
 }
 
 // ── Draft-aware depth styling ──────────────────────────────────────
@@ -869,20 +834,7 @@ export function mountEncVectorLayer(
     // Layer ids keep the legacy '-circle' suffix on purpose — click
     // handlers, toggles and the master-visibility probe reference
     // them (see ENC_VEC_LAYERS note).
-    const navaidSymbolLayer = (
-        layerId: string,
-        kind:
-            | 'BOYLAT'
-            | 'BCNLAT'
-            | 'BOYCAR'
-            | 'BCNCAR'
-            | 'BOYSPP'
-            | 'BCNSPP'
-            | 'BOYSAW'
-            | 'BCNSAW'
-            | 'BOYISD'
-            | 'BCNISD',
-    ) => {
+    const navaidSymbolLayer = (layerId: string, kind: (typeof S57_BUOY_BEACON_CLASSES)[number]) => {
         if (map.getLayer(layerId)) return;
         map.addLayer(
             {
@@ -907,16 +859,9 @@ export function mountEncVectorLayer(
         );
     };
 
-    navaidSymbolLayer(ENC_VEC_LAYERS.BOYLAT, 'BOYLAT');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BCNLAT, 'BCNLAT');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BOYCAR, 'BOYCAR');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BCNCAR, 'BCNCAR');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BOYSPP, 'BOYSPP');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BCNSPP, 'BCNSPP');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BOYSAW, 'BOYSAW');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BCNSAW, 'BCNSAW');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BOYISD, 'BOYISD');
-    navaidSymbolLayer(ENC_VEC_LAYERS.BCNISD, 'BCNISD');
+    // Driven by the canonical buoy/beacon registry (#2a full bind) — a new
+    // class in S57_BUOY_BEACON_CLASSES mounts here automatically.
+    for (const cls of S57_BUOY_BEACON_CLASSES) navaidSymbolLayer(ENC_VEC_LAYERS[cls], cls);
 
     // ── SOUNDG (spot soundings — the chartplotter depth numbers) ──
     // Shane 2026-07-09: "more depth measurements in close"; 2026-07-11:
@@ -1811,6 +1756,17 @@ export function setEncPopupSuppression(map: mapboxgl.Map, suppressed: boolean): 
     popupSuppression.set(map, suppressed);
 }
 
+// ONE-SHOT: swallow the popup for the very next click. A long-press that
+// places a tracer pin ALSO emits a click on release; the ENC click handler
+// is a separate listener not covered by useMapInit's suppressNextClick, so
+// without this a pin drop would pop up "Water 5 m" right where you plotted
+// (Shane 2026-07-16, once popups went live during plotting). Set from the
+// tracer's long-press placement; consumed by the next click.
+const suppressNextClickPopup = new WeakMap<mapboxgl.Map, boolean>();
+export function encSuppressNextClickPopup(map: mapboxgl.Map): void {
+    suppressNextClickPopup.set(map, true);
+}
+
 /**
  * Async half of the tap-the-water popup: a needs-tide verdict shows
  * "checking tides…" and this fills in the actual window ("clears
@@ -1855,6 +1811,32 @@ const CLICKABLE_POINT_LAYER_IDS = CLICKABLE_LAYER_IDS.filter((id) => POINT_LAYER
 const TAP_PAD_PX = 12;
 
 /**
+ * Is there a clickable ENC feature (mark / light / hazard / water) under this
+ * tap? Same padded-box-for-points + exact-point-for-areas test the click
+ * handler uses. The tracer calls this so a tap that hit a mark shows its
+ * popup (and skips the "hold to drop a pin" coach) while plotting — placement
+ * is the long press, so a tap is free to inspect (Shane 2026-07-16).
+ */
+export function encHasClickableFeatureAt(map: mapboxgl.Map, lngLat: { lat: number; lng: number }): boolean {
+    try {
+        const p = map.project([lngLat.lng, lngLat.lat]);
+        const box: [mapboxgl.PointLike, mapboxgl.PointLike] = [
+            [p.x - TAP_PAD_PX, p.y - TAP_PAD_PX],
+            [p.x + TAP_PAD_PX, p.y + TAP_PAD_PX],
+        ];
+        if (
+            CLICKABLE_POINT_LAYER_IDS.length > 0 &&
+            map.queryRenderedFeatures(box, { layers: CLICKABLE_POINT_LAYER_IDS }).length > 0
+        ) {
+            return true;
+        }
+        return map.queryRenderedFeatures(p, { layers: CLICKABLE_LAYER_IDS }).length > 0;
+    } catch {
+        return false; // style mid-swap — treat as no feature
+    }
+}
+
+/**
  * Wire up ONE map-level click handler for every ENC vector layer so
  * tapping a feature shows a popup describing it. Map-level (not
  * per-layer): 17 per-layer registrations ran the full query/HTML/popup
@@ -1865,6 +1847,11 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
     if (attachedHandlers.has(map)) return;
 
     const onClick = (e: mapboxgl.MapMouseEvent) => {
+        // Swallow the release-click that follows a long-press pin placement.
+        if (suppressNextClickPopup.get(map)) {
+            suppressNextClickPopup.set(map, false);
+            return;
+        }
         if (popupSuppression.get(map)) return;
         // Marks first, through the padded box — the NEAREST mark to the
         // tap wins, so a finger-width miss still answers about the buoy,

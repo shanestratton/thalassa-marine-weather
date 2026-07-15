@@ -47,6 +47,7 @@ import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from 
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import { buildCatzocZones, buildCoastlines, buildHazardsForCell, explodeSoundings, readNumber } from './encHazardParse';
 import { mergeHazardResults } from './hazardSeverity';
+import { S57_POINT_MARK_CLASSES } from './types';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
     buildLightCharacterLabel,
@@ -1379,21 +1380,11 @@ async function buildMergedVectorData(
         }
         tagAndPush('LNDARE', blob.layers.LNDARE);
         tagAndPush('COALNE', blob.layers.COALNE);
-        tagAndPush('OBSTRN', blob.layers.OBSTRN);
-        tagAndPush('WRECKS', blob.layers.WRECKS);
-        tagAndPush('UWTROC', blob.layers.UWTROC);
         tagAndPush('DEPCNT', blob.layers.DEPCNT);
-        tagAndPush('LIGHTS', blob.layers.LIGHTS);
-        tagAndPush('BOYLAT', blob.layers.BOYLAT);
-        tagAndPush('BOYCAR', blob.layers.BOYCAR);
-        tagAndPush('BCNLAT', blob.layers.BCNLAT);
-        tagAndPush('BCNCAR', blob.layers.BCNCAR);
-        tagAndPush('BOYSPP', blob.layers.BOYSPP);
-        tagAndPush('BCNSPP', blob.layers.BCNSPP);
-        tagAndPush('BOYSAW', blob.layers.BOYSAW);
-        tagAndPush('BCNSAW', blob.layers.BCNSAW);
-        tagAndPush('BOYISD', blob.layers.BOYISD);
-        tagAndPush('BCNISD', blob.layers.BCNISD);
+        // Every S-57 point-mark class, driven by the canonical registry
+        // (#2a full bind) — a class added there can't be silently forgotten
+        // here (order across these distinct collections is immaterial).
+        for (const cls of S57_POINT_MARK_CLASSES) tagAndPush(cls, blob.layers[cls]);
         tagAndPush('RECTRC', blob.layers.RECTRC);
 
         // Named areas → ONE label point per name ("put the channel
