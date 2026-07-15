@@ -371,6 +371,21 @@ export function distinctValdcosByCell(fc: {
 // `_minZoom` are always-visible (correct for hazards lacking SCAMIN).
 export const SCAMIN_CLAUSE = ['any', ['!', ['has', '_minZoom']], ['>=', ['zoom'], ['get', '_minZoom']]];
 
+// Mark visibility FLOOR — nav marks (buoys, beacons, lights) show from z10
+// regardless of their SCAMIN `_minZoom` (Shane 2026-07-16: "handy to see the
+// markers at that level onwards"). AU nav-aid SCAMIN otherwise hides them
+// until ~z13.5. Only the LOW-zoom floor moves; an EARLIER SCAMIN still wins,
+// and above z10 marks were never SCAMIN-thinned (navaids allow-overlap), so
+// no high-zoom density behaviour changes. Marks-only — soundings/names keep
+// the plain SCAMIN_CLAUSE so their density ladder is untouched.
+export const MARK_MIN_ZOOM = 10;
+export const MARK_SCAMIN_CLAUSE = [
+    'any',
+    ['>=', ['zoom'], MARK_MIN_ZOOM],
+    ['!', ['has', '_minZoom']],
+    ['>=', ['zoom'], ['get', '_minZoom']],
+];
+
 /**
  * Boolean expression: "this DEPCNT feature is its cell's safety
  * contour". Built from the per-cell safety map; false when no cell

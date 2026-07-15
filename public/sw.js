@@ -121,9 +121,12 @@
 // press, so a tap is free to inspect). The "hold to drop a pin" coach
 // only shows on an empty tap; the release-click after a placement is
 // swallowed so a pin drop doesn't pop up the water beneath it.
-const CACHE_NAME = 'thalassa-v90-core';
-const TILE_CACHE = 'thalassa-v90-tiles';
-const DATA_CACHE = 'thalassa-v90-data';
+// v91: nav marks (buoys/beacons/lights) show from ZOOM 10 onwards — a z10
+// floor over their S-57 SCAMIN (which otherwise hid them to ~z13.5), an
+// earlier SCAMIN still wins and high-zoom density thinning is untouched.
+const CACHE_NAME = 'thalassa-v91-core';
+const TILE_CACHE = 'thalassa-v91-tiles';
+const DATA_CACHE = 'thalassa-v91-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
