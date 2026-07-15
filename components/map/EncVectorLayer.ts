@@ -43,7 +43,7 @@ import type { FeatureCollection } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { registerSeamarkIcons } from './seamarkIcons';
-import { ALL_LAYER_IDS, CLICKABLE_LAYER_IDS, ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
+import { ALL_LAYER_IDS, CLICKABLE_LAYER_IDS, ENC_VEC_LAYERS, ENC_VEC_SRC, S57_POINT_MARK_CLASSES } from './encLayerIds';
 import { isScrubHidden } from './encDetailScrubber';
 import { buildFeaturePopupHtml, type PopupExtras } from './encPopup';
 
@@ -1809,23 +1809,10 @@ function fillDepareTideWindow(popup: mapboxgl.Popup, props: Record<string, unkno
 }
 
 /** Point-feature layers — small tap targets that get the padded
- *  fat-finger search box (vs. area fills, which keep exact-point). */
-const POINT_LAYER_IDS = new Set<string>([
-    ENC_VEC_LAYERS.OBSTRN,
-    ENC_VEC_LAYERS.WRECKS,
-    ENC_VEC_LAYERS.UWTROC,
-    ENC_VEC_LAYERS.LIGHTS,
-    ENC_VEC_LAYERS.BOYLAT,
-    ENC_VEC_LAYERS.BOYCAR,
-    ENC_VEC_LAYERS.BCNLAT,
-    ENC_VEC_LAYERS.BCNCAR,
-    ENC_VEC_LAYERS.BOYSPP,
-    ENC_VEC_LAYERS.BCNSPP,
-    ENC_VEC_LAYERS.BOYSAW,
-    ENC_VEC_LAYERS.BCNSAW,
-    ENC_VEC_LAYERS.BOYISD,
-    ENC_VEC_LAYERS.BCNISD,
-]);
+ *  fat-finger search box (vs. area fills, which keep exact-point).
+ *  DERIVED from the canonical S57_POINT_MARK_CLASSES registry so this
+ *  can't drift from the layer/popup machinery (mission-audit #2a). */
+const POINT_LAYER_IDS = new Set<string>(S57_POINT_MARK_CLASSES.map((c) => ENC_VEC_LAYERS[c]));
 const CLICKABLE_POINT_LAYER_IDS = CLICKABLE_LAYER_IDS.filter((id) => POINT_LAYER_IDS.has(id));
 
 /** Fat-finger tap tolerance in screen px. Wreck dots render ~13-18 px

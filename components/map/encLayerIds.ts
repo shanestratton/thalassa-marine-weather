@@ -149,6 +149,32 @@ export const ALL_LAYER_IDS = [
 // polygon underneath, not open a generic popup. RECTRC is excluded
 // too: a thin lead line under a tracer tap must never swallow the
 // pin drop with a popup.
+/** The S-57 POINT-MARK classes — every navaid/hazard that renders as a
+ *  tap-target SYMBOL. This is the canonical set the parallel machinery
+ *  must agree on: each needs a layer id in ENC_VEC_LAYERS, a slot in
+ *  ALL_LAYER_IDS, fat-finger membership (POINT_LAYER_IDS — DERIVED from
+ *  this), a merge tagAndPush, and a popup branch. `satisfies` binds it to
+ *  ENC_VEC_LAYERS at compile time; tests/enc/encClassRegistry.test guards
+ *  the runtime lists. Together they turn a missed parallel list from a
+ *  SILENT no-op into a loud failure (mission-audit #2a — the ~18-class set
+ *  was hand-mirrored across unlinked sites). */
+export const S57_POINT_MARK_CLASSES = [
+    'OBSTRN',
+    'WRECKS',
+    'UWTROC',
+    'LIGHTS',
+    'BOYLAT',
+    'BOYCAR',
+    'BCNLAT',
+    'BCNCAR',
+    'BOYSPP',
+    'BCNSPP',
+    'BOYSAW',
+    'BCNSAW',
+    'BOYISD',
+    'BCNISD',
+] as const satisfies readonly (keyof typeof ENC_VEC_LAYERS)[];
+
 export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
     (id) =>
         id !== ENC_VEC_LAYERS.NAVAIDS_LABEL &&
