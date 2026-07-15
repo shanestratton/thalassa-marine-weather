@@ -103,6 +103,24 @@ describe('featuresToHazards — depth sourcing + descriptor', () => {
         expect(featuresToHazards('DRGARE', fc([pt({ DRVAL1: 2 })]))[0].minDepthM).toBe(2);
         expect(featuresToHazards('DRGARE', fc([pt({ drval1: 8 })]))[0].minDepthM).toBe(8);
     });
+    it('EXPLODES a MultiPoint hazard into per-point Point hazards (else the cluster is undetectable)', () => {
+        const multi: Feature = {
+            type: 'Feature',
+            geometry: {
+                type: 'MultiPoint',
+                coordinates: [
+                    [1, 1],
+                    [2, 2],
+                ],
+            },
+            properties: { VALSOU: 3, OBJNAM: 'foul' },
+        };
+        const out = featuresToHazards('UWTROC', fc([multi]));
+        expect(out).toHaveLength(2);
+        expect(out[0].geometry).toEqual({ type: 'Point', coordinates: [1, 1] });
+        expect(out[1].geometry).toEqual({ type: 'Point', coordinates: [2, 2] });
+        expect(out.every((h) => h.description === 'foul')).toBe(true);
+    });
     it('skips features with no geometry, never a bogus hazard', () => {
         const bad: Feature = { type: 'Feature', geometry: null as unknown as Feature['geometry'], properties: {} };
         expect(featuresToHazards('OBSTRN', fc([bad]))).toEqual([]);

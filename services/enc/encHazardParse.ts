@@ -72,14 +72,22 @@ export function featuresToHazards(layer: EncLayer, fc: FeatureCollection): EncHa
         } else if (layer === 'OBSTRN' || layer === 'WRECKS') {
             minDepthM = readNumber(feat, 'VALSOU');
         }
-        out.push({
-            layer,
-            geometry: feat.geometry,
-            minDepthM,
-            // Case-defensive (was OBJNAM-uppercase-only): an ogr2ogr
-            // lowercased cell silently dropped the descriptor otherwise.
-            description: readString(feat, 'OBJNAM'),
-        });
+        // Case-defensive (was OBJNAM-uppercase-only): an ogr2ogr lowercased
+        // cell silently dropped the descriptor otherwise.
+        const description = readString(feat, 'OBJNAM');
+        const g = feat.geometry;
+        if (g.type === 'MultiPoint') {
+            // EXPLODE into per-point hazards. queryPoint matches a point
+            // hazard by EXACT coordinate (a degenerate bbox); a MultiPoint
+            // left whole has a bbox spanning the WATER BETWEEN its points, so
+            // it would never be detected — a missed rock/wreck cluster
+            // (mission-audit hardening). Each point becomes its own hazard.
+            for (const c of g.coordinates) {
+                out.push({ layer, geometry: { type: 'Point', coordinates: c }, minDepthM, description });
+            }
+        } else {
+            out.push({ layer, geometry: g, minDepthM, description });
+        }
     }
     return out;
 }

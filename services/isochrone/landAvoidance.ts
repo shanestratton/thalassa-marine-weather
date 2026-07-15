@@ -644,8 +644,17 @@ export async function validateRouteSegments(
                 worstCatzoc !== null && worstCatzoc >= 4
                     ? ` ⚠ low-confidence ENC zones along route (worst CATZOC ${worstCatzoc}) — verify visually`
                     : '';
+            // No-data points (uncharted + GEBCO unavailable, source:'none')
+            // are treated as passable so a GEBCO outage can't block routing —
+            // but they are NOT confirmed clear, so surface them rather than
+            // let the false-clear stay silent (mission-audit hardening).
+            const noDataHits = allResults.filter((r) => r.source === 'none').length;
+            const noDataNote =
+                noDataHits > 0
+                    ? ` ⚠ ${noDataHits}/${allResults.length} route point(s) have NO depth data (uncharted + GEBCO unavailable) — NOT confirmed safe, verify visually`
+                    : '';
             landLog.info(
-                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})${catzocNote}`,
+                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})${catzocNote}${noDataNote}`,
             );
             break;
         }
