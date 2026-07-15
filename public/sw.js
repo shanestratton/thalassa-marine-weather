@@ -137,9 +137,14 @@
 // that has a disc but no soloLateral. §1 now chart-reads against the disc's
 // OWN mark (merged.OBSTRN → ctx.markHazards) + probes past the disc, so an
 // isolated red beacon on the clean side finally says nothing.
-const CACHE_NAME = 'thalassa-v94-core';
-const TILE_CACHE = 'thalassa-v94-tiles';
-const DATA_CACHE = 'thalassa-v94-data';
+// v95: tracer — (1) type a GPS fix to drop the next pin (build a route by
+// keying coords, decimal/DMM/DMS); (2) route report lists every waypoint in
+// order (DMM, tap-to-fly); (3) special-purpose (yellow) marks show their
+// charted purpose — CATSPM category + free-text INFORM/NINFOM, honest when
+// the chart carries none.
+const CACHE_NAME = 'thalassa-v95-core';
+const TILE_CACHE = 'thalassa-v95-tiles';
+const DATA_CACHE = 'thalassa-v95-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

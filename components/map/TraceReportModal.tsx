@@ -31,6 +31,17 @@ interface Props {
     onAckLeg: (i: number) => void;
 }
 
+/** Decimal degrees → degrees-decimal-minutes with hemisphere (the marine
+ *  standard a skipper keys into a plotter): -27.1417 → 27°08.50'S. */
+const ddToDMM = (v: number, isLat: boolean): string => {
+    const hemi = isLat ? (v >= 0 ? 'N' : 'S') : (v >= 0 ? 'E' : 'W');
+    const a = Math.abs(v);
+    const deg = Math.floor(a);
+    const min = (a - deg) * 60;
+    return `${deg}°${min.toFixed(2).padStart(5, '0')}'${hemi}`;
+};
+const fmtFix = (p: TracePoint): string => `${ddToDMM(p.lat, true)}  ${ddToDMM(p.lon, false)}`;
+
 const sevRow = (
     v: TraceLegVerdict,
     i: number,
@@ -157,6 +168,27 @@ export const TraceReportModal: React.FC<Props> = ({
                     {h.danger === 0 && h.caution === 0 && h.pending > 0 && (
                         <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-[12px] font-bold text-gray-300">
                             Still checking {h.pending} leg{h.pending > 1 ? 's' : ''} — hold fast.
+                        </div>
+                    )}
+                    {/* Every waypoint in order, degrees-decimal-minutes — read
+                        straight into a plotter, or tap one to fly there. */}
+                    {pins.length > 0 && (
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+                            <div className="mb-1.5 text-[11px] font-black uppercase tracking-widest text-gray-400">
+                                📍 Waypoints ({pins.length})
+                            </div>
+                            <div className="space-y-0.5 font-mono text-[11px] text-gray-200">
+                                {pins.map((p, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => onFlyTo(p)}
+                                        className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
+                                    >
+                                        <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
+                                        <span className="tabular-nums">{fmtFix(p)}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
