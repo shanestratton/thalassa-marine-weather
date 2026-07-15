@@ -89,6 +89,61 @@ const WATLEV_LABELS: Record<string, string> = {
     '7': 'Floating',
 };
 
+/** S-57 COLOUR codes → names. "Colour code 3" told the punter nothing
+ *  (Shane 2026-07-15 screenshot) — say "red". Comma lists decode
+ *  per-code ("3,1" → "red · white"); unknown codes pass through raw. */
+const S57_COLOUR_NAMES: Record<string, string> = {
+    '1': 'white',
+    '2': 'black',
+    '3': 'red',
+    '4': 'green',
+    '5': 'blue',
+    '6': 'yellow',
+    '7': 'grey',
+    '8': 'brown',
+    '9': 'amber',
+    '10': 'violet',
+    '11': 'orange',
+    '12': 'magenta',
+    '13': 'pink',
+};
+
+function colourNames(colour: unknown): string {
+    return String(colour)
+        .split(',')
+        .map((c) => S57_COLOUR_NAMES[c.trim()] ?? c.trim())
+        .join(' · ');
+}
+
+/** The light attribute rows (character / period / height / range /
+ *  colour) — shared between the standalone Light popup and the
+ *  "Light" section folded into a lit mark's popup. The mark's name
+ *  is NOT repeated here; the caller owns name rows. */
+function lightRows(props: Record<string, unknown>): string {
+    let out = '';
+    // Character row: prefer the merge-time pre-baked full description
+    // ("Fl(2)G 5s 12m 8M" from buildLightCharacterLabel); else decode
+    // the raw LITCHR code through LITCHR_LABELS ('Fl' → 'Flashing');
+    // else show the raw code the user can cross-reference on a chart.
+    const lightLabel = props._lightLabel;
+    const litchr = props.LITCHR ?? props.litchr;
+    const sigper = props.SIGPER ?? props.sigper;
+    const valnmr = props.VALNMR ?? props.valnmr;
+    const height = props.HEIGHT ?? props.height;
+    const colour = props.COLOUR ?? props.colour;
+    if (typeof lightLabel === 'string' && lightLabel) {
+        out += `<div class="enc-popup-row"><span>Character</span><b>${esc(lightLabel)}</b></div>`;
+    } else if (litchr) {
+        const decoded = LITCHR_LABELS[String(litchr)] ?? String(litchr);
+        out += `<div class="enc-popup-row"><span>Character</span><b>${esc(decoded)}</b></div>`;
+    }
+    if (sigper) out += `<div class="enc-popup-row"><span>Period</span><b>${esc(sigper)} s</b></div>`;
+    if (height) out += `<div class="enc-popup-row"><span>Height</span><b>${esc(fmtDepth(height))}</b></div>`;
+    if (valnmr) out += `<div class="enc-popup-row"><span>Range</span><b>${esc(valnmr)} NM</b></div>`;
+    if (colour) out += `<div class="enc-popup-row"><span>Colour</span><b>${esc(colourNames(colour))}</b></div>`;
+    return out;
+}
+
 /**
  * Build the popup HTML for a feature. The layer ID determines
  * which fields we surface — DEPARE shows depth range, WRECKS
@@ -107,6 +162,13 @@ export interface PopupExtras {
     tideOffsetAtMs?: number | null;
     /** Keel floor came from the 2.5 m fallback draft — caveat required. */
     draftAssumed?: boolean;
+    /** Props of a LIGHTS feature co-located with the tapped mark —
+     *  folded into the mark popup as a "Light" section. Without this a
+     *  lit mark answered as its light ONLY: the LIGHTS point rides the
+     *  same coordinate and renders on top, so nearest-wins hid the mark
+     *  info entirely (Shane 2026-07-15: "all markers that have lights
+     *  are just showing the light information"). */
+    light?: Record<string, unknown>;
 }
 
 const fmtHm = (ms: number): string =>
@@ -237,26 +299,7 @@ export function buildFeaturePopupHtml(
         const name = props.OBJNAM ?? props.objnam;
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
-        // Character row: prefer the merge-time pre-baked full description
-        // ("Fl(2)G 5s 12m 8M" from buildLightCharacterLabel); else decode
-        // the raw LITCHR code through LITCHR_LABELS ('Fl' → 'Flashing');
-        // else show the raw code the user can cross-reference on a chart.
-        const lightLabel = props._lightLabel;
-        const litchr = props.LITCHR ?? props.litchr;
-        const sigper = props.SIGPER ?? props.sigper;
-        const valnmr = props.VALNMR ?? props.valnmr;
-        const height = props.HEIGHT ?? props.height;
-        const colour = props.COLOUR ?? props.colour;
-        if (typeof lightLabel === 'string' && lightLabel) {
-            body += `<div class="enc-popup-row"><span>Character</span><b>${esc(lightLabel)}</b></div>`;
-        } else if (litchr) {
-            const decoded = LITCHR_LABELS[String(litchr)] ?? String(litchr);
-            body += `<div class="enc-popup-row"><span>Character</span><b>${esc(decoded)}</b></div>`;
-        }
-        if (sigper) body += `<div class="enc-popup-row"><span>Period</span><b>${esc(sigper)} s</b></div>`;
-        if (height) body += `<div class="enc-popup-row"><span>Height</span><b>${esc(fmtDepth(height))}</b></div>`;
-        if (valnmr) body += `<div class="enc-popup-row"><span>Range</span><b>${esc(valnmr)} NM</b></div>`;
-        if (colour) body += `<div class="enc-popup-row"><span>Colour code</span><b>${esc(String(colour))}</b></div>`;
+        body += lightRows(props);
     } else if (layerId === ENC_VEC_LAYERS.BOYLAT || layerId === ENC_VEC_LAYERS.BCNLAT) {
         const isBeacon = layerId === ENC_VEC_LAYERS.BCNLAT;
         title = isBeacon ? 'Lateral beacon' : 'Lateral buoy';
@@ -352,6 +395,14 @@ export function buildFeaturePopupHtml(
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
     }
 
+    // A lit mark carries its light's details BELOW the mark rows — the
+    // mark identity (Pass NORTH of this mark, port-hand, name…) leads,
+    // the light character follows. Never on the standalone Light popup.
+    if (extras.light && layerId !== ENC_VEC_LAYERS.LIGHTS) {
+        const rows = lightRows(extras.light);
+        if (rows) body += `<div class="enc-popup-sub" style="color:#fde047">Light</div>${rows}`;
+    }
+
     if (!body) body = `<div class="enc-popup-row"><span>Feature</span><b>${esc(title)}</b></div>`;
 
     return `
@@ -410,6 +461,13 @@ export function buildFeaturePopupHtml(
                 padding-right: 32px;
             }
             .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
+            .enc-popup-sub {
+                margin-top: 6px;
+                padding-top: 6px;
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                font-size: 11px;
+                font-weight: 700;
+            }
             .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
             .enc-popup-row span { color: rgba(229, 231, 235, 0.55); }
             .enc-popup-row b { font-weight: 600; color: rgb(229, 231, 235); }

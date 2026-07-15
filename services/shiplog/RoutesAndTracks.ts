@@ -59,6 +59,16 @@ export interface RouteOrTrack {
      * fetch sees the entries in the cloud and flips this to false.
      */
     isLocal: boolean;
+    /**
+     * Sea/land verdict for the group (Shane 2026-07-15: the tracer's
+     * "From a past voyage" picker filled its six slots with car drives
+     * and his real passage fell off the list). Majority vote on the
+     * entries' capture-time `isOnWater` checks — the same signal the
+     * career roll-up's landFraction uses — with a median-speed fallback
+     * for entries that predate water capture. 'unknown' = no signal
+     * either way; pickers should HIDE 'land' and keep the rest.
+     */
+    kind: 'sea' | 'land' | 'unknown';
 }
 
 export interface RoutesAndTracksResult {
@@ -128,6 +138,64 @@ function recoverRouteGeometry(firstEntryNotes: string | null | undefined): Array
     } catch {
         return null;
     }
+}
+
+/** Equirectangular distance in NM — picker-scale accuracy is plenty. */
+function distNm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+    const kx = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180)) * 60;
+    const dx = (b.lon - a.lon) * kx;
+    const dy = (b.lat - a.lat) * 60;
+    return Math.hypot(dx, dy);
+}
+
+/** Above this median speed a track reads as a road vehicle, not the
+ *  boat — a displacement cruiser medians 4–8 kn; any real drive spends
+ *  most of its time well past 12. Fallback signal only (no isOnWater). */
+const LAND_MEDIAN_KN = 12;
+
+/**
+ * Sea/land/unknown verdict for one voyage's trackworthy entries.
+ * Primary: majority vote on capture-time `isOnWater` (a real water
+ * check per entry — the landFraction pattern VoyageSummary already
+ * trusts for the career roll-up). Fallback for groups with no water
+ * data (old rows, GPX imports): median speed — recorded speedKts when
+ * present, else derived from consecutive fixes. No signal → 'unknown'
+ * (callers keep those; hiding a legit old passage is the worse error).
+ * Exported for tests.
+ */
+export function classifyTrackKind(
+    sorted: Array<Pick<ShipLogEntry, 'isOnWater' | 'speedKts' | 'timestamp' | 'latitude' | 'longitude'>>,
+): 'sea' | 'land' | 'unknown' {
+    let water = 0;
+    let land = 0;
+    for (const e of sorted) {
+        if (e.isOnWater === true) water++;
+        else if (e.isOnWater === false) land++;
+    }
+    if (water + land > 0) return land > water ? 'land' : 'sea';
+
+    // No water data — kinematic fallback. Recorded SOG first…
+    let speeds = sorted.map((e) => e.speedKts).filter((v): v is number => typeof v === 'number' && v > 0);
+    // …else derive leg speeds from the fixes (Δt window guards against
+    // GPS glitches: a 1 s pair amplifies jitter, a 2 h gap means the
+    // logger slept and the "leg" is fiction).
+    if (speeds.length < 3) {
+        speeds = [];
+        for (let i = 1; i < sorted.length; i++) {
+            const dtH =
+                (new Date(sorted[i].timestamp).getTime() - new Date(sorted[i - 1].timestamp).getTime()) / 3_600_000;
+            if (dtH < 5 / 3600 || dtH > 2) continue;
+            speeds.push(
+                distNm(
+                    { lat: sorted[i - 1].latitude, lon: sorted[i - 1].longitude },
+                    { lat: sorted[i].latitude, lon: sorted[i].longitude },
+                ) / dtH,
+            );
+        }
+    }
+    if (speeds.length < 3) return 'unknown';
+    const median = speeds.sort((a, b) => a - b)[Math.floor(speeds.length / 2)];
+    return median > LAND_MEDIAN_KN ? 'land' : 'sea';
 }
 
 /**
@@ -200,7 +268,10 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
             : `${fmtDate(ts)} · ${distanceNm > 0 ? distanceNm.toFixed(0) + ' NM' : `${points.length} points`}`;
 
         const isLocal = !cloudVoyageIds.has(id);
-        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm, durationHours, isLocal });
+        // Planned routes are sea by construction (PassagePlanSave stamps
+        // isOnWater: true); sailed groups earn their verdict.
+        const kind = isPlanned(id) ? ('sea' as const) : classifyTrackKind(sorted);
+        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm, durationHours, isLocal, kind });
     }
 
     // Most recent first.
