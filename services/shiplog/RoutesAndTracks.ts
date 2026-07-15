@@ -406,6 +406,28 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
 }
 
 /**
+ * Full RouteOrTrack for ONE voyage — for the underway trail refresh.
+ *
+ * The active-voyage chart used to re-run fetchRoutesAndTracks(true) every
+ * 60 s, re-downloading and re-grouping the ENTIRE ship log (up to 10 paged
+ * requests + a 10k-entry parse/sort, for years of cruising) just to extend
+ * one boat's trail — and the identity guard then discarded it anyway (audit
+ * rank 7). This fetches ONLY the active voyage's entries (paged, bounded by
+ * that one passage) and groups them alone, so the periodic refresh is one
+ * voyage's cost, not the whole career's.
+ */
+export async function fetchVoyageAsTrack(voyageId: string): Promise<RouteOrTrack | null> {
+    if (!voyageId) return null;
+    const [cloud, offline] = await Promise.all([
+        getVoyageEntries(voyageId).catch(() => [] as ShipLogEntry[]),
+        getOfflineEntries().catch(() => [] as ShipLogEntry[]),
+    ]);
+    const merged = [...cloud, ...offline.filter((e) => e.voyageId === voyageId)];
+    const groups = groupByVoyage(merged, new Set(cloud.length > 0 ? [voyageId] : []));
+    return groups.find((g) => g.id === voyageId) ?? null;
+}
+
+/**
  * Full track polyline for ONE voyage, in passage order — offline queue
  * first, then the per-voyage cloud fetch (paged internally, so a
  * 1,700-fix passage arrives whole; no global row window to age out of).

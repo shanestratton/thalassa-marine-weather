@@ -92,7 +92,17 @@ export function shadowingCells(cell: CellExtent, all: readonly CellExtent[], rat
     return all.filter((o) => o.id !== cell.id && bboxArea(o.bbox) > 0 && a >= ratio * bboxArea(o.bbox));
 }
 
-function featureBbox(f: Feature): [number, number, number, number] | null {
+/** Memoized per feature. Feature objects come from the LRU-cached ENC blobs
+ *  and are stable across merges, so this walk (recursive over every
+ *  coordinate) runs ONCE per feature for the whole session instead of once
+ *  per shadow test AND once per sub-pixel-cull test each merge (audit rank 6:
+ *  featureDiagDeg + featureIsShadowed were two identical full-coord walks of
+ *  the same feature, ~40-50% of tagAndPush's coordinate time). */
+const featureBboxCache = new WeakMap<Feature, [number, number, number, number] | null>();
+
+export function featureBboxCached(f: Feature): [number, number, number, number] | null {
+    const hit = featureBboxCache.get(f);
+    if (hit !== undefined) return hit;
     let minLon = Infinity;
     let minLat = Infinity;
     let maxLon = -Infinity;
@@ -112,8 +122,15 @@ function featureBbox(f: Feature): [number, number, number, number] | null {
     };
     const geom = f.geometry as { coordinates?: unknown } | null;
     visit(geom?.coordinates);
-    if (!Number.isFinite(minLon)) return null;
-    return [minLon, minLat, maxLon, maxLat];
+    const out: [number, number, number, number] | null = Number.isFinite(minLon)
+        ? [minLon, minLat, maxLon, maxLat]
+        : null;
+    featureBboxCache.set(f, out);
+    return out;
+}
+
+function featureBbox(f: Feature): [number, number, number, number] | null {
+    return featureBboxCached(f);
 }
 
 const bboxInside = (inner: [number, number, number, number], outer: [number, number, number, number]): boolean =>

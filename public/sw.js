@@ -76,9 +76,14 @@
 // tracer's fine-grid A* bends the last leg around shallows/land,
 // splicing the bends as editable pins. Tracer grid only, never the
 // four-tier engine.
-const CACHE_NAME = 'thalassa-v79-core';
-const TILE_CACHE = 'thalassa-v79-tiles';
-const DATA_CACHE = 'thalassa-v79-data';
+// v80: perf audit batch 1 — kills the ~8 Hz default-config styledata
+// loop (scrubber vs imagery over LNDARE_ISLET), the 60 s whole-log
+// re-download while underway, the lightning empty-setData 16 Hz drain,
+// halves the tracer grid build, dedupes the ENC bbox double-walk, one
+// getStyle per apply pass, one mousemove delegate, tide-label render bail.
+const CACHE_NAME = 'thalassa-v80-core';
+const TILE_CACHE = 'thalassa-v80-tiles';
+const DATA_CACHE = 'thalassa-v80-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
