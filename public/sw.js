@@ -107,9 +107,14 @@
 // now computes the real feature count; ⚡ auto route fills a coverage gap
 // from the CLOUD (HTTPS, works in-browser) instead of the Pi (unreachable
 // behind the page's HTTPS origin), then retries.
-const CACHE_NAME = 'thalassa-v87-core';
-const TILE_CACHE = 'thalassa-v87-tiles';
-const DATA_CACHE = 'thalassa-v87-data';
+// v88: route-planning crash + route-quality. Engine grid path gets a
+// 2.5M-cell ceiling (was uncapped → 12M cells / ~600 MB / 37-100s freeze);
+// ⚡ auto route falls to tideAssist when 'safest' returns a >2.2× dogleg
+// (the deranged shallow-bay tour); buildNavGrid logs START/DONE so the
+// device console proves hang-vs-OOM. (Worker move is the next commit.)
+const CACHE_NAME = 'thalassa-v88-core';
+const TILE_CACHE = 'thalassa-v88-tiles';
+const DATA_CACHE = 'thalassa-v88-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

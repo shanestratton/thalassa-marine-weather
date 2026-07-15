@@ -255,6 +255,19 @@ const TRACE_CLUSTER_SPAN_M = 24_000;
 // a real depth grid; the extra pins land ON the engine's water line (safe).
 const AUTO_MAX_LEG_M = 15_000;
 
+// ⚡ Auto route: if 'safest' returns a route longer than this × the straight
+// line, it's the deranged shallow-bay dogleg (a 30 NM tour for a 5 NM hop) —
+// re-run on 'tideAssist' (cross on the tide, warnings chipped) and take the
+// shorter. A genuine deep-channel detour (Newport→Rivergate ~1.35×) stays on
+// safest, so 2.2 cleanly separates the two (2026-07-15 route audit).
+const AUTO_DETOUR_CAP = 2.2;
+
+/** Equirectangular distance in metres between two lat/lon points. */
+const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
+    const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
+    return Math.hypot((q.lat - p.lat) * 110_540, (q.lon - p.lon) * mLon);
+};
+
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     onLocationSelect,
@@ -1421,23 +1434,40 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const airM = vesselAirDraftMetres(settings.vessel);
                     const O = { lat: a.lat, lon: a.lon };
                     const D = { lat: b.lat, lon: b.lon };
-                    // DEEPEST WATER FIRST (Shane 2026-07-15: "follow the deepest
-                    // water it can, if it can't go around, tide-aware only where
-                    // it must cross"). 'safest' NEVER routes sub-keel — it
-                    // detours AROUND shoals to deep water. Only if that finds no
-                    // path do we allow 'tideAssist', which crosses a shallow that
-                    // clears with the tide (the re-grade chips its window). The
-                    // old tideAssist-first took the lazy straight shallow crossing
-                    // instead of the deeper line to port → looked like nothing.
+                    // DEEPEST WATER FIRST — but only when the deep line is
+                    // SENSIBLE (Shane 2026-07-15: "follow the deepest water it
+                    // can, if it CAN'T, tide-check where we must cross"). 'safest'
+                    // prices sub-keel water 40× rather than blocking it, so in a
+                    // nearly-all-shallow bay (Deception Bay for a 2.4 m keel) it
+                    // doesn't fail — it returns an absurd deep-channel dogleg (a
+                    // 30 NM tour for a 5 NM hop). THAT is the "can't cross"
+                    // signal. So: take 'safest' only when its route stays within
+                    // AUTO_DETOUR_CAP× the straight line; past that, run
+                    // 'tideAssist' (crosses the shallows on the tide, window
+                    // chipped) and take it if materially shorter. A genuine deep
+                    // detour (Newport→Rivergate ~1.35×) stays on safest.
+                    const directNM = distMetres(a, b) / 1852;
                     const runEngine = async (): Promise<{
                         res: Awaited<ReturnType<typeof tryInshoreRoute>>;
                         viaTide: boolean;
                     }> => {
                         const safe = await tryInshoreRoute(O, D, draftM, airM, 'safest');
-                        if (safe && 'polyline' in safe) return { res: safe, viaTide: false };
+                        const safeOk = !!safe && 'polyline' in safe;
+                        // Sane deep route → keep it.
+                        if (safeOk && safe.distanceNM <= directNM * AUTO_DETOUR_CAP) {
+                            return { res: safe, viaTide: false };
+                        }
+                        // Either no safe route, or a gross detour → try tideAssist.
                         const tide = await tryInshoreRoute(O, D, draftM, airM, 'tideAssist');
-                        if (tide && 'polyline' in tide) return { res: tide, viaTide: true };
-                        return { res: safe ?? tide, viaTide: false }; // keep the richer failure
+                        if (tide && 'polyline' in tide) {
+                            // Adopt tideAssist when safest failed, or when it's
+                            // materially shorter than the safe dogleg.
+                            if (!safeOk || tide.distanceNM < safe.distanceNM * 0.9) {
+                                return { res: tide, viaTide: true };
+                            }
+                        }
+                        // No better option — return the safe dogleg (or richer failure).
+                        return { res: safeOk ? safe : (safe ?? tide), viaTide: false };
                     };
                     let { res, viaTide } = await runEngine();
 
