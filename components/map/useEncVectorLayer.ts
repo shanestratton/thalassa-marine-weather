@@ -58,6 +58,18 @@ const log = createLogger('useEncVectorLayer');
  *  set stays a bay, not a coastline. */
 const WINDOW_FACTOR = 2.5;
 
+/** Don't run the (heavy, main-thread) ENC merge below this zoom. The map
+ *  boots at the Aus+NZ fit (~z4), where the ONLY ENC layer that renders is
+ *  SOUNDG — SCAMIN-thinned to a handful of soundings — yet a merge there
+ *  still explodes ~30k soundings + walks every overview/1° coastal cell,
+ *  a multi-second freeze on FIRST OPEN (Shane 2026-07-16: "stalls at zoom
+ *  4, comes good"). The meaningful ENC (depth bands, marks, land) all
+ *  render from z7; merging fires as the skipper zooms toward their water,
+ *  over a small zoomed-in window, not the whole country. 6.5 gives a touch
+ *  of pre-load so the chart's ready by the z7 render floor. Gate the
+ *  COMPUTE, not just the render (lesson: zoom-gate-render-only-compute). */
+const ENC_MERGE_MIN_ZOOM = 6.5;
+
 type Bbox = [number, number, number, number];
 
 function windowFor(map: mapboxgl.Map): Bbox {
@@ -188,6 +200,9 @@ export function useEncVectorLayer(
         if (!map) return;
         let t: number | null = null;
         const onMoveEnd = () => {
+            // No ENC below the render floor → no merge to schedule (kills the
+            // z4 boot stall). Crossing UP past the floor fires a normal moveend.
+            if (map.getZoom() < ENC_MERGE_MIN_ZOOM) return;
             const win = mergedWindowRef.current;
             // Stale when the ZOOM BUCKET changes, not when raw |dz| ≥ 1:
             // the merge's cull threshold and sounding LOD key off
@@ -230,6 +245,15 @@ export function useEncVectorLayer(
                     mountedRef.current = false;
                     lastAppliedRef.current = null;
                 }
+                return;
+            }
+
+            // Below the render floor the merge would be pure wasted compute —
+            // the z4 boot freeze. Skip it (leave any existing mount alone; its
+            // layers don't render below their own minzoom anyway). The merge
+            // runs when the skipper zooms in past ENC_MERGE_MIN_ZOOM.
+            if (map.getZoom() < ENC_MERGE_MIN_ZOOM) {
+                log.warn(`[apply] skipped — z=${map.getZoom().toFixed(1)} below merge floor ${ENC_MERGE_MIN_ZOOM}`);
                 return;
             }
 

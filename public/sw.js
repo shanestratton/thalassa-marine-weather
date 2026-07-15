@@ -124,9 +124,13 @@
 // v91: nav marks (buoys/beacons/lights) show from ZOOM 10 onwards — a z10
 // floor over their S-57 SCAMIN (which otherwise hid them to ~z13.5), an
 // earlier SCAMIN still wins and high-zoom density thinning is untouched.
-const CACHE_NAME = 'thalassa-v91-core';
-const TILE_CACHE = 'thalassa-v91-tiles';
-const DATA_CACHE = 'thalassa-v91-data';
+// v92: kill the first-open stall at zoom 4 — the ENC merge (30k-sounding
+// explosion + every overview/coastal cell) ran at the Aus+NZ boot zoom
+// where nothing but SCAMIN-thinned soundings render. Merge now gated to
+// z6.5+ (the render floor), so it fires as you zoom toward your water.
+const CACHE_NAME = 'thalassa-v92-core';
+const TILE_CACHE = 'thalassa-v92-tiles';
+const DATA_CACHE = 'thalassa-v92-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
