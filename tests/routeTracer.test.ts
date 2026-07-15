@@ -462,6 +462,36 @@ describe('routeTracer — trace plumbing (P4)', () => {
         expect(refused.persisted).toBe(false);
         delete (globalThis as Record<string, unknown>).localStorage;
     });
+
+    it('overwrite-save replaces in place — same id, fresh updatedAt, no twin', () => {
+        const store = new Map<string, string>();
+        (globalThis as Record<string, unknown>).localStorage = {
+            getItem: (k: string) => store.get(k) ?? null,
+            setItem: (k: string, v: string) => void store.set(k, v),
+            removeItem: (k: string) => void store.delete(k),
+        };
+        const first = saveTrace('Bay run', [
+            { lat: -27.005, lon: 153.002 },
+            { lat: -27.005, lon: 153.02 },
+        ]);
+        const redo = saveTrace(
+            'Bay run',
+            [
+                { lat: -27.005, lon: 153.002 },
+                { lat: -27.01, lon: 153.01 },
+                { lat: -27.005, lon: 153.02 },
+            ],
+            { overwriteId: first.trace.id },
+        );
+        expect(redo.persisted).toBe(true);
+        const all = loadSavedTraces();
+        expect(all).toHaveLength(1);
+        // Same id: the cloud upsert (keyed on id) updates the same row too.
+        expect(all[0].id).toBe(first.trace.id);
+        expect(all[0].points).toHaveLength(3);
+        expect(all[0].updatedAt).toBeTruthy();
+        delete (globalThis as Record<string, unknown>).localStorage;
+    });
 });
 
 describe('routeTracer — Phase 1 hardening', () => {

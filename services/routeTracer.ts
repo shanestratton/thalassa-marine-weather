@@ -901,6 +901,8 @@ export interface SavedTrace {
     id: string;
     name: string;
     createdAt: string; // ISO
+    /** Set on overwrite-saves — the cross-device merge keeps the newer copy. */
+    updatedAt?: string;
     points: TracePoint[];
 }
 
@@ -924,18 +926,28 @@ export function loadSavedTraces(): SavedTrace[] {
 export function saveTrace(
     name: string,
     points: readonly TracePoint[],
+    opts: { overwriteId?: string } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
+    // Overwrite KEEPS the id: the local replace and the cloud upsert (also
+    // keyed on id) then update the SAME route instead of minting a twin
+    // (Shane 2026-07-15: "if I save it as the same name, it overwrites").
+    const existing = opts.overwriteId ? loadSavedTraces().find((t) => t.id === opts.overwriteId) : undefined;
     const trace: SavedTrace = {
-        id: `trace-${Date.now().toString(36)}`,
+        id: existing?.id ?? `trace-${Date.now().toString(36)}`,
         name: name.trim() || `Trace ${new Date().toLocaleDateString('en-AU')}`,
-        createdAt: new Date().toISOString(),
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        ...(existing ? { updatedAt: new Date().toISOString() } : {}),
         points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
     };
-    const all = [trace, ...loadSavedTraces()].slice(0, 50);
+    const all = [trace, ...loadSavedTraces().filter((t) => t.id !== trace.id)].slice(0, 50);
     let persisted = false;
     try {
         localStorage.setItem(TRACES_KEY, JSON.stringify(all));
-        persisted = loadSavedTraces().some((t) => t.id === trace.id);
+        // Same-id overwrite: the OLD copy would satisfy a bare id check even
+        // after quota refused the write — match the freshness stamp too.
+        persisted = loadSavedTraces().some(
+            (t) => t.id === trace.id && (t.updatedAt ?? t.createdAt) === (trace.updatedAt ?? trace.createdAt),
+        );
     } catch {
         /* quota — persisted stays false */
     }

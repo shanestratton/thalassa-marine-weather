@@ -47,9 +47,12 @@
 // v70: tracer legs colour immediately + after reload (style-gate
 // removed, churn loop killed = the growing slowdown), compass locked
 // over the plotting card.
-const CACHE_NAME = 'thalassa-v70-core';
-const TILE_CACHE = 'thalassa-v70-tiles';
-const DATA_CACHE = 'thalassa-v70-data';
+// v71: pin-nudge no longer stacks a duplicate waypoint (long-press
+// stands down on marker grabs), whole tracer header folds the card,
+// same-name save overwrites in place after an "Overwrite?" confirm.
+const CACHE_NAME = 'thalassa-v71-core';
+const TILE_CACHE = 'thalassa-v71-tiles';
+const DATA_CACHE = 'thalassa-v71-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -1240,9 +1240,19 @@ export function useMapInit(opts: UseMapInitOptions) {
         const movePress = (point: { x: number; y: number }) => {
             if (pressStart && Math.hypot(point.x - pressStart.x, point.y - pressStart.y) > 8) cancelPress();
         };
+        // A press that BEGINS on a marker (tracer pin, AIS target, notice…)
+        // is a GRAB, not a placement: nudging a pin starts with the finger
+        // held still on it past 500 ms, which fired this timer and stacked
+        // a duplicate waypoint on top of the old one (Shane 2026-07-15).
+        // Marker DOM events bubble into the canvas container, so map-level
+        // touchstart/mousedown see them — check the target and stand down.
+        const pressOnMarker = (e: { originalEvent: MouseEvent | TouchEvent }): boolean => {
+            const t = e.originalEvent.target;
+            return t instanceof Element && t.closest('.mapboxgl-marker') !== null;
+        };
         map.on('touchstart', (e) => {
-            if (e.points && e.points.length > 1) {
-                cancelPress(); // pinch, not a press
+            if ((e.points && e.points.length > 1) || pressOnMarker(e)) {
+                cancelPress(); // pinch or a marker grab, not a press
                 return;
             }
             beginPress(e.point, e.lngLat);
@@ -1250,7 +1260,13 @@ export function useMapInit(opts: UseMapInitOptions) {
         map.on('touchmove', (e) => movePress(e.point));
         map.on('touchend', cancelPress);
         map.on('touchcancel', cancelPress);
-        map.on('mousedown', (e) => beginPress(e.point, e.lngLat));
+        map.on('mousedown', (e) => {
+            if (pressOnMarker(e)) {
+                cancelPress();
+                return;
+            }
+            beginPress(e.point, e.lngLat);
+        });
         map.on('mousemove', (e) => movePress(e.point));
         map.on('mouseup', cancelPress);
         map.on('zoomstart', cancelPress);
