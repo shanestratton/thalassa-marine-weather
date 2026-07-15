@@ -86,6 +86,15 @@ export interface RouteHazardReport {
     bufferNm: number;
     /** Hazards found, sorted by distance ascending. */
     entries: RouteHazardReportEntry[];
+    /**
+     * Route-wide "verify visually" advisories that aren't tied to a
+     * single charted feature — e.g. "N route points have no depth data
+     * (uncharted + GEBCO offline)" or "low-confidence CATZOC zones along
+     * route". Surfaced by the validator so a caveat on a route that
+     * otherwise validated CLEAN reaches the skipper instead of dying in
+     * a prod-silenced log (mission audit: the no-data note was invisible).
+     */
+    advisories?: string[];
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────

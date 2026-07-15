@@ -24,6 +24,45 @@ import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } 
 import { ENC_HAZARD_DEPTH_M } from './types';
 import { HAZARD_TYPE_SEVERITY, depthSeverity } from './hazardSeverity';
 
+// ── Point-hazard guard radius ──────────────────────────────────────
+
+/**
+ * Guard radius (metres) around POINT hazards — isolated dangers:
+ * UWTROC, point WRECKS/OBSTRN, and exploded MultiPoint clusters.
+ *
+ * A point hazard has a ZERO-AREA bbox at its exact coordinate, so a
+ * route sampled at ~231 m (landAvoidance FINE_SAMPLE_SPACING_NM = 0.125
+ * NM) intervals never lands EXACTLY on a rock — the router would plot
+ * straight over a charted isolated danger and only mention it in the
+ * passive proximity report. We pad each point hazard's index bbox by
+ * this radius and confirm candidates with a true-circle distance test
+ * in queryPoint, so any sample within R metres detects it.
+ *
+ * R (150 m) is deliberately > half the 231 m sample spacing (≈116 m):
+ * an on-track danger can never slip between two consecutive samples.
+ * It doubles as a sane minimum berth for a charted rock/wreck. This is
+ * FAIL-SAFE — an over-wide radius causes an unnecessary detour, never a
+ * sail-over. (mission audit: point hazards were undetectable to routing.)
+ */
+export const POINT_HAZARD_GUARD_RADIUS_M = 150;
+
+const METRES_PER_DEG_LAT = 111_320;
+const EARTH_RADIUS_M = 6_371_000;
+
+/**
+ * Great-circle distance in metres (equirectangular approximation —
+ * exact to well under 0.01% at the sub-km ranges we ever measure here,
+ * and far cheaper than a full haversine per candidate).
+ */
+function metresBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const latRad = ((lat1 + lat2) / 2) * (Math.PI / 180);
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const x = dLon * Math.cos(latRad);
+    const y = dLat;
+    return Math.sqrt(x * x + y * y) * EARTH_RADIUS_M;
+}
+
 // ── CATZOC zone (M_QUAL) ───────────────────────────────────────────
 
 /**
@@ -192,7 +231,22 @@ export class EncSpatialIndex {
         let maxLat = -Infinity;
 
         for (const hazard of hazards) {
-            const [hMinLon, hMinLat, hMaxLon, hMaxLat] = geometryBBox(hazard.geometry);
+            let [hMinLon, hMinLat, hMaxLon, hMaxLat] = geometryBBox(hazard.geometry);
+            // Point hazards (rock/wreck/obstruction, incl. exploded
+            // MultiPoints) get a guard-radius bbox pad so a route sample
+            // passing NEAR — not exactly on — a charted danger still
+            // selects it as a candidate. queryPoint then confirms with a
+            // true-circle distance test, so the square pad reads as a
+            // circle. Polygons (DEPARE/LNDARE/…) are unpadded.
+            if (hazard.geometry.type === 'Point') {
+                const dLat = POINT_HAZARD_GUARD_RADIUS_M / METRES_PER_DEG_LAT;
+                const cosLat = Math.max(0.05, Math.cos((hMinLat * Math.PI) / 180));
+                const dLon = POINT_HAZARD_GUARD_RADIUS_M / (METRES_PER_DEG_LAT * cosLat);
+                hMinLon -= dLon;
+                hMaxLon += dLon;
+                hMinLat -= dLat;
+                hMaxLat += dLat;
+            }
             hazardEntries.push({
                 minX: hMinLon,
                 minY: hMinLat,
@@ -375,10 +429,10 @@ export class EncSpatialIndex {
      * Algorithm:
      *  1. R-tree bbox query → candidate hazards whose bboxes
      *     contain the point.
-     *  2. For each candidate, run point-in-polygon (or point-equals
-     *     for Point geometries within a small tolerance — we don't
-     *     do that today, but UWTROC/WRECKS at exact-pixel match is
-     *     fine for now).
+     *  2. For each candidate, run point-in-polygon (polygons) or a
+     *     true-circle distance test within POINT_HAZARD_GUARD_RADIUS_M
+     *     (point hazards — so a route sample passing near a charted rock
+     *     detects it without landing exactly on the coordinate).
      *  3. Return the most-severe hit (`land` > `rock` > `wreck` >
      *     `obstruction` > `shallow`; ties broken by shallower/unknown depth).
      *
@@ -427,10 +481,14 @@ export class EncSpatialIndex {
             if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
                 inside = booleanPointInPolygon(turfPt, geom);
             } else if (geom.type === 'Point') {
-                // Point hazards: bbox query already gave us exact-point
-                // matches. UWTROC/WRECKS positions are typically rounded
-                // to 1e-7 deg in S-57. Treat any bbox hit as a hit.
-                inside = true;
+                // Point hazard (rock/wreck/obstruction). The candidate came
+                // from the guard-radius-PADDED bbox; confirm it with a real
+                // distance test so the true detection zone is a circle of
+                // POINT_HAZARD_GUARD_RADIUS_M, not the padded square. This is
+                // what lets a 231 m-spaced route sample detect a charted rock
+                // it doesn't land exactly on (mission audit fix).
+                const [hLon, hLat] = geom.coordinates as [number, number];
+                inside = metresBetween(lat, lon, hLat, hLon) <= POINT_HAZARD_GUARD_RADIUS_M;
             }
             if (!inside) continue;
 

@@ -84,6 +84,31 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.queryPoint(0, 0).hazardType).toBe('land'); // 5 > 1
     });
 
+    it('GUARD RADIUS: a point rock is detected NEAR its coord (~111 m), not just exactly on it', () => {
+        // UWTROC at [lon,lat]=[0,0]. A route sample 0.001° (~111 m) away must
+        // still flag it — the router never lands exactly on a rock's coordinate.
+        const i = idx('A', [hz('UWTROC', { type: 'Point', coordinates: [0, 0] })]);
+        expect(i.queryPoint(0.001, 0)).toMatchObject({ covered: true, hazard: true, hazardType: 'rock' });
+    });
+
+    it('GUARD RADIUS: beyond ~150 m the point rock is NOT selected (no false lock-on)', () => {
+        // 0.003° (~333 m) away → outside the padded bbox entirely → no candidate.
+        const i = idx('A', [hz('UWTROC', { type: 'Point', coordinates: [0, 0] })]);
+        expect(i.queryPoint(0.003, 0).covered).toBe(false);
+    });
+
+    it('GUARD RADIUS: a rock inside DEEP DEPARE is caught by a nearby sample (deep water no longer hides it)', () => {
+        // The exact grounding-fly-over case: an isolated danger sitting in
+        // otherwise-clear deep water. A sample near (not on) the rock must
+        // report the rock, not "deep + clear".
+        const i = idx('A', [
+            hz('DEPARE', square(0, 0, 1), 25), // deep, clear water all around
+            hz('UWTROC', { type: 'Point', coordinates: [0, 0] }),
+        ]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ hazard: true, hazardType: 'rock' }); // on it
+        expect(i.queryPoint(0.001, 0)).toMatchObject({ hazard: true, hazardType: 'rock' }); // ~111 m away
+    });
+
     it('FAIL-DANGEROUS FIX: a point in the bbox but OUTSIDE all charted polygons is NOT covered (gap → GEBCO)', () => {
         const i = idx('A', [hz('DEPARE', triangle(4), 2)]);
         // (3.5,3.5): inside the cell bbox [0,0,4,4] but OUTSIDE the DEPARE

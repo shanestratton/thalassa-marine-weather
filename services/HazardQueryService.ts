@@ -137,13 +137,21 @@ function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolea
  * Land/obstruction/wreck/rock hazards remain hazards regardless of
  * draft — you don't sail over them at any depth.
  */
-function encToHazardResult(
+export function encToHazardResult(
     point: HazardQueryPoint,
     enc: EncHazardResult,
     hazardThresholdM: number,
     tideOffsetM: number,
 ): HazardResult {
-    const chartDepth = enc.minDepthM == null ? null : -Math.abs(enc.minDepthM);
+    // Flip S-57 depth (positive = below datum) to GEBCO convention
+    // (negative = below sea level). Do NOT abs(): a DRYING DEPARE/DRGARE
+    // carries a NEGATIVE DRVAL1 (drying HEIGHT above datum), which must map
+    // to a POSITIVE above-surface value so the tide re-eval below (and the
+    // isochrone land penalty) treat it as drying land, not shoal water.
+    // The old -Math.abs() modelled a bank that dries 0.5 m ABOVE datum as
+    // 0.5 m of water and cleared it at high tide — fail-dangerous over
+    // Moreton Bay's drying sandbanks.
+    const chartDepth = enc.minDepthM == null ? null : -enc.minDepthM;
     const effectiveDepth = applyTide(chartDepth, tideOffsetM);
     let isHazard = enc.hazard;
 
