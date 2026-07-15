@@ -159,8 +159,10 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.DEPCNT_LABEL &&
         id !== ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE &&
         id !== ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL &&
-        id !== ENC_VEC_LAYERS.LIGHTSEC_LEG &&
-        id !== ENC_VEC_LAYERS.LIGHTSEC_ARC &&
+        id !== ENC_VEC_LAYERS.LIGHTSEC_LEG && // thin dashed legs stay non-tappable…
+        // …but the coloured arc IS tappable (#3a): "am I in the red/white/green?"
+        // is the most safety-critical tap-to-read moment; without it a tap on a
+        // red sector fell through to the DEPARE water popup.
         id !== ENC_VEC_LAYERS.DEPARE_FINE &&
         id !== ENC_VEC_LAYERS.DEPARE_GLAZE &&
         id !== ENC_VEC_LAYERS.SEAARE_LABEL &&
