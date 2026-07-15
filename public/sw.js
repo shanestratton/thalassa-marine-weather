@@ -91,9 +91,12 @@
 // pieces so a long open-water run no longer reads "depth unchecked" —
 // the added pins sit on the engine's water line (never land), tide
 // windows chip onto any shallow crossing.
-const CACHE_NAME = 'thalassa-v83-core';
-const TILE_CACHE = 'thalassa-v83-tiles';
-const DATA_CACHE = 'thalassa-v83-data';
+// v84: ⚡ Auto route prefers DEEPEST water — 'safest' profile first (detours
+// around shoals to deep water), 'tideAssist' only as fallback; every outcome
+// flashes a distinct diagnosable message.
+const CACHE_NAME = 'thalassa-v84-core';
+const TILE_CACHE = 'thalassa-v84-tiles';
+const DATA_CACHE = 'thalassa-v84-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

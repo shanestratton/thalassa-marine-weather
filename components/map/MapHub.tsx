@@ -1411,23 +1411,36 @@ export const MapHub: React.FC<MapHubProps> = ({
         setTimeout(() => {
             void (async () => {
                 try {
-                    const res = await tryInshoreRoute(
-                        { lat: a.lat, lon: a.lon },
-                        { lat: b.lat, lon: b.lon },
-                        vesselDraftMetres(settings.vessel),
-                        vesselAirDraftMetres(settings.vessel),
-                        'tideAssist',
-                    );
+                    const draftM = vesselDraftMetres(settings.vessel);
+                    const airM = vesselAirDraftMetres(settings.vessel);
+                    const O = { lat: a.lat, lon: a.lon };
+                    const D = { lat: b.lat, lon: b.lon };
+                    // DEEPEST WATER FIRST (Shane 2026-07-15: "follow the deepest
+                    // water it can, if it can't go around, tide-aware only where
+                    // it must cross"). 'safest' NEVER routes sub-keel — it
+                    // detours AROUND shoals to deep water. Only if that finds no
+                    // path do we allow 'tideAssist', which crosses a shallow that
+                    // clears with the tide (the re-grade chips its window). The
+                    // old tideAssist-first took the lazy straight shallow crossing
+                    // instead of the deeper line to port → looked like nothing.
+                    let res = await tryInshoreRoute(O, D, draftM, airM, 'safest');
+                    let viaTide = false;
+                    if (!res || 'error' in res) {
+                        const tide = await tryInshoreRoute(O, D, draftM, airM, 'tideAssist');
+                        if (tide && 'polyline' in tide) {
+                            res = tide;
+                            viaTide = true;
+                        }
+                    }
                     if (res && 'polyline' in res) {
                         const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
-                        // The engine's line runs a→b through navigable water.
+                        log.warn(
+                            `auto-route: engine returned ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM (${viaTide ? 'tideAssist' : 'safest'})`,
+                        );
                         // RDP to the bends, THEN cap every straight run to
                         // AUTO_MAX_LEG_M so a long open-water stretch becomes a
-                        // chain of DEPTH-CHECKABLE legs (the "long open-water
-                        // leg, depth unchecked" fix) — the added pins sit ON the
-                        // engine's water line, so they can't cross land. Any
-                        // tide-gated shallow the engine chose to cross gets its
-                        // "clears HH:MM–HH:MM" window from the re-grade below.
+                        // chain of DEPTH-CHECKABLE legs — the added pins sit ON
+                        // the engine's water line, so they can't cross land.
                         const followed = capSegmentLength(rdpTracePoints(pts, 40), AUTO_MAX_LEG_M);
                         const interior = followed.slice(1, -1);
                         const base = capturedCoords;
@@ -1438,17 +1451,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                         insertAfterRef.current = null;
                         flashTraceFeedback(
                             interior.length > 0
-                                ? `Routed through deep water — ${interior.length} pin${
-                                      interior.length > 1 ? 's' : ''
-                                  } added, tide-checking now`
-                                : 'Open deep water the whole way ✓',
+                                ? viaTide
+                                    ? `Routed with a tide gate — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking the window`
+                                    : `Routed through deep water — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking now`
+                                : // Engine kept the straight line: it's already the
+                                  // best water it can see (both profiles agreed).
+                                  'That straight line is already the best water here',
                         );
                     } else if (res && 'error' in res) {
-                        // Engine built a grid but found no clean water path —
-                        // leave the pins alone, tell the truth.
-                        flashTraceFeedback(`No clear water route — ${res.error.slice(0, 60)}`);
+                        // Engine built a grid but found no clean water path.
+                        flashTraceFeedback(`Can't auto-route this leg — ${res.error.slice(0, 70)}`);
                     } else {
-                        flashTraceFeedback('No route here — off the charts or too far. Nothing changed.');
+                        flashTraceFeedback('No route here — off the charts or over 50 NM. Nothing changed.');
                     }
                 } catch (err) {
                     log.warn(`auto-route failed: ${err instanceof Error ? err.message : String(err)}`);
