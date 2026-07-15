@@ -27,6 +27,7 @@
  */
 import type { Feature, LineString } from 'geojson';
 import { buildNavGrid } from './engine/navGrid';
+import { buildNavGridAsync } from './engine/navGridWorkerHost';
 import { CAUTION, UNKNOWN_OPEN, M_PER_DEG_LAT } from './engine/constants';
 import type { NavGrid } from './engine/types';
 import { assembleTracerLayers } from './InshoreRouter';
@@ -228,13 +229,25 @@ export function tracerContextFromLayers(
     gatePairs: GatePair[],
     bbox: [number, number, number, number],
     draftM: number,
-    opts: { draftAssumed?: boolean; skipGrid?: boolean } = {},
+    opts: {
+        draftAssumed?: boolean;
+        skipGrid?: boolean;
+        /** Grid built off-thread by buildTracerContext (navGrid worker). When
+         *  present it's used verbatim; absent = build synchronously here (the
+         *  pure/testable path + the router-consistency golden). */
+        prebuiltGrid?: NavGrid | null;
+    } = {},
 ): TracerContext {
     const resM = tracerResolutionM(bbox);
     // Marina-scale traces (~3 km) land well under 20 m → navGrid's Pass 2c
     // berth carve is ACTIVE and legs over pontoon rows read blocked, exactly
     // like the fine routing grid. Bay-scale traces coarsen gracefully.
-    const grid = opts.skipGrid ? null : buildNavGrid(merged, bbox, resM, draftM, DEFAULT_TIDE_SAFETY_M, 60);
+    const grid =
+        'prebuiltGrid' in opts
+            ? (opts.prebuiltGrid ?? null)
+            : opts.skipGrid
+              ? null
+              : buildNavGrid(merged, bbox, resM, draftM, DEFAULT_TIDE_SAFETY_M, 60);
 
     // Marks: real ENC laterals; those inside an accepted pair are gate-checked,
     // the rest get the solo "verify the side" advisory.
@@ -286,9 +299,17 @@ export async function buildTracerContext(
     if (!bundle) return { status: 'nochart' };
 
     const skipGrid = spanM > MAX_DEPTH_GRID_SPAN_M;
+    // Build the depth grid OFF the main thread (2026-07-15 crash fix): the
+    // synchronous build froze the WKWebView long enough for iOS to kill the
+    // app. The worker keeps the UI alive; on any worker failure it falls back
+    // to the sync build (navGridWorkerHost) so grading never stalls.
+    const grid = skipGrid
+        ? null
+        : await buildNavGridAsync(bundle.merged, bbox, tracerResolutionM(bbox), draftM, DEFAULT_TIDE_SAFETY_M, 60);
     const ctx = tracerContextFromLayers(bundle.merged, bundle.gatePairs, bbox, draftM, {
         draftAssumed: opts.draftAssumed,
         skipGrid,
+        prebuiltGrid: grid,
     });
     log.warn(
         `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,

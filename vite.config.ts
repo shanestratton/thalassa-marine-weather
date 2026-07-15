@@ -303,6 +303,13 @@ export default defineConfig(({ mode }) => {
                       drop: ['debugger'],
                   }
                 : undefined,
+        // ES-module workers (2026-07-15): the navGrid worker imports the
+        // engine graph (navGrid → aStar → marinaCenterline …), which Vite
+        // code-splits — unsupported by the default 'iife' worker format. All
+        // our workers are spawned with { type: 'module' }, so 'es' is correct.
+        worker: {
+            format: 'es',
+        },
         build: {
             outDir: 'dist',
             sourcemap: mode !== 'production',
