@@ -16,7 +16,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
-import React, { Suspense, useRef, useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { CompassIcon, SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
@@ -36,6 +36,7 @@ import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
+import { ZoomLevelFab } from './ZoomLevelFab';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
@@ -299,7 +300,29 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         plotArmedRef.current = plotArmed;
     }, [plotArmed]);
-    const captureMarkersRef = useRef<mapboxgl.Marker[]>([]);
+    // Per-pin marker records for RECONCILIATION (Shane 2026-07-15: "still
+    // becoming unresponsive the moment I have a lot of waypoints"). The
+    // old effect destroyed and recreated every DOM marker on EVERY pin
+    // add / nudge / selection tap — O(N) DOM churn per interaction, and
+    // the churn itself forced Mapbox to re-anchor all N roots. Records
+    // let each pass touch only what changed: append = 1 create + 1
+    // restyle, drag = 1 move, select = 2 restyles. `index` is LIVE —
+    // listeners read it at fire time so inserts/deletes never orphan a
+    // closure; `sig` is the rendered-style signature so unchanged pins
+    // skip all style writes.
+    const captureMarkersRef = useRef<
+        Array<{
+            marker: mapboxgl.Marker;
+            el: HTMLDivElement;
+            dot: HTMLDivElement;
+            tag: HTMLDivElement | null;
+            sig: string;
+            lat: number;
+            lon: number;
+            index: number;
+            dragged: boolean;
+        }>
+    >([]);
     // Tracer verdicts + context. The context (ENC cells + OSM overlay +
     // depth grid over the trace bbox) builds async once per area; a seq
     // guard drops stale builds when pins outrun a slow fetch.
@@ -437,9 +460,22 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  grey; accepting one loads its pins ("trace out of the marina" solved
      *  in two taps where a lane exists). */
     const [ghostLanes, setGhostLanes] = useState<GhostLane[]>([]);
+    // Ghosts only ever RENDER while the trace has ≤1 pin (the "trace out
+    // of the marina" moment) — yet this effect used to rescan lanes and
+    // mint a fresh array on EVERY pin edit, dirtying the trace-line
+    // sync's deps for a wasted 4×setData pass per pin (perf hunt
+    // 2026-07-15). The primitive key kills that: 'off' once ≥2 pins
+    // exist, else the first pin rounded to ~100 m — nudges and pans
+    // don't rescan, a genuinely new start area does.
+    const ghostKey =
+        !coordCaptureMode || capturedCoords.length > 1
+            ? 'off'
+            : capturedCoords.length === 1
+              ? `${capturedCoords[0].lat.toFixed(3)},${capturedCoords[0].lon.toFixed(3)}`
+              : 'centre';
     useEffect(() => {
-        if (!coordCaptureMode) {
-            setGhostLanes([]);
+        if (ghostKey === 'off') {
+            setGhostLanes((prev) => (prev.length === 0 ? prev : []));
             return;
         }
         const map = mapRef.current;
@@ -450,7 +486,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                   ? { lat: map.getCenter().lat, lon: map.getCenter().lng }
                   : null;
         if (!centre) {
-            setGhostLanes([]);
+            setGhostLanes((prev) => (prev.length === 0 ? prev : []));
             return;
         }
         const bbox: [number, number, number, number] = [
@@ -474,7 +510,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         return () => {
             stale = true;
         };
-    }, [coordCaptureMode, capturedCoords]);
+        // capturedCoords is read for the centre only — ghostKey already
+        // encodes it to ~100 m, so re-running on every array identity
+        // would defeat the whole gate.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ghostKey]);
     // Deep-link door (Phase 5.1): thalassawx.app/plan boots the map with
     // a pending tracer-open request — consume it on mount, or via the
     // 'thalassa:trace-mode' window event when the map is already up
@@ -835,28 +875,85 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
-        captureMarkersRef.current.forEach((m) => m.remove());
-        captureMarkersRef.current = [];
-        if (!coordCaptureMode) return;
+        const recs = captureMarkersRef.current;
+        if (!coordCaptureMode) {
+            recs.forEach((r) => r.marker.remove());
+            captureMarkersRef.current = [];
+            return;
+        }
+        // RECONCILE, don't rebuild: pins deleted → pop their markers;
+        // everything else updates in place (position / style signature).
+        while (recs.length > capturedCoords.length) recs.pop()!.marker.remove();
         capturedCoords.forEach((c, i) => {
             // Journey book-ends (Shane 2026-07-14): the FIRST pin IS the
             // green START button and the LAST pin IS the red finish ring —
-            // middles stay numbered (2, 3, …). Appending a pin just works:
-            // this effect rebuilds every marker, so the old tail pin
-            // collapses back to its number and the newcomer goes red.
+            // middles stay numbered (2, 3, …). Appending a pin restyles
+            // the old tail back to its number via the sig diff below.
             const isStart = i === 0;
             const isEnd = !isStart && i === capturedCoords.length - 1;
-            const el = document.createElement('div');
-            // NEVER set `position` inline on a Marker root: it overrides
-            // Mapbox's .mapboxgl-marker { position: absolute } and drops
-            // the pin into document FLOW — each pin then rendered a fixed
-            // 40 px × index below its true anchor, which reads as "routes
-            // move when you zoom" (Shane 2026-07-14; live-site autopsy:
-            // transform said y=58, rect said y=118). The root is already
-            // absolutely positioned by Mapbox, so it IS the containing
-            // block for the absolute START label — no `relative` needed.
-            el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
-            const dot = document.createElement('div');
+            const label = isStart ? '1' : isEnd ? String(capturedCoords.length) : String(i + 1);
+            const smallFont = capturedCoords.length > 9 && isEnd;
+            const sig = `${isStart ? 's' : isEnd ? 'e' : 'm'}|${label}|${i === selectedPin ? 1 : 0}|${smallFont ? 1 : 0}`;
+            let rec = recs[i];
+            if (!rec) {
+                const el = document.createElement('div');
+                // NEVER set `position` inline on a Marker root: it overrides
+                // Mapbox's .mapboxgl-marker { position: absolute } and drops
+                // the pin into document FLOW — each pin then rendered a fixed
+                // 40 px × index below its true anchor, which reads as "routes
+                // move when you zoom" (Shane 2026-07-14; live-site autopsy:
+                // transform said y=58, rect said y=118). The root is already
+                // absolutely positioned by Mapbox, so it IS the containing
+                // block for the absolute START label — no `relative` needed.
+                el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
+                const dot = document.createElement('div');
+                el.appendChild(dot);
+                const marker = new mapboxgl.Marker({ element: el, draggable: true })
+                    .setLngLat([c.lon, c.lat])
+                    .addTo(map);
+                const newRec: (typeof recs)[number] = {
+                    marker,
+                    el,
+                    dot,
+                    tag: null,
+                    sig: '', // forces the first style pass below
+                    lat: c.lat,
+                    lon: c.lon,
+                    index: i,
+                    dragged: false,
+                };
+                marker.on('dragstart', () => {
+                    newRec.dragged = true;
+                });
+                marker.on('dragend', () => {
+                    const ll = marker.getLngLat();
+                    triggerHaptic('light');
+                    setCapturedCoords((prev) =>
+                        prev.map((p, j) => (j === newRec.index ? { lat: ll.lat, lon: ll.lng } : p)),
+                    );
+                });
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (newRec.dragged) {
+                        newRec.dragged = false;
+                        return;
+                    }
+                    triggerHaptic('light');
+                    setSelectedPin((cur) => (cur === newRec.index ? null : newRec.index));
+                    setInsertAfter(null);
+                    insertAfterRef.current = null;
+                });
+                recs[i] = newRec;
+                rec = newRec;
+            }
+            rec.index = i; // keep listener closures honest across inserts/deletes
+            if (rec.lat !== c.lat || rec.lon !== c.lon) {
+                rec.marker.setLngLat([c.lon, c.lat]);
+                rec.lat = c.lat;
+                rec.lon = c.lon;
+            }
+            if (rec.sig === sig) return; // style already right — zero writes
+            rec.sig = sig;
             const ring =
                 i === selectedPin
                     ? 'box-shadow:0 0 0 3px #38bdf8,0 1px 4px rgba(0,0,0,.5);'
@@ -867,47 +964,49 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // 2026-07-15: "1 inside the green, whatever the last
                 // number is inside the red") — the journey book-ends
                 // still count as waypoints.
-                dot.textContent = isStart ? '1' : String(capturedCoords.length);
-                dot.style.cssText = `width:22px;height:22px;border-radius:9999px;border:4px solid ${colour};background:rgba(15,23,42,0.85);color:${colour};display:flex;align-items:center;justify-content:center;font:800 ${capturedCoords.length > 9 && isEnd ? 8 : 10}px sans-serif;${ring}`;
-                if (isStart) {
-                    // Label overflows the fixed 40 px hit-box (absolute, no
-                    // layout part) so the marker's centre anchor — and drag
-                    // grab point — stays exactly on the coordinate.
-                    const tag = document.createElement('div');
-                    tag.style.cssText =
-                        'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;';
-                    tag.textContent = 'START';
-                    el.appendChild(tag);
-                }
+                rec.dot.textContent = label;
+                rec.dot.style.cssText = `width:22px;height:22px;border-radius:9999px;border:4px solid ${colour};background:rgba(15,23,42,0.85);color:${colour};display:flex;align-items:center;justify-content:center;font:800 ${smallFont ? 8 : 10}px sans-serif;${ring}`;
             } else {
-                dot.textContent = String(i + 1);
-                dot.style.cssText = `background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;${ring}`;
+                rec.dot.textContent = label;
+                rec.dot.style.cssText = `background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;${ring}`;
             }
-            el.appendChild(dot);
-            const marker = new mapboxgl.Marker({ element: el, draggable: true }).setLngLat([c.lon, c.lat]).addTo(map);
-            let dragged = false;
-            marker.on('dragstart', () => {
-                dragged = true;
-            });
-            marker.on('dragend', () => {
-                const ll = marker.getLngLat();
-                triggerHaptic('light');
-                setCapturedCoords((prev) => prev.map((p, j) => (j === i ? { lat: ll.lat, lon: ll.lng } : p)));
-            });
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (dragged) {
-                    dragged = false;
-                    return;
-                }
-                triggerHaptic('light');
-                setSelectedPin((cur) => (cur === i ? null : i));
-                setInsertAfter(null);
-                insertAfterRef.current = null;
-            });
-            captureMarkersRef.current.push(marker);
+            if (isStart && !rec.tag) {
+                // Label overflows the fixed 40 px hit-box (absolute, no
+                // layout part) so the marker's centre anchor — and drag
+                // grab point — stays exactly on the coordinate.
+                const tag = document.createElement('div');
+                tag.style.cssText =
+                    'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;';
+                tag.textContent = 'START';
+                rec.el.appendChild(tag);
+                rec.tag = tag;
+            } else if (!isStart && rec.tag) {
+                rec.tag.remove();
+                rec.tag = null;
+            }
         });
     }, [capturedCoords, coordCaptureMode, selectedPin]);
+    // Pin-on-land diagnosis, MEMOIZED — this used to run tracePinBlocked
+    // (a depth-grid read) for EVERY pin on EVERY render inside the panel
+    // JSX; with the zoom pill re-rendering the tree per pinch frame that
+    // was N grid reads per frame (perf hunt 2026-07-15). legVerdicts is
+    // the recompute key: it changes exactly when a grading pass lands,
+    // which is when the held ctx could have answered differently.
+    const pinDiagnosis = useMemo(() => {
+        if (!coordCaptureMode) return null;
+        const ctx = tracerCtxRef.current;
+        if (!ctx?.grid) return null;
+        const bad = capturedCoords.map((p, i) => ({ i, why: tracePinBlocked(ctx, p) })).filter((x) => x.why !== null);
+        if (bad.length === 0) return null;
+        return bad
+            .slice(0, 2)
+            .map(
+                (x) =>
+                    `Pin ${x.i + 1} is on ${x.why === 'land' ? 'charted land' : x.why === 'berth' ? 'a berth row' : 'a charted hazard'} — drag it into the water.`,
+            )
+            .join(' ');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [coordCaptureMode, capturedCoords, legVerdicts]);
     // ── Tracer actions: save / export-as-fairway / sail ──
     const flashTraceFeedback = useCallback((msg: string) => {
         setTraceFeedback(msg);
@@ -1173,7 +1272,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Current map zoom level — surfaced in a small FAB top-left so
     // the skipper has at-a-glance idea of detail vs overview. Mirror
     // position of the mic FAB in App.tsx (top: 56px, right: 16px).
-    const [zoomLevel, setZoomLevel] = useState<number | null>(null);
+    // Zoom readout lives in ZoomLevelFab now — self-subscribed, so the
+    // per-frame 'zoom' events never re-render this component (perf hunt
+    // 2026-07-15: they re-rendered the whole tree every pinch frame).
     const isOnline = useOnlineStatus();
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -1321,7 +1422,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         const publish = (): void => {
             if (seq !== tracerSeqRef.current) return;
-            setLegVerdicts(legs.map((l) => cache.get(l.key) ?? failMap.get(l.key) ?? null));
+            // Identity-preserving: cache entries are stable objects, so an
+            // element-wise match means NOTHING changed — return prev and no
+            // re-render happens. Without this every publish minted a fresh
+            // array, and each one cascaded into a full trace-line re-sync
+            // (4× setData + chevron re-layout) + tide-label pass + panel
+            // render — 3-5 wasted cycles per pin add (perf hunt 2026-07-15).
+            const next = legs.map((l) => cache.get(l.key) ?? failMap.get(l.key) ?? null);
+            setLegVerdicts((prev) =>
+                prev.length === next.length && next.every((v, i) => v === prev[i]) ? prev : next,
+            );
         };
         publish(); // cached legs render NOW; only truly new legs show "checking…"
 
@@ -2569,32 +2679,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         };
     }, [cycloneVisible, closestStorm, mapReady, mapRef]);
 
-    // Live zoom-level subscription — drives the top-left zoom FAB.
-    // Mapbox fires 'zoom' continuously during pinch / wheel; we
-    // throttle to next animation frame so we update at display rate,
-    // not 60+ times per second. Falls back to zoomend in case the
-    // continuous events get coalesced on slower devices.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady) return;
-        setZoomLevel(map.getZoom());
-        let frameQueued = false;
-        const onZoom = () => {
-            if (frameQueued) return;
-            frameQueued = true;
-            requestAnimationFrame(() => {
-                frameQueued = false;
-                if (mapRef.current) setZoomLevel(mapRef.current.getZoom());
-            });
-        };
-        map.on('zoom', onZoom);
-        map.on('zoomend', onZoom);
-        return () => {
-            map.off('zoom', onZoom);
-            map.off('zoomend', onZoom);
-        };
-    }, [mapReady]);
-
     // Clear isochrone progress when route completes
     useEffect(() => {
         if (passage.isoResultRef.current) setIsoProgress(null);
@@ -3592,24 +3676,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ ZOOM-LEVEL FAB ═══
-                    Top-left pill showing current map zoom. Mirrors the
-                    Bosun mic FAB top-right position (top:56px right:16px
-                    in App.tsx). Visible in pin-view too — the back
-                    chevron now sits at middle-left so the top-left slot
-                    is free. Mapbox zoom is a float 0-22; we show one
-                    decimal so wheel/pinch increments are visible. */}
-                {zoomLevel !== null && (
-                    <div
-                        className="absolute top-[104px] left-4 z-[700] h-11 px-2.5 min-w-[3rem] rounded-full bg-slate-900/85 border border-white/[0.10] flex items-center justify-center backdrop-blur-md shadow-lg pointer-events-none select-none"
-                        aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}
-                        title="Map zoom level"
-                    >
-                        <span className="text-[10px] font-bold text-sky-400/70 uppercase tracking-wider mr-1">Z</span>
-                        <span className="text-sm font-mono font-bold text-white tabular-nums">
-                            {zoomLevel.toFixed(1)}
-                        </span>
-                    </div>
-                )}
+                    Top-left pill showing current map zoom — self-
+                    subscribed so per-frame zoom events re-render the
+                    pill alone, never this tree. Mirrors the Bosun mic
+                    FAB top-right position (top:56px right:16px in
+                    App.tsx). Visible in pin-view too. */}
+                <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
                 {!isPinView && !embedded && (
@@ -4420,26 +4492,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         )}
                                         {/* Pin-on-land diagnosis: a fat-fingered pin on the
                                 breakwater used to show as two cryptic red legs
-                                with the shared-pin cause never stated. */}
-                                        {(() => {
-                                            const ctx = tracerCtxRef.current;
-                                            if (!ctx?.grid) return null;
-                                            const bad = capturedCoords
-                                                .map((p, i) => ({ i, why: tracePinBlocked(ctx, p) }))
-                                                .filter((x) => x.why !== null);
-                                            if (bad.length === 0) return null;
-                                            return (
-                                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-red-400">
-                                                    {bad
-                                                        .slice(0, 2)
-                                                        .map(
-                                                            (x) =>
-                                                                `Pin ${x.i + 1} is on ${x.why === 'land' ? 'charted land' : x.why === 'berth' ? 'a berth row' : 'a charted hazard'} — drag it into the water.`,
-                                                        )
-                                                        .join(' ')}
-                                                </div>
-                                            );
-                                        })()}
+                                with the shared-pin cause never stated. Memoized
+                                above — grid reads happen per grading pass, not
+                                per render. */}
+                                        {pinDiagnosis && (
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-red-400">
+                                                {pinDiagnosis}
+                                            </div>
+                                        )}
                                         {capturedCoords.length === 0 ? (
                                             <div className="px-3 py-3 text-[11px] leading-snug text-gray-400">
                                                 Tap the chart along your intended track — each leg is checked for depth,
