@@ -1429,13 +1429,41 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // clears with the tide (the re-grade chips its window). The
                     // old tideAssist-first took the lazy straight shallow crossing
                     // instead of the deeper line to port → looked like nothing.
-                    let res = await tryInshoreRoute(O, D, draftM, airM, 'safest');
-                    let viaTide = false;
-                    if (!res || 'error' in res) {
+                    const runEngine = async (): Promise<{
+                        res: Awaited<ReturnType<typeof tryInshoreRoute>>;
+                        viaTide: boolean;
+                    }> => {
+                        const safe = await tryInshoreRoute(O, D, draftM, airM, 'safest');
+                        if (safe && 'polyline' in safe) return { res: safe, viaTide: false };
                         const tide = await tryInshoreRoute(O, D, draftM, airM, 'tideAssist');
-                        if (tide && 'polyline' in tide) {
-                            res = tide;
-                            viaTide = true;
+                        if (tide && 'polyline' in tide) return { res: tide, viaTide: true };
+                        return { res: safe ?? tide, viaTide: false }; // keep the richer failure
+                    };
+                    let { res, viaTide } = await runEngine();
+
+                    // Coverage-gap → SYNC THE CHARTS FIRST, then retry (Shane
+                    // 2026-07-15 chose this). The router refuses to cross a
+                    // stretch with no routing-grade chart; the missing detail
+                    // cell almost always lives on the boat's Pi (confirmed
+                    // OC-61-10ENB5 for Deception Bay). Pull the cells nearest
+                    // this leg from the Pi and route again — no menu-diving.
+                    if (res && 'error' in res && res.code === 'coverage-gap') {
+                        setAutoRouteDiag('⚡ Missing charts for part of this leg — syncing them from your Pi…');
+                        try {
+                            const { syncEncFromPi } = await import('../../services/EncImportService');
+                            const mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
+                            const summary = await syncEncFromPi(undefined, { priorityCenter: mid, maxCells: 10 });
+                            if (summary.cells.length > 0) {
+                                log.warn(`auto-route: synced ${summary.cells.length} cells, retrying`);
+                                ({ res, viaTide } = await runEngine());
+                            }
+                        } catch (syncErr) {
+                            // Pi unreachable / import failed — fall through to the
+                            // gap message, but say WHY the sync couldn't happen.
+                            setAutoRouteDiag(
+                                `⚡ This leg needs charts your device doesn't have, and the Pi isn't reachable to sync them (${syncErr instanceof Error ? syncErr.message.slice(0, 50) : 'offline'}). Connect to the boat WiFi and try again.`,
+                            );
+                            return;
                         }
                     }
                     if (res && 'polyline' in res) {
@@ -1471,7 +1499,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                             );
                         }
                     } else if (res && 'error' in res) {
-                        setAutoRouteDiag(`⚡ Engine couldn't route: ${res.error}`);
+                        // A coverage-gap that survived the Pi sync = the detail
+                        // cell isn't on the Pi either, so it's genuinely uncharted.
+                        setAutoRouteDiag(
+                            res.code === 'coverage-gap'
+                                ? `⚡ Still no detailed chart for part of this leg even after syncing — that stretch isn't charted to routing grade on your Pi. Trace it by hand or drop a pin past the gap. (${res.error.slice(0, 60)})`
+                                : `⚡ Engine couldn't route: ${res.error}`,
+                        );
                     } else {
                         setAutoRouteDiag(
                             '⚡ Engine declined this leg (returned nothing) — usually no ENC chart coverage at one end, or over the 50 NM cap. Nothing changed.',
