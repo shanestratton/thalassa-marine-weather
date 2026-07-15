@@ -101,9 +101,15 @@
 // detail cells nearest the leg from the boat's Pi, then retries the route
 // automatically (no Pi Cache menu-diving). Honest messages when the Pi is
 // unreachable or the stretch is genuinely uncharted even on the Pi.
-const CACHE_NAME = 'thalassa-v86-core';
-const TILE_CACHE = 'thalassa-v86-tiles';
-const DATA_CACHE = 'thalassa-v86-data';
+// v87: THE auto-route root cause — cloud ENC cells were stuck at
+// hazardCount 0, so the inshore router's coverage gate rejected EVERY
+// cloud cell (inshore routing never worked on the web). downloadCloudCell
+// now computes the real feature count; ⚡ auto route fills a coverage gap
+// from the CLOUD (HTTPS, works in-browser) instead of the Pi (unreachable
+// behind the page's HTTPS origin), then retries.
+const CACHE_NAME = 'thalassa-v87-core';
+const TILE_CACHE = 'thalassa-v87-tiles';
+const DATA_CACHE = 'thalassa-v87-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

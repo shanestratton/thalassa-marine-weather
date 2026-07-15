@@ -17,7 +17,7 @@
  * builder doesn't pull 55 MB up front.
  */
 import { supabase, isSupabaseConfigured } from '../supabase';
-import { listCells, putCell } from './EncCellMetadata';
+import { listCells, putCell, cellsForBBox } from './EncCellMetadata';
 import type { EncConversionResult } from './types';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
@@ -192,14 +192,37 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
             // 'cloud' placeholder — now the blob is in hand, patch the REAL
             // provenance in. sourceHO drives IALA region (red/green sides);
             // the placeholder must never linger once truth is available.
-            const real = cell as { sourceHO?: string; edition?: number; issued?: string };
+            //
+            // AND — critically — the REAL hazardCount (2026-07-15). Registration
+            // stamps hazardCount: 0 (the manifest carries only cellId+bbox), and
+            // the inshore router's corridor-coverage gate filters cells by
+            // hazardCount / areaSqDeg ≥ 200. A 0 count made EVERY cloud cell fail
+            // that gate, so inshore routing / ⚡ Auto route reported a "coverage
+            // gap" on any cloud-only (web) device — no matter how many cells were
+            // downloaded. Count features the SAME way the Pi/local import does
+            // (all layers except M_QUAL) so the gate treats cloud and Pi cells
+            // identically.
+            const real = cell as {
+                sourceHO?: string;
+                edition?: number;
+                issued?: string;
+                layers?: Record<string, { features?: unknown[] } | undefined>;
+            };
+            let hazardCount = 0;
+            for (const [layer, fc] of Object.entries(real.layers ?? {})) {
+                if (layer === 'M_QUAL') continue;
+                if (fc && Array.isArray(fc.features)) hazardCount += fc.features.length;
+            }
             const existing = listCells().find((c) => c.id === cellId);
-            if (existing && typeof real.sourceHO === 'string' && real.sourceHO.length === 2) {
+            if (existing) {
                 putCell({
                     ...existing,
-                    sourceHO: real.sourceHO,
-                    edition: typeof real.edition === 'number' ? real.edition : existing.edition,
-                    issued: typeof real.issued === 'string' ? real.issued : existing.issued,
+                    hazardCount: hazardCount > 0 ? hazardCount : existing.hazardCount,
+                    ...(typeof real.sourceHO === 'string' && real.sourceHO.length === 2
+                        ? { sourceHO: real.sourceHO }
+                        : {}),
+                    ...(typeof real.edition === 'number' ? { edition: real.edition } : {}),
+                    ...(typeof real.issued === 'string' ? { issued: real.issued } : {}),
                 });
             }
             log.warn(`cloud cell ${cellId} downloaded (${(text.length / 1024 / 1024).toFixed(1)} MB)`);
@@ -214,4 +237,37 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
     const bounded = withTimeout(p, false, DOWNLOAD_DEADLINE_MS);
     inflightCells.set(cellId, bounded);
     return bounded;
+}
+
+/**
+ * Outcome of a corridor cloud-fill: what was fetched and whether the bucket
+ * was even reachable (sign-in / config), so the caller can tell "everything's
+ * already local" apart from "you're not signed in / offline".
+ */
+export interface CloudBBoxFillResult {
+    /** Cells freshly downloaded this call (routing-grade after — retry routing). */
+    downloaded: number;
+    /** Cloud cells covering the bbox that still need a blob (0 = fully local). */
+    needed: number;
+    /** False when Supabase isn't configured/reachable at all. */
+    bucketAvailable: boolean;
+}
+
+/**
+ * Download every CLOUD cell whose bbox intersects `bbox` that the router would
+ * reject for lack of a real feature count (hazardCount 0 = registered-but-not-
+ * downloaded, or a pre-2026-07-15 blob that never got its count). Registers the
+ * manifest first so bboxes are known. Works over HTTPS from a browser — the
+ * path ⚡ Auto route uses to fill a corridor coverage gap on the WEB, where the
+ * Pi (http://…:3001) is unreachable behind the page's HTTPS origin.
+ */
+export async function downloadCloudCellsForBBox(bbox: [number, number, number, number]): Promise<CloudBBoxFillResult> {
+    if (!isSupabaseConfigured() || !supabase) return { downloaded: 0, needed: 0, bucketAvailable: false };
+    await registerCloudCells(); // ensure the manifest is registered (bboxes known)
+    const covering = cellsForBBox(bbox).filter((c) => c.geojsonPath.startsWith(`${BUCKET}/`) && c.hazardCount === 0);
+    let downloaded = 0;
+    for (const c of covering) {
+        if (await downloadCloudCell(c.id)) downloaded++;
+    }
+    return { downloaded, needed: covering.length, bucketAvailable: true };
 }
