@@ -978,6 +978,22 @@ async function loadCellBlobsAndExtents(
     }
 }
 
+/**
+ * Pack the merged sounding cloud into the derived-contour worker's input
+ * shape ({lon,lat,d} per point). Pure + extracted so it's unit-testable
+ * (the merge core itself resists isolation — heavy module + loop state);
+ * bounded by DERIVED_CONTOUR_MAX_SOUNDINGS at the call site.
+ */
+export function buildContourPayload(soundings: Feature[]): { lon: number; lat: number; d: number }[] {
+    const out: { lon: number; lat: number; d: number }[] = [];
+    for (const f of soundings) {
+        if (f?.geometry?.type !== 'Point') continue;
+        const c = f.geometry.coordinates;
+        out.push({ lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number } | null)?._d) });
+    }
+    return out;
+}
+
 async function buildMergedVectorData(
     cells: EncCell[],
     cacheKey: string,
@@ -1541,12 +1557,7 @@ async function buildMergedVectorData(
                 cacheKey,
                 glazeKeys: glazeUpgradeQueue.length > 0 ? mergeGlazeKeys : [],
             });
-            const contourPoints = wantContours
-                ? merged.SOUNDG.features.map((f) => {
-                      const c = (f.geometry as Point).coordinates;
-                      return { lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number })?._d) };
-                  })
-                : undefined;
+            const contourPoints = wantContours ? buildContourPayload(merged.SOUNDG.features) : undefined;
             try {
                 worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, contourPoints });
             } catch (err) {
