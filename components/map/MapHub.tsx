@@ -124,6 +124,7 @@ import {
     tracePinBlocked,
     snapTraceTapToWater,
     rdpTracePoints,
+    capSegmentLength,
     reverseRouteName,
     bearingDegBetween,
     courseArrow,
@@ -246,6 +247,20 @@ const TIDE_ACK_KEY = 'thalassa_tide_depth_ack_v1';
  *  cleared the leg cache on every outgrow (Shane 2026-07-11: full re-check
  *  on each new pin, then no depth at all through the shipping channel). */
 const TRACE_CLUSTER_SPAN_M = 24_000;
+
+// ⚡ Auto route tuning. Sub-legs are short so fixLegOnGrid's A* corridor
+// stays under its 600k-cell cap; windows are ≤ the depth-grid budget so
+// each context builds with a real grid; the window cap bounds how many
+// synchronous grid builds one tap can trigger (~360 km of routed water).
+const AUTO_SUB_LEG_M = 3_000;
+const AUTO_WINDOW_M = 18_000;
+const AUTO_MAX_WINDOWS = 20;
+
+/** Equirectangular distance in metres — auto-route leg-length math. */
+const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
+    const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
+    return Math.hypot((q.lat - p.lat) * 110_540, (q.lon - p.lon) * mLon);
+};
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -1309,32 +1324,94 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
     // ⚡ Auto route (Shane 2026-07-15: "I place a waypoint, I place
     // another, I press auto route — the app bends between them around
-    // shallows and land"). Runs the tracer's OWN fine-grid A* (the
-    // Fix-this-leg machinery) on the LAST leg — same ENC recipes as the
-    // live router, depth-cost ladder, hard walls at land/berths — and
-    // splices the bends back as editable pins that re-grade like any
-    // hand-placed pin. Deliberately NOT the four-tier engine: no tier
-    // seam touched, works offline, and it only ever routes BETWEEN the
-    // skipper's pins — close-quarters stays human.
+    // shallows and land … the autoroute should drop the pins for us").
+    // fixLegOnGrid is a SHORT-leg tool (its A* corridor caps at 600k
+    // cells), so a long leg can't be routed in one shot — auto route
+    // SUBDIVIDES the leg itself into short sub-legs (that IS the job),
+    // builds one shared depth grid per ~18 km window, and A*s each piece
+    // around land/shoals. Straight open water keeps a light spine of pins
+    // (so it's depth-checkable, not one "too much water" span); near shore
+    // the pieces bend. Beyond a sane length it still drops the pins and
+    // points at the four-tier frame router for the open-water passage.
+    // Tracer grid only — no tier seam, works offline, routes BETWEEN the
+    // skipper's pins so close-quarters stays human.
     const autoRouteLastLeg = useCallback(() => {
         if (capturedCoords.length < 2 || fixBusyLeg !== null) return;
-        const i = capturedCoords.length - 2;
+        const iLast = capturedCoords.length - 2;
+        const a = capturedCoords[iLast];
+        const b = capturedCoords[iLast + 1];
+        const draft = gradedDraftRef.current;
         triggerHaptic('medium');
-        setFixBusyLeg(i);
+        setFixBusyLeg(iLast);
         flashTraceFeedback('Auto-routing your last leg…');
         setTimeout(() => {
-            void applyFixes([i]).then(({ fixed, added }) => {
-                setFixBusyLeg(null);
-                flashTraceFeedback(
-                    fixed === 0
-                        ? 'No clean line between those pins — drop one midway and go again'
-                        : added > 0
-                          ? `Auto-routed — ${added} pin${added > 1 ? 's' : ''} added, re-checking now`
-                          : 'Straight shot is already the clean line ✓',
-                );
-            });
+            void (async () => {
+                try {
+                    if (!draft) {
+                        flashTraceFeedback('Still reading the chart — try again in a moment');
+                        return;
+                    }
+                    const base = capturedCoords; // snapshot for the splice
+                    const legM = distMetres(a, b);
+                    // Straight subdivision into short, individually-routable pieces.
+                    const nodes = capSegmentLength([a, b], AUTO_SUB_LEG_M);
+                    // Monster leg: don't grind through dozens of grid builds —
+                    // drop the checkable spine and hand the open water to the
+                    // frame router (still "auto route dropped the pins for us").
+                    if (Math.ceil(legM / AUTO_WINDOW_M) > AUTO_MAX_WINDOWS) {
+                        const spine = capSegmentLength([a, b], AUTO_WINDOW_M);
+                        setCapturedCoords([...base.slice(0, iLast), ...spine]);
+                        flashTraceFeedback(
+                            `Long passage — dropped ${spine.length - 2} pins; use ⚡ Auto to a destination for open water`,
+                        );
+                        return;
+                    }
+                    // Route each sub-leg, one shared context per ~18 km window.
+                    const routed: Array<{ lat: number; lon: number }> = [a];
+                    let ctx: TracerContext | null = null;
+                    let routedAny = false;
+                    for (let s = 0; s < nodes.length - 1; s++) {
+                        const p = nodes[s];
+                        const q = nodes[s + 1];
+                        if (!ctx || !ctx.grid || !pointInBbox(p, ctx.bbox, 0.004) || !pointInBbox(q, ctx.bbox, 0.004)) {
+                            const end = Math.min(nodes.length - 1, s + Math.ceil(AUTO_WINDOW_M / AUTO_SUB_LEG_M));
+                            const built = await buildTracerContext(traceBboxPadded(nodes.slice(s, end + 1)), draft.d, {
+                                draftAssumed: draft.assumed,
+                            });
+                            ctx = built.status === 'ready' ? built.ctx : null;
+                        }
+                        if (ctx?.grid) {
+                            const detour = fixLegOnGrid(ctx, p, q);
+                            if (detour && detour.length >= 2) {
+                                routed.push(...detour.slice(1)); // detour = [p, …interior…, q]; drop dup p
+                                routedAny = true;
+                                continue;
+                            }
+                        }
+                        routed.push(q); // no grid / straight is already clean → keep the node
+                    }
+                    // Clean up: RDP away colinear spine on open water, then re-cap
+                    // any long straight run so the "too much water" banner stays gone.
+                    const cleaned = capSegmentLength(rdpTracePoints(routed, 40), AUTO_WINDOW_M);
+                    const newPins = [...base.slice(0, iLast), ...cleaned];
+                    const added = newPins.length - base.length;
+                    setCapturedCoords(newPins);
+                    flashTraceFeedback(
+                        !routedAny
+                            ? `No ENC chart for this stretch — dropped ${Math.max(0, added)} pins, depth unchecked`
+                            : added > 0
+                              ? `Auto-routed — ${added} pin${added > 1 ? 's' : ''} added, re-checking now`
+                              : 'Straight shot is already the clean line ✓',
+                    );
+                } catch (err) {
+                    log.warn(`auto-route failed: ${err instanceof Error ? err.message : String(err)}`);
+                    flashTraceFeedback('Auto-route hit a snag — try again');
+                } finally {
+                    setFixBusyLeg(null);
+                }
+            })();
         }, 30);
-    }, [capturedCoords.length, fixBusyLeg, applyFixes, flashTraceFeedback]);
+    }, [capturedCoords, fixBusyLeg, flashTraceFeedback]);
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
     const pasteTrace = useCallback(async () => {
