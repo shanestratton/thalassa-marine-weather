@@ -112,9 +112,13 @@
 // ⚡ auto route falls to tideAssist when 'safest' returns a >2.2× dogleg
 // (the deranged shallow-bay tour); buildNavGrid logs START/DONE so the
 // device console proves hang-vs-OOM. (Worker move is the next commit.)
-const CACHE_NAME = 'thalassa-v88-core';
-const TILE_CACHE = 'thalassa-v88-tiles';
-const DATA_CACHE = 'thalassa-v88-data';
+// v89: the tracer's depth-grid build runs OFF the main thread (navGrid
+// Web Worker) — the sync build froze the WKWebView long enough for iOS to
+// kill the app while plotting. UI stays alive; sync fallback on any worker
+// failure. (Engine/auto-route grid worker = next.)
+const CACHE_NAME = 'thalassa-v89-core';
+const TILE_CACHE = 'thalassa-v89-tiles';
+const DATA_CACHE = 'thalassa-v89-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
