@@ -35,7 +35,7 @@ import type { Geometry } from 'geojson';
  * - BOYCAR: cardinal buoys (display only)
  * - M_QUAL: zones of confidence (CATZOC). Tagged on every result.
  */
-export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'COALNE';
+export type EncLayer = 'DEPARE' | 'DRGARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'COALNE';
 
 // ── S-57 point-mark class taxonomy ─────────────────────────────────
 // The DOMAIN source of truth for which buoy/beacon/light/hazard classes

@@ -84,12 +84,40 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.queryPoint(0, 0).hazardType).toBe('land'); // 5 > 1
     });
 
-    it('covered-but-clear: inside the cell bbox, outside every hazard polygon', () => {
+    it('FAIL-DANGEROUS FIX: a point in the bbox but OUTSIDE all charted polygons is NOT covered (gap → GEBCO)', () => {
         const i = idx('A', [hz('DEPARE', triangle(4), 2)]);
-        // (3.5,3.5) is inside the bbox [0,0,4,4] but outside the triangle.
-        expect(i.queryPoint(3.5, 3.5)).toMatchObject({ covered: true, hazard: false });
-        // (0.5,0.5) is inside the triangle → the shallow hazard.
-        expect(i.queryPoint(0.5, 0.5).hazard).toBe(true);
+        // (3.5,3.5): inside the cell bbox [0,0,4,4] but OUTSIDE the DEPARE
+        // triangle — a data gap / unsurveyed area. It must NOT read as
+        // ENC-validated clear water (which would suppress the GEBCO fallback).
+        expect(i.queryPoint(3.5, 3.5)).toMatchObject({ covered: false, hazard: false });
+        // (0.5,0.5): inside the DEPARE triangle → covered + the shallow hazard.
+        expect(i.queryPoint(0.5, 0.5)).toMatchObject({ covered: true, hazard: true });
+    });
+
+    it('charted DEEP water is covered + clear (inside a deep DEPARE → skips GEBCO)', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, 1), 20)]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ covered: true, hazard: false });
+        expect(i.queryPoint(50, 50).covered).toBe(false); // outside the cell entirely
+    });
+
+    it('a shallow DREDGED area (DRGARE) is a hazard — no longer dropped from the model', () => {
+        const i = idx('A', [hz('DRGARE', square(0, 0, 1), 2)]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ covered: true, hazard: true, hazardType: 'shallow' });
+    });
+
+    it('a deep DRGARE gives coverage without being a hazard', () => {
+        const i = idx('A', [hz('DRGARE', square(0, 0, 1), 20)]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ covered: true, hazard: false });
+    });
+
+    it('among SAME-type overlapping hazards the SHALLOWER wins (within-cell depth tiebreak)', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, 2), 5), hz('DEPARE', square(0, 0, 2), 1)]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ hazardType: 'shallow', minDepthM: 1 });
+    });
+
+    it('an unknown-depth (null) shallow beats a known shallow within a cell', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, 2), 2), hz('DEPARE', square(0, 0, 2), null)]);
+        expect(i.queryPoint(0, 0).minDepthM).toBeNull();
     });
 
     it('COMPOSES across cells like queryHazards — worst hazard wins, order-independent', () => {

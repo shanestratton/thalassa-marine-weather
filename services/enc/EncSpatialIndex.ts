@@ -22,7 +22,7 @@ import type { Geometry, Position } from 'geojson';
 
 import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
 import { ENC_HAZARD_DEPTH_M } from './types';
-import { HAZARD_TYPE_SEVERITY } from './hazardSeverity';
+import { HAZARD_TYPE_SEVERITY, depthSeverity } from './hazardSeverity';
 
 // ── CATZOC zone (M_QUAL) ───────────────────────────────────────────
 
@@ -134,8 +134,9 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
         case 'LNDARE':
             return 'land';
         case 'DEPARE':
-            // S-57 convention: positive metres = depth below sea level.
-            // null minDepth → unknown depth, treat as hazard.
+        case 'DRGARE':
+            // Depth areas (incl. dredged) — S-57 positive metres = depth
+            // below datum. null minDepth → unknown depth, treat as hazard.
             if (hazard.minDepthM === null) return 'shallow';
             if (hazard.minDepthM < ENC_HAZARD_DEPTH_M) return 'shallow';
             return null; // Deeper than threshold — clear water.
@@ -379,12 +380,16 @@ export class EncSpatialIndex {
      *     do that today, but UWTROC/WRECKS at exact-pixel match is
      *     fine for now).
      *  3. Return the most-severe hit (`land` > `rock` > `wreck` >
-     *     `obstruction` > `shallow`).
+     *     `obstruction` > `shallow`; ties broken by shallower/unknown depth).
      *
-     * Returns `covered: true, hazard: false` when the point is
-     * inside the cell bbox but no hazard polygon contains it. This
-     * is the authoritative "clear water" signal that lets the
-     * caller skip GEBCO entirely.
+     * COVERAGE (mission audit, the fail-dangerous fix): `covered: true` means
+     * the point falls INSIDE an actual charted feature (a DEPARE/DRGARE depth
+     * area, land, or a hazard) — the authoritative "we have ENC data here"
+     * signal that lets the caller skip GEBCO. A point inside the cell BBOX
+     * but inside no charted polygon (a data gap / unsurveyed area — S-57
+     * UNSARE isn't extracted) returns `covered: false` so the router falls
+     * back to GEBCO instead of trusting a false-clear. Charted deep water
+     * still returns `covered: true, hazard: false`.
      */
     queryPoint(lat: number, lon: number): EncHazardResult {
         if (!this.containsPoint(lat, lon)) {
@@ -400,21 +405,23 @@ export class EncSpatialIndex {
             maxY: lat,
         });
 
+        // No charted feature's bbox even contains the point → this cell
+        // charts NOTHING here: a data gap / unsurveyed area inside its own
+        // bbox. NOT authoritatively clear — covered:false lets the router
+        // fall back to GEBCO rather than trust a false-clear (mission audit,
+        // the UNSARE/unsurveyed grounding gap: covered used to key off the
+        // cell BBOX, so gap water read as ENC-validated clear water).
         if (candidates.length === 0) {
-            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId, catzoc };
+            return { covered: false, hazard: false, minDepthM: null };
         }
 
         const turfPt = turfPoint([lon, lat]);
 
         let bestType: EncHazardType | null = null;
         let bestDepth: number | null = null;
-        // Severity ranking shared with the cross-cell merge (hazardSeverity)
-        // so within-cell and across-cell picks can never disagree.
+        let insideCharted = false; // point falls inside SOME charted feature
 
         for (const entry of candidates) {
-            const type = classifyHazard(entry.hazard);
-            if (!type) continue; // DEPARE deeper than threshold → not a hazard.
-
             const geom = entry.hazard.geometry;
             let inside = false;
             if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
@@ -427,10 +434,33 @@ export class EncSpatialIndex {
             }
             if (!inside) continue;
 
-            if (bestType === null || HAZARD_TYPE_SEVERITY[type] > HAZARD_TYPE_SEVERITY[bestType]) {
+            // Inside a charted feature (depth area, land, or a point hazard)
+            // → this cell authoritatively covers the point, even when the
+            // feature is DEEP water (classifyHazard → null below).
+            insideCharted = true;
+
+            const type = classifyHazard(entry.hazard);
+            if (!type) continue; // deep DEPARE/DRGARE — covered, not a hazard.
+
+            // Most-severe wins: worse TYPE first, then (same type) the
+            // SHALLOWER / unknown depth — the SAME tiebreak as the cross-cell
+            // mergeHazardResults, so within-cell and across-cell can never
+            // disagree (audit: the within-cell pick dropped the depth tiebreak).
+            if (
+                bestType === null ||
+                HAZARD_TYPE_SEVERITY[type] > HAZARD_TYPE_SEVERITY[bestType] ||
+                (HAZARD_TYPE_SEVERITY[type] === HAZARD_TYPE_SEVERITY[bestType] &&
+                    depthSeverity(entry.hazard.minDepthM) > depthSeverity(bestDepth))
+            ) {
                 bestType = type;
                 bestDepth = entry.hazard.minDepthM;
             }
+        }
+
+        // Inside the cell bbox and inside the candidates' bboxes, but inside
+        // NO actual polygon → still a gap. Fall back to GEBCO.
+        if (!insideCharted) {
+            return { covered: false, hazard: false, minDepthM: null };
         }
 
         if (bestType === null) {
