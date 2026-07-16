@@ -196,9 +196,13 @@
 // per-waypoint weather ETAs anchor at the chosen departure, per-leg tide
 // windows evaluate at each leg's ARRIVAL time, and the departure-window
 // headline shifts every gate back by its transit time (a true "leave X–Y").
-const CACHE_NAME = 'thalassa-v110-core';
-const TILE_CACHE = 'thalassa-v110-tiles';
-const DATA_CACHE = 'thalassa-v110-data';
+// v111: routes auto-name as you plot — "Newport - Newport" on the first pin,
+// the end updates live ("Newport - Scarborough"), coords when no place is
+// nearby ("Newport - 27.14S 153.09E"). Typing your own name stops it; Clear
+// wipes an auto name but keeps a typed one.
+const CACHE_NAME = 'thalassa-v111-core';
+const TILE_CACHE = 'thalassa-v111-tiles';
+const DATA_CACHE = 'thalassa-v111-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

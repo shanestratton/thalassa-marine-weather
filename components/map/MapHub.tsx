@@ -537,6 +537,33 @@ export const MapHub: React.FC<MapHubProps> = ({
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
     const [traceName, setTraceName] = useState('');
+    // AUTO-NAME (Shane 2026-07-16): "Newport - Scarborough" from the first +
+    // last pins, live as the route grows; coords when no place is nearby.
+    // Auto-naming is ACTIVE while the name box is empty or still holding the
+    // last auto value — the moment the skipper types their own name (or opens
+    // a saved route, whose name differs), it stops touching the box.
+    const lastAutoNameRef = useRef<string>('');
+    useEffect(() => {
+        if (!coordCaptureMode || capturedCoords.length === 0) return;
+        const isAuto = traceName === '' || traceName === lastAutoNameRef.current;
+        if (!isAuto) return;
+        const first = capturedCoords[0];
+        const last = capturedCoords[capturedCoords.length - 1];
+        // Debounced: a burst of pin drops costs one geocode pass (and the
+        // helper caches on a ~1 km grid anyway).
+        const t = window.setTimeout(() => {
+            void import('../../services/routeAutoName').then(async ({ autoRouteName }) => {
+                const name = await autoRouteName(first, last);
+                setTraceName((cur) => {
+                    // The skipper typed while we were geocoding — theirs wins.
+                    if (cur !== '' && cur !== lastAutoNameRef.current) return cur;
+                    lastAutoNameRef.current = name;
+                    return name;
+                });
+            });
+        }, 800);
+        return () => window.clearTimeout(t);
+    }, [capturedCoords, coordCaptureMode, traceName]);
     // Typed GPS-fix entry (build a route by keying coords, not just tapping —
     // Shane 2026-07-16). Accepts decimal, hemisphere, DMM and DMS via
     // parseCoordinateString; each Add appends a pin to the trace.
@@ -5298,6 +5325,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setInsertAfter(null);
                                                     insertAfterRef.current = null;
                                                     setCapturedCoords([]);
+                                                    // An AUTO name belongs to the cleared route —
+                                                    // wipe it with the pins. A typed name survives.
+                                                    setTraceName((cur) => (cur === lastAutoNameRef.current ? '' : cur));
                                                 }}
                                                 disabled={capturedCoords.length === 0}
                                                 className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
