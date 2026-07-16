@@ -121,11 +121,22 @@ export const ROUTING_CLASSES = new Set([
     // name in the channels"). NOTE: existing cells need RE-EXTRACTION
     // (+ bucket re-upload + manifest bump) before names appear.
     'SEAARE',
+    // Caution / information AREAS (2026-07-16, the ENC-completeness audit —
+    // "a best-in-class ENC router flags cable/restricted/pipeline crossings").
+    // All AREA primitives, ring-assembled like DEPARE. EncVectorLayer draws
+    // them as chart-furniture outlines/fills and encPopup reads their
+    // category attrs. NOTE: existing cells need RE-EXTRACTION (+ bucket
+    // re-upload + manifest bump) before these appear.
+    'RESARE', // Restricted area (RESTRN/CATREA — no-anchor, no-entry, etc.)
+    'CBLARE', // Submarine cable area (no anchoring)
+    'PIPARE', // Pipeline area (no anchoring)
+    'SBDARE', // Seabed area — nature of the bottom (NATSUR: sand/mud/rock; anchoring aid)
+    'TSSLPT', // Traffic Separation Scheme lane part (ORIENT — keep-to-your-lane)
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here
     // the moment EncVectorLayer draws them. Next visual batch: TOPMAR/DAYMAR
     // (topmark glyphs), PONTON/SLCONS/BRIDGE/MORFAC/HRBFAC (harbour
     // structures), LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
-    // (anchorages), RESARE/CBLARE/CBLSUB/PIPSOL/DMPGRD (caution areas). ──
+    // (anchorages), CBLSUB/PIPSOL/DMPGRD (submarine cable/pipeline LINES). ──
 ]);
