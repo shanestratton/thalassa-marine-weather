@@ -48,8 +48,15 @@ export function initialViewFromUrl(): string | null {
 // until MapHub's mount effect consumes it.
 let pendingTracerOpen = false;
 
-export function requestTracerOpen(): void {
+/** Optional follow-up the tracer performs right after opening — the PLAN
+ *  page's front-door buttons (Shane 2026-07-16): paste a mate's coords,
+ *  open the past-voyage picker, or open the saved-routes list. */
+export type TracerOpenAction = 'paste' | 'voyage' | 'saved';
+let pendingTracerAction: TracerOpenAction | null = null;
+
+export function requestTracerOpen(action: TracerOpenAction | null = null): void {
     pendingTracerOpen = true;
+    pendingTracerAction = action;
     try {
         window.dispatchEvent(new CustomEvent('thalassa:trace-mode'));
     } catch {
@@ -61,4 +68,10 @@ export function consumeTracerOpenRequest(): boolean {
     const was = pendingTracerOpen;
     pendingTracerOpen = false;
     return was;
+}
+
+export function consumeTracerAction(): TracerOpenAction | null {
+    const a = pendingTracerAction;
+    pendingTracerAction = null;
+    return a;
 }

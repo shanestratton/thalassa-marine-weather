@@ -203,9 +203,14 @@
 // v112: tracer tidy — Depart is two clean lines (date, then time) with an OK
 // button that closes the iOS picker; ⚡ Auto-to-destination + the From/To
 // course-frame boxes are parked (start by tapping the chart).
-const CACHE_NAME = 'thalassa-v112-core';
-const TILE_CACHE = 'thalassa-v112-tiles';
-const DATA_CACHE = 'thalassa-v112-data';
+// v113: PLAN tab is now the tracer's front door — Comfort + Trip/Leg stay,
+// then a Departure card, three ways in (paste a mate's coords / from a past
+// voyage / saved routes — each opens the chart with the tracer ready), and
+// the slider reads "Slide to Start Plotting". Old origin/destination
+// calculate form parked.
+const CACHE_NAME = 'thalassa-v113-core';
+const TILE_CACHE = 'thalassa-v113-tiles';
+const DATA_CACHE = 'thalassa-v113-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

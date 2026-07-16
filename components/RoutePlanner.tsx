@@ -26,6 +26,15 @@ import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
+import { requestTracerOpen, type TracerOpenAction } from '../services/deepLink';
+import { DepartControl } from './passage/DepartControl';
+
+// PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
+// — Comfort + Trip/Leg stay up top, then Departure, then the three ways in
+// (paste a mate's coords / a past voyage / saved routes), and the slider opens
+// the chart plotting. The old origin/destination/date form + calculate flow is
+// PARKED behind this flag (wiring intact) — flip to true to resurrect.
+const LEGACY_PLANNER_FORM = false;
 import { requestPassageMode, type PassageHandoffDetail } from '../services/passageHandoff';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
@@ -390,7 +399,64 @@ export const RoutePlanner: React.FC<{
                         onLockDeparture={setOriginLocked}
                     />
 
-                    {/* Origin
+                    {/* ── Tracer front door (the PLAN-tab morph) ── */}
+                    {!LEGACY_PLANNER_FORM && (
+                        <>
+                            <DepartControl />
+                            <div className="space-y-2">
+                                {(
+                                    [
+                                        {
+                                            action: 'paste' as TracerOpenAction,
+                                            icon: '📥',
+                                            title: 'Paste coords from a mate',
+                                            sub: 'Their route, re-checked for YOUR keel',
+                                            accent: 'border-emerald-500/25 from-emerald-500/10 text-emerald-300',
+                                        },
+                                        {
+                                            action: 'voyage' as TracerOpenAction,
+                                            icon: '🛥',
+                                            title: 'From a past voyage',
+                                            sub: 'Sail it once, save it forever',
+                                            accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
+                                        },
+                                        {
+                                            action: 'saved' as TracerOpenAction,
+                                            icon: '💾',
+                                            title: 'Saved routes',
+                                            sub: 'Open one, re-graded at today’s tide',
+                                            accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
+                                        },
+                                    ] as const
+                                ).map((b) => (
+                                    <button
+                                        key={b.action}
+                                        type="button"
+                                        onClick={() => {
+                                            requestTracerOpen(b.action);
+                                            setPage('map');
+                                        }}
+                                        className={`flex w-full items-center gap-3 rounded-2xl border bg-gradient-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
+                                    >
+                                        <span className="text-2xl leading-none">{b.icon}</span>
+                                        <span className="min-w-0">
+                                            <span className="block text-sm font-black uppercase tracking-wide">
+                                                {b.title}
+                                            </span>
+                                            <span className="block truncate text-[11px] font-medium text-gray-400">
+                                                {b.sub}
+                                            </span>
+                                        </span>
+                                        <span className="ml-auto text-gray-500">›</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {LEGACY_PLANNER_FORM && (
+                        <>
+                            {/* Origin
                         When `originLocked` is true (Leg 2+ in a chained trip),
                         the From box is read-only and the map/crosshair/saved-picker
                         buttons collapse to a single Lock badge with an explainer.
@@ -516,6 +582,8 @@ export const RoutePlanner: React.FC<{
                             style={{ WebkitAppearance: 'none' }}
                         />
                     </div>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -693,10 +761,11 @@ export const RoutePlanner: React.FC<{
                                         <CompassIcon className="w-5 h-5 text-sky-400" rotation={0} />
                                     </span>
                                     <div className="min-w-0">
-                                        <h3 className="text-sm font-bold text-white">Plan a passage</h3>
+                                        <h3 className="text-sm font-bold text-white">Plot your line</h3>
                                         <p className="text-[12px] text-slate-400 mt-1">
-                                            Enter origin and destination, then slide to calculate. Calypso checks
-                                            weather, tides and depths along the way.
+                                            Slide below to open the chart and start plotting — every leg is
+                                            depth-checked for your keel, with tide windows and weather at your
+                                            departure time.
                                         </p>
                                     </div>
                                 </div>
@@ -768,10 +837,18 @@ export const RoutePlanner: React.FC<{
                             </button>
                         ) : (
                             <SlideToAction
-                                label="Slide to Calculate Route"
+                                label={LEGACY_PLANNER_FORM ? 'Slide to Calculate Route' : 'Slide to Start Plotting'}
                                 thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
-                                onConfirm={handleCalculate}
-                                loading={loading}
+                                onConfirm={
+                                    LEGACY_PLANNER_FORM
+                                        ? handleCalculate
+                                        : () => {
+                                              // Front door → the chart, tracer open, pen armed.
+                                              requestTracerOpen();
+                                              setPage('map');
+                                          }
+                                }
+                                loading={LEGACY_PLANNER_FORM ? loading : false}
                                 loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
                                 theme="emerald"
                             />
