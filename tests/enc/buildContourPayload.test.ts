@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Feature } from 'geojson';
 
-import { buildContourPayload } from '../../services/enc/EncHazardService';
+import { buildContourPayload, createEmptyMergedVectorData } from '../../services/enc/EncHazardService';
 
 const soundg = (lon: number, lat: number, d: unknown): Feature => ({
     type: 'Feature',
@@ -46,5 +46,23 @@ describe('buildContourPayload', () => {
 
     it('empty in → empty out', () => {
         expect(buildContourPayload([])).toEqual([]);
+    });
+});
+
+describe('createEmptyMergedVectorData', () => {
+    it('starts every ENC layer as an empty FeatureCollection with cellCount 0', () => {
+        const m = createEmptyMergedVectorData();
+        expect(m.cellCount).toBe(0);
+        for (const [key, v] of Object.entries(m)) {
+            if (key === 'cellCount') continue;
+            expect(v).toEqual({ type: 'FeatureCollection', features: [] });
+        }
+    });
+
+    it('returns a FRESH shell each call (no shared feature arrays across merges)', () => {
+        const a = createEmptyMergedVectorData();
+        const b = createEmptyMergedVectorData();
+        a.DEPARE.features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} });
+        expect(b.DEPARE.features).toHaveLength(0); // b unaffected — arrays not shared
     });
 });

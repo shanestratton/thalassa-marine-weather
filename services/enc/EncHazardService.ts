@@ -1055,6 +1055,111 @@ export function buildContourPayload(soundings: Feature[]): { lon: number; lat: n
     return out;
 }
 
+/** One glaze true-coverage upgrade queued for the worker. */
+type GlazeUpgradeItem = {
+    cellId: string;
+    glazeKey: string;
+    features: Feature[];
+    coverages: Array<{ bbox: [number, number, number, number]; coverage: CoverageGeom }>;
+};
+
+/**
+ * The empty merged-vector shell every layer accumulates into — one FC per
+ * ENC layer + cellCount. Pure factory extracted from buildMergedVectorData
+ * so the merge's start state is single-sourced and unit-testable (the merge
+ * body itself resists isolation — heavy module + loop state).
+ */
+export function createEmptyMergedVectorData(): EncMergedVectorData {
+    const fc = (): FeatureCollection => ({ type: 'FeatureCollection', features: [] });
+    return {
+        DEPARE: fc(),
+        LNDARE: fc(),
+        COALNE: fc(),
+        OBSTRN: fc(),
+        WRECKS: fc(),
+        UWTROC: fc(),
+        DEPCNT: fc(),
+        DEPCNT_DERIVED: fc(),
+        LIGHTS: fc(),
+        BOYLAT: fc(),
+        BOYCAR: fc(),
+        BCNLAT: fc(),
+        BCNCAR: fc(),
+        BOYSPP: fc(),
+        BCNSPP: fc(),
+        BOYSAW: fc(),
+        BCNSAW: fc(),
+        BOYISD: fc(),
+        BCNISD: fc(),
+        RECTRC: fc(),
+        SOUNDG: fc(),
+        DEPARE_GLAZE: fc(),
+        SEAARE_LABELS: fc(),
+        LIGHTSEC: fc(),
+        cellCount: 0,
+    };
+}
+
+/**
+ * Hand the merge's HEAVY geometry to the worker (CONTOURS + optional GLAZE
+ * upgrade), or fill contours synchronously from the memo. Extracted verbatim
+ * from the merge tail — same module-scope worker/cache state, just named.
+ * No worker (old WebView / died) = the fast version stays up.
+ */
+function dispatchGeometryWork(
+    cacheKey: string,
+    merged: EncMergedVectorData,
+    densify: boolean,
+    glazeUpgradeQueue: GlazeUpgradeItem[],
+    mergeGlazeKeys: string[],
+): void {
+    let wantContours =
+        DERIVED_CONTOUR_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
+    if (wantContours) {
+        // Memo hit: this exact selection's contours were already computed (a
+        // prior visit the merged cache has since evicted). Fill them in
+        // synchronously — no blank on the rebuilt merge, no redundant worker
+        // pass — and skip the contour job entirely.
+        const memo = derivedContourCache.get(cacheKey);
+        if (memo) {
+            merged.DEPCNT_DERIVED.features = memo;
+            putDerivedContours(cacheKey, memo); // refresh LRU position
+            wantContours = false;
+        }
+    }
+    if (glazeUpgradeQueue.length === 0 && !wantContours) return;
+    const worker = getGeoWorker();
+    if (!worker) return;
+    const jobId = ++geoJobSeq;
+    pendingGeometryJobs.set(jobId, {
+        cacheKey,
+        glazeKeys: glazeUpgradeQueue.length > 0 ? mergeGlazeKeys : [],
+    });
+    const contourPoints = wantContours ? buildContourPayload(merged.SOUNDG.features) : undefined;
+    try {
+        worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, contourPoints });
+    } catch (err) {
+        pendingGeometryJobs.delete(jobId);
+        log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
+/** The per-merge feature-count summary line. Extracted from the merge tail. */
+function logMergeSummary(merged: EncMergedVectorData): void {
+    log.info(
+        `merged vector data: ${merged.cellCount} cells, ` +
+            `DEPARE(+DRGARE)=${merged.DEPARE.features.length}, DEPCNT=${merged.DEPCNT.features.length}, ` +
+            `COALNE=${merged.COALNE.features.length}, ` +
+            `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}, ` +
+            `LIGHTS=${merged.LIGHTS.features.length}, ` +
+            `lat (BOY+BCN)=${merged.BOYLAT.features.length + merged.BCNLAT.features.length}, ` +
+            `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}, ` +
+            `spp (BOY+BCN)=${merged.BOYSPP.features.length + merged.BCNSPP.features.length}, ` +
+            `leads (RECTRC)=${merged.RECTRC.features.length}, ` +
+            `soundings=${merged.SOUNDG.features.length}`,
+    );
+}
+
 async function buildMergedVectorData(
     cells: EncCell[],
     cacheKey: string,
@@ -1087,33 +1192,7 @@ async function buildMergedVectorData(
         sliceStart = performance.now();
     };
 
-    const merged: EncMergedVectorData = {
-        DEPARE: { type: 'FeatureCollection', features: [] },
-        LNDARE: { type: 'FeatureCollection', features: [] },
-        COALNE: { type: 'FeatureCollection', features: [] },
-        OBSTRN: { type: 'FeatureCollection', features: [] },
-        WRECKS: { type: 'FeatureCollection', features: [] },
-        UWTROC: { type: 'FeatureCollection', features: [] },
-        DEPCNT: { type: 'FeatureCollection', features: [] },
-        DEPCNT_DERIVED: { type: 'FeatureCollection', features: [] },
-        LIGHTS: { type: 'FeatureCollection', features: [] },
-        BOYLAT: { type: 'FeatureCollection', features: [] },
-        BOYCAR: { type: 'FeatureCollection', features: [] },
-        BCNLAT: { type: 'FeatureCollection', features: [] },
-        BCNCAR: { type: 'FeatureCollection', features: [] },
-        BOYSPP: { type: 'FeatureCollection', features: [] },
-        BCNSPP: { type: 'FeatureCollection', features: [] },
-        BOYSAW: { type: 'FeatureCollection', features: [] },
-        BCNSAW: { type: 'FeatureCollection', features: [] },
-        BOYISD: { type: 'FeatureCollection', features: [] },
-        BCNISD: { type: 'FeatureCollection', features: [] },
-        RECTRC: { type: 'FeatureCollection', features: [] },
-        SOUNDG: { type: 'FeatureCollection', features: [] },
-        DEPARE_GLAZE: { type: 'FeatureCollection', features: [] },
-        SEAARE_LABELS: { type: 'FeatureCollection', features: [] },
-        LIGHTSEC: { type: 'FeatureCollection', features: [] },
-        cellCount: 0,
-    };
+    const merged = createEmptyMergedVectorData();
 
     // Scale-shadow de-confliction (the Tangalooma tan wall): an overview cell's
     // crude island/land polygons bulge over water a finer cell charts correctly.
@@ -1586,63 +1665,17 @@ async function buildMergedVectorData(
         mergedCache.delete(oldest);
     }
 
-    // Hand the HEAVY geometry to the worker. Two jobs, gated apart:
-    //  - CONTOURS (Delaunay + isoline march — hung the main thread
-    //    2026-07-12) dispatch here whenever DERIVED_CONTOUR_WORKER_ENABLED
-    //    and the sounding count is under the cap. Bounded input, safe.
-    //  - GLAZE true-coverage upgrade only rides along when its own flag
-    //    queued cells above (GLAZE_WORKER_ENABLED); with it off the queue
-    //    is empty and martinez is never posted — no OOM exposure.
-    // Answers swap into this cached merge via the geometry-upgrade hook.
-    // No worker (old WebView, died earlier this session) = the fast
-    // version stays up.
-    let wantContours =
-        DERIVED_CONTOUR_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
-    if (wantContours) {
-        // Memo hit: this exact selection's contours were already computed
-        // (a prior visit the merged cache has since evicted). Fill them in
-        // synchronously — no blank on the rebuilt merge, no redundant
-        // worker pass — and skip the contour job entirely.
-        const memo = derivedContourCache.get(cacheKey);
-        if (memo) {
-            merged.DEPCNT_DERIVED.features = memo;
-            putDerivedContours(cacheKey, memo); // refresh LRU position
-            wantContours = false;
-        }
-    }
-    if (glazeUpgradeQueue.length > 0 || wantContours) {
-        const worker = getGeoWorker();
-        if (worker) {
-            const jobId = ++geoJobSeq;
-            pendingGeometryJobs.set(jobId, {
-                cacheKey,
-                glazeKeys: glazeUpgradeQueue.length > 0 ? mergeGlazeKeys : [],
-            });
-            const contourPoints = wantContours ? buildContourPayload(merged.SOUNDG.features) : undefined;
-            try {
-                worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, contourPoints });
-            } catch (err) {
-                pendingGeometryJobs.delete(jobId);
-                log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
-            }
-        }
-    }
+    // Hand the heavy geometry (contours + optional glaze upgrade) to the
+    // worker; answers swap into this cached merge via the geometry-upgrade
+    // hook. CONTOURS (Delaunay, bounded) dispatch when enabled + under cap;
+    // GLAZE only rides along when GLAZE_WORKER_ENABLED queued cells above.
+    dispatchGeometryWork(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys);
+
     if (missingBlobs.length > 0) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);
         void hydrateMissingCells(missingBlobs);
     }
-    log.info(
-        `merged vector data: ${merged.cellCount} cells, ` +
-            `DEPARE(+DRGARE)=${merged.DEPARE.features.length}, DEPCNT=${merged.DEPCNT.features.length}, ` +
-            `COALNE=${merged.COALNE.features.length}, ` +
-            `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}, ` +
-            `LIGHTS=${merged.LIGHTS.features.length}, ` +
-            `lat (BOY+BCN)=${merged.BOYLAT.features.length + merged.BCNLAT.features.length}, ` +
-            `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}, ` +
-            `spp (BOY+BCN)=${merged.BOYSPP.features.length + merged.BCNSPP.features.length}, ` +
-            `leads (RECTRC)=${merged.RECTRC.features.length}, ` +
-            `soundings=${merged.SOUNDG.features.length}`,
-    );
+    logMergeSummary(merged);
     return merged;
 }
 
