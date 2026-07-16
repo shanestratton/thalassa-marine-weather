@@ -90,10 +90,11 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 
 ### UX
 
-- [ ] **1.75 — UX cluster** — caution severity tiers (entry-prohibited ≠
-      note), correct exhaustion headline in the panel, aria-expanded pair,
-      RESTRN raw-code fallback (unmapped codes must not vanish silently),
-      popup-accent unification, micro-type legibility.
+- [x] **1.75 — UX cluster** — DONE (`e58c8f8d`): severity-tiered crossings
+      (entry-prohibited/-restricted = caution), caution-aware panel headlines,
+      RESTRN raw-code fallback in advisory + popup, aria-expanded on both
+      collapsible panels. (Accent unification + micro-type were already
+      delivered in `8c005171` / the earlier 10 px legibility pass.)
 
 ### Device-gated
 
@@ -111,3 +112,4 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | GEBCO LAT/MSL datum guard                                      | 0.5  | `98a546fc` | 82.35             |
 | 2026-07-16 | depthCost nudge wired into selection                           | 1.5  | `72751355` | 83.85             |
 | 2026-07-16 | Grounding-query edges (soundingOnly / sub-231 m / draft clamp) | 1.5  | `d2baa0eb` | 85.35             |
+| 2026-07-16 | Advisory UX cluster (tiers / headlines / raw codes / a11y)     | 1.75 | `e58c8f8d` | 87.1              |
