@@ -34,6 +34,7 @@ import {
     type TurnWaypoint,
 } from '../../services/IsochroneRouter';
 import type { IsochroneNode } from '../../services/isochrone/types';
+import { cumulativeLegs } from '../../services/isochrone/geodesy';
 import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
@@ -1311,16 +1312,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         // pushing perpendicular off a 0.76 NM stub.
                         const firstPt = validatedRoute[0];
                         const lastPt = validatedRoute[validatedRoute.length - 1];
-                        const seedNodes = [firstPt, lastPt].map((p) => ({
+                        // The ARRIVAL node must carry its real ETA (2026-07-17
+                        // audit, chief's fix-first): with both seeds at
+                        // timeHours 0, every tide-aware crossing check down in
+                        // landAvoidance interpolated to DEPARTURE time — a
+                        // bank you reach 4 h later was credited with the
+                        // departure hour's water, and the tide-curve window
+                        // (sized from the last node) collapsed to its floor.
+                        const seedLegs = cumulativeLegs([firstPt, lastPt], cruisingKt);
+                        const seedNodes = [firstPt, lastPt].map((p, i) => ({
                             lat: p.lat,
                             lon: p.lon,
-                            timeHours: 0,
+                            timeHours: seedLegs[i].hours,
                             bearing: 0,
                             speed: cruisingKt,
                             tws: 0,
                             twa: 0,
                             parentIndex: null,
-                            distance: 0,
+                            distance: seedLegs[i].nm,
                         })) as unknown as IsochroneNode[];
                         // validateRouteSegments wants METRES; vessel.draft is FEET
                         // (see services/units.ts).
@@ -1383,11 +1392,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         srcShort.setData({ type: 'FeatureCollection', features: buildFeatures(validatedCoords) });
                     }
 
+                    // Per-point ETAs, not zeros (2026-07-17 audit): cumulative
+                    // distance at cruise speed — anything downstream reading a
+                    // route point's timeHours (tide credit, weather ETAs) gets
+                    // the hour the boat is actually THERE.
+                    const routeLegs = cumulativeLegs(validatedRoute, cruisingKt);
                     const minimalIsoResult: IsochroneResult = {
-                        route: validatedRoute.map((p) => ({
+                        route: validatedRoute.map((p, i) => ({
                             lat: p.lat,
                             lon: p.lon,
-                            timeHours: 0,
+                            timeHours: routeLegs[i].hours,
                             tws: 0,
                             twa: 0,
                             sog: cruisingKt,
@@ -2057,18 +2071,27 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         try {
                                             const { validateRouteSegments } =
                                                 await import('../../services/isochrone/landAvoidance');
+                                            // Real cumulative ETAs, not zeros (2026-07-17
+                                            // audit): all-zero timeHours made every
+                                            // tide-aware depth check credit DEPARTURE
+                                            // water to points reached hours later.
+                                            const braidKt = typeof speed === 'number' && speed > 0 ? speed : 6;
+                                            const braidLegs = cumulativeLegs(
+                                                ecmwfCoords.map(([lon, lat]) => ({ lat, lon })),
+                                                braidKt,
+                                            );
                                             const ecmwfNodes = ecmwfCoords.map(
-                                                ([lon, lat]) =>
+                                                ([lon, lat], i) =>
                                                     ({
                                                         lat,
                                                         lon,
-                                                        timeHours: 0,
+                                                        timeHours: braidLegs[i].hours,
                                                         bearing: 0,
-                                                        speed: 0,
+                                                        speed: braidKt,
                                                         tws: 0,
                                                         twa: 0,
                                                         parentIndex: null,
-                                                        distance: 0,
+                                                        distance: braidLegs[i].nm,
                                                     }) as IsochroneNode,
                                             );
                                             // validateRouteSegments wants METRES; vessel.draft is FEET

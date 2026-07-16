@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    cumulativeLegs,
     R_NM,
     toRad,
     toDeg,
@@ -195,5 +196,51 @@ describe('bearingBetween', () => {
             expect(brng).toBeGreaterThanOrEqual(0);
             expect(brng).toBeLessThan(360);
         }
+    });
+});
+
+describe('cumulativeLegs — honest along-track ETAs (2026-07-17 audit fix-first)', () => {
+    it('point 0 is always {nm: 0, hours: 0} and ETAs are strictly monotonic along a moving track', () => {
+        // Manly → Tangalooma-ish → Mooloolaba-ish: three legs up Moreton Bay.
+        const pts = [
+            { lat: -27.45, lon: 153.18 },
+            { lat: -27.2, lon: 153.37 },
+            { lat: -26.68, lon: 153.12 },
+        ];
+        const legs = cumulativeLegs(pts, 6);
+        expect(legs[0]).toEqual({ nm: 0, hours: 0 });
+        for (let i = 1; i < legs.length; i++) {
+            expect(legs[i].nm).toBeGreaterThan(legs[i - 1].nm);
+            expect(legs[i].hours).toBeGreaterThan(legs[i - 1].hours);
+        }
+        // hours = nm / kt exactly.
+        expect(legs[2].hours).toBeCloseTo(legs[2].nm / 6, 10);
+    });
+
+    it('a 4-hour leg carries ~4 hours at the arrival node, never departure time', () => {
+        // ~24 NM at 6 kt = 4 h — the audit scenario: a bank reached 4 h after
+        // departure must NOT be tide-credited with the departure hour.
+        const start = { lat: -27.4, lon: 153.2 };
+        const end = { lat: -27.0, lon: 153.2 }; // 0.4° lat ≈ 24 NM
+        const legs = cumulativeLegs([start, end], 6);
+        expect(legs[1].hours).toBeGreaterThan(3.5);
+        expect(legs[1].hours).toBeLessThan(4.5);
+    });
+
+    it('floors degenerate speed at 0.5 kt — never Infinity/NaN', () => {
+        const pts = [
+            { lat: 0, lon: 0 },
+            { lat: 1, lon: 0 },
+        ];
+        for (const kt of [0, -3, NaN]) {
+            const legs = cumulativeLegs(pts, kt);
+            expect(Number.isFinite(legs[1].hours)).toBe(true);
+            expect(legs[1].hours).toBeCloseTo(legs[1].nm / 0.5, 10);
+        }
+    });
+
+    it('single point and empty input are safe', () => {
+        expect(cumulativeLegs([], 6)).toEqual([]);
+        expect(cumulativeLegs([{ lat: -27, lon: 153 }], 6)).toEqual([{ nm: 0, hours: 0 }]);
     });
 });
