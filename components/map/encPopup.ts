@@ -191,6 +191,48 @@ function restrnNames(restrn: unknown): string {
     );
 }
 
+/**
+ * Should the DEPARE popup fetch a tide WINDOW ("enough water from 14:20")?
+ * Pure gate extracted from fillDepareTideWindow (burn-down: the click/tide
+ * wiring was untested). Only when the band is genuinely keel-limited: a
+ * known DRVAL1 below the keel floor that the CURRENT tide doesn't already
+ * clear. No safety depth / already-deep / already-cleared → no fetch.
+ */
+export function needsTideWindow(
+    drval1: unknown,
+    safetyDepthM: number | null | undefined,
+    tideOffsetM: number | null | undefined,
+): boolean {
+    const d1 = Number(drval1);
+    if (!Number.isFinite(d1) || safetyDepthM == null || safetyDepthM <= 0 || d1 >= safetyDepthM) return false;
+    if (tideOffsetM != null && d1 + tideOffsetM >= safetyDepthM) return false;
+    return true;
+}
+
+/** One area hit from queryRenderedFeatures, reduced to what routing needs. */
+export interface AreaTapHit {
+    layerId: string;
+    properties: Record<string, unknown>;
+}
+
+/**
+ * Area-tap precedence (pure — extracted from the click handler so it's
+ * testable): the topmost hit answers, EXCEPT a caution wash over charted
+ * water — the depth/keel read is the flagship answer, so the WATER hit wins
+ * and the caution rides along to be folded into the depth popup
+ * (extras.caution). Null when there are no hits.
+ */
+export function pickAreaTap(
+    hits: AreaTapHit[],
+): { index: number; cautionUnder: Record<string, unknown> | null } | null {
+    if (hits.length === 0) return null;
+    if (hits[0].layerId === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
+        const water = hits.findIndex((h) => h.layerId === ENC_VEC_LAYERS.DEPARE);
+        if (water >= 0) return { index: water, cautionUnder: hits[0].properties };
+    }
+    return { index: 0, cautionUnder: null };
+}
+
 /** The light attribute rows (character / period / height / range /
  *  colour) — shared between the standalone Light popup and the
  *  "Light" section folded into a lit mark's popup. The mark's name

@@ -76,11 +76,13 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
       fold driven through getMergedVectorData over a coarse+fine library —
       shadow-drop, presence-gated line de-dup, provenance, cautions, SEAARE
       labels, sounding explode+ladder. Task #27 closed.
-- [x] **1.6 → 1.2 banked — Seam tests + dedupe** — DONE (`eab82ed0`):
-      partition tests (ENC/GEBCO split, soundingOnly demotion, outage
-      degradation, LAT/MSL clamp) + resolveCandidateIndexes dedupe with a
-      deterministic cellId sort. REMAINING (0.4): EncVectorLayer logic tests
-      (fillDepareTideWindow, click routing).
+- [x] **1.6 — Seam tests + dedupe** — DONE in two tranches: 1.2
+      (`eab82ed0`) partition tests (ENC/GEBCO split, soundingOnly demotion,
+      outage degradation, LAT/MSL clamp) + resolveCandidateIndexes dedupe with
+      a deterministic cellId sort; 0.4 — EncVectorLayer click/popup logic
+      extracted pure (`pickAreaTap` area-tap precedence incl. caution-over-
+      water fold-in, `needsTideWindow` DEPARE tide-window fetch gate) and
+      wired back into the handler, 14 tests.
 
 ### Rendering
 
@@ -133,3 +135,9 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | Partition seam tests + candidate-resolution dedupe             | 1.2  | `eab82ed0` | 94.55             |
 | 2026-07-16 | Batch-2 area classes live (Pi #2 → v7) + FAIRWY rendered       | 0.5  | `0e6f9870` | 95.05             |
 | 2026-07-16 | Night dim v1 (red-tinted, persisted toggle)                    | 0.5  | `f39bfb33` | 95.55             |
+| 2026-07-17 | EncVectorLayer logic tests (pickAreaTap / needsTideWindow)     | 0.4  | `d36c6691` | 95.95             |
+
+**95.95 vs the 2026-07-16 bar. Every non-device item is burned.** What
+remains to cross 96: the device-gated martinez glaze session (1.75, needs
+Shane's iPhone) or curated VTS geometry (0.4, deferred with reason). Then
+the protocol's final open adversarial audit.
