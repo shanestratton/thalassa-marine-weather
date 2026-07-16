@@ -55,6 +55,19 @@ function cacheKey(lat: number, lon: number): string {
 }
 
 const depthCache = new Map<string, number | null>();
+/** Bound the depth cache (burn-down: it grew unbounded across a planning
+ *  session's route recalcs). ~20k entries ≈ several full long-route
+ *  validations; insertion-order eviction, same pattern as the ENC caches. */
+const DEPTH_CACHE_MAX = 20_000;
+
+function putDepth(key: string, depth: number | null): void {
+    depthCache.set(key, depth);
+    while (depthCache.size > DEPTH_CACHE_MAX) {
+        const oldest = depthCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        depthCache.delete(oldest);
+    }
+}
 
 // ── Service ──────────────────────────────────────────────────────
 
@@ -101,7 +114,7 @@ class GebcoDepthServiceClass {
                 // (mission audit). Uncached → retried on the next query.
                 if (fetched[j].depth_m !== null) {
                     const key = cacheKey(fetched[j].lat, fetched[j].lon);
-                    depthCache.set(key, fetched[j].depth_m);
+                    putDepth(key, fetched[j].depth_m);
                 }
             }
         }
