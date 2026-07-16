@@ -5793,6 +5793,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         ['#7c3aed', 'Cable / pipeline'],
                                         ['#d97706', 'TSS lane'],
                                         ['#8a8a5a', 'Seabed type'],
+                                        ['#2f6fd0', 'Anchorage'],
                                     ] as const
                                 ).map(([swatch, label]) => (
                                     <div key={label} className="flex items-center gap-1.5">

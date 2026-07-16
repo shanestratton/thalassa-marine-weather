@@ -132,6 +132,11 @@ export const ROUTING_CLASSES = new Set([
     'PIPARE', // Pipeline area (no anchoring)
     'SBDARE', // Seabed area — nature of the bottom (NATSUR: sand/mud/rock; anchoring aid)
     'TSSLPT', // Traffic Separation Scheme lane part (ORIENT — keep-to-your-lane)
+    // Batch 2 (2026-07-16 burn-down "missing charted-area classes"):
+    'CTNARE', // Caution area — "see the chart note"
+    'TSEZNE', // TSS zone (the separation zone between lanes — keep OUT)
+    'ACHARE', // Anchorage area (where you're MEANT to anchor)
+    'MARCUL', // Marine farm / aquaculture (nets + lines — keep clear)
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here

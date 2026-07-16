@@ -635,12 +635,31 @@ export interface EncConversionResult {
         SBDARE?: GeoJSON.FeatureCollection;
         /** Traffic Separation Scheme lane part (ORIENT). Info polygon. */
         TSSLPT?: GeoJSON.FeatureCollection;
+        /** Caution area — "see the chart note". Info polygon. */
+        CTNARE?: GeoJSON.FeatureCollection;
+        /** TSS separation zone (between the lanes — keep OUT). */
+        TSEZNE?: GeoJSON.FeatureCollection;
+        /** Designated anchorage area. Info polygon. */
+        ACHARE?: GeoJSON.FeatureCollection;
+        /** Marine farm / aquaculture — nets and lines, keep clear. */
+        MARCUL?: GeoJSON.FeatureCollection;
     };
 }
 
 /** The caution / information AREA classes drawn as chart furniture (one
- *  CAUTION_AREAS collection, tagged `_caution`). 2026-07-16 audit. */
-export const CAUTION_AREA_CLASSES = ['RESARE', 'CBLARE', 'PIPARE', 'SBDARE', 'TSSLPT'] as const;
+ *  CAUTION_AREAS collection, tagged `_caution`). 2026-07-16 audit; batch 2
+ *  added CTNARE/TSEZNE/ACHARE/MARCUL (burn-down missing-classes item). */
+export const CAUTION_AREA_CLASSES = [
+    'RESARE',
+    'CBLARE',
+    'PIPARE',
+    'SBDARE',
+    'TSSLPT',
+    'CTNARE',
+    'TSEZNE',
+    'ACHARE',
+    'MARCUL',
+] as const;
 export type CautionAreaClass = (typeof CAUTION_AREA_CLASSES)[number];
 
 /**

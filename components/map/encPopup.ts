@@ -148,6 +148,20 @@ const CAUTION_LABELS: Record<string, string> = {
     PIPARE: 'Pipeline area',
     SBDARE: 'Seabed (nature of bottom)',
     TSSLPT: 'Traffic separation lane',
+    CTNARE: 'Caution area',
+    TSEZNE: 'Separation zone',
+    ACHARE: 'Anchorage area',
+    MARCUL: 'Marine farm',
+};
+
+/** Class-specific plain-language note when the chart carries no RESTRN. */
+const CAUTION_NOTES: Record<string, string> = {
+    CBLARE: 'No anchoring',
+    PIPARE: 'No anchoring',
+    TSEZNE: 'Keep OUT — separation zone between traffic lanes',
+    ACHARE: 'Designated anchorage',
+    MARCUL: 'Aquaculture — nets and lines, keep clear',
+    CTNARE: 'See chart notes / sailing directions',
 };
 
 /** S-57 RESTRN (restriction) codes — the values a skipper actually meets. */
@@ -554,14 +568,18 @@ export function buildFeaturePopupHtml(
                   ? '#8b5cf6'
                   : cls === 'PIPARE'
                     ? '#7c3aed'
-                    : cls === 'TSSLPT'
+                    : cls === 'TSSLPT' || cls === 'TSEZNE'
                       ? '#f59e0b'
-                      : '#d43fc0';
+                      : cls === 'ACHARE'
+                        ? '#5b9bd5'
+                        : cls === 'MARCUL'
+                          ? '#84a95e'
+                          : '#d43fc0';
         // RESTRN (restriction) — the values a skipper meets most.
         const restrn = restrnNames(props.RESTRN ?? props.restrn);
         if (restrn) body += `<div class="enc-popup-row"><span>Restriction</span><b>${esc(restrn)}</b></div>`;
-        else if (cls === 'CBLARE' || cls === 'PIPARE')
-            body += `<div class="enc-popup-row"><span>Note</span><b>No anchoring</b></div>`;
+        else if (CAUTION_NOTES[cls])
+            body += `<div class="enc-popup-row"><span>Note</span><b>${esc(CAUTION_NOTES[cls])}</b></div>`;
         // NATSUR (nature of surface) for seabed areas — the anchoring read.
         const natsur = natsurNames(props.NATSUR ?? props.natsur);
         if (natsur) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(natsur)}</b></div>`;

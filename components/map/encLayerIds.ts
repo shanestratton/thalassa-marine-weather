@@ -22,6 +22,7 @@ export const ENC_VEC_SRC = {
     DEPCNT_DERIVED: 'enc-vec-depcnt-derived', // contours interpolated from soundings
     SEAARE_LABELS: 'enc-vec-seaare-labels', // one label point per named sea area
     CAUTION_AREAS: 'enc-vec-caution-areas', // restricted/cable/pipeline/seabed/TSS polygons
+    FAIRWY: 'enc-vec-fairwy', // marked fairway polygons (drawn as boundary lines)
 } as const;
 
 // NOTE: layer-id stability is load-bearing. Click handlers, the
@@ -71,6 +72,9 @@ export const ENC_VEC_LAYERS = {
      *  lane wash told the helmsman nothing about which WAY the lane runs
      *  (audit). Map-aligned so the arrow points the lane's true bearing. */
     TSSLPT_ARROW: 'enc-vec-tsslpt-arrow',
+    /** Fairway boundary — dashed marine-blue line, NON-clickable (a tappable
+     *  fill would blanket the channel and steal the water tap). */
+    FAIRWY_LINE: 'enc-vec-fairwy-line',
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
     UWTROC: 'enc-vec-uwtroc-circle',
@@ -129,6 +133,7 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.CAUTION_AREA_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_LINE,
     ENC_VEC_LAYERS.TSSLPT_ARROW,
+    ENC_VEC_LAYERS.FAIRWY_LINE,
     // Sounding-derived contours sit UNDER the official DEPCNT trio so a
     // surveyed line always draws over an interpolated one where both exist.
     ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
@@ -216,5 +221,6 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         // steal the DEPARE depth popup (its info folds into that popup instead).
         id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE &&
         id !== ENC_VEC_LAYERS.SBDARE_FILL &&
-        id !== ENC_VEC_LAYERS.TSSLPT_ARROW,
+        id !== ENC_VEC_LAYERS.TSSLPT_ARROW &&
+        id !== ENC_VEC_LAYERS.FAIRWY_LINE,
 );

@@ -187,6 +187,11 @@ const ENC_LAYERS = [
     'PIPARE',
     'SBDARE',
     'TSSLPT',
+    // Batch 2 (burn-down): caution note / TSS zone / anchorage / marine farm.
+    'CTNARE',
+    'TSEZNE',
+    'ACHARE',
+    'MARCUL',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');

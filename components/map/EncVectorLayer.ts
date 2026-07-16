@@ -439,7 +439,13 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
         '#5b21b6', // pipeline — deep violet
         'TSSLPT',
         '#d97706', // TSS lane — amber
-        '#c0209a', // RESARE + default — restricted magenta
+        'TSEZNE',
+        '#d97706', // TSS separation zone — amber family (keep OUT)
+        'ACHARE',
+        '#2f6fd0', // designated anchorage — marine blue
+        'MARCUL',
+        '#5f7a3a', // marine farm — kelp green (nets + lines, keep clear)
+        '#c0209a', // RESARE + CTNARE + default — caution magenta
     ] as unknown;
     if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_FILL)) {
         map.addLayer(
@@ -501,6 +507,29 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_LINE),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.FAIRWY_LINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.FAIRWY_LINE,
+                type: 'line',
+                source: ENC_VEC_SRC.FAIRWY,
+                minzoom: 11,
+                layout: { 'line-join': 'round' },
+                // Fairway boundary — long-dash marine blue, deliberately
+                // quieter than the caution washes (it marks where you SHOULD
+                // be). LINE only: a tappable fill would blanket the channel
+                // and steal the water tap (burn-down: render the
+                // already-extracted FAIRWY).
+                paint: {
+                    'line-color': '#3b82c4',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 15, 1.4],
+                    'line-dasharray': [6, 3],
+                    'line-opacity': 0.6,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.FAIRWY_LINE),
         );
     }
     if (!map.getLayer(ENC_VEC_LAYERS.TSSLPT_ARROW)) {
@@ -1452,6 +1481,7 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
     ensureSource(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
     ensureSource(ENC_VEC_SRC.CAUTION_AREAS, data.CAUTION_AREAS, 8); // caution/info area polygons
+    ensureSource(ENC_VEC_SRC.FAIRWY, data.FAIRWY, 8); // fairway boundary polygons
 
     const anchor = findInsertionAnchor(map);
 
@@ -1554,6 +1584,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         () => setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED),
         () => setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS),
         () => setData(ENC_VEC_SRC.CAUTION_AREAS, data.CAUTION_AREAS),
+        () => setData(ENC_VEC_SRC.FAIRWY, data.FAIRWY),
     ];
     // rAF with a WATCHDOG (2026-07-15, "your white layer is not showing…
     // just the old enc layer"): rAF only fires while the browser is
