@@ -1,9 +1,11 @@
 /**
  * glazeCellCache — a small LRU of per-cell satellite-GLAZE fills, keyed
- * `v{ver}:{cellId}:{sortedShadowIds}`.
+ * `{cellId}@{edition}@{sizeBytes}:{sortedShadowIds}` (the cell-identity
+ * triple — the old v{registryVersion} prefix wiped every cached glaze on
+ * ANY putCell and was retired in the z10-boot perf batch).
  *
  * A cell's glaze depends only on its own DEPARE bands + which finer cells
- * shadow it — both immutable per registry version — so it memoizes cleanly.
+ * shadow it — both stable for a given cell content — so it memoizes cleanly.
  * `upgraded` marks entries the geometry worker has re-clipped against TRUE
  * fine-survey coverage (hole-free); un-upgraded entries hold the instant
  * rectangle clip and are re-queued for upgrade on use. Callers mutate

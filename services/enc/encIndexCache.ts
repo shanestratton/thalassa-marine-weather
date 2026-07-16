@@ -17,9 +17,12 @@ const indexes = new Map<string, EncSpatialIndex>();
 /** 12 covered a bay-scale window but a LONG coastal route's candidate set
  *  (Brisbane→Cairns ≈ 30 cells) evicted mid-validation, so every query batch
  *  rebuilt indexes it had just built (burn-down: resize for route-length
- *  candidate sets). 24 holds a passage leg's worth; the original leak this
- *  cap fixed was 30+ PINNED indexes with no eviction at all — still bounded. */
-const INDEX_CACHE_MAX = 24;
+ *  candidate sets). 24 was raised to 32 (2026-07-17 audit: 24 still sat
+ *  BELOW the acknowledged ~30-cell set, so the sequential scan thrashed —
+ *  eviction one step ahead of the scan rebuilt every index per batch).
+ *  32 holds the full candidate set + slack; the original leak this cap
+ *  fixed was 30+ PINNED indexes with no eviction at all — still bounded. */
+const INDEX_CACHE_MAX = 32;
 const failedLoads = new Map<string, number>();
 
 /** Get a cached index, refreshing its LRU position (most-recently-used). */

@@ -95,7 +95,11 @@ describe('tide offset — "depth right now" shifts every stop consistently', () 
         expect(fill({ DRVAL1: 1 }, 1.5)).toBe(DEPARE_BAND_COLORS.b2to5);
     });
     it('contour labels shift with the tide so the screen never mixes datums', () => {
-        expect(evalExpr(buildDepcntLabelField(1.2), { props: { VALDCO: 5 } })).toBe('6');
+        // Non-integer results keep the decimal (audit: rounding printed a
+        // WRONG depth on the line — 6.2 m labelled "6").
+        expect(evalExpr(buildDepcntLabelField(1.2), { props: { VALDCO: 5 } })).toBe('6.2');
+        expect(evalExpr(buildDepcntLabelField(1), { props: { VALDCO: 5 } })).toBe('6');
+        expect(evalExpr(buildDepcntLabelField(0), { props: { VALDCO: 3.6 } })).toBe('3.6');
     });
 });
 

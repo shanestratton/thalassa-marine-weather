@@ -605,6 +605,13 @@ export function buildRouteAdvisories(
             severity: 'note',
             text: `Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`,
         });
+    } else if (worstCatzoc === null && results.some((r) => r.source === 'enc')) {
+        // ENC-verified but ZERO M_QUAL data anywhere along the route
+        // (audit: quality-unknown coverage read exactly like a good survey).
+        advisories.push({
+            severity: 'note',
+            text: 'Chart survey quality is UNASSESSED along this route (no CATZOC data) — treat charted depths with a margin',
+        });
     }
     return advisories;
 }

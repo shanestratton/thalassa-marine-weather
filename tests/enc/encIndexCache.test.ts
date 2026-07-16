@@ -29,11 +29,11 @@ describe('encIndexCache', () => {
         expect(touchIndex('missing')).toBeUndefined();
     });
 
-    it('evicts the LEAST-recently-used beyond 24 (route-length candidate sets)', () => {
-        for (let i = 0; i < 24; i++) cacheIndex(`k${i}`, idx(`k${i}`));
+    it('evicts the LEAST-recently-used beyond 32 (holds the ~30-cell route candidate set)', () => {
+        for (let i = 0; i < 32; i++) cacheIndex(`k${i}`, idx(`k${i}`));
         touchIndex('k0'); // k0 → most-recently-used
-        cacheIndex('k24', idx('k24')); // size 25 → evict LRU (k1, not k0)
-        expect(indexCacheSize()).toBe(24);
+        cacheIndex('k32', idx('k32')); // size 33 → evict LRU (k1, not k0)
+        expect(indexCacheSize()).toBe(32);
         expect(touchIndex('k0')).toBeDefined(); // survived (was touched)
         expect(touchIndex('k1')).toBeUndefined(); // evicted
     });

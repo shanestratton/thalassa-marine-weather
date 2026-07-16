@@ -267,7 +267,11 @@ export function buildSoundingTextField(tideOffsetM = 0): ExpressionSpecification
         'case',
         ['<', ['abs', v], 10],
         ['concat', ['to-string', whole], ['case', ['==', tenth, 0], '', ['at', tenth, ['literal', SUBSCRIPT_DIGITS]]]],
-        ['to-string', ['round', v]],
+        // ≥10 m: FLOOR, not round (audit: 10.9 printed "11" — deeper than
+        // charted). Truncation is the shallow-biased, safe direction; the
+        // rare ≥10 m drying height keeps round (floor would overstate it in
+        // the other sign).
+        ['to-string', ['case', ['>=', v, 0], ['floor', v], ['round', v]]],
     ] as unknown as ExpressionSpecification;
 }
 
@@ -300,7 +304,18 @@ export function buildSoundingTextColor(tideOffsetM: number | null = null): Expre
  *  labelled "0" (a wrong depth number on the chart, hard rule 2). */
 export function buildDepcntLabelField(tideOffsetM = 0): ExpressionSpecification {
     const v = tideOffsetM === 0 ? VALDCO_ATTR : ['+', VALDCO_ATTR, tideOffsetM];
-    return ['case', attrValid(VALDCO_ATTR), ['to-string', ['round', v]], ''] as unknown as ExpressionSpecification;
+    // Non-integer VALDCO keeps one decimal (audit: rounding printed a WRONG
+    // depth on the line — a 3.6 m contour labelled "4"). Integer values
+    // stay clean whole numbers.
+    const tenths = ['round', ['*', v, 10]];
+    const isWhole = ['==', ['%', tenths, 10], 0];
+    const oneDp = ['concat', ['to-string', ['floor', ['/', tenths, 10]]], '.', ['to-string', ['%', tenths, 10]]];
+    return [
+        'case',
+        attrValid(VALDCO_ATTR),
+        ['case', isWhole, ['to-string', ['round', v]], oneDp],
+        '',
+    ] as unknown as ExpressionSpecification;
 }
 
 // ── Safety contour derivation ─────────────────────────────────────
