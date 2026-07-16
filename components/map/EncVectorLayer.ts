@@ -54,7 +54,7 @@ import {
     S57_POINT_MARK_CLASSES,
 } from './encLayerIds';
 import { isScrubHidden } from './encDetailScrubber';
-import { buildFeaturePopupHtml, type PopupExtras } from './encPopup';
+import { buildFeaturePopupHtml, needsTideWindow, pickAreaTap, type PopupExtras } from './encPopup';
 
 export { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
 import {
@@ -2062,9 +2062,9 @@ export function encSuppressNextClickPopup(map: mapboxgl.Map): void {
 function fillDepareTideWindow(popup: mapboxgl.Popup, props: Record<string, unknown>, extras: PopupExtras): void {
     const d1 = Number(props.DRVAL1 ?? props.drval1);
     const S = extras.safetyDepthM;
-    if (!Number.isFinite(d1) || S == null || S <= 0 || d1 >= S) return;
-    const h = extras.tideOffsetM;
-    if (h != null && d1 + h >= S) return;
+    // Gate lives in needsTideWindow (pure, tested): keel-limited band the
+    // current tide doesn't already clear.
+    if (S == null || !needsTideWindow(d1, S, extras.tideOffsetM)) return;
     if (!popup.getElement()?.querySelector('.enc-popup-tidewin')) return;
     const at = popup.getLngLat();
     void Promise.all([import('../../services/routeTracer'), import('../../services/routing/tidalWindow')])
@@ -2203,20 +2203,21 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         } else {
             // Area fills (water, land) answer only an exact-point tap.
             const areaHits = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
-            if (!areaHits.length) return;
-            feat = areaHits[0];
             // A caution wash must never REPLACE the tap-the-water depth/keel
             // read (audit: over its whole footprint at z11+ the caution popup
             // stole the flagship answer). When charted water lies beneath,
             // answer as WATER and fold the caution into the depth popup —
-            // the same treatment SBDARE already gets (extras below).
-            if (feat.layer?.id === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
-                const water = areaHits.find((h) => h.layer?.id === ENC_VEC_LAYERS.DEPARE);
-                if (water) {
-                    cautionUnder = (feat.properties ?? {}) as Record<string, unknown>;
-                    feat = water;
-                }
-            }
+            // the same treatment SBDARE already gets (extras below). The
+            // precedence lives in pickAreaTap (pure, tested).
+            const pick = pickAreaTap(
+                areaHits.map((h) => ({
+                    layerId: h.layer?.id ?? '',
+                    properties: (h.properties ?? {}) as Record<string, unknown>,
+                })),
+            );
+            if (!pick) return;
+            feat = areaHits[pick.index];
+            cautionUnder = pick.cautionUnder;
         }
         // pointHits non-empty guarantees a pick, but TS can't see through
         // the filter/nearest split — and a paranoid bail beats a throw.
