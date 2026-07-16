@@ -555,7 +555,7 @@ export function buildRouteAdvisories(results: HazardResult[], vesselDraftM?: num
  * cable area — check restrictions"). Deduped by class + restriction. Returns
  * null when the route crosses none. Pure + exported for unit testing.
  */
-export function describeCautionCrossings(areas: EncCautionArea[]): string | null {
+export function describeCautionCrossings(areas: EncCautionArea[]): RouteAdvisory | null {
     if (areas.length === 0) return null;
     const CLS_LABEL: Record<string, string> = {
         RESARE: 'restricted area',
@@ -567,21 +567,30 @@ export function describeCautionCrossings(areas: EncCautionArea[]): string | null
         '1': 'anchoring prohibited',
         '2': 'anchoring restricted',
         '3': 'fishing prohibited',
+        '4': 'fishing restricted',
+        '5': 'trawling prohibited',
+        '6': 'trawling restricted',
         '7': 'entry prohibited',
         '8': 'entry restricted',
         '14': 'no wake',
         '27': 'no anchoring / no fishing',
     };
+    // Entry-prohibited/-restricted crossings outrank the informational
+    // "check restrictions" note — transiting one can be an offence, not
+    // just a caveat (burn-down: severity tiers).
+    const ENTRY_CODES = new Set(['7', '8']);
     const seen = new Set<string>();
     const parts: string[] = [];
+    let entryProhibited = false;
     for (const a of areas) {
         const label = CLS_LABEL[a.cls] ?? 'charted area';
         let detail = '';
         if (a.restrn) {
-            const rs = a.restrn
-                .split(',')
-                .map((r) => RESTRN_LABEL[r.trim()])
-                .filter(Boolean);
+            const codes = a.restrn.split(',').map((r) => r.trim());
+            if (codes.some((c) => ENTRY_CODES.has(c))) entryProhibited = true;
+            // Unmapped codes must not vanish silently (burn-down: the raw
+            // S-57 code is still look-up-able on a paper chart).
+            const rs = codes.filter(Boolean).map((c) => RESTRN_LABEL[c] ?? `restriction code ${c}`);
             if (rs.length) detail = ` (${rs.join(', ')})`;
         }
         const key = label + detail;
@@ -589,7 +598,10 @@ export function describeCautionCrossings(areas: EncCautionArea[]): string | null
         seen.add(key);
         parts.push(label + detail);
     }
-    return `Route crosses ${parts.join(' · ')} — check restrictions`;
+    return {
+        severity: entryProhibited ? 'caution' : 'note',
+        text: `Route crosses ${parts.join(' · ')} — check restrictions`,
+    };
 }
 
 export async function validateRouteSegments(
@@ -695,8 +707,8 @@ export async function validateRouteSegments(
                 });
             }
             const perSeg = await HazardQueryService.querySegmentCautions(cautionSegs);
-            const note = describeCautionCrossings(perSeg.flat());
-            if (note) routeAdvisories.push({ severity: 'note', text: note });
+            const advisory = describeCautionCrossings(perSeg.flat());
+            if (advisory) routeAdvisories.push(advisory);
         } catch (err) {
             landLog.warn('[ValidateRoute] caution-area crossing check failed', err);
         }

@@ -102,8 +102,22 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
     // one thing the skipper can't see on the chart at all.
     const hasCaution = advisories.some((a) => a.severity === 'caution');
     const cautionText = advisories.find((a) => a.severity === 'caution')?.text;
+    // Caution-aware headline (audit: every caution said "Unverified depth"
+    // even when the caution was pass-limit exhaustion or a failed
+    // validation — the headline must match what actually happened).
+    const cautionHeadline = !cautionText
+        ? null
+        : cautionText.includes('NO depth data')
+          ? 'Unverified depth on route'
+          : cautionText.includes('NOT been validated') || cautionText.includes('pass limit')
+            ? 'Route not fully verified'
+            : cautionText.includes('draft')
+              ? 'Draft exceeds depth model'
+              : cautionText.includes('Route crosses')
+                ? 'Route crosses a prohibited area'
+                : 'Route caution — verify visually';
     const headline = hasCaution
-        ? 'Unverified depth on route'
+        ? cautionHeadline!
         : total === 0
           ? 'Route advisory — verify visually'
           : total === 1
@@ -126,6 +140,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         >
             <button
                 onClick={() => setExpanded((x) => !x)}
+                aria-expanded={expanded}
                 className={`w-full rounded-xl border ${accent.border} bg-black/75 backdrop-blur-md px-3 py-2 text-left hover:bg-black/85 transition-colors active:scale-[0.98]`}
             >
                 <div className="flex items-center gap-2">

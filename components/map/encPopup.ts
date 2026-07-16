@@ -165,11 +165,16 @@ const RESTRN_LABELS: Record<string, string> = {
 };
 
 function restrnNames(restrn: unknown): string {
-    return String(restrn ?? '')
-        .split(',')
-        .map((r) => RESTRN_LABELS[r.trim()])
-        .filter(Boolean)
-        .join(' · ');
+    return (
+        String(restrn ?? '')
+            .split(',')
+            .map((r) => r.trim())
+            .filter(Boolean)
+            // Unmapped codes surface as their raw S-57 code instead of silently
+            // vanishing — still look-up-able on a paper chart (burn-down).
+            .map((r) => RESTRN_LABELS[r] ?? `restriction code ${r}`)
+            .join(' · ')
+    );
 }
 
 /** The light attribute rows (character / period / height / range /

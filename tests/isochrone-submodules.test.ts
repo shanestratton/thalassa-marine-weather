@@ -380,16 +380,27 @@ describe('describeCautionCrossings', () => {
 
     it('summarises class + RESTRN and dedups repeats', () => {
         const out = describeCautionCrossings([area('RESARE', '7'), area('RESARE', '7'), area('CBLARE')]);
-        expect(out).toContain('restricted area (entry prohibited)');
-        expect(out).toContain('submarine cable area');
-        expect(out).toContain('check restrictions');
+        expect(out!.text).toContain('restricted area (entry prohibited)');
+        expect(out!.text).toContain('submarine cable area');
+        expect(out!.text).toContain('check restrictions');
         // deduped: 'restricted area (entry prohibited)' appears once
-        expect(out!.match(/restricted area \(entry prohibited\)/g)).toHaveLength(1);
+        expect(out!.text.match(/restricted area \(entry prohibited\)/g)).toHaveLength(1);
     });
 
     it('maps a RESTRN list to readable restrictions', () => {
-        expect(describeCautionCrossings([area('RESARE', '1,3')])).toContain(
+        expect(describeCautionCrossings([area('RESARE', '1,3')])!.text).toContain(
             'restricted area (anchoring prohibited, fishing prohibited)',
         );
+    });
+
+    it('SEVERITY tiers: entry-prohibited/-restricted crossings are a CAUTION, others a note', () => {
+        expect(describeCautionCrossings([area('RESARE', '7')])!.severity).toBe('caution'); // entry prohibited
+        expect(describeCautionCrossings([area('RESARE', '8')])!.severity).toBe('caution'); // entry restricted
+        expect(describeCautionCrossings([area('RESARE', '1')])!.severity).toBe('note'); // anchoring only
+        expect(describeCautionCrossings([area('CBLARE')])!.severity).toBe('note'); // cable, no RESTRN
+    });
+
+    it('UNMAPPED RESTRN codes surface as raw codes instead of vanishing', () => {
+        expect(describeCautionCrossings([area('RESARE', '23')])!.text).toContain('restriction code 23');
     });
 });

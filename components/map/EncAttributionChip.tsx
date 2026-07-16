@@ -190,6 +190,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
         >
             <button
                 onClick={() => setExpanded((x) => !x)}
+                aria-expanded={expanded}
                 className="rounded-lg border border-emerald-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5"
             >
                 <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} aria-hidden="true" />
