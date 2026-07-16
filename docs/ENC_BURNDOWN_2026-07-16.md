@@ -135,7 +135,7 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | Partition seam tests + candidate-resolution dedupe             | 1.2  | `eab82ed0` | 94.55             |
 | 2026-07-16 | Batch-2 area classes live (Pi #2 → v7) + FAIRWY rendered       | 0.5  | `0e6f9870` | 95.05             |
 | 2026-07-16 | Night dim v1 (red-tinted, persisted toggle)                    | 0.5  | `f39bfb33` | 95.55             |
-| 2026-07-17 | EncVectorLayer logic tests (pickAreaTap / needsTideWindow)     | 0.4  | `d36c6691` | 95.95             |
+| 2026-07-17 | EncVectorLayer logic tests (pickAreaTap / needsTideWindow)     | 0.4  | `b8d4e1b8` | 95.95             |
 
 **95.95 vs the 2026-07-16 bar. Every non-device item is burned.** What
 remains to cross 96: the device-gated martinez glaze session (1.75, needs
