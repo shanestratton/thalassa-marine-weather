@@ -425,8 +425,23 @@ function mountLandCoastLayers(
  * The fill is tappable (encPopup reads the restriction); the outline decorates.
  */
 function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => string | undefined): void {
-    // Magenta for the true caution zones; olive for seabed nature.
-    const colourExpr = ['match', ['get', '_caution'], 'SBDARE', '#8a8a5a', '#c0209a'] as unknown;
+    // Per-CLASS colours (audit: all four true-caution classes rendered one
+    // flat magenta — S-52/Navionics differentiate cable vs restricted vs TSS):
+    // restricted stays S-52 magenta, cable/pipeline go violet, TSS lanes
+    // amber, seabed nature a muted olive. encPopup accents match.
+    const colourExpr = [
+        'match',
+        ['get', '_caution'],
+        'SBDARE',
+        '#8a8a5a', // seabed nature — olive (anchoring aid)
+        'CBLARE',
+        '#7c3aed', // submarine cable — violet
+        'PIPARE',
+        '#5b21b6', // pipeline — deep violet
+        'TSSLPT',
+        '#d97706', // TSS lane — amber
+        '#c0209a', // RESARE + default — restricted magenta
+    ] as unknown;
     if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_FILL)) {
         map.addLayer(
             {
@@ -434,19 +449,36 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                 type: 'fill',
                 source: ENC_VEC_SRC.CAUTION_AREAS,
                 minzoom: 11,
-                // SBDARE (seabed nature) is EXCLUDED from the fill — it's a
-                // near-invisible anchoring-info wash that blankets whole seabed
-                // areas, and being clickable + above DEPARE it stole the
-                // flagship depth/keel-verdict popup on a tap in open water
-                // (audit: "Seabed: Sand" over the Newport demo). It keeps its
-                // outline below; the true caution zones keep their tappable wash.
+                // SBDARE (seabed nature) is EXCLUDED from this tappable wash —
+                // it blankets whole seabed areas and, clickable + above DEPARE,
+                // it stole the flagship depth/keel popup (audit). It gets its
+                // own subtle, NON-clickable fill below; its NATSUR decode is
+                // folded into the DEPARE popup instead (extras.seabed).
                 filter: ['!=', ['get', '_caution'], 'SBDARE'],
                 paint: {
-                    'fill-color': '#c0209a',
+                    'fill-color': colourExpr as mapboxgl.ExpressionSpecification,
                     'fill-opacity': 0.1,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_FILL),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.SBDARE_FILL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.SBDARE_FILL,
+                type: 'fill',
+                source: ENC_VEC_SRC.CAUTION_AREAS,
+                // Anchoring-decision zoom — at z11 the olive wash over every
+                // seabed polygon was pure clutter (audit).
+                minzoom: 13,
+                filter: ['==', ['get', '_caution'], 'SBDARE'],
+                paint: {
+                    'fill-color': '#8a8a5a',
+                    'fill-opacity': 0.06,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.SBDARE_FILL),
         );
     }
     if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_LINE)) {
@@ -456,6 +488,11 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                 type: 'line',
                 source: ENC_VEC_SRC.CAUTION_AREAS,
                 minzoom: 11,
+                // SBDARE outlines OFF this layer too (audit: olive dashes over
+                // every seabed polygon at z11 = clutter, and taps on them fell
+                // through to a depth-not-seabed answer). Its subtle fill above
+                // is the visual; the DEPARE popup carries the seabed read.
+                filter: ['!=', ['get', '_caution'], 'SBDARE'],
                 layout: { 'line-join': 'round' },
                 paint: {
                     'line-color': colourExpr as mapboxgl.ExpressionSpecification,
@@ -2043,12 +2080,22 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         // Vessel keel + live tide state ride along so the DEPARE branch
         // can answer "can I float here" instead of quoting chart-speak.
         const dstate = depthStyleState.get(map);
+        // Seabed enrichment: a WATER tap inside an SBDARE folds "Seabed:
+        // Sand" into the depth popup (the SBDARE wash itself is non-clickable
+        // so it can never STEAL this popup — audit). Fires z13+ only, the
+        // SBDARE layer's minzoom — the anchoring-decision zoom.
+        let seabed: Record<string, unknown> | null = null;
+        if (layerId === ENC_VEC_LAYERS.DEPARE && map.getLayer(ENC_VEC_LAYERS.SBDARE_FILL)) {
+            const sb = map.queryRenderedFeatures(e.point, { layers: [ENC_VEC_LAYERS.SBDARE_FILL] });
+            if (sb.length > 0) seabed = (sb[0].properties ?? {}) as Record<string, unknown>;
+        }
         const extras: PopupExtras = {
             safetyDepthM: dstate?.safetyDepthM,
             tideOffsetM: dstate?.tideOffsetM ?? null,
             tideOffsetAtMs: dstate?.tideOffsetAtMs ?? null,
             draftAssumed: dstate?.draftAssumed ?? false,
             ...(colocatedLight ? { light: colocatedLight } : {}),
+            ...(seabed ? { seabed } : {}),
         };
 
         const popup = new mapboxgl.Popup({

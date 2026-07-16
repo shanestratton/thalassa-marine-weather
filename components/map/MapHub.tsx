@@ -5087,7 +5087,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                               : v.minDepthM !== null
                                                                 ? `clear — ${v.minDepthM.toFixed(1)} m least`
                                                                 : 'clear'
-                                                          : (v.issues.find((iss) => iss.severity !== 'info')?.message ?? v.grade);
+                                                          : (v.issues.find((iss) => iss.severity !== 'info')?.message ??
+                                                            v.grade);
                                                     // Tap a leg row → fly to the MARK it's
                                                     // about (haloed) when there is one, else
                                                     // the problem spot / leg midpoint.
