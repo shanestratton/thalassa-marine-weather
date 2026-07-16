@@ -32,6 +32,7 @@ import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
 import { getGlazeCell, putGlazeCell } from './glazeCellCache';
+import { touchIndex, cacheIndex, isIndexFailed, markIndexFailed, dropIndex, clearIndexCache } from './encIndexCache';
 
 import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
@@ -83,34 +84,10 @@ const log = createLogger('EncHazardService');
  * blob stopped freeing memory. Indexes rebuild from blobs in tens of
  * ms; keeping a passage-leg's worth warm is plenty.
  */
-const indexes: Map<string, EncSpatialIndex> = new Map();
-const INDEX_CACHE_MAX = 12;
-
-function touchIndex(cellId: string): EncSpatialIndex | undefined {
-    const hit = indexes.get(cellId);
-    if (hit) {
-        indexes.delete(cellId);
-        indexes.set(cellId, hit);
-    }
-    return hit;
-}
-
-function cacheIndex(cellId: string, index: EncSpatialIndex): void {
-    indexes.delete(cellId);
-    indexes.set(cellId, index);
-    while (indexes.size > INDEX_CACHE_MAX) {
-        const oldest = indexes.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        indexes.delete(oldest);
-    }
-}
-
-/**
- * Cells we've already attempted to load, for which the GeoJSON
- * blob was missing/corrupt. We don't keep retrying these on every
- * query — re-import or a session restart is required.
- */
-const failedLoads: Set<string> = new Set();
+// The per-cell spatial-index LRU + failed-load set now own their own module
+// (encIndexCache.ts) — one more step decomposing this god-module's caches
+// (mission audit). touchIndex/cacheIndex/isIndexFailed/markIndexFailed/
+// dropIndex/clearIndexCache are imported below.
 
 // ── GeoJSON → EncHazard parsing ───────────────────────────────────
 // Extracted to ./encHazardParse (pure + unit-tested — this path feeds the
@@ -126,19 +103,19 @@ const failedLoads: Set<string> = new Set();
 async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> {
     const cached = touchIndex(cellId);
     if (cached) return cached;
-    if (failedLoads.has(cellId)) return null;
+    if (isIndexFailed(cellId)) return null;
 
     const meta = cellMeta.getCell(cellId);
     if (!meta) {
         log.warn(`getOrBuildIndex ${cellId}: no metadata record`);
-        failedLoads.add(cellId);
+        markIndexFailed(cellId);
         return null;
     }
 
     const blob = await cellStore.loadCellGeoJSON(cellId);
     if (!blob) {
         log.warn(`getOrBuildIndex ${cellId}: GeoJSON missing or corrupt — user will need to re-import`);
-        failedLoads.add(cellId);
+        markIndexFailed(cellId);
         return null;
     }
 
@@ -435,8 +412,7 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
     cellMeta.putCell(cell);
 
     // Drop any stale index — next query rebuilds.
-    indexes.delete(cell.id);
-    failedLoads.delete(cell.id);
+    dropIndex(cell.id);
 
     const catzocStr = catzocRange ? ` CATZOC ${catzocRange[0]}..${catzocRange[1]}` : '';
     log.info(`imported cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features${catzocStr}`);
@@ -450,8 +426,7 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
 export async function removeCell(cellId: string): Promise<void> {
     cellMeta.removeCell(cellId);
     await cellStore.deleteCellGeoJSON(cellId);
-    indexes.delete(cellId);
-    failedLoads.delete(cellId);
+    dropIndex(cellId);
     log.info(`removed cell ${cellId}`);
 }
 
@@ -461,8 +436,7 @@ export async function removeCell(cellId: string): Promise<void> {
  * action.
  */
 export function dropIndexCache(): void {
-    indexes.clear();
-    failedLoads.clear();
+    clearIndexCache();
 }
 
 /**
