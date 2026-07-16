@@ -33,6 +33,14 @@ import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
 import { getGlazeCell, putGlazeCell } from './glazeCellCache';
 import { touchIndex, cacheIndex, isIndexFailed, markIndexFailed, dropIndex, clearIndexCache } from './encIndexCache';
+import {
+    getMergedData,
+    putMergedData,
+    clearMergedData,
+    getInflightMerge,
+    setInflightMerge,
+    deleteInflightMerge,
+} from './mergedDataCache';
 
 import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
@@ -550,12 +558,9 @@ export interface EncMergedVectorData {
  * so the windowed render merge and the seaway debug full merge stop
  * evicting each other on every moveend.
  */
-const mergedCache = new Map<string, EncMergedVectorData>();
-const MERGED_CACHE_MAX = 2;
-
-/** Single-flight per key — overlapping calls (hook debounce + routing)
- *  share one build instead of doubling the heaviest CPU in the app. */
-const inflightMerges = new Map<string, Promise<EncMergedVectorData | null>>();
+// The merged-data memo + single-flight guard now own their own module
+// (mergedDataCache.ts) — get/put/clearMergedData + get/set/deleteInflightMerge
+// imported below. One more step decomposing this god-module's caches.
 
 /** DEPARE data extents are deterministic per parsed blob — memoized by
  *  blob identity so re-merges skip the full coordinate re-walk
@@ -623,7 +628,7 @@ function notifyGeometryUpgrade(): void {
  *  (post-upgrade). Skips silently if the merge or any cell entry has
  *  been evicted — the next natural re-merge redoes it. */
 function applyGlazeUpgrade(job: PendingGeometryJob): void {
-    const cached = mergedCache.get(job.cacheKey);
+    const cached = getMergedData(job.cacheKey);
     if (!cached) return;
     const feats: Feature[] = [];
     for (const key of job.glazeKeys) {
@@ -667,7 +672,7 @@ function getGeoWorker(): Worker | null {
             // selection reuses these synchronously instead of blanking +
             // recomputing (the DEPCNT_DERIVED analogue of the glaze memo).
             putDerivedContours(job.cacheKey, features);
-            const cached = mergedCache.get(job.cacheKey);
+            const cached = getMergedData(job.cacheKey);
             if (cached) {
                 cached.DEPCNT_DERIVED.features = features;
                 notifyGeometryUpgrade();
@@ -752,7 +757,7 @@ export async function getMergedVectorData(
 ): Promise<EncMergedVectorData | null> {
     const allCells = cellMeta.listCells();
     if (allCells.length === 0) {
-        mergedCache.clear();
+        clearMergedData();
         return null;
     }
     // Stricter cell-selection floor at wide passage zoom (see the ratio
@@ -814,16 +819,16 @@ export async function getMergedVectorData(
         .map((c) => c.id)
         .sort()
         .join(',')}`;
-    const cached = mergedCache.get(cacheKey);
+    const cached = getMergedData(cacheKey);
     if (cached) return cached;
-    const inflight = inflightMerges.get(cacheKey);
+    const inflight = getInflightMerge(cacheKey);
     if (inflight) return inflight;
     const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
-    inflightMerges.set(cacheKey, build);
+    setInflightMerge(cacheKey, build);
     try {
         return await build;
     } finally {
-        inflightMerges.delete(cacheKey);
+        deleteInflightMerge(cacheKey);
     }
 }
 
@@ -1691,12 +1696,7 @@ async function buildMergedVectorData(
         });
     }
 
-    mergedCache.set(cacheKey, merged);
-    while (mergedCache.size > MERGED_CACHE_MAX) {
-        const oldest = mergedCache.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        mergedCache.delete(oldest);
-    }
+    putMergedData(cacheKey, merged);
 
     // Hand the heavy geometry (contours + optional glaze upgrade) to the
     // worker; answers swap into this cached merge via the geometry-upgrade
