@@ -310,44 +310,6 @@ export function clipLineFeatureOutsideBboxes(feature: Feature, allBboxes: readon
 }
 
 /**
- * Approximate a fine cell's charted-water COVERAGE as a small set of
- * axis-aligned strip rects — the honest middle between the two failed
- * extremes: the single data-extent RECTANGLE (clipped the coarse glaze
- * out of water the fine survey never charts → the NE-channel "dark
- * squares", 2026-07-14) and the true martinez difference (OOM-killed
- * the tab, parked behind GEOMETRY_WORKER_ENABLED).
- *
- * Method: rasterise every feature's bbox onto a K×K grid over the
- * extent, then merge covered cells into row-strips and merge identical
- * adjacent rows. A diagonal channel corridor becomes a ~K-step
- * staircase of rects. Conservative by construction (feature bbox ⊇
- * feature), so the coarse glaze is still removed everywhere the fine
- * survey makes any claim — it survives only where the fine cell is
- * genuinely silent. Capped: > maxRects falls back to [extent] (the old
- * single-rectangle behaviour).
- */
-export function coverageStripRects(featureBboxes: readonly Bbox[], extent: Bbox, k = 16, maxRects = 64): Bbox[] {
-    if (featureBboxes.length === 0) return [extent];
-    const [ex0, ey0, ex1, ey1] = extent;
-    const w = ex1 - ex0;
-    const h = ey1 - ey0;
-    if (!(w > 0) || !(h > 0)) return [extent];
-    const covered: boolean[] = new Array(k * k).fill(false);
-    for (const b of featureBboxes) {
-        const cx0 = Math.max(0, Math.floor(((b[0] - ex0) / w) * k));
-        const cx1 = Math.min(k - 1, Math.floor(((b[2] - ex0) / w) * k));
-        const cy0 = Math.max(0, Math.floor(((b[1] - ey0) / h) * k));
-        const cy1 = Math.min(k - 1, Math.floor(((b[3] - ey0) / h) * k));
-        if (cx1 < 0 || cx0 > k - 1 || cy1 < 0 || cy0 > k - 1) continue;
-        for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) covered[y * k + x] = true;
-    }
-    // Legacy semantics preserved (test-covered): empty or over-budget →
-    // the old single-rectangle behaviour.
-    const rects = maskToStrips(covered, extent, k);
-    return rects.length === 0 || rects.length > maxRects ? [extent] : rects;
-}
-
-/**
  * Strip rects from the survey's ACTUAL polygons, rasterised — the fix
  * for the fix (2026-07-14): a channel survey's bands are long DIAGONAL
  * ribbons, so even per-feature bboxes are fat rectangles around them
@@ -438,7 +400,7 @@ export function coverageMaskStrips(coverage: CoverageGeom, extent: Bbox, k = 24,
 /** Shared strip merger: covered-cell mask → row-run rects, merging
  *  identical adjacent rows. Returns the RAW strips — empty and
  *  over-budget handling belongs to the callers, whose fallbacks
- *  differ (see coverageMaskStrips vs coverageStripRects). */
+ *  differ (see coverageMaskStrips's empty/over-budget rules). */
 function maskToStrips(covered: readonly boolean[], extent: Bbox, k: number): Bbox[] {
     const [ex0, ey0, ex1, ey1] = extent;
     const w = ex1 - ex0;

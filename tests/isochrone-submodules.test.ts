@@ -320,12 +320,15 @@ describe('isochroneToGeoJSON', () => {
 });
 
 describe('buildRouteAdvisories', () => {
+    // catzoc: 1 default = a well-surveyed route; the M_QUAL-absent note
+    // (audit) fires only when a fixture explicitly strips survey quality.
     const r = (over: Partial<HazardResult>): HazardResult => ({
         lat: 0,
         lon: 0,
         isHazard: false,
         depth_m: -20,
         source: 'enc',
+        catzoc: 1,
         ...over,
     });
 
@@ -359,6 +362,17 @@ describe('buildRouteAdvisories', () => {
 
     it('failed cells with zero gebco hits stay silent (nothing actually degraded on this route)', () => {
         expect(buildRouteAdvisories([r({}), r({})], undefined, ['OC-61-10ENB5'])).toEqual([]);
+    });
+
+    it('ENC coverage with NO M_QUAL anywhere gets the quality-unassessed NOTE (audit)', () => {
+        const out = buildRouteAdvisories([r({ catzoc: null }), r({ catzoc: null })]);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('note');
+        expect(out[0].text).toContain('UNASSESSED');
+        // A pure-GEBCO route stays silent here (no ENC claim to qualify) —
+        // the GEBCO-share advisory owns that story.
+        const gebcoOnly = buildRouteAdvisories([r({ source: 'gebco', catzoc: null })]);
+        expect(gebcoOnly.every((a) => !a.text.includes('UNASSESSED'))).toBe(true);
     });
 
     it('tide-constrained clearances surface as a CAUTION with the count (audit #4)', () => {
