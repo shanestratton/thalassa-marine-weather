@@ -688,6 +688,16 @@ export async function validateRouteSegments(
             const lastSeg = segmentMeta.length - 1;
             const polySegs = [];
             for (let i = 0; i < segmentMeta.length; i++) {
+                // Midpoint ETA so the segment crossing gets the SAME live tide
+                // the sampled points do (querySegmentHazards evaluates tideAt
+                // at this time) — else a crossing would grade at the static
+                // offset during a swing (audit: dropped tideAt).
+                const timeMs =
+                    options.departureTimeMs != null &&
+                    Number.isFinite(result[i].timeHours) &&
+                    Number.isFinite(result[i + 1].timeHours)
+                        ? options.departureTimeMs + ((result[i].timeHours + result[i + 1].timeHours) / 2) * 3_600_000
+                        : undefined;
                 polySegs.push({
                     idx: i,
                     lat1: result[i].lat,
@@ -696,6 +706,7 @@ export async function validateRouteSegments(
                     lon2: result[i + 1].lon,
                     exemptStart: i === 0,
                     exemptEnd: i === lastSeg,
+                    timeMs,
                 });
             }
             try {

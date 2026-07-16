@@ -195,10 +195,12 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.segmentHazard(0, -1, 0, 1)).toMatchObject({ covered: true, hazard: false });
     });
 
-    it('SEGMENT crossing: point/line hazards are ignored here (handled by queryPoint sampling)', () => {
+    it('SEGMENT crossing: a point rock within the guard corridor IS flagged (short terminal-leg blind-zone fix)', () => {
+        // The sub-231m terminal-leg case: sampleSegment yields no samples, so
+        // the point query can't see a charted rock — but the segment can.
         const i = idx('A', [hz('UWTROC', { type: 'Point', coordinates: [0, 0] })]);
-        // A point rock is NOT an area — segmentHazard tests polygons only.
-        expect(i.segmentHazard(0, -1, 0, 1).covered).toBe(false);
+        expect(i.segmentHazard(0, -1, 0, 1)).toMatchObject({ covered: true, hazard: true, hazardType: 'rock' });
+        expect(i.segmentHazard(5, -1, 5, 1).covered).toBe(false); // rock far from the corridor
     });
 
     it('SEGMENT crossing: a berth-exempt TERMINAL does not flag the leg for sitting in its own shoal', () => {
