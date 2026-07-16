@@ -182,9 +182,13 @@
 // jumping back out to the Aus+NZ fit right after boot; it now jumps to z10.
 // (2) Deeper-water ghost waypoints REMOVED (went haywire — one on every thin
 // leg); the 💡 text advisory stays.
-const CACHE_NAME = 'thalassa-v107-core';
-const TILE_CACHE = 'thalassa-v107-tiles';
-const DATA_CACHE = 'thalassa-v107-data';
+// v108: charts follow the route by themselves — (a) on-demand cell loading
+// now climbs device → PI → cloud (offline-with-Pi routing no longer starves);
+// (b) corridor prefetch: the moment a trace has 2+ pins, the cells covering
+// the padded corridor pull quietly in the background via the same ladder.
+const CACHE_NAME = 'thalassa-v108-core';
+const TILE_CACHE = 'thalassa-v108-tiles';
+const DATA_CACHE = 'thalassa-v108-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
