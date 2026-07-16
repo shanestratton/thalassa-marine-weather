@@ -396,7 +396,22 @@ export async function computeIsochrones(
                 }
 
                 const distToDest = haversineNm(node.lat, node.lon, destination.lat, destination.lon);
-                candidates.push({ node: { ...node, distToDest }, distToDest });
+                // Graded steer-away from unknown/shoal water (burn-down: the
+                // depthCostPenalty was computed for DISPLAY but never read by
+                // selection — the "prefer charted, comfortably-deep water"
+                // nudge did not exist). Inflate the candidate's RANKING
+                // distance only: sector pruning then naturally prefers deep /
+                // known water when the choice is close, while the node's own
+                // distToDest stays true so arrival acceptance is unaffected.
+                // CAPPED at 1.5× so this can never hard-block a route to a
+                // shallow anchorage — hard blocking stays with the land gate +
+                // the validation passes. Draft uses the routing default
+                // (2.5 m, matching HazardQueryService) — a graded preference,
+                // not a precise depth model; the dominant case is the ×1.2
+                // unknown-depth nudge.
+                const candDepth = bathyGrid ? getDepthFromCache(bathyGrid, node.lat, node.lon) : null;
+                const rankPenalty = bathyGrid ? Math.min(1.5, GebcoDepthService.depthCostPenalty(candDepth, 2.5)) : 1;
+                candidates.push({ node: { ...node, distToDest }, distToDest: distToDest * rankPenalty });
             }
         }
 

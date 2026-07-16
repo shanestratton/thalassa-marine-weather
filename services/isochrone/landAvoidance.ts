@@ -505,14 +505,25 @@ export interface ValidateRouteOptions {
  * defensible if the warn is LOUD):
  *  - `caution` — NO-DEPTH-DATA points (uncharted AND GEBCO unavailable). The
  *    router still returns a line (availability), and the depth is UNVERIFIED.
- *    There is NO graded steer-away-from-unknown-water cost in route selection
- *    today (depthCostMultiplier is computed for display only) — this loud
- *    advisory IS the entire warn. Ranked first.
+ *    Selection applies a capped graded steer-away from unknown/shoal water
+ *    (IsochroneRouter candidate ranking, burn-down 2026-07-16), but that is a
+ *    preference, not verification — this loud advisory is still the warn
+ *    that reaches the skipper. Ranked first.
  *  - `note` — charted but low-confidence CATZOC survey.
  * Pure + exported so the surfacing logic is unit-tested away from the validator.
  */
-export function buildRouteAdvisories(results: HazardResult[]): RouteAdvisory[] {
+export function buildRouteAdvisories(results: HazardResult[], vesselDraftM?: number): RouteAdvisory[] {
     const advisories: RouteAdvisory[] = [];
+    // The depth-threshold model clamps draft to 5 m (hazardDepthForDraft) — a
+    // deeper vessel silently got 5 m math. Say so (burn-down 2026-07-16).
+    if (typeof vesselDraftM === 'number' && vesselDraftM > 5) {
+        advisories.push({
+            severity: 'caution',
+            text:
+                `Depth checks model a 5 m maximum draft — your ${vesselDraftM.toFixed(1)} m draft ` +
+                `exceeds it, so clearances are TIGHTER than shown. Verify depths manually.`,
+        });
+    }
     // No-data first — it's the louder caution (unknown depth, not just
     // low-confidence). This is the route+warn signal the skipper must see.
     const noDataHits = results.filter((r) => r.source === 'none').length;
@@ -733,7 +744,12 @@ export async function validateRouteSegments(
             segmentMeta.push({ startSampleIdx: startIdx, sampleCount: samples.length });
         }
 
-        if (allSamples.length === 0) break;
+        // Sub-231 m legs produce ZERO samples (a short two-waypoint harbour
+        // hop). This used to `break` here — BEFORE the segment-vs-polygon
+        // crossing test — leaving exactly the shortest routes with no ENC
+        // validation at all (burn-down 2026-07-16). Fall through instead:
+        // the batch query and sample scan no-op on empty, and the crossing
+        // test below still checks the leg against charted polygons.
 
         // ── 2. Batch-query unified hazards (ENC where covered, GEBCO elsewhere) ──
         const allResults: HazardResult[] = [];
@@ -841,7 +857,7 @@ export async function validateRouteSegments(
             // but carries caveats. ATTACHED to the hazard report below so the
             // skipper sees them, and logged at warn() — createLogger silences
             // info() in prod, which is why the old no-data note reached no one.
-            routeAdvisories = buildRouteAdvisories(allResults);
+            routeAdvisories = buildRouteAdvisories(allResults, options.vesselDraftM);
             await appendCautionCrossings();
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
@@ -893,7 +909,7 @@ export async function validateRouteSegments(
                     `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
                     `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
             },
-            ...buildRouteAdvisories(lastAllResults),
+            ...buildRouteAdvisories(lastAllResults, options.vesselDraftM),
         ];
         await appendCautionCrossings();
         landLog.warn(

@@ -123,11 +123,10 @@ function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolea
     // and a GEBCO gap is usually open ocean, not shoal. Unknown is NOT treated
     // as confirmed-clear: every no-data point becomes a LOUD 'caution' route
     // advisory (landAvoidance.buildRouteAdvisories → RouteHazardReport →
-    // HazardReportPanel red banner), so the depth reads UNVERIFIED-and-surfaced,
-    // never silently safe. (A GebcoDepthService.depthCostPenalty(null)=1.2
-    // caution multiplier is computed in WeatherRoutingService but is NOT yet
-    // consumed by route selection — wiring that to actually steer around
-    // no-data water is a tracked follow-up; today the surfacing IS the warn.)
+    // HazardReportPanel red banner), AND the isochrone's candidate ranking
+    // applies a capped depthCostPenalty nudge (IsochroneRouter, burn-down
+    // 2026-07-16) so selection prefers charted water when the choice is
+    // close. UNVERIFIED-and-surfaced, never silently safe.
     if (depth_m == null) return false;
     return depth_m > hazardThresholdM;
 }
@@ -309,7 +308,18 @@ export async function queryHazards(
     for (let i = 0; i < points.length; i++) {
         const enc = encResults[i];
         if (enc.covered) {
-            out[i] = encToHazardResult(points[i], enc, hazardThresholdM, tideForPoint(points[i]));
+            const r = encToHazardResult(points[i], enc, hazardThresholdM, tideForPoint(points[i]));
+            // A SOUNDING-ONLY hit is hazard evidence, not area coverage: if
+            // the draft re-eval just cleared it (deep enough for THIS vessel),
+            // the sounding certifies nothing about the surrounding water —
+            // fall through to GEBCO instead of reading "ENC-verified clear"
+            // off one spot depth (burn-down 2026-07-16).
+            if (enc.soundingOnly && !r.isHazard) {
+                gebcoNeeded.push(points[i]);
+                gebcoIndexMap.push(i);
+                continue;
+            }
+            out[i] = r;
         } else {
             gebcoNeeded.push(points[i]);
             gebcoIndexMap.push(i);
