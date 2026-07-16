@@ -52,8 +52,18 @@ const RUNG_ASSIGN_CAP = 80_000;
  * Points that never win a cell get MAX_Z + 1 — visible only past the
  * ladder's end. Mutates the features in place; the merged heap is
  * throwaway.
+ *
+ * SLICED (burn-down 2026-07-16): pass `yieldEvery` (the merge's cooperative
+ * slicer) and the rung-assignment loop awaits it every 1024 points, so the
+ * O(N·Z) pass no longer runs as ONE indivisible main-thread gulp on a big
+ * heap. The occupancy grid is sequential state (shallowest-first invariant),
+ * so slicing — not parallelising — is the correct decomposition. Without the
+ * callback the pass is fully synchronous (tests, small heaps).
  */
-export function assignSoundingDensityMinZoom(features: Array<Feature<Point>>): void {
+export async function assignSoundingDensityMinZoom(
+    features: Array<Feature<Point>>,
+    yieldEvery?: () => Promise<void>,
+): Promise<void> {
     const pts: Array<{ f: Feature<Point>; lon: number; lat: number; d: number }> = [];
     for (const f of features) {
         const c = f.geometry?.coordinates;
@@ -88,6 +98,7 @@ export function assignSoundingDensityMinZoom(features: Array<Feature<Point>>): v
 
     const occupied = new Set<number>();
     for (let i = 0; i < pts.length; i++) {
+        if (yieldEvery && (i & 1023) === 1023) await yieldEvery();
         const p = pts[i];
         // Deepest tail beyond the cap: skip the grid probe (it would resolve
         // to past-the-ladder against a saturated grid anyway). Safety-neutral —
