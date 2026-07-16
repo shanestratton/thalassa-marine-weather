@@ -76,6 +76,10 @@ export interface TraceLegVerdict {
     needsTide: boolean;
     /** P3 advisory: deeper-water nudge, e.g. "deeper water ~60 m to port". */
     nudge: string | null;
+    /** The actual charted spot the nudge points at (deeper water abeam a thin
+     *  leg) — lets the UI drop a draggable GHOST waypoint there to route the
+     *  line through it (Shane 2026-07-16). null when there's no nudge. */
+    nudgeTo: TracePoint | null;
 }
 
 export interface GatePair {
@@ -902,6 +906,7 @@ export function validateTraceLeg(
 
     // 6 — deeper-water nudge for thin/sub-keel legs (advisory only).
     let nudge: string | null = null;
+    let nudgeTo: TracePoint | null = null;
     if (grid && minAt && minDepthM !== null && minDepthM < keelM + THIN_MARGIN_M) {
         // Perpendicular unit vector (east, north): leg dir is (sin brg, cos brg),
         // rotated 90° clockwise = starboard side of travel.
@@ -917,6 +922,7 @@ export function validateTraceLeg(
                 if (r.kind === 'depth' && r.depthM >= keelM + THIN_MARGIN_M) {
                     // sign +1 = right of travel = starboard.
                     nudge = `deeper water ~${offM} m to ${sign === 1 ? 'starboard' : 'port'}`;
+                    nudgeTo = q; // the exact charted deeper spot → ghost waypoint
                     break outer;
                 }
             }
@@ -936,7 +942,7 @@ export function validateTraceLeg(
         : issues.some((i) => i.severity === 'caution')
           ? 'caution'
           : 'clear';
-    return { grade, issues, minDepthM, minAt, needsTide, nudge };
+    return { grade, issues, minDepthM, minAt, needsTide, nudge, nudgeTo };
 }
 
 /** Grade every leg of a trace. verdicts[i] covers points[i]→points[i+1]. */

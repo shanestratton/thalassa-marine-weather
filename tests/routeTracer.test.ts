@@ -383,6 +383,7 @@ describe('routeTracer — trace plumbing (P4)', () => {
             minAt: null,
             needsTide: false,
             nudge: null,
+            nudgeTo: null,
         };
         expect(traceHealth([null, danger]).tone).toBe('danger');
     });

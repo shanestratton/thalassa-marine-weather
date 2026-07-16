@@ -157,9 +157,13 @@
 // button — exports a shareable/printable PDF (title, health tally, departure
 // window, every waypoint in DMM, per-leg verdicts) via the iOS share sheet /
 // web download. jsPDF lazy-loaded off the main bundle.
-const CACHE_NAME = 'thalassa-v100-core';
-const TILE_CACHE = 'thalassa-v100-tiles';
-const DATA_CACHE = 'thalassa-v100-data';
+// v101: (1) GPS-fix field placeholder → "Add a GPS Fix". (2) Deeper-water
+// GHOST waypoints — a thin/no-go leg with deeper water abeam now drops a
+// dashed, draggable ghost pin at that charted deep spot; tap or drag it to
+// splice a real waypoint there and route the line through the deep water.
+const CACHE_NAME = 'thalassa-v101-core';
+const TILE_CACHE = 'thalassa-v101-tiles';
+const DATA_CACHE = 'thalassa-v101-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
