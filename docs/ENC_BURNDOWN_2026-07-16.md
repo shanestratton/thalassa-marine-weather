@@ -89,10 +89,15 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
       foul-ground obstruction circle; icon-allow-overlap.
 - [x] **0.75 — TSS directionality** — DONE (`8fc0fad1`): map-aligned ⇧
       rotated to ORIENT on each lane + "Lane direction: 057°" popup row.
-- [ ] **0.5 — S-52 day/dusk/night palette** for the chart layers (the white
-      ramp kills night vision at the helm).
-- [ ] **0.5 — Missing charted-area classes** — CTNARE, TSEZNE, ACHARE,
-      MARCUL, CBLSUB/PIPSOL lines; render the already-extracted FAIRWY.
+- [x] **0.5 — Night palette v1** — DONE (`f39bfb33`): chartplotter-style
+      red-tinted uniform dim (scotopic-safe #1a0505 @ 0.45, topmost layer),
+      ☾ toggle in chart modes, persisted. A full S-52 colour-table swap
+      remains future work — this is the honest v1.
+- [x] **0.5 — Missing charted-area classes** — DONE (`0e6f9870` + Pi
+      re-extraction #2 → cloud manifest v7): CTNARE/TSEZNE/ACHARE/MARCUL
+      end-to-end (Newport now serves CTNARE:13, ACHARE:7) + FAIRWY finally
+      rendered (dashed marine-blue boundary). CBLSUB/PIPSOL lines remain in
+      the extractor's deferred batch (line geometries, next visual pass).
 
 ### UX
 
@@ -126,3 +131,5 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | INT1 hazard glyphs (CATWRK/WATLEV differentiated)              | 0.75 | `938f52c1` | 92.15             |
 | 2026-07-16 | Merge-fold e2e tests (task #27 closed)                         | 1.2  | `eab82ed0` | 93.35             |
 | 2026-07-16 | Partition seam tests + candidate-resolution dedupe             | 1.2  | `eab82ed0` | 94.55             |
+| 2026-07-16 | Batch-2 area classes live (Pi #2 → v7) + FAIRWY rendered       | 0.5  | `0e6f9870` | 95.05             |
+| 2026-07-16 | Night dim v1 (red-tinted, persisted toggle)                    | 0.5  | `f39bfb33` | 95.55             |
