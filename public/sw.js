@@ -178,9 +178,13 @@
 // visible, local water fills the screen) centred on the selected location /
 // GPS, instead of the whole-Aus+NZ fit. Only the no-fix fallback keeps the
 // wide view.
-const CACHE_NAME = 'thalassa-v106-core';
-const TILE_CACHE = 'thalassa-v106-tiles';
-const DATA_CACHE = 'thalassa-v106-data';
+// v107: (1) z10 boot actually sticks — the first weather-coords centring was
+// jumping back out to the Aus+NZ fit right after boot; it now jumps to z10.
+// (2) Deeper-water ghost waypoints REMOVED (went haywire — one on every thin
+// leg); the 💡 text advisory stays.
+const CACHE_NAME = 'thalassa-v107-core';
+const TILE_CACHE = 'thalassa-v107-tiles';
+const DATA_CACHE = 'thalassa-v107-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

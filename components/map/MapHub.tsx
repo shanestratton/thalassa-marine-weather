@@ -454,10 +454,6 @@ export const MapHub: React.FC<MapHubProps> = ({
             dragged: boolean;
         }>
     >([]);
-    // Deeper-water GHOST waypoints: a dashed, draggable pin dropped at each
-    // thin leg's nudgeTo (the charted deeper spot). Tap/drag → splices a real
-    // waypoint there so the line routes through deep water (Shane 2026-07-16).
-    const ghostMarkersRef = useRef<mapboxgl.Marker[]>([]);
     // Tracer verdicts + context. The context (ENC cells + OSM overlay +
     // depth grid over the trace bbox) builds async once per area; a seq
     // guard drops stale builds when pins outrun a slow fetch.
@@ -1134,79 +1130,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         });
     }, [capturedCoords, coordCaptureMode, selectedPin]);
 
-    // Deeper-water GHOST waypoints. For every graded leg that carries a
-    // deeper-water nudge (nudgeTo = the charted deep spot abeam a thin/no-go
-    // leg), drop a DASHED, DRAGGABLE ghost pin there, numbered as the waypoint
-    // it would become. Tap it (or drag it and let go) → a real waypoint splices
-    // into the leg so the line bends through deep water. Keyed on legVerdicts
-    // ONLY: an insert changes capturedCoords first and re-grades a beat later —
-    // rebuilding on capturedCoords would flash a ghost over the pin just
-    // dropped, so we hold until the fresh grades arrive (the tapped ghost is
-    // removed immediately on commit). indices captured here match the
-    // capturedCoords the grades were computed from.
-    useEffect(() => {
-        const map = mapRef.current;
-        ghostMarkersRef.current.forEach((m) => m.remove());
-        ghostMarkersRef.current = [];
-        if (!map || !coordCaptureMode) return;
-        legVerdicts.forEach((v, j) => {
-            const to = v?.nudgeTo;
-            if (!to) return;
-            const insertAt = j + 1; // splice between pins[j] and pins[j+1]
-            if (insertAt > capturedCoords.length) return;
-            const futureNum = j + 2; // 1-indexed number the new pin will take
-            const el = document.createElement('div');
-            el.style.cssText =
-                'width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
-            const dot = document.createElement('div');
-            dot.textContent = String(futureNum);
-            dot.style.cssText =
-                'width:22px;height:22px;border-radius:9999px;border:2px dashed #22d3ee;background:rgba(8,47,73,0.6);color:#67e8f9;display:flex;align-items:center;justify-content:center;font:800 11px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.5);';
-            el.appendChild(dot);
-            const hint = document.createElement('div');
-            hint.textContent = 'deeper';
-            hint.style.cssText =
-                'position:absolute;top:32px;left:50%;transform:translateX(-50%);font:800 8px/1 system-ui;letter-spacing:0.03em;color:#67e8f9;text-shadow:0 1px 3px #000;pointer-events:none;white-space:nowrap;';
-            el.appendChild(hint);
-            const marker = new mapboxgl.Marker({ element: el, anchor: 'center', draggable: true })
-                .setLngLat([to.lon, to.lat])
-                .addTo(map);
-            const commit = (pos: { lat: number; lon: number }) => {
-                triggerHaptic('medium');
-                marker.remove(); // consumed — don't let it flash over the new pin
-                ghostMarkersRef.current = ghostMarkersRef.current.filter((m) => m !== marker);
-                setSelectedPin(null);
-                setInsertAfter(null);
-                insertAfterRef.current = null;
-                setCapturedCoords((prev) =>
-                    insertAt > prev.length ? prev : [...prev.slice(0, insertAt), pos, ...prev.slice(insertAt)],
-                );
-                flashTraceFeedback('Routed through the deeper water — checking now');
-            };
-            let dragged = false;
-            marker.on('dragstart', () => {
-                dragged = true;
-            });
-            marker.on('dragend', () => {
-                const ll = marker.getLngLat();
-                commit({ lat: ll.lat, lon: ll.lng });
-            });
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (dragged) {
-                    dragged = false;
-                    return;
-                }
-                commit({ lat: to.lat, lon: to.lon });
-            });
-            ghostMarkersRef.current.push(marker);
-        });
-        return () => {
-            ghostMarkersRef.current.forEach((m) => m.remove());
-            ghostMarkersRef.current = [];
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [legVerdicts, coordCaptureMode]);
+    // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
+    // the phantom waypoints, that went haywire"). A thin route sprouted a
+    // dashed ghost pin on EVERY nudge-carrying leg at once — visual noise and
+    // mis-splices. The 💡 "deeper water ~30 m to starboard" text advisory
+    // stays; TraceLegVerdict.nudgeTo (the charted deep spot) stays computed +
+    // tested for a future, better-scoped resurrection (e.g. one ghost for the
+    // SELECTED leg only).
     // Pin-on-land diagnosis, MEMOIZED — this used to run tracePinBlocked
     // (a depth-grid read) for EVERY pin on EVERY render inside the panel
     // JSX; with the zoom pill re-rendering the tree per pinch frame that
@@ -3552,10 +3482,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // recentre on the selected location. User-driven pans don't change
     // weatherCoords, so their pan sticks.
     //
-    // First centre jumps instantly at the AU+NZ fit zoom (what the user
-    // asked for: "width of AU and NZ together, zoom ~2.87"). Subsequent
-    // centres preserve the user's current zoom so we don't yank them out
-    // of a harbour view they zoomed into.
+    // First centre jumps instantly at ZOOM 10 — the golden size (Shane
+    // 2026-07-16: every nav mark visible, local water fills the screen). This
+    // effect fires right after boot, so it must agree with useMapInit's
+    // GOLDEN_BOOT_ZOOM or it silently clobbers it (the "zoom is not working"
+    // bug: it jumped back out to the Aus+NZ fit). Subsequent centres preserve
+    // the user's current zoom so we don't yank them out of a harbour view.
+    const GOLDEN_BOOT_ZOOM = 10;
     const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
     useEffect(() => {
         const map = mapRef.current;
@@ -3573,7 +3506,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         const isFirst = last === null;
         map.jumpTo({
             center: [weatherCoords.lon, weatherCoords.lat],
-            zoom: isFirst ? ausNzFitZoom : Math.max(map.getZoom(), ausNzFitZoom),
+            zoom: isFirst ? GOLDEN_BOOT_ZOOM : Math.max(map.getZoom(), ausNzFitZoom),
         });
         if (!isFirst) {
             map.easeTo({ center: [weatherCoords.lon, weatherCoords.lat], duration: 600 });
@@ -5838,6 +5771,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             'linear-gradient(90deg,#38a169 34%,#f7fafc 34%,#f7fafc 66%,#e53e3e 66%)',
                                             'Light sector',
                                         ],
+                                        // Caution-area washes (audit: the new
+                                        // dashed zones had no legend entry).
+                                        ['#c0209a', 'Restricted zone'],
+                                        ['#7c3aed', 'Cable / pipeline'],
+                                        ['#d97706', 'TSS lane'],
+                                        ['#8a8a5a', 'Seabed type'],
                                     ] as const
                                 ).map(([swatch, label]) => (
                                     <div key={label} className="flex items-center gap-1.5">
