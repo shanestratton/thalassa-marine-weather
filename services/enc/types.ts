@@ -237,7 +237,9 @@ export function encNavaidIconId(
             if (isBeacon) return region === 'A' ? 'sm-beacon-green' : 'sm-beacon-red';
             return region === 'A' ? 'sm-buoy-starboard' : 'sm-buoy-starboard-b';
         }
-        return isBeacon ? 'sm-beacon-yellow' : 'sm-buoy-lateral';
+        // Unknown CATLAM (audit #8): assert presence, not a hand — the old
+        // defaults painted a port-hand can / yellow beacon the data never said.
+        return 'sm-mark-unknown';
     }
     if (kind === 'BOYCAR' || kind === 'BCNCAR') {
         const raw = p.CATCAM ?? p.catcam;
@@ -246,7 +248,10 @@ export function encNavaidIconId(
         if (c === 2) return 'sm-cardinal-east';
         if (c === 3) return 'sm-cardinal-south';
         if (c === 4) return 'sm-cardinal-west';
-        return 'sm-cardinal-north';
+        // Unknown CATCAM (audit #8): a NORTH glyph told the helmsman "pass
+        // north" of a mark whose quadrant the data never carried — a south
+        // cardinal rendered that way inverts the safe side.
+        return 'sm-mark-unknown';
     }
     // Safe-water (RW stripes + red sphere) and isolated-danger (BRB +
     // two black balls) read the same afloat or fixed — glyph identity

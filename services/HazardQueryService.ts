@@ -124,6 +124,13 @@ export function hazardDepthForDraft(draftM: number | null | undefined): number {
     return -(clamped * 1.5 + 0.5);
 }
 
+/** Conservative MSL→LAT delta applied to GEBCO depths in the hazard
+ *  comparison (audit #7). Moreton Bay's MSL sits ~1.0-1.3 m above LAT;
+ *  a fixed pessimistic 1.3 m means a GEBCO point must show that much
+ *  MORE water before it reads clear. Only GEBCO fallback points pay it —
+ *  ENC depths are already LAT-referenced. */
+export const GEBCO_MSL_TO_LAT_PESSIMISM_M = 1.3;
+
 function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolean {
     // ROUTE+WARN POLICY (deliberate, not fail-open): null = NO depth data
     // (uncharted + GEBCO unavailable). We return false so the router still
@@ -362,10 +369,18 @@ export async function queryHazards(
                 // water SHALLOWER, which is the safe direction.
                 const gebcoTide = Math.min(0, tideForPoint(points[idx]));
                 const tidedDepth = applyTide(g.depth_m, gebcoTide);
+                // MSL→LAT pessimism (2026-07-17 audit #7): GEBCO is
+                // MSL-referenced but the threshold logic lives in chart-datum
+                // (≈LAT) terms — at low water an MSL depth overstates the
+                // water under the keel by the MSL-LAT offset (~1.0-1.3 m in
+                // Moreton Bay). Without per-point datum offsets, the HAZARD
+                // COMPARISON assumes the pessimistic end; the reported
+                // depth_m stays the honest MSL value.
+                const pessimistic = tidedDepth == null ? null : tidedDepth + GEBCO_MSL_TO_LAT_PESSIMISM_M;
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
-                    isHazard: gebcoIsHazard(tidedDepth, hazardThresholdM),
+                    isHazard: gebcoIsHazard(pessimistic, hazardThresholdM),
                     depth_m: tidedDepth,
                     source: tidedDepth == null ? 'none' : 'gebco',
                 };

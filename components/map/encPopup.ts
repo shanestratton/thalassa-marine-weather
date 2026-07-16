@@ -481,19 +481,21 @@ export function buildFeaturePopupHtml(
         const isBeacon = layerId === ENC_VEC_LAYERS.BCNLAT;
         title = isBeacon ? 'Lateral beacon' : 'Lateral buoy';
         accent = '#facc15';
+        // S-57 CATLAM defines exactly 1-4; the old table INVERTED 3/4
+        // (audit #8: code 3 is preferred channel to STARBOARD — you pass
+        // it as if it were a port-hand mark; the popup said the opposite)
+        // and invented codes 5-8 that don't exist in the attribute.
         const CATLAM_LABELS: Record<string, string> = {
             '1': 'Port-hand mark',
             '2': 'Starboard-hand mark',
-            '3': 'Preferred channel — port',
-            '4': 'Preferred channel — starboard',
-            '5': 'Channel marker',
-            '6': 'Bifurcation',
-            '7': 'Junction',
-            '8': 'Wreck mark',
+            '3': 'Preferred channel to starboard',
+            '4': 'Preferred channel to port',
         };
         const cat = String(props.CATLAM ?? props.catlam ?? '');
         if (cat && CATLAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Mark</span><b>${esc(CATLAM_LABELS[cat])}</b></div>`;
+        } else if (!cat) {
+            body += `<div class="enc-popup-row"><span>Mark</span><b>Type unknown — verify on approach</b></div>`;
         }
         // Passing rule, spelled out to match the cardinal treatment (audit:
         // laterals got only a category label). The leave-side is fixed by
@@ -502,9 +504,14 @@ export function buildFeaturePopupHtml(
         const LEAVE_SIDE: Record<string, string> = {
             '1': 'Leave to PORT',
             '2': 'Leave to STARBOARD',
+            // Preferred-channel marks (3/4): following the PREFERRED channel,
+            // treat 3 as a port-hand mark and 4 as a starboard-hand mark.
+            '3': 'Leave to PORT',
+            '4': 'Leave to STARBOARD',
         };
         if (LEAVE_SIDE[cat]) {
-            body += `<div class="enc-popup-row"><span>Pass</span><b style="color:#4ade80">${LEAVE_SIDE[cat]}</b> <span style="opacity:0.7">with the buoyage direction</span></div>`;
+            const qualifier = cat === '3' || cat === '4' ? 'for the preferred channel' : 'with the buoyage direction';
+            body += `<div class="enc-popup-row"><span>Pass</span><b style="color:#4ade80">${LEAVE_SIDE[cat]}</b> <span style="opacity:0.7">${qualifier}</span></div>`;
         }
         const region = props._ialaRegion;
         if (region === 'A' || region === 'B') {

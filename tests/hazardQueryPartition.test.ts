@@ -94,6 +94,27 @@ describe('queryHazards phase-1/2 partition', () => {
     });
 });
 
+describe('GEBCO MSL→LAT pessimism (audit #7)', () => {
+    it('a GEBCO depth clear at MSL but not at LAT-pessimism reads HAZARD', async () => {
+        encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
+        // Draft 2 m → threshold -3.5. GEBCO -4.0 at MSL clears raw
+        // (-4.0 < -3.5) but with the 1.3 m MSL→LAT pessimism reads -2.7 →
+        // hazard: at low water that point may have ~2.7 m, not 4.
+        gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -4.0 }]);
+        const out = await queryHazards(P, { vesselDraftM: 2 });
+        expect(out[0].source).toBe('gebco');
+        expect(out[0].isHazard).toBe(true);
+        expect(out[0].depth_m).toBeCloseTo(-4.0, 5); // reported depth stays honest MSL
+    });
+
+    it('a comfortably deep GEBCO point still clears after the pessimism', async () => {
+        encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
+        gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -5.5 }]);
+        const out = await queryHazards(P, { vesselDraftM: 2 });
+        expect(out[0].isHazard).toBe(false);
+    });
+});
+
 describe('encToHazardResult — tide-constrained clearances (audit #4)', () => {
     const pt = { lat: -27.4, lon: 153.1 };
     const shallowBand = (minDepthM: number): EncHazardResult => ({

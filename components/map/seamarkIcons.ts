@@ -195,6 +195,19 @@ function anchorageSvg(): string {
 }
 
 /** Generic/unknown seamark — Simple circle marker */
+/** Unknown-attribute mark (audit #8): a mark whose CATLAM/CATCAM is
+ *  missing must assert PRESENCE, never a specific passing rule — the old
+ *  fallbacks painted a north cardinal ("pass north" the data never said)
+ *  or a port-hand can. Grey disc + ? = "there is a mark here, identify
+ *  it visually". */
+function unknownMarkSvg(): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+        <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
+        <circle cx="24" cy="24" r="11" fill="${COLOURS.grey}" stroke="${COLOURS.white}" stroke-width="2" filter="url(#s)"/>
+        <text x="24" y="30" text-anchor="middle" font-family="system-ui" font-size="17" font-weight="700" fill="${COLOURS.white}">?</text>
+    </svg>`;
+}
+
 function genericSvg(colour: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
         <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
@@ -303,6 +316,7 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-anchorage', svg: anchorageSvg(), size: 48 },
 
         // Generic/fallback
+        { id: 'sm-mark-unknown', svg: unknownMarkSvg(), size: 48 },
         { id: 'sm-harbour', svg: genericSvg(COLOURS.blue), size: 48 },
         { id: 'sm-mooring', svg: genericSvg(COLOURS.teal), size: 48 },
         { id: 'sm-restricted', svg: genericSvg(COLOURS.red), size: 48 },
@@ -364,7 +378,7 @@ export function resolveSeamarkIcon(seamarkType: string, tags: Record<string, str
         const colour = tags['buoy_lateral:colour'] || '';
         if (colour.includes('green')) return 'sm-buoy-starboard';
         if (colour.includes('red')) return 'sm-buoy-port';
-        return 'sm-buoy-lateral';
+        return 'sm-mark-unknown';
     }
 
     // Cardinal buoys
@@ -374,7 +388,7 @@ export function resolveSeamarkIcon(seamarkType: string, tags: Record<string, str
         if (cat === 'south') return 'sm-cardinal-south';
         if (cat === 'east') return 'sm-cardinal-east';
         if (cat === 'west') return 'sm-cardinal-west';
-        return 'sm-cardinal-north'; // fallback
+        return 'sm-mark-unknown'; // unknown quadrant — never assert one
     }
 
     // Other buoy types

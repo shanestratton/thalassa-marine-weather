@@ -49,21 +49,25 @@ route. Fix the silent failures first.
       `buildRouteAdvisories` surfaces the count as a CAUTION ("sail it on
       schedule, re-plan if you slip"). Per-crossing passable-time windows
       remain a future enhancement — the silence is dead. 6 tests.
-- [ ] **0.5 — GEBCO MSL-vs-LAT datum offset uncompensated** — subtract a
-      conservative regional MSL→LAT delta (~1.0-1.3 m in Moreton Bay) before
-      threshold comparison on GEBCO fallback points.
+- [x] **0.5 — GEBCO MSL-vs-LAT datum offset uncompensated** — DONE:
+      `GEBCO_MSL_TO_LAT_PESSIMISM_M` (1.3 m) applied in the hazard
+      comparison on GEBCO fallback points (reported depth stays honest
+      MSL); 2 boundary tests.
 - [x] **0.25 — Degenerate short-route ETAs (red-team add)** — DONE with the
       above: `cumulativeLegs` tests lock monotonic ETAs, the 4-hour-leg
       scenario, NaN/zero-speed floors, and empty/single-point safety.
 
 ### Rendering (3.25)
 
-- [ ] **0.5 — Unknown-attribute marks assert specifics** — null CATCAM
-      renders a NORTH cardinal ("pass north" the data never said); unknown
-      CATLAM gets the port-hand glyph. Fix: neutral "unknown mark" glyph.
-- [ ] **0.25 — CATLAM popup wording inverted vs S-57** — swap the two
-      `CATLAM_LABELS` strings (encPopup ~487-488), reword to "preferred
-      channel to starboard/port", delete dead codes 5-8.
+- [x] **0.5 — Unknown-attribute marks assert specifics** — DONE: new
+      neutral `sm-mark-unknown` glyph (grey disc + ?); unknown CATCAM/CATLAM
+      fall back to it in BOTH icon paths (ENC `encNavaidIconId` + the OSM
+      seamark picker); popup says "Type unknown — verify on approach".
+      4 tests.
+- [x] **0.25 — CATLAM popup wording inverted vs S-57** — DONE: 3/4
+      corrected to "Preferred channel to starboard/port", dead codes 5-8
+      deleted, and preferred-channel marks now get their passing rule
+      ("Leave to PORT — for the preferred channel").
 - [ ] **0.25 — ≥10 m sounding rounding (red-team add)** — verify display
       rounding vs charted value at the 10 m boundary.
 - [ ] **2.25 — remaining confirmed rendering findings** — full detail in the
