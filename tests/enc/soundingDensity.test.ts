@@ -68,6 +68,26 @@ describe('soundingDensity — the numbers ladder', () => {
         expect(mz(horiz)).toBeGreaterThan(4); // same screen cell — waits
     });
 
+    it('CAP: past the 80k rung-assign cap the deepest tail is past-the-ladder; shallow keeps its rung', () => {
+        // Bound the O(N·Z) probe on a pathological (>80k) heap. Points are
+        // sorted shallowest-first, so the tail beyond the cap is the deepest
+        // (never a shoal number) and resolves to MAX_Z+1 = 17 without a grid
+        // probe — while the shallowest still claims the coarse rung.
+        const N = 80_010; // RUNG_ASSIGN_CAP (80_000) + a small tail
+        const heap: Feature<Point>[] = [];
+        for (let i = 0; i < N; i++) {
+            // Distinct, well-separated cells so absent the cap the DEEPEST
+            // would otherwise win its own coarse rung — the cap is what makes
+            // it wait. Depth ascending so sort order = input order.
+            const lon = 150 + (i % 400) * 0.02;
+            const lat = -30 + Math.floor(i / 400) * 0.02;
+            heap.push(pt(lon, lat, i + 1));
+        }
+        assignSoundingDensityMinZoom(heap);
+        expect(mz(heap[0])).toBe(4); // shallowest still leads at the coarsest zoom
+        expect(mz(heap[N - 1])).toBe(17); // deepest, beyond the cap → past the ladder (MAX_Z+1)
+    });
+
     it('REPLACES the SCAMIN pre-bake — wide-zoom numbers actually appear', () => {
         // SCAMIN pinned nearly every AU sounding to z11+, silencing the
         // ladder's wide rungs (Shane 2026-07-11: "depths from zoom 7??").
