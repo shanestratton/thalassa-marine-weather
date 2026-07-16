@@ -200,9 +200,12 @@
 // the end updates live ("Newport - Scarborough"), coords when no place is
 // nearby ("Newport - 27.14S 153.09E"). Typing your own name stops it; Clear
 // wipes an auto name but keeps a typed one.
-const CACHE_NAME = 'thalassa-v111-core';
-const TILE_CACHE = 'thalassa-v111-tiles';
-const DATA_CACHE = 'thalassa-v111-data';
+// v112: tracer tidy — Depart is two clean lines (date, then time) with an OK
+// button that closes the iOS picker; ⚡ Auto-to-destination + the From/To
+// course-frame boxes are parked (start by tapping the chart).
+const CACHE_NAME = 'thalassa-v112-core';
+const TILE_CACHE = 'thalassa-v112-tiles';
+const DATA_CACHE = 'thalassa-v112-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
