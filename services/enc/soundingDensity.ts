@@ -35,6 +35,17 @@ const MIN_Z = 4;
 const MAX_Z = 16;
 
 /**
+ * Bound on the O(N·Z) rung-assignment probe (audit: this ran uncapped over a
+ * ~170k heap on the main thread, before the LOD cull). Points are processed
+ * SHALLOWEST-first, so the tail beyond this cap is always the DEEPEST — never
+ * a grounding number — and in any realistic render window the MAX_Z grid is
+ * already saturated by the shallower points, so the tail would resolve to
+ * MAX_Z+1 anyway. Capping merely skips paying the per-point grid probe for
+ * that tail; it NEVER drops a shallow (safety) sounding.
+ */
+const RUNG_ASSIGN_CAP = 80_000;
+
+/**
  * Bakes a density min-zoom onto every sounding, REPLACING any SCAMIN
  * `_minZoom` the extractor pre-baked (SCAMIN pinned nearly every AU
  * sounding to z11+, which silenced the wide-zoom rungs entirely).
@@ -76,7 +87,15 @@ export function assignSoundingDensityMinZoom(features: Array<Feature<Point>>): v
         z * 2 ** 44 + (Math.floor(lon / cellDeg[z]) + 2 ** 21) * 2 ** 22 + (Math.floor(lat / latCellDeg[z]) + 2 ** 21);
 
     const occupied = new Set<number>();
-    for (const p of pts) {
+    for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        // Deepest tail beyond the cap: skip the grid probe (it would resolve
+        // to past-the-ladder against a saturated grid anyway). Safety-neutral —
+        // shallowest-first sort means this is never a shoal number.
+        if (i >= RUNG_ASSIGN_CAP) {
+            ((p.f.properties ??= {}) as Record<string, unknown>)._minZoom = MAX_Z + 1;
+            continue;
+        }
         let mz = MAX_Z + 1;
         for (let z = MIN_Z; z <= MAX_Z; z++) {
             if (!occupied.has(key(z, p.lon, p.lat))) {
