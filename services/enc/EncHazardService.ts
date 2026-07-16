@@ -980,13 +980,23 @@ export function shallowClipCoverage(collections: Array<FeatureCollection | undef
  *  dies with this on, flip it OFF first and re-read the post-mortem
  *  (lesson_web_gpu_oom_tilecache).
  *
+ *  DEVICE SESSION ROUND 1 (2026-07-17): crashed to the glass page ~10 s
+ *  in, right after a 10-cell wide merge dispatched. The one job that
+ *  answered reported exact=0 strip-capped=0 maxPairVerts=0 in 13 ms —
+ *  ZERO pairs reached the clipper, so martinez wasn't the killer this
+ *  time. Prime suspects: the structured-clone payload spike (a wide
+ *  window's full band features + coverages + strips, cloned twice) and
+ *  the zero-pair mystery itself (why did no feature bbox intersect any
+ *  coverage bbox?). OFF again until both are answered with a local repro
+ *  on real cells.
+ *
  *  CONTOURS (Delaunay + isoline march) were NEVER the crash — they were a
  *  main-thread HANG (2026-07-12), which is exactly what a worker cures.
  *  delaunator is O(n) over flat typed arrays and the input is hard-capped
  *  (DERIVED_CONTOUR_MAX_SOUNDINGS = 30 k), so the worker's peak allocation
  *  is bounded. Contours ride the same worker; their dispatch never queues
  *  a glaze cell. */
-const GLAZE_WORKER_ENABLED = true;
+const GLAZE_WORKER_ENABLED = false;
 const DERIVED_CONTOUR_WORKER_ENABLED = true;
 
 /** "Is the user mid-gesture?" probe, registered by the map hook (it
