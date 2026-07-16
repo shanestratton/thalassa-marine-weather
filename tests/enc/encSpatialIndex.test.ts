@@ -109,6 +109,25 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.queryPoint(0.001, 0)).toMatchObject({ hazard: true, hazardType: 'rock' }); // ~111 m away
     });
 
+    it('a LONE shoal SOUNDG (no area coverage) flags as hazard but is marked soundingOnly', () => {
+        // A sounding in a coverage gap: hazard EVIDENCE, not area coverage.
+        // The flag lets the caller fall to GEBCO if the draft re-eval clears
+        // it — one 12 m spot depth must not certify the water around it.
+        const i = idx('A', [hz('SOUNDG', { type: 'Point', coordinates: [0, 0] }, 12)]);
+        expect(i.queryPoint(0.001, 0)).toMatchObject({
+            covered: true,
+            hazard: true,
+            hazardType: 'shallow',
+            soundingOnly: true,
+        });
+        // With REAL area coverage under the point, the flag must NOT be set.
+        const j = idx('B', [
+            hz('DEPARE', square(0, 0, 1), 25),
+            hz('SOUNDG', { type: 'Point', coordinates: [0, 0] }, 12),
+        ]);
+        expect(j.queryPoint(0, 0).soundingOnly).toBeUndefined();
+    });
+
     it('a shoal SOUNDG spot sounding is a shallow hazard (defense-in-depth in "deep" water)', () => {
         // A 1.2 m sounding sitting inside otherwise-deep DEPARE — the exact
         // case the DEPARE DRVAL1 floor can miss.
