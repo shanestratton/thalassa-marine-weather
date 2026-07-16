@@ -48,7 +48,7 @@ import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from 
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import { buildCatzocZones, buildCoastlines, buildHazardsForCell, explodeSoundings, readNumber } from './encHazardParse';
 import { mergeHazardResults } from './hazardSeverity';
-import { S57_POINT_MARK_CLASSES } from './types';
+import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES } from './types';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
     buildLightCharacterLabel,
@@ -502,6 +502,12 @@ export interface EncMergedVectorData {
      *  leave the merge (Shane 2026-07-13: "put the channel name in the
      *  channels"). */
     SEAARE_LABELS: FeatureCollection;
+    /** Caution / information AREAS — restricted (RESARE), submarine cable
+     *  (CBLARE), pipeline (PIPARE), seabed nature (SBDARE), TSS lane part
+     *  (TSSLPT). ONE collection; each feature tagged `_caution` with its
+     *  S-57 class so the render can style them apart. Chart furniture — a
+     *  best-in-class ENC flags no-anchor / restricted / TSS zones. */
+    CAUTION_AREAS: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -1085,6 +1091,7 @@ export function createEmptyMergedVectorData(): EncMergedVectorData {
         DEPARE_GLAZE: fc(),
         SEAARE_LABELS: fc(),
         LIGHTSEC: fc(),
+        CAUTION_AREAS: fc(),
         cellCount: 0,
     };
 }
@@ -1546,6 +1553,29 @@ async function buildMergedVectorData(
         // here (order across these distinct collections is immaterial).
         for (const cls of S57_POINT_MARK_CLASSES) tagAndPush(cls, blob.layers[cls]);
         tagAndPush('RECTRC', blob.layers.RECTRC);
+
+        // Caution / info AREAS → one CAUTION_AREAS collection, each feature
+        // tagged `_caution` with its S-57 class so the renderer styles
+        // restricted / cable / pipeline / seabed / TSS apart (2026-07-16
+        // audit). Same provenance + sub-pixel cull as the other area classes.
+        for (const cls of CAUTION_AREA_CLASSES) {
+            const fc = blob.layers[cls];
+            if (!fc || !Array.isArray(fc.features)) continue;
+            for (const feat of fc.features) {
+                if (!feat || !feat.geometry) continue;
+                if (cullDeg > 0 && featureDiagDeg(feat) < cullDeg) continue;
+                merged.CAUTION_AREAS.features.push({
+                    type: 'Feature',
+                    geometry: feat.geometry,
+                    properties: {
+                        ...(feat.properties ?? {}),
+                        _caution: cls,
+                        _cellId: cell.id,
+                        _sourceHO: cell.sourceHO,
+                    },
+                });
+            }
+        }
 
         // Named areas → ONE label point per name ("put the channel
         // name in the channels", Shane 2026-07-13; "more names, like

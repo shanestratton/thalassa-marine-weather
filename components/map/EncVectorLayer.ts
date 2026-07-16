@@ -416,6 +416,58 @@ function mountLandCoastLayers(
     }
 }
 
+/**
+ * mountCautionAreaLayers — caution / info AREAS (RESARE/CBLARE/PIPARE/SBDARE/
+ * TSSLPT) as chart furniture (2026-07-16 ENC-completeness audit). A faint
+ * data-driven wash + a dashed outline: S-52 magenta for restricted / cable /
+ * pipeline / TSS zones, a muted olive for seabed-nature (SBDARE, an anchoring
+ * aid rather than a caution). z11+ so it never clutters a passage overview.
+ * The fill is tappable (encPopup reads the restriction); the outline decorates.
+ */
+function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => string | undefined): void {
+    // Magenta for the true caution zones; olive for seabed nature.
+    const colourExpr = ['match', ['get', '_caution'], 'SBDARE', '#8a8a5a', '#c0209a'] as unknown;
+    if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_FILL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.CAUTION_AREA_FILL,
+                type: 'fill',
+                source: ENC_VEC_SRC.CAUTION_AREAS,
+                minzoom: 11,
+                paint: {
+                    'fill-color': colourExpr as mapboxgl.ExpressionSpecification,
+                    'fill-opacity': [
+                        'match',
+                        ['get', '_caution'],
+                        'SBDARE',
+                        0.05,
+                        0.1,
+                    ] as unknown as mapboxgl.ExpressionSpecification,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_FILL),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_LINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.CAUTION_AREA_LINE,
+                type: 'line',
+                source: ENC_VEC_SRC.CAUTION_AREAS,
+                minzoom: 11,
+                layout: { 'line-join': 'round' },
+                paint: {
+                    'line-color': colourExpr as mapboxgl.ExpressionSpecification,
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 15, 1.6],
+                    'line-dasharray': [3, 2],
+                    'line-opacity': 0.85,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_LINE),
+        );
+    }
+}
+
 /** mountPointMarkLayers — lifted from the mount monolith (#2b, pure statement move). */
 function mountPointMarkLayers(
     map: mapboxgl.Map,
@@ -1308,6 +1360,7 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC, 32); // sector arcs/legs
     ensureSource(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
     ensureSource(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
+    ensureSource(ENC_VEC_SRC.CAUTION_AREAS, data.CAUTION_AREAS, 8); // caution/info area polygons
 
     const anchor = findInsertionAnchor(map);
 
@@ -1343,6 +1396,8 @@ export function mountEncVectorLayer(
     mountContourLayers(map, minZoom, opacity, safetyByCell, beforeIdFor);
 
     mountLandCoastLayers(map, minZoom, opacity, beforeIdFor);
+
+    mountCautionAreaLayers(map, beforeIdFor);
 
     mountPointMarkLayers(map, minZoom, opacity, beforeIdFor);
 
@@ -1407,6 +1462,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         () => setData(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC),
         () => setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED),
         () => setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS),
+        () => setData(ENC_VEC_SRC.CAUTION_AREAS, data.CAUTION_AREAS),
     ];
     // rAF with a WATCHDOG (2026-07-15, "your white layer is not showing…
     // just the old enc layer"): rAF only fires while the browser is

@@ -453,6 +453,65 @@ export function buildFeaturePopupHtml(
         // more info on what each one is for?"). Honest about the data limit.
         if (!(cat && cat !== 'undefined') && !inform && !hasName)
             body += `<div class="enc-popup-row"><span>Purpose</span><b>General special mark — the chart carries no category. Check the paper chart / Notices to Mariners.</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
+        // Caution / info AREA (restricted / cable / pipeline / seabed / TSS).
+        const CAUTION_LABELS: Record<string, string> = {
+            RESARE: 'Restricted area',
+            CBLARE: 'Submarine cable area',
+            PIPARE: 'Pipeline area',
+            SBDARE: 'Seabed (nature of bottom)',
+            TSSLPT: 'Traffic separation lane',
+        };
+        const cls = String(props._caution ?? '');
+        title = CAUTION_LABELS[cls] ?? 'Charted area';
+        accent = cls === 'SBDARE' ? '#8a8a5a' : '#d43fc0';
+        // RESTRN (restriction) — the values a skipper meets most.
+        const RESTRN_LABELS: Record<string, string> = {
+            '1': 'Anchoring prohibited',
+            '2': 'Anchoring restricted',
+            '3': 'Fishing prohibited',
+            '4': 'Fishing restricted',
+            '5': 'Trawling prohibited',
+            '6': 'Trawling restricted',
+            '7': 'Entry prohibited',
+            '8': 'Entry restricted',
+            '14': 'No wake',
+            '27': 'No anchoring / no fishing (cable/pipeline)',
+        };
+        const restrn = String(props.RESTRN ?? props.restrn ?? '')
+            .split(',')
+            .map((r) => RESTRN_LABELS[r.trim()])
+            .filter(Boolean)
+            .join(' · ');
+        if (restrn) body += `<div class="enc-popup-row"><span>Restriction</span><b>${esc(restrn)}</b></div>`;
+        else if (cls === 'CBLARE' || cls === 'PIPARE')
+            body += `<div class="enc-popup-row"><span>Note</span><b>No anchoring</b></div>`;
+        // NATSUR (nature of surface) for seabed areas — the anchoring read.
+        const NATSUR_LABELS: Record<string, string> = {
+            '1': 'Mud',
+            '2': 'Clay',
+            '3': 'Silt',
+            '4': 'Sand',
+            '5': 'Stone',
+            '6': 'Gravel',
+            '7': 'Pebbles',
+            '8': 'Cobbles',
+            '9': 'Rock',
+            '11': 'Coral',
+            '14': 'Shells',
+        };
+        const natsur = String(props.NATSUR ?? props.natsur ?? '')
+            .split(',')
+            .map((n) => NATSUR_LABELS[n.trim()])
+            .filter(Boolean)
+            .join(' / ');
+        if (natsur) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(natsur)}</b></div>`;
+        const informRaw = props.INFORM ?? props.inform ?? props.NINFOM ?? props.ninfom;
+        const inform = typeof informRaw === 'string' ? informRaw.trim() : '';
+        if (inform) body += `<div class="enc-popup-row"><span>Note</span><b>${esc(inform)}</b></div>`;
+        const cname = props.OBJNAM ?? props.objnam;
+        if (typeof cname === 'string' && cname.trim())
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(cname)}</b></div>`;
     }
 
     // A lit mark carries its light's details BELOW the mark rows — the
