@@ -342,6 +342,55 @@ export const MapHub: React.FC<MapHubProps> = ({
             /* quota/private-mode — the trace just doesn't survive reloads */
         }
     }, [capturedCoords]);
+
+    // Undo HISTORY (Shane 2026-07-16: "a stray tap drops a stupid waypoint and
+    // sends the route sideways — put it back exactly as it was, and step back
+    // edit-by-edit up to the last save"). Every edit to capturedCoords —
+    // whatever dropped it: a tap, a drag, auto-route, a ghost, a delete —
+    // snapshots the PREVIOUS state here, so Undo restores it whole. Captured
+    // via an effect keyed on capturedCoords so all ~18 setCapturedCoords sites
+    // feed it for free. Guards: an Undo restore must not re-push; a save/load
+    // rebases (the saved state is the floor — you can't undo past it).
+    const traceHistoryRef = useRef<Array<Array<{ lat: number; lon: number }>>>([]);
+    const prevCoordsRef = useRef(capturedCoords);
+    const isUndoingRef = useRef(false);
+    const rebaseHistoryRef = useRef(false);
+    const [canUndoTrace, setCanUndoTrace] = useState(false);
+    useEffect(() => {
+        if (capturedCoords === prevCoordsRef.current) return; // no real change
+        if (isUndoingRef.current) {
+            // An Undo restore — sync the baseline, never re-push.
+            isUndoingRef.current = false;
+            prevCoordsRef.current = capturedCoords;
+            return;
+        }
+        if (rebaseHistoryRef.current) {
+            // Save / load a route → this IS the new floor. Wipe history.
+            rebaseHistoryRef.current = false;
+            traceHistoryRef.current = [];
+            prevCoordsRef.current = capturedCoords;
+            setCanUndoTrace(false);
+            return;
+        }
+        traceHistoryRef.current.push(prevCoordsRef.current);
+        if (traceHistoryRef.current.length > 100) traceHistoryRef.current.shift();
+        prevCoordsRef.current = capturedCoords;
+        setCanUndoTrace(true);
+    }, [capturedCoords]);
+    /** Undo the last route edit — restore the exact prior state (multi-step,
+     *  back to the last save). Falls back to a no-op when history is empty. */
+    const undoTrace = useCallback(() => {
+        if (traceHistoryRef.current.length === 0) return;
+        triggerHaptic('light');
+        const prev = traceHistoryRef.current.pop()!;
+        isUndoingRef.current = true;
+        setSelectedPin(null);
+        setInsertAfter(null);
+        insertAfterRef.current = null;
+        setCapturedCoords(prev);
+        setCanUndoTrace(traceHistoryRef.current.length > 0);
+    }, []);
+
     const [coordsCopied, setCoordsCopied] = useState(false);
     const coordCaptureRef = useRef(false);
     /** The PEN switch (Shane 2026-07-11: stray taps while the tracer is
@@ -1191,6 +1240,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             // box to flip). Keeping it also makes re-save-as-overwrite
             // natural: tap Save again and the "Overwrite?" arm appears.
             flashTraceFeedback(existing ? 'Updated ✓' : 'Saved ✓');
+            // This saved state is the new Undo FLOOR (Shane 2026-07-16: undo
+            // "right up to when it was last saved"). Save doesn't touch
+            // capturedCoords, so clear the stack directly.
+            traceHistoryRef.current = [];
+            prevCoordsRef.current = capturedCoords;
+            setCanUndoTrace(false);
             // Cross-device honesty: "Saved ✓" is true of THIS device either
             // way, but build-on-desktop→sail-on-phone needs the account
             // push — when it didn't happen, say so instead of letting the
@@ -1808,6 +1863,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 pins = rdpTracePoints(points, eps);
             }
             setShowVoyagePicker(false);
+            rebaseHistoryRef.current = true; // wholesale load → new Undo floor
             setCapturedCoords(pins);
             const mid = pins[Math.floor(pins.length / 2)];
             mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 11.5, duration: 1000 });
@@ -4770,11 +4826,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     </button>
                                                 )}
                                             <button
-                                                onClick={() => {
-                                                    triggerHaptic('light');
-                                                    setCapturedCoords((prev) => prev.slice(0, -1));
-                                                }}
-                                                disabled={capturedCoords.length === 0}
+                                                onClick={undoTrace}
+                                                disabled={!canUndoTrace}
                                                 className="flex-1 rounded-lg bg-white/5 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Undo
@@ -4923,6 +4976,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         const lane = ghostLanes[0] as (typeof ghostLanes)[number] & {
                                                             draftM?: number | null;
                                                         };
+                                                        rebaseHistoryRef.current = true; // wholesale load → Undo floor
                                                         setCapturedCoords(lane.points);
                                                         // Draft-relative honesty: a shared lane was proven
                                                         // by SOMEONE'S keel — the re-grade against YOURS
@@ -5163,14 +5217,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {plotArmed ? '✏️ Plot' : '⏸ Paused'}
                                             </button>
                                             <button
-                                                onClick={() => {
-                                                    triggerHaptic('light');
-                                                    setSelectedPin(null);
-                                                    setInsertAfter(null);
-                                                    insertAfterRef.current = null;
-                                                    setCapturedCoords((prev) => prev.slice(0, -1));
-                                                }}
-                                                disabled={capturedCoords.length === 0}
+                                                onClick={undoTrace}
+                                                disabled={!canUndoTrace}
                                                 className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Undo
@@ -5419,6 +5467,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             <button
                                                                 onClick={() => {
                                                                     triggerHaptic('light');
+                                                                    rebaseHistoryRef.current = true; // load → Undo floor
                                                                     setCapturedCoords(r.points);
                                                                     const mid =
                                                                         r.points[Math.floor(r.points.length / 2)];
@@ -5465,6 +5514,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         <button
                                                             onClick={() => {
                                                                 triggerHaptic('light');
+                                                                rebaseHistoryRef.current = true; // opened a saved route → Undo floor
                                                                 setCapturedCoords(t.points);
                                                                 setTraceName(t.name);
                                                                 setShowSavedTraces(false);

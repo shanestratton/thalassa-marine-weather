@@ -165,9 +165,13 @@
 // (departing now at cruising speed) — arrival time + wind/gust from Open-Meteo,
 // each waypoint sampled at its own arrival hour. In the on-screen report and
 // the PDF. Degrades to ETAs-only when offline / no key / beyond forecast.
-const CACHE_NAME = 'thalassa-v102-core';
-const TILE_CACHE = 'thalassa-v102-tiles';
-const DATA_CACHE = 'thalassa-v102-data';
+// v103: Undo is now a real multi-step history — it restores the route EXACTLY
+// as it was before the last edit (a stray-tap waypoint, a drag, auto-route,
+// anything), and steps back edit-by-edit right up to the last save (save/load
+// = the floor). Was just "remove the last pin".
+const CACHE_NAME = 'thalassa-v103-core';
+const TILE_CACHE = 'thalassa-v103-tiles';
+const DATA_CACHE = 'thalassa-v103-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
