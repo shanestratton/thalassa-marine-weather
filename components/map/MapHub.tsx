@@ -343,52 +343,80 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
     }, [capturedCoords]);
 
-    // Undo HISTORY (Shane 2026-07-16: "a stray tap drops a stupid waypoint and
-    // sends the route sideways — put it back exactly as it was, and step back
-    // edit-by-edit up to the last save"). Every edit to capturedCoords —
-    // whatever dropped it: a tap, a drag, auto-route, a ghost, a delete —
-    // snapshots the PREVIOUS state here, so Undo restores it whole. Captured
-    // via an effect keyed on capturedCoords so all ~18 setCapturedCoords sites
-    // feed it for free. Guards: an Undo restore must not re-push; a save/load
-    // rebases (the saved state is the floor — you can't undo past it).
-    const traceHistoryRef = useRef<Array<Array<{ lat: number; lon: number }>>>([]);
+    // Undo / REDO HISTORY (Shane 2026-07-16: "a stray tap drops a stupid
+    // waypoint and sends the route sideways — put it back exactly as it was,
+    // and step back edit-by-edit up to the last save" + "do redo too"). Every
+    // edit to capturedCoords — whatever dropped it: a tap, a drag, auto-route,
+    // a ghost, a delete — snapshots the PREVIOUS state here, so Undo restores
+    // it whole; Redo walks forward again. Two stacks; a fresh edit invalidates
+    // the redo branch. Captured via an effect keyed on capturedCoords so all
+    // ~18 setCapturedCoords sites feed it for free. Guards: an undo/redo
+    // restore must not re-push; a save/load rebases both stacks (the saved
+    // state is the floor — you can't undo past it).
+    type Coords = Array<{ lat: number; lon: number }>;
+    const traceHistoryRef = useRef<Coords[]>([]);
+    const traceRedoRef = useRef<Coords[]>([]);
     const prevCoordsRef = useRef(capturedCoords);
-    const isUndoingRef = useRef(false);
+    const isRestoringRef = useRef(false);
     const rebaseHistoryRef = useRef(false);
     const [canUndoTrace, setCanUndoTrace] = useState(false);
+    const [canRedoTrace, setCanRedoTrace] = useState(false);
     useEffect(() => {
         if (capturedCoords === prevCoordsRef.current) return; // no real change
-        if (isUndoingRef.current) {
-            // An Undo restore — sync the baseline, never re-push.
-            isUndoingRef.current = false;
+        if (isRestoringRef.current) {
+            // An undo/redo restore — the handler already moved the stacks. Just
+            // sync the baseline; never re-push and never clear the redo branch.
+            isRestoringRef.current = false;
             prevCoordsRef.current = capturedCoords;
             return;
         }
         if (rebaseHistoryRef.current) {
-            // Save / load a route → this IS the new floor. Wipe history.
+            // Save / load a route → this IS the new floor. Wipe both stacks.
             rebaseHistoryRef.current = false;
             traceHistoryRef.current = [];
+            traceRedoRef.current = [];
             prevCoordsRef.current = capturedCoords;
             setCanUndoTrace(false);
+            setCanRedoTrace(false);
             return;
         }
+        // A fresh edit: push the previous state, and abandon the redo branch.
         traceHistoryRef.current.push(prevCoordsRef.current);
         if (traceHistoryRef.current.length > 100) traceHistoryRef.current.shift();
+        traceRedoRef.current = [];
         prevCoordsRef.current = capturedCoords;
         setCanUndoTrace(true);
+        setCanRedoTrace(false);
     }, [capturedCoords]);
     /** Undo the last route edit — restore the exact prior state (multi-step,
-     *  back to the last save). Falls back to a no-op when history is empty. */
+     *  back to the last save). No-op when history is empty. */
     const undoTrace = useCallback(() => {
         if (traceHistoryRef.current.length === 0) return;
         triggerHaptic('light');
         const prev = traceHistoryRef.current.pop()!;
-        isUndoingRef.current = true;
+        traceRedoRef.current.push(prevCoordsRef.current); // current → redo
+        isRestoringRef.current = true;
         setSelectedPin(null);
         setInsertAfter(null);
         insertAfterRef.current = null;
         setCapturedCoords(prev);
         setCanUndoTrace(traceHistoryRef.current.length > 0);
+        setCanRedoTrace(true);
+    }, []);
+    /** Redo — step forward again after an Undo, up to where you'd undone from.
+     *  Cleared the moment you make a new edit. No-op when the redo stack empty. */
+    const redoTrace = useCallback(() => {
+        if (traceRedoRef.current.length === 0) return;
+        triggerHaptic('light');
+        const next = traceRedoRef.current.pop()!;
+        traceHistoryRef.current.push(prevCoordsRef.current); // current → undo
+        isRestoringRef.current = true;
+        setSelectedPin(null);
+        setInsertAfter(null);
+        insertAfterRef.current = null;
+        setCapturedCoords(next);
+        setCanUndoTrace(true);
+        setCanRedoTrace(traceRedoRef.current.length > 0);
     }, []);
 
     const [coordsCopied, setCoordsCopied] = useState(false);
@@ -1242,10 +1270,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             flashTraceFeedback(existing ? 'Updated ✓' : 'Saved ✓');
             // This saved state is the new Undo FLOOR (Shane 2026-07-16: undo
             // "right up to when it was last saved"). Save doesn't touch
-            // capturedCoords, so clear the stack directly.
+            // capturedCoords, so clear both stacks directly.
             traceHistoryRef.current = [];
+            traceRedoRef.current = [];
             prevCoordsRef.current = capturedCoords;
             setCanUndoTrace(false);
+            setCanRedoTrace(false);
             // Cross-device honesty: "Saved ✓" is true of THIS device either
             // way, but build-on-desktop→sail-on-phone needs the account
             // push — when it didn't happen, say so instead of letting the
@@ -4832,6 +4862,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             >
                                                 Undo
                                             </button>
+                                            <button
+                                                onClick={redoTrace}
+                                                disabled={!canRedoTrace}
+                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                            >
+                                                Redo
+                                            </button>
                                         </div>
                                     </div>
                                 ) : (
@@ -5222,6 +5259,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Undo
+                                            </button>
+                                            <button
+                                                onClick={redoTrace}
+                                                disabled={!canRedoTrace}
+                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                            >
+                                                Redo
                                             </button>
                                             <button
                                                 onClick={() => void copyCapturedCoords()}

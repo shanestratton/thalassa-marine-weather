@@ -169,9 +169,12 @@
 // as it was before the last edit (a stray-tap waypoint, a drag, auto-route,
 // anything), and steps back edit-by-edit right up to the last save (save/load
 // = the floor). Was just "remove the last pin".
-const CACHE_NAME = 'thalassa-v103-core';
-const TILE_CACHE = 'thalassa-v103-tiles';
-const DATA_CACHE = 'thalassa-v103-data';
+// v104: Redo — step forward again after an Undo (Shane's idea), edit-by-edit
+// up to where you'd undone from. A fresh edit abandons the redo branch; save/
+// load clear both stacks. Redo button beside Undo in both control rows.
+const CACHE_NAME = 'thalassa-v104-core';
+const TILE_CACHE = 'thalassa-v104-tiles';
+const DATA_CACHE = 'thalassa-v104-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
