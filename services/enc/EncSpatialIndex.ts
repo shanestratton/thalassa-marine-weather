@@ -603,7 +603,14 @@ export class EncSpatialIndex {
      * mergeHazardResults identically; covered:false when this cell charts no
      * crossed polygon along the segment.
      */
-    segmentHazard(lat1: number, lon1: number, lat2: number, lon2: number): EncHazardResult {
+    segmentHazard(
+        lat1: number,
+        lon1: number,
+        lat2: number,
+        lon2: number,
+        exemptStart = false,
+        exemptEnd = false,
+    ): EncHazardResult {
         const candidates = this.hazardTree.search({
             minX: Math.min(lon1, lon2),
             minY: Math.min(lat1, lat2),
@@ -628,11 +635,17 @@ export class EncSpatialIndex {
         for (const entry of candidates) {
             const geom = entry.hazard.geometry;
             if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
-            const crosses =
-                booleanPointInPolygon(pA, geom) ||
-                booleanPointInPolygon(pB, geom) ||
-                lineIntersect(segLine, geom).features.length > 0;
+            const inA = booleanPointInPolygon(pA, geom);
+            const inB = booleanPointInPolygon(pB, geom);
+            const crosses = inA || inB || lineIntersect(segLine, geom).features.length > 0;
             if (!crosses) continue;
+            // Berth exemption: the route's own origin/destination is often
+            // inside a shoal polygon on purpose. When this endpoint is a route
+            // TERMINAL, don't flag the leg merely for containing it — else we'd
+            // try to detour a route away from its own start/finish. Only skips
+            // a polygon the exempt terminal sits INSIDE; a thin islet the leg
+            // merely crosses elsewhere still flags (audit: terminal-leg gap).
+            if ((exemptStart && inA) || (exemptEnd && inB)) continue;
 
             crossedCharted = true;
             const type = classifyHazard(entry.hazard);

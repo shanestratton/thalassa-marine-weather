@@ -649,30 +649,33 @@ export async function validateRouteSegments(
         // ── 3b. Segment-vs-polygon crossing (ENC only, audit #1) ──────
         // The per-sample scan above misses a charted shoal DEPARE / LNDARE
         // islet NARROWER than the 231 m sampling that sits BETWEEN two
-        // samples. Test each INTERIOR segment's polygon crossings directly.
-        // First/last segments touch the route's origin/destination (often an
-        // intentional shoal berth) and are left to the sampled scan — the
-        // same rule the interior-waypoint check uses, so we never detour a
-        // route away from its own start or finish.
-        if (segmentMeta.length > 2) {
-            const interiorSegs = [];
-            for (let i = 1; i < segmentMeta.length - 1; i++) {
-                interiorSegs.push({
+        // samples. Test EVERY segment's polygon crossings directly — including
+        // the terminal legs and a 2-waypoint direct route (the earlier
+        // interior-only gate left those untested). The route's origin
+        // (segment 0's start) and destination (last segment's end) are the
+        // user's chosen berth, often intentionally in shoal water, so those
+        // TERMINALS are berth-exempt: segmentHazard skips a polygon they sit
+        // INSIDE (so we never detour a route away from its own start/finish),
+        // while a thin islet the leg actually crosses still flags.
+        {
+            const lastSeg = segmentMeta.length - 1;
+            const polySegs = [];
+            for (let i = 0; i < segmentMeta.length; i++) {
+                polySegs.push({
                     idx: i,
                     lat1: result[i].lat,
                     lon1: result[i].lon,
                     lat2: result[i + 1].lat,
                     lon2: result[i + 1].lon,
+                    exemptStart: i === 0,
+                    exemptEnd: i === lastSeg,
                 });
             }
             try {
-                const segResults = await HazardQueryService.querySegmentHazards(
-                    interiorSegs.map((s) => ({ lat1: s.lat1, lon1: s.lon1, lat2: s.lat2, lon2: s.lon2 })),
-                    queryOpts,
-                );
-                for (let k = 0; k < interiorSegs.length; k++) {
-                    if (segResults[k]?.isHazard && !landSegments.includes(interiorSegs[k].idx)) {
-                        landSegments.push(interiorSegs[k].idx);
+                const segResults = await HazardQueryService.querySegmentHazards(polySegs, queryOpts);
+                for (let k = 0; k < polySegs.length; k++) {
+                    if (segResults[k]?.isHazard && !landSegments.includes(polySegs[k].idx)) {
+                        landSegments.push(polySegs[k].idx);
                     }
                 }
             } catch (err) {

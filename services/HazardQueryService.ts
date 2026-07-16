@@ -355,7 +355,14 @@ export async function queryHazards(
  * deep enough for the vessel clears while land/too-shallow blocks.
  */
 export async function querySegmentHazards(
-    segments: { lat1: number; lon1: number; lat2: number; lon2: number }[],
+    segments: {
+        lat1: number;
+        lon1: number;
+        lat2: number;
+        lon2: number;
+        exemptStart?: boolean;
+        exemptEnd?: boolean;
+    }[],
     options: HazardQueryOptions = {},
 ): Promise<{ isHazard: boolean; hazardType?: EncHazardType; source: 'enc' | 'none' }[]> {
     if (segments.length === 0) return [];

@@ -267,7 +267,14 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
  * polygons), so the sampled point query remains its backstop.
  */
 export async function querySegmentHazards(
-    segments: { lat1: number; lon1: number; lat2: number; lon2: number }[],
+    segments: {
+        lat1: number;
+        lon1: number;
+        lat2: number;
+        lon2: number;
+        exemptStart?: boolean;
+        exemptEnd?: boolean;
+    }[],
 ): Promise<EncHazardResult[]> {
     const results: EncHazardResult[] = new Array(segments.length);
     if (segments.length === 0) return results;
@@ -303,7 +310,7 @@ export async function querySegmentHazards(
         const s = segments[i];
         let merged: EncHazardResult = miss();
         for (const idx of candidateIndexes) {
-            const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2);
+            const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2, s.exemptStart, s.exemptEnd);
             if (!r.covered) continue;
             merged = mergeHazardResults(merged, r);
         }
