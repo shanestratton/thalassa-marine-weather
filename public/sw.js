@@ -186,9 +186,15 @@
 // now climbs device → PI → cloud (offline-with-Pi routing no longer starves);
 // (b) corridor prefetch: the moment a trace has 2+ pins, the cells covering
 // the padded corridor pull quietly in the background via the same ladder.
-const CACHE_NAME = 'thalassa-v108-core';
-const TILE_CACHE = 'thalassa-v108-tiles';
-const DATA_CACHE = 'thalassa-v108-data';
+// v109: z10 boot speed batch (8 audit fixes) — first merge fires immediately
+// (no 250ms debounce / 300ms idle ceiling on boot), merge pre-warms UNDER the
+// tile network wait, glaze cache survives cell arrivals (content-keyed),
+// cold-store downloads run 3-wide with paint-in-waves, unclamped merge
+// yields, Pi auto-sync deferred out of the boot window, hydration skips a
+// multi-MB re-stringify, and a [perf] line measures every merge.
+const CACHE_NAME = 'thalassa-v109-core';
+const TILE_CACHE = 'thalassa-v109-tiles';
+const DATA_CACHE = 'thalassa-v109-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -81,6 +81,27 @@ function windowFor(map: mapboxgl.Map): Bbox {
     return [cx - hw, Math.max(cy - hh, -85), cx + hw, Math.min(cy + hh, 85)];
 }
 
+/**
+ * Boot pre-warm (z10-boot audit #4): fire the FIRST merge the moment the map
+ * object exists, so its blob reads + parses + glaze clip run UNDER Mapbox's
+ * style/tile network wait instead of after it. Fire-and-forget: the result
+ * lands in getMergedVectorData's selection-keyed memo (single-flight guards
+ * coalesce with the real apply()), so the mount at mapReady is a cache hit.
+ * Zoom-gated like every other merge trigger — never fires on the wide
+ * no-fix fallback boot (the zoom-gate lesson); worst case (user pans before
+ * load) is one wasted time-sliced merge.
+ */
+export function prewarmEncMerge(map: mapboxgl.Map): void {
+    try {
+        if (map.getZoom() < ENC_MERGE_MIN_ZOOM || !hasAnyCells()) return;
+        const win = windowFor(map);
+        log.warn(`[prewarm] boot merge start z=${map.getZoom().toFixed(1)}`);
+        void getMergedVectorData(win, map.getZoom()).catch(() => undefined);
+    } catch {
+        /* prewarm is best-effort — the normal apply path still runs */
+    }
+}
+
 function viewportInside(map: mapboxgl.Map, win: Bbox): boolean {
     const b = map.getBounds()!;
     return b.getWest() >= win[0] && b.getSouth() >= win[1] && b.getEast() <= win[2] && b.getNorth() <= win[3];
@@ -143,13 +164,28 @@ export function useEncVectorLayer(
         // merges back to back, each re-clipping and re-laddering the
         // whole coast. Trailing 800 ms coalesces a registration storm
         // into one merge once the dust settles.
+        // MAX-WAIT (z10-boot audit, 2026-07-16): trailing-only reset starved
+        // the fast-network cold boot — every arriving cell reset the 800 ms
+        // timer, so nothing painted until the whole hydration walk finished.
+        // Keep the coalesce, but force a bump when ~3 s have passed since the
+        // FIRST uncoalesced notify: the chart paints in waves while cells land.
         let t: number | null = null;
+        let firstNotifyMs: number | null = null;
         const unsub = subscribeToEnc(() => {
-            if (t !== null) window.clearTimeout(t);
-            t = window.setTimeout(() => {
+            const now = Date.now();
+            if (firstNotifyMs === null) firstNotifyMs = now;
+            const fire = () => {
                 t = null;
+                firstNotifyMs = null;
                 setBumpCounter((c) => c + 1);
-            }, 800);
+            };
+            if (now - firstNotifyMs >= 3_000) {
+                if (t !== null) window.clearTimeout(t);
+                fire();
+                return;
+            }
+            if (t !== null) window.clearTimeout(t);
+            t = window.setTimeout(fire, 800);
         });
         return () => {
             if (t !== null) window.clearTimeout(t);
@@ -217,6 +253,15 @@ export function useEncVectorLayer(
             const paramsFresh =
                 Math.round(zNow) === Math.round(zMerged) && zNow >= GLAZE_MIN_ZOOM === zMerged >= GLAZE_MIN_ZOOM;
             if (win && viewportInside(map, win) && paramsFresh) return;
+            // FIRST merge of the session: nothing on screen to protect, so
+            // skip the pan-coalescing debounce and go now — the 250 ms was
+            // pure added time-to-chart on boot (z10-boot audit, 2026-07-16).
+            if (win === null) {
+                if (t !== null) window.clearTimeout(t);
+                t = null;
+                setBumpCounter((c) => c + 1);
+                return;
+            }
             if (t !== null) window.clearTimeout(t);
             t = window.setTimeout(() => {
                 t = null;
@@ -315,9 +360,13 @@ export function useEncVectorLayer(
         // beat later, exactly as it already does. `timeout` bounds it so a
         // visibility/detail toggle still applies promptly under load.
         // setTimeout fallback for WKWebView (no requestIdleCallback).
+        // timeout 50 (was 300): at a busy boot the callback effectively fires
+        // AT the ceiling, so 300 was ~300 ms of guaranteed added time-to-chart
+        // (z10-boot audit, 2026-07-16). 50 still lets the basemap's first
+        // frame through — the merge itself is time-sliced, so it can't freeze.
         const ric = window.requestIdleCallback;
         const handle: number = ric
-            ? ric(() => void apply(), { timeout: 300 })
+            ? ric(() => void apply(), { timeout: 50 })
             : (setTimeout(() => void apply(), 1) as unknown as number);
 
         return () => {

@@ -85,6 +85,28 @@ import { buildSectorFeatures, readSectorBearings } from './lightSectors';
 
 const log = createLogger('EncHazardService');
 
+// Macrotask yield WITHOUT the timer clamp: iOS/WebKit clamps setTimeout(0) to
+// ~1–4 ms, and the merge's time-slicer yields ~40 times per merge — 40–160 ms
+// of pure waiting per merge (z10-boot audit, 2026-07-16). A MessageChannel
+// post lands on the next macrotask unclamped. Falls back to setTimeout where
+// MessageChannel is unavailable.
+const yieldChannel = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null;
+let yieldWaiters: Array<() => void> = [];
+if (yieldChannel) {
+    yieldChannel.port1.onmessage = () => {
+        const waiters = yieldWaiters;
+        yieldWaiters = [];
+        for (const w of waiters) w();
+    };
+}
+function macroYield(): Promise<void> {
+    if (!yieldChannel) return new Promise((resolve) => setTimeout(resolve, 0));
+    return new Promise((resolve) => {
+        yieldWaiters.push(resolve);
+        yieldChannel.port2.postMessage(null);
+    });
+}
+
 // ── In-memory index cache ──────────────────────────────────────────
 
 /**
@@ -1204,7 +1226,9 @@ async function buildMergedVectorData(
     let sliceStart = performance.now();
     const yieldIfNeeded = async (): Promise<void> => {
         if (performance.now() - sliceStart < 12) return;
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        // macroYield (MessageChannel) dodges iOS's 1–4 ms setTimeout clamp;
+        // the 80 ms gesture-park naps below stay real timers on purpose.
+        await macroYield();
         let parkedMs = 0;
         while (mergeInteractionProbe?.() && parkedMs < 2000) {
             await new Promise<void>((resolve) => setTimeout(resolve, 80));
@@ -1240,7 +1264,11 @@ async function buildMergedVectorData(
     const loadedBlobs = new Map<string, NonNullable<Awaited<ReturnType<typeof cellStore.loadCellGeoJSON>>>>();
     const depareExtent = new Map<string, [number, number, number, number]>();
     const missingBlobs: string[] = [];
+    // Perf split (z10-boot audit #2): read+parse vs merge compute, measured —
+    // the one warn line at the tail turns boot-speed guesses into numbers.
+    const perfT0 = performance.now();
     await loadCellBlobsAndExtents(cellsCoarseToFine, loadedBlobs, depareExtent, missingBlobs, yieldIfNeeded);
+    const perfLoadMs = performance.now() - perfT0;
 
     // Charted-water footprint per SHADOWING cell, memoized for this run
     // — feeds the glaze's coverage subtraction. Coordinate arrays are
@@ -1513,9 +1541,16 @@ async function buildMergedVectorData(
         // passage-zoom window fed the z7-8 OOM. See GLAZE_MIN_ZOOM.
         if (buildGlaze) {
             // Memo key: the glaze for this cell is fully determined by its
-            // own blob (cellId + version) and the SHADOWING cells that clip
-            // it (their ids, sorted — same set for both grades).
-            const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${glazeShadows
+            // own blob and the SHADOWING cells that clip it (their ids,
+            // sorted — same set for both grades). Keyed by CELL CONTENT
+            // (id@edition@sizeBytes — the established cell-identity triple),
+            // NOT the registry version: the old v{registryVersion} prefix
+            // wiped all cached glazes on ANY putCell (every hydration
+            // arrival, provenance patch, Pi sync), re-clipping the whole
+            // coast per arriving cell — the cold-boot cascade's biggest
+            // duplicated cost (z10-boot audit #3). A re-extracted cell
+            // still invalidates: same id, different sizeBytes.
+            const glazeKey = `${cell.id}@${cell.edition}@${cell.sizeBytes ?? 0}:${glazeShadows
                 .map((s) => s.id)
                 .sort()
                 .join(',')}`;
@@ -1693,6 +1728,13 @@ async function buildMergedVectorData(
         void hydrateMissingCells(missingBlobs);
     }
     logMergeSummary(merged);
+    // warn, not info (info is silent in prod): the boot-speed ground truth.
+    const perfBytes = cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0);
+    log.warn(
+        `[perf] merge ${merged.cellCount} cells (${(perfBytes / 1024 / 1024).toFixed(1)} MB reg): ` +
+            `load+parse=${Math.round(perfLoadMs)}ms, compute=${Math.round(performance.now() - perfT0 - perfLoadMs)}ms, ` +
+            `total=${Math.round(performance.now() - perfT0)}ms, missing=${missingBlobs.length}`,
+    );
     return merged;
 }
 
@@ -1772,8 +1814,14 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     setHydrationProgress({ remaining: walk.length, total: walk.length });
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
-        for (let i = 0; i < walk.length; i++) {
-            const id = walk[i];
+        // PARALLEL, pool of 3 (z10-boot audit #5): one-at-a-time downloads
+        // made the cold walk O(N) on the slowest cell — one stalled socket
+        // (30 s deadline) head-of-line blocked the entire coast. Three slots
+        // ≈ 2–3× faster fill without drowning marina wifi that's also pulling
+        // the raster pyramid; downloadCloudCell dedupes per cell, and the
+        // notify max-wait upstream paints in waves as cells land.
+        let done = 0;
+        const runOne = async (id: string): Promise<void> => {
             const ok = await downloadCloudCell(id);
             if (ok) {
                 hydrationCooldownUntil.delete(id);
@@ -1785,8 +1833,17 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
             } else {
                 hydrationCooldownUntil.set(id, Date.now() + HYDRATION_RETRY_COOLDOWN_MS);
             }
-            setHydrationProgress({ remaining: walk.length - i - 1, total: walk.length });
-        }
+            done++;
+            setHydrationProgress({ remaining: walk.length - done, total: walk.length });
+        };
+        const queue = [...walk];
+        await Promise.all(
+            Array.from({ length: Math.min(3, queue.length) }, async () => {
+                for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+                    await runOne(id);
+                }
+            }),
+        );
     } catch (err) {
         log.warn(`hydration walk failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

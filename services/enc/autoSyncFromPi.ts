@@ -47,7 +47,12 @@ let pollHandle: ReturnType<typeof setInterval> | null = null;
  * pauses and resumes with the app lifecycle.
  */
 export function startAutoSyncPolling(): void {
-    void autoSyncFromPiIfPossible();
+    // DEFERRED ~10 s (z10-boot audit #8): the immediate kick ran its Pi probe
+    // + native GPS fix + potential multi-MB pulls right inside the boot
+    // window, competing with the first chart merge for main thread + wifi.
+    // Ten seconds later the chart is up and the sync runs in calm water; the
+    // 10-minute poll cadence is otherwise unchanged.
+    setTimeout(() => void autoSyncFromPiIfPossible(), 10_000);
     if (!pollHandle) {
         pollHandle = setInterval(() => {
             void autoSyncFromPiIfPossible();
