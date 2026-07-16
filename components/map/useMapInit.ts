@@ -244,17 +244,15 @@ export function useMapInit(opts: UseMapInitOptions) {
             return Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
         })();
 
-        // ── Default view: AU+NZ width, centred on selected location ──
+        // ── Default view: z10 on the selected location / GPS ──
         // Priority for the initial centre:
         //   1. `initialCenter` — the "location box" value (selected weather
         //      location). This is what the user actually cares about: if they
         //      set a destination, that's where the map opens.
         //   2. `location` — live LocationStore (GPS). Fallback only when no
         //      weather location is selected.
-        //   3. AUS_NZ_CENTER — final fallback before any fix is available.
-        //
-        // The AU+NZ fit zoom stays regardless, so the user always sees the
-        // full width of both countries on first open.
+        //   3. AUS_NZ_CENTER — final fallback before any fix is available
+        //      (and the only case that still opens at the whole-Aus+NZ fit).
         const validCenter = (pt?: { lat: number; lon: number }): boolean =>
             !!pt && isFinite(pt.lat) && isFinite(pt.lon) && (pt.lat !== 0 || pt.lon !== 0);
 
@@ -269,7 +267,14 @@ export function useMapInit(opts: UseMapInitOptions) {
             : preferredCenter
               ? [preferredCenter.lon, preferredCenter.lat]
               : AUS_NZ_CENTER;
-        const startZoom = embedded ? initialZoom : ausNzFitZoom;
+        // Boot zoom: z10 EXACTLY when we know where the user is (Shane
+        // 2026-07-16: "default to zoom 10, that is the golden size" — the level
+        // every nav mark becomes visible, local water fills the screen, and the
+        // ENC merge starts warm past its z6.5 floor). Only the no-fix,
+        // no-selection fallback keeps the whole-Aus+NZ fit — z10 on a fallback
+        // centre would open on an arbitrary inland paddock.
+        const GOLDEN_BOOT_ZOOM = 10;
+        const startZoom = embedded ? initialZoom : preferredCenter ? GOLDEN_BOOT_ZOOM : ausNzFitZoom;
 
         const map = new mapboxgl.Map({
             container: containerRef.current,
