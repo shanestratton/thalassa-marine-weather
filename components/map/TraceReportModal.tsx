@@ -13,8 +13,26 @@ import React from 'react';
 import type { TraceLegVerdict, TracePoint } from '../../services/routeTracer';
 import { traceHealth } from '../../services/routeTracer';
 import { triggerHaptic } from '../../utils/system';
+import { windCompass, type WaypointWeather } from '../../services/routeReportWeather';
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
+
+/** "+3h20 · 14:30" arrival label, or "now" for the start. */
+const fmtEta = (w: WaypointWeather): string => {
+    const clock = new Date(w.etaMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    if (w.hoursFromDep < 0.02) return `now · ${clock}`;
+    const h = Math.floor(w.hoursFromDep);
+    const m = Math.round((w.hoursFromDep - h) * 60);
+    const rel = h > 0 ? `+${h}h${m > 0 ? String(m).padStart(2, '0') : ''}` : `+${m}m`;
+    return `${rel} · ${clock}`;
+};
+/** "SW 14kt G22", or a beyond-forecast note. */
+const fmtWind = (w: WaypointWeather): string => {
+    if (w.beyondForecast) return 'beyond forecast';
+    if (w.windKts == null || w.windDeg == null) return '';
+    const gust = w.gustKts != null && w.gustKts - w.windKts >= 3 ? ` G${Math.round(w.gustKts)}` : '';
+    return `${windCompass(w.windDeg)} ${Math.round(w.windKts)}kt${gust}`;
+};
 
 interface Props {
     open: boolean;
@@ -36,6 +54,8 @@ interface Props {
     onAckLeg: (i: number) => void;
     vesselName?: string;
     draftM?: number;
+    /** Cruising speed (kts) for the per-waypoint ETA/weather. Defaults to 6. */
+    cruisingSpeedKts?: number;
 }
 
 /** Decimal degrees → degrees-decimal-minutes with hemisphere (the marine
@@ -126,9 +146,39 @@ export const TraceReportModal: React.FC<Props> = ({
     onAckLeg,
     vesselName,
     draftM,
+    cruisingSpeedKts,
 }) => {
     const [exporting, setExporting] = React.useState(false);
     const [exportMsg, setExportMsg] = React.useState<string | null>(null);
+    // Per-waypoint weather at the ETA (departing NOW). Fetched when the report
+    // opens; feeds both the on-screen waypoint list and the PDF.
+    const [weather, setWeather] = React.useState<WaypointWeather[] | null>(null);
+    const [weatherLoading, setWeatherLoading] = React.useState(false);
+    const spd = cruisingSpeedKts && cruisingSpeedKts > 0 ? cruisingSpeedKts : 6;
+    React.useEffect(() => {
+        if (!open || pins.length < 2) {
+            setWeather(null);
+            return;
+        }
+        let live = true;
+        setWeatherLoading(true);
+        const departM = Date.now();
+        void (async () => {
+            try {
+                const { fetchRouteWaypointWeather } = await import('../../services/routeReportWeather');
+                const rows = await fetchRouteWaypointWeather(pins, departM, spd);
+                if (live) setWeather(rows);
+            } catch {
+                if (live) setWeather(null);
+            } finally {
+                if (live) setWeatherLoading(false);
+            }
+        })();
+        return () => {
+            live = false;
+        };
+        // Re-fetch when the report (re)opens or the route/speed changes.
+    }, [open, pins, spd]);
     const onExportPdf = React.useCallback(async () => {
         if (pins.length < 2 || exporting) return;
         setExporting(true);
@@ -148,6 +198,8 @@ export const TraceReportModal: React.FC<Props> = ({
                 departureLabel,
                 vesselName,
                 draftM,
+                weather,
+                cruisingSpeedKts: spd,
                 nowMs: Date.now(),
             });
             const outcome = await sharePdfBlob(blob, getRouteReportFileName(routeName), `Route report - ${routeName || 'route'}`);
@@ -157,7 +209,7 @@ export const TraceReportModal: React.FC<Props> = ({
         } finally {
             setExporting(false);
         }
-    }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, exporting]);
+    }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, weather, spd, exporting]);
 
     if (!open) return null;
     const h = traceHealth(verdicts);
@@ -239,20 +291,45 @@ export const TraceReportModal: React.FC<Props> = ({
                         straight into a plotter, or tap one to fly there. */}
                     {pins.length > 0 && (
                         <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                            <div className="mb-1.5 text-[11px] font-black uppercase tracking-widest text-gray-400">
-                                📍 Waypoints ({pins.length})
+                            <div className="mb-1.5 flex items-baseline justify-between">
+                                <span className="text-[11px] font-black uppercase tracking-widest text-gray-400">
+                                    📍 Waypoints ({pins.length})
+                                </span>
+                                <span className="text-[10px] font-bold text-gray-500">
+                                    {weatherLoading
+                                        ? 'loading weather…'
+                                        : weather
+                                          ? `ETA + wind · leave now @ ${spd}kt`
+                                          : ''}
+                                </span>
                             </div>
                             <div className="space-y-0.5 font-mono text-[11px] text-gray-200">
-                                {pins.map((p, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => onFlyTo(p)}
-                                        className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
-                                    >
-                                        <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
-                                        <span className="tabular-nums">{fmtFix(p)}</span>
-                                    </button>
-                                ))}
+                                {pins.map((p, i) => {
+                                    const w = weather?.[i];
+                                    const windStr = w ? fmtWind(w) : '';
+                                    return (
+                                        <button
+                                            key={i}
+                                            onClick={() => onFlyTo(p)}
+                                            className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
+                                        >
+                                            <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
+                                            <span className="tabular-nums">{fmtFix(p)}</span>
+                                            {w && (
+                                                <span className="ml-auto shrink-0 text-right">
+                                                    <span className="text-sky-300/90">{fmtEta(w)}</span>
+                                                    {windStr && (
+                                                        <span
+                                                            className={`ml-2 ${w.beyondForecast ? 'text-gray-500' : w.gustKts != null && w.gustKts >= 25 ? 'text-amber-300' : 'text-gray-300'}`}
+                                                        >
+                                                            {windStr}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

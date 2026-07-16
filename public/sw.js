@@ -161,9 +161,13 @@
 // GHOST waypoints — a thin/no-go leg with deeper water abeam now drops a
 // dashed, draggable ghost pin at that charted deep spot; tap or drag it to
 // splice a real waypoint there and route the line through the deep water.
-const CACHE_NAME = 'thalassa-v101-core';
-const TILE_CACHE = 'thalassa-v101-tiles';
-const DATA_CACHE = 'thalassa-v101-data';
+// v102: route report now shows per-waypoint WEATHER at the ETA you'd reach it
+// (departing now at cruising speed) — arrival time + wind/gust from Open-Meteo,
+// each waypoint sampled at its own arrival hour. In the on-screen report and
+// the PDF. Degrades to ETAs-only when offline / no key / beyond forecast.
+const CACHE_NAME = 'thalassa-v102-core';
+const TILE_CACHE = 'thalassa-v102-tiles';
+const DATA_CACHE = 'thalassa-v102-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -14,6 +14,7 @@
 import { jsPDF } from 'jspdf';
 import type { TraceLegVerdict, TracePoint } from './routeTracer';
 import { traceHealth } from './routeTracer';
+import { windCompass, type WaypointWeather } from './routeReportWeather';
 
 type RGB = [number, number, number];
 const COLORS = {
@@ -75,9 +76,30 @@ export interface RouteReportPdfData {
     departureLabel: string | null;
     vesselName?: string;
     draftM?: number;
+    /** Per-waypoint ETA + wind (departing now). null/absent → no weather column. */
+    weather?: WaypointWeather[] | null;
+    /** Cruising speed used for the ETAs (kts), for the header note. */
+    cruisingSpeedKts?: number;
     /** Epoch ms for the "generated" stamp (passed in — Date.now() is banned in
      *  some contexts and keeps this pure/testable). */
     nowMs: number;
+}
+
+/** "+3h20 14:30" / "now 09:05" arrival label. */
+function etaLabel(w: WaypointWeather): string {
+    const clock = new Date(w.etaMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    if (w.hoursFromDep < 0.02) return `now ${clock}`;
+    const h = Math.floor(w.hoursFromDep);
+    const m = Math.round((w.hoursFromDep - h) * 60);
+    const rel = h > 0 ? `+${h}h${m > 0 ? String(m).padStart(2, '0') : ''}` : `+${m}m`;
+    return `${rel} ${clock}`;
+}
+/** "SW 14kt G22" / "beyond fcst" / "". */
+function windLabel(w: WaypointWeather): string {
+    if (w.beyondForecast) return 'beyond fcst';
+    if (w.windKts == null || w.windDeg == null) return '';
+    const gust = w.gustKts != null && w.gustKts - w.windKts >= 3 ? ` G${Math.round(w.gustKts)}` : '';
+    return `${windCompass(w.windDeg)} ${Math.round(w.windKts)}kt${gust}`;
 }
 
 export function getRouteReportFileName(routeName: string): string {
@@ -159,11 +181,17 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
         y += boxH + 5;
     }
 
-    // ── Waypoints ──
+    // ── Waypoints (with ETA + wind at that time, if we have it) ──
+    const wx = data.weather ?? null;
     ensure(9);
     doc.setFontSize(9);
     doc.setTextColor(...COLORS.muted);
     doc.text(`WAYPOINTS (${data.pins.length})`, margin, y + 4);
+    if (wx) {
+        doc.setFontSize(7);
+        doc.setTextColor(...COLORS.dim);
+        doc.text(`ETA + wind — leave now @ ${data.cruisingSpeedKts ?? 6} kt`, W - margin, y + 4, { align: 'right' });
+    }
     y += 8;
     doc.setFontSize(9.5);
     data.pins.forEach((p, i) => {
@@ -172,6 +200,18 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
         doc.text(`${i + 1}`, margin, y + 3.5, { align: 'left' });
         doc.setTextColor(...COLORS.white);
         doc.text(fmtFix(p), margin + 11, y + 3.5);
+        const w = wx?.[i];
+        if (w) {
+            doc.setFontSize(8);
+            doc.setTextColor(...COLORS.primary);
+            doc.text(etaLabel(w), W - margin - 34, y + 3.5, { align: 'right' });
+            const wind = windLabel(w);
+            if (wind) {
+                doc.setTextColor(...(w.gustKts != null && w.gustKts >= 25 ? COLORS.amber : COLORS.muted));
+                doc.text(pdfSafe(wind), W - margin, y + 3.5, { align: 'right' });
+            }
+            doc.setFontSize(9.5);
+        }
         y += 5.4;
     });
     y += 5;

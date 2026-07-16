@@ -26,6 +26,16 @@ describe('RouteReportPdfService', () => {
                   ? leg('danger', 'crosses charted land', -1)
                   : leg('clear', null, 5),
         );
+        const weather = pins.map((_, i) => ({
+            index: i,
+            etaMs: 1_700_000_000_000 + i * 3_600_000,
+            hoursFromDep: i,
+            distanceNM: i * 6,
+            windKts: i > 25 ? null : 12 + i,
+            windDeg: (i * 20) % 360,
+            gustKts: i > 25 ? null : 18 + i,
+            beyondForecast: i > 25,
+        }));
         const blob = generateRouteReportPdf({
             routeName: 'Bribie - Newport',
             pins,
@@ -34,6 +44,8 @@ describe('RouteReportPdfService', () => {
             departureLabel: '🌊 leave 09:10–13:30 and every tide gate clears',
             vesselName: 'Serene Summer',
             draftM: 2.4,
+            weather,
+            cruisingSpeedKts: 6,
             nowMs: 1_700_000_000_000,
         });
         expect(blob.type).toBe('application/pdf');
