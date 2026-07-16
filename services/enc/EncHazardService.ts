@@ -574,6 +574,10 @@ export interface EncMergedVectorData {
      *  S-57 class so the render can style them apart. Chart furniture — a
      *  best-in-class ENC flags no-anchor / restricted / TSS zones. */
     CAUTION_AREAS: FeatureCollection;
+    /** Marked fairway polygons — rendered as a dashed boundary LINE only
+     *  (a tappable fill would blanket the channel and steal the water tap).
+     *  Also the routing preference input. */
+    FAIRWY: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -1139,6 +1143,7 @@ export function createEmptyMergedVectorData(): EncMergedVectorData {
         SEAARE_LABELS: fc(),
         LIGHTSEC: fc(),
         CAUTION_AREAS: fc(),
+        FAIRWY: fc(),
         cellCount: 0,
     };
 }
@@ -1646,6 +1651,9 @@ async function buildMergedVectorData(
         // here (order across these distinct collections is immaterial).
         for (const cls of S57_POINT_MARK_CLASSES) await tagAndPush(cls, blob.layers[cls]);
         await tagAndPush('RECTRC', blob.layers.RECTRC);
+        // Fairway boundaries — extracted since Phase 6 for routing preference
+        // but never DRAWN (burn-down: "render the already-extracted FAIRWY").
+        await tagAndPush('FAIRWY', blob.layers.FAIRWY);
 
         // Caution / info AREAS → one CAUTION_AREAS collection, each feature
         // tagged `_caution` with its S-57 class so the renderer styles
