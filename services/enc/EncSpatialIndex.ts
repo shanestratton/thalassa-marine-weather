@@ -634,18 +634,36 @@ export class EncSpatialIndex {
 
         for (const entry of candidates) {
             const geom = entry.hazard.geometry;
-            if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
-            const inA = booleanPointInPolygon(pA, geom);
-            const inB = booleanPointInPolygon(pB, geom);
-            const crosses = inA || inB || lineIntersect(segLine, geom).features.length > 0;
-            if (!crosses) continue;
-            // Berth exemption: the route's own origin/destination is often
-            // inside a shoal polygon on purpose. When this endpoint is a route
-            // TERMINAL, don't flag the leg merely for containing it — else we'd
-            // try to detour a route away from its own start/finish. Only skips
-            // a polygon the exempt terminal sits INSIDE; a thin islet the leg
-            // merely crosses elsewhere still flags (audit: terminal-leg gap).
-            if ((exemptStart && inA) || (exemptEnd && inB)) continue;
+            let matched = false;
+            if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
+                const inA = booleanPointInPolygon(pA, geom);
+                const inB = booleanPointInPolygon(pB, geom);
+                const crosses = inA || inB || lineIntersect(segLine, geom).features.length > 0;
+                // Berth exemption: the route's own origin/destination is often
+                // inside a shoal AREA on purpose. When this endpoint is a route
+                // TERMINAL, don't flag the leg merely for containing it — else
+                // we'd detour the route away from its own start/finish. Only a
+                // polygon the exempt terminal sits INSIDE is skipped; a thin
+                // islet the leg merely crosses elsewhere still flags. (Areas
+                // only — a discrete rock is a hard hazard, never berth-exempt.)
+                matched = crosses && !((exemptStart && inA) || (exemptEnd && inB));
+            } else if (geom.type === 'Point') {
+                // Point hazard within the guard corridor of the segment. This
+                // is what catches a charted rock/wreck on a SHORT terminal leg
+                // that sampleSegment skips (<231 m) — the sampled point query
+                // can't see it, but the segment can (mission audit: terminal-
+                // leg POINT blind zone). Also a redundant backstop on long legs.
+                const [hLon, hLat] = geom.coordinates as [number, number];
+                matched = pointToSegmentMetres(hLat, hLon, lat1, lon1, lat2, lon2) <= POINT_HAZARD_GUARD_RADIUS_M;
+            } else if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
+                // Linear OBSTRN: the segment crosses it, or either endpoint is
+                // within the guard corridor of it.
+                matched =
+                    lineIntersect(segLine, geom).features.length > 0 ||
+                    distanceToLineMetres(lat1, lon1, geom) <= POINT_HAZARD_GUARD_RADIUS_M ||
+                    distanceToLineMetres(lat2, lon2, geom) <= POINT_HAZARD_GUARD_RADIUS_M;
+            }
+            if (!matched) continue;
 
             crossedCharted = true;
             const type = classifyHazard(entry.hazard);

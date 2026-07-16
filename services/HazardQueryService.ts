@@ -348,11 +348,13 @@ export async function queryHazards(
 
 /**
  * Segment-level hazard check: does each segment CROSS a charted ENC hazard
- * POLYGON that the sampled point query would miss between its 231 m samples?
- * ENC-only — GEBCO is a raster with no polygons, so the sampled point query
- * stays its backstop. Draft + static tide are applied to the crossed polygon
- * exactly like the point path via encToHazardResult, so a dredged channel
- * deep enough for the vessel clears while land/too-shallow blocks.
+ * that the sampled point query would miss between its 231 m samples (an AREA
+ * thinner than the spacing, or a point/line on a short terminal leg)? ENC-only
+ * — GEBCO is a raster with no polygons, so the sampled point query stays its
+ * backstop. Draft + tide are applied to the crossed feature exactly like the
+ * point path via encToHazardResult (honouring the live `tideAt` curve at the
+ * segment midpoint/ETA when supplied — else the static offset), so a dredged
+ * channel deep enough for the vessel clears while land/too-shallow blocks.
  */
 export async function querySegmentHazards(
     segments: {
@@ -362,6 +364,8 @@ export async function querySegmentHazards(
         lon2: number;
         exemptStart?: boolean;
         exemptEnd?: boolean;
+        /** Midpoint ETA (epoch ms) for the live tide-curve lookup. */
+        timeMs?: number;
     }[],
     options: HazardQueryOptions = {},
 ): Promise<{ isHazard: boolean; hazardType?: EncHazardType; source: 'enc' | 'none' }[]> {
@@ -373,7 +377,15 @@ export async function querySegmentHazards(
         if (!enc.covered) return { isHazard: false, source: 'none' as const };
         const midLat = (segments[i].lat1 + segments[i].lat2) / 2;
         const midLon = (segments[i].lon1 + segments[i].lon2) / 2;
-        const r = encToHazardResult({ lat: midLat, lon: midLon }, enc, hazardThresholdM, fallbackTideM);
+        // Honour the live per-point tide curve the validator passes
+        // (queryOpts.tideAt) at the segment midpoint + ETA — else a shallow
+        // crossing would be graded at the static offset (often chart datum)
+        // even during a big tidal swing (audit: dropped tideAt). Fall back to
+        // the static offset when no curve / out-of-range time.
+        const tideM = options.tideAt
+            ? (options.tideAt({ lat: midLat, lon: midLon, timeMs: segments[i].timeMs }) ?? fallbackTideM)
+            : fallbackTideM;
+        const r = encToHazardResult({ lat: midLat, lon: midLon }, enc, hazardThresholdM, tideM);
         return { isHazard: r.isHazard, hazardType: enc.hazardType, source: 'enc' as const };
     });
 }
