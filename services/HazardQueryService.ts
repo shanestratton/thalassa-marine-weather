@@ -323,7 +323,18 @@ export async function queryHazards(
             for (let j = 0; j < gebcoResults.length; j++) {
                 const idx = gebcoIndexMap[j];
                 const g = gebcoResults[j];
-                const tidedDepth = applyTide(g.depth_m, tideForPoint(points[idx]));
+                // DATUM MISMATCH GUARD (audit): GEBCO depths are MSL-referenced,
+                // but tide heights are above CHART DATUM (≈LAT). Crediting a
+                // LAT-referenced tide onto an MSL depth over-credits water by
+                // roughly HALF the tidal range — anti-conservative on exactly
+                // the weakest-data (uncharted) points. Without per-point
+                // LAT↔MSL offsets we take the conservative branch: never apply
+                // a POSITIVE tide credit to a GEBCO depth (nobody threads a
+                // half-tide channel on 450 m ocean bathymetry); a negative
+                // offset (surge below datum) still applies — it makes the
+                // water SHALLOWER, which is the safe direction.
+                const gebcoTide = Math.min(0, tideForPoint(points[idx]));
+                const tidedDepth = applyTide(g.depth_m, gebcoTide);
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,

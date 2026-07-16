@@ -663,6 +663,33 @@ export async function validateRouteSegments(
     // the FINAL route revision was never re-verified (mission audit: this
     // exhaustion path used to fall through silently as if clean).
     let unresolvedAfterPasses = 0;
+    // Last pass's sample results — kept so the EXHAUSTION path can still
+    // build the no-data / CATZOC advisories (audit: they ran only in the
+    // clean branch, dropping them from exactly the least-verified routes).
+    let lastAllResults: HazardResult[] = [];
+
+    // Caution-area crossings (restricted / cable / pipeline / TSS) → a
+    // "check restrictions" note. NOT a reroute — you can transit most, but a
+    // best-in-class ENC tells you. Shared by the clean break AND the
+    // exhaustion path (audit: it ran only on clean routes).
+    const appendCautionCrossings = async (): Promise<void> => {
+        try {
+            const cautionSegs = [];
+            for (let i = 0; i < result.length - 1; i++) {
+                cautionSegs.push({
+                    lat1: result[i].lat,
+                    lon1: result[i].lon,
+                    lat2: result[i + 1].lat,
+                    lon2: result[i + 1].lon,
+                });
+            }
+            const perSeg = await HazardQueryService.querySegmentCautions(cautionSegs);
+            const note = describeCautionCrossings(perSeg.flat());
+            if (note) routeAdvisories.push({ severity: 'note', text: note });
+        } catch (err) {
+            landLog.warn('[ValidateRoute] caution-area crossing check failed', err);
+        }
+    };
 
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
         // ── 1. Sample all segments ──
@@ -719,8 +746,32 @@ export async function validateRouteSegments(
                 const batchResults = await HazardQueryService.queryHazards(batch, queryOpts);
                 allResults.push(...batchResults);
             }
+            lastAllResults = allResults; // for the exhaustion path's advisories
         } catch (err) {
-            landLog.warn('[ValidateRoute] hazard query failed, skipping island validation:', err);
+            landLog.warn('[ValidateRoute] hazard query FAILED — route NOT validated:', err);
+            // LOUD fail-open (audit: this path returned SILENTLY, leaving the
+            // PREVIOUS route's hazard report on screen against a brand-new,
+            // completely unvalidated line — the one path still violating the
+            // repo's loud-warn policy). Clear the stale report and surface an
+            // unmissable caution instead.
+            try {
+                const { setLastReport } = await import('./../enc/EncHazardReportService');
+                setLastReport({
+                    cellsConsulted: 0,
+                    bufferNm: 1.0,
+                    entries: [],
+                    advisories: [
+                        {
+                            severity: 'caution',
+                            text:
+                                'Hazard data was unavailable — this route has NOT been validated ' +
+                                'against charts or depths. Verify the entire line visually.',
+                        },
+                    ],
+                });
+            } catch {
+                /* best effort — the warn log above still fires */
+            }
             return result;
         }
 
@@ -791,26 +842,7 @@ export async function validateRouteSegments(
             // skipper sees them, and logged at warn() — createLogger silences
             // info() in prod, which is why the old no-data note reached no one.
             routeAdvisories = buildRouteAdvisories(allResults);
-            // Caution-area crossings (restricted / cable / pipeline / TSS) →
-            // a "check restrictions" note. NOT a reroute — you can transit
-            // most, but a best-in-class ENC tells you (audit: the last real
-            // safety gap once the classes went data-live). ENC-only, cheap.
-            try {
-                const cautionSegs = [];
-                for (let i = 0; i < result.length - 1; i++) {
-                    cautionSegs.push({
-                        lat1: result[i].lat,
-                        lon1: result[i].lon,
-                        lat2: result[i + 1].lat,
-                        lon2: result[i + 1].lon,
-                    });
-                }
-                const perSeg = await HazardQueryService.querySegmentCautions(cautionSegs);
-                const note = describeCautionCrossings(perSeg.flat());
-                if (note) routeAdvisories.push({ severity: 'note', text: note });
-            } catch (err) {
-                landLog.warn('[ValidateRoute] caution-area crossing check failed', err);
-            }
+            await appendCautionCrossings();
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
                 `(${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})` +
@@ -849,13 +881,21 @@ export async function validateRouteSegments(
     // Hitting the pass limit means the final revision was NOT re-verified and
     // may still cross charted land/shoal — say so, loudly, on the report.
     if (unresolvedAfterPasses > 0) {
-        routeAdvisories.push({
-            severity: 'caution',
-            text:
-                `Route validation hit its ${MAX_VALIDATION_PASSES}-pass limit with ` +
-                `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
-                `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
-        });
+        // Exhaustion caution LEADS, then the standard no-data/CATZOC
+        // advisories from the last pass + the caution crossings — the
+        // least-verified routes get MORE context, not less (audit: these
+        // used to run only in the clean branch).
+        routeAdvisories = [
+            {
+                severity: 'caution',
+                text:
+                    `Route validation hit its ${MAX_VALIDATION_PASSES}-pass limit with ` +
+                    `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
+                    `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
+            },
+            ...buildRouteAdvisories(lastAllResults),
+        ];
+        await appendCautionCrossings();
         landLog.warn(
             `[ValidateRoute] EXHAUSTED ${MAX_VALIDATION_PASSES} passes with ${unresolvedAfterPasses} ` +
                 `segment(s) unresolved — route NOT verified clear`,
