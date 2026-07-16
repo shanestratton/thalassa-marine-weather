@@ -55,7 +55,12 @@ import {
     GLAZE_SHADOW_RATIO,
     type CellExtent,
 } from './scaleShadow';
-import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
+import {
+    clipFeatureOutsideBboxes,
+    clipLineFeatureOutsideBboxes,
+    coverageMaskStrips,
+    type CoverageGeom,
+} from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import {
     buildCatzocZones,
@@ -1316,6 +1321,19 @@ async function buildMergedVectorData(
                 .map((s) => (depareExtent.has(s.id) ? { id: s.id, bbox: depareExtent.get(s.id)! } : null))
                 .filter((s): s is { id: string; bbox: [number, number, number, number] } => s !== null);
         const shadows = reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents));
+        // Gap-safe LINE de-dup rects (audit ×2: coarse DEPCNT/COALNE
+        // double-painted across finer surveys while the tested
+        // clipLineFeatureOutsideBboxes sat unwired). The naive whole-shadow
+        // clip is what punched coastline holes historically — a ribbon cell
+        // (e.g. OC-61-20ENB5) charts DEPARE but carries NO coastline, so
+        // clipping against ITS extent erased the coast. Presence-gate: only
+        // finer cells that actually CARRY the same line layer get to clip it.
+        const lineDedupRects = (layer: 'DEPCNT' | 'COALNE'): [number, number, number, number][] =>
+            shadows
+                .filter((s) => ((loadedBlobs.get(s.id)?.layers[layer]?.features?.length ?? 0) as number) > 0)
+                .map((s) => s.bbox);
+        const depcntDedupRects = shadows.length > 0 ? lineDedupRects('DEPCNT') : [];
+        const coalneDedupRects = shadows.length > 0 ? lineDedupRects('COALNE') : [];
         // The GLAZE clips against every meaningfully-finer overlapping
         // cell, not just the ≥16x ones (adversarial review 2026-07-14:
         // adjacent-band pairs inside 16x left coarse SAFE-white painting
@@ -1341,6 +1359,21 @@ async function buildMergedVectorData(
                 // them. cullDeg is 0 only on the full merge.
                 if (cullDeg > 0 && SUBPIXEL_CULLABLE.has(target) && featureDiagDeg(feat) < cullDeg) continue;
                 if (shadows.length > 0 && SHADOWED_CLASSES.has(target) && featureIsShadowed(feat, shadows)) continue;
+                // LINE de-dup for partially-overlapping coarse contour/coast
+                // lines (fully-shadowed ones were dropped above): trim the
+                // parts inside a finer survey that charts the SAME layer, so
+                // seams stop double-drawing at 0.95+ opacity. Presence-gated
+                // rects (above) keep the ribbon-cell "coastline holes" failure
+                // out; a null clip = the line lives entirely under finer data.
+                let outGeometry = feat.geometry;
+                if (target === 'DEPCNT' || target === 'COALNE') {
+                    const rects = target === 'DEPCNT' ? depcntDedupRects : coalneDedupRects;
+                    if (rects.length > 0) {
+                        const clipped = clipLineFeatureOutsideBboxes(feat, rects);
+                        if (!clipped) continue;
+                        outGeometry = clipped.geometry;
+                    }
+                }
                 // GEOMETRY CLIPPING RETIRED (2026-07-11, same day it
                 // shipped): cutting coarse DEPARE out of a finer cell's
                 // data-extent RECTANGLE left bare black holes wherever the
@@ -1454,7 +1487,7 @@ async function buildMergedVectorData(
                     }
                 }
 
-                dest.features.push({ ...feat, properties: props });
+                dest.features.push({ ...feat, geometry: outGeometry, properties: props });
             }
         };
 
