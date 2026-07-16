@@ -2017,6 +2017,9 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
                 : [];
         let feat: mapboxgl.GeoJSONFeature | undefined;
         let colocatedLight: Record<string, unknown> | undefined;
+        // Caution-area props riding under a water tap — folded into the
+        // DEPARE popup (see the areaHits branch below).
+        let cautionUnder: Record<string, unknown> | null = null;
         if (pointHits.length > 0) {
             const distSqTo = (f: mapboxgl.GeoJSONFeature, to: { x: number; y: number }): number => {
                 if (f.geometry?.type !== 'Point') return Infinity;
@@ -2067,6 +2070,18 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             const areaHits = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
             if (!areaHits.length) return;
             feat = areaHits[0];
+            // A caution wash must never REPLACE the tap-the-water depth/keel
+            // read (audit: over its whole footprint at z11+ the caution popup
+            // stole the flagship answer). When charted water lies beneath,
+            // answer as WATER and fold the caution into the depth popup —
+            // the same treatment SBDARE already gets (extras below).
+            if (feat.layer?.id === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
+                const water = areaHits.find((h) => h.layer?.id === ENC_VEC_LAYERS.DEPARE);
+                if (water) {
+                    cautionUnder = (feat.properties ?? {}) as Record<string, unknown>;
+                    feat = water;
+                }
+            }
         }
         // pointHits non-empty guarantees a pick, but TS can't see through
         // the filter/nearest split — and a paranoid bail beats a throw.
@@ -2096,6 +2111,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             draftAssumed: dstate?.draftAssumed ?? false,
             ...(colocatedLight ? { light: colocatedLight } : {}),
             ...(seabed ? { seabed } : {}),
+            ...(cautionUnder ? { caution: cautionUnder } : {}),
         };
 
         const popup = new mapboxgl.Popup({

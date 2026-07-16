@@ -140,6 +140,38 @@ function natsurNames(natsur: unknown): string {
         .join(' / ');
 }
 
+/** Caution-area class → plain-language label. Shared by the standalone
+ *  caution popup and the DEPARE popup's caution fold-in (extras.caution). */
+const CAUTION_LABELS: Record<string, string> = {
+    RESARE: 'Restricted area',
+    CBLARE: 'Submarine cable area',
+    PIPARE: 'Pipeline area',
+    SBDARE: 'Seabed (nature of bottom)',
+    TSSLPT: 'Traffic separation lane',
+};
+
+/** S-57 RESTRN (restriction) codes — the values a skipper actually meets. */
+const RESTRN_LABELS: Record<string, string> = {
+    '1': 'Anchoring prohibited',
+    '2': 'Anchoring restricted',
+    '3': 'Fishing prohibited',
+    '4': 'Fishing restricted',
+    '5': 'Trawling prohibited',
+    '6': 'Trawling restricted',
+    '7': 'Entry prohibited',
+    '8': 'Entry restricted',
+    '14': 'No wake',
+    '27': 'No anchoring / no fishing (cable/pipeline)',
+};
+
+function restrnNames(restrn: unknown): string {
+    return String(restrn ?? '')
+        .split(',')
+        .map((r) => RESTRN_LABELS[r.trim()])
+        .filter(Boolean)
+        .join(' · ');
+}
+
 /** The light attribute rows (character / period / height / range /
  *  colour) — shared between the standalone Light popup and the
  *  "Light" section folded into a lit mark's popup. The mark's name
@@ -199,6 +231,10 @@ export interface PopupExtras {
      *  non-clickable by design (it stole the depth popup — audit); this is
      *  how its NATSUR anchoring read reaches the user. */
     seabed?: Record<string, unknown>;
+    /** Props of a caution AREA (restricted/cable/pipeline/TSS) under a water
+     *  tap — folded into the depth popup as a "⚠ Restricted area…" row, so
+     *  the caution wash never REPLACES the depth/keel read (audit). */
+    caution?: Record<string, unknown>;
 }
 
 const fmtHm = (ms: number): string =>
@@ -286,6 +322,15 @@ export function buildFeaturePopupHtml(
         if (extras.seabed) {
             const sb = natsurNames(extras.seabed.NATSUR ?? extras.seabed.natsur);
             if (sb) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(sb)}</b></div>`;
+        }
+        // Caution area under the tap — the depth/keel read stays the star,
+        // the restriction rides along ("⚠ Restricted area — entry prohibited").
+        if (extras.caution) {
+            const cls = String(extras.caution._caution ?? '');
+            const label = CAUTION_LABELS[cls] ?? 'Charted area';
+            const restrn = restrnNames(extras.caution.RESTRN ?? extras.caution.restrn);
+            const detail = restrn || (cls === 'CBLARE' || cls === 'PIPARE' ? 'No anchoring' : '');
+            body += `<div class="enc-popup-row"><span>⚠</span><b style="color:#e879f9">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
         }
     } else if (layerId === ENC_VEC_LAYERS.LNDARE) {
         title = 'Land';
@@ -491,13 +536,8 @@ export function buildFeaturePopupHtml(
             body += `<div class="enc-popup-row"><span>Purpose</span><b>General special mark — the chart carries no category. Check the paper chart / Notices to Mariners.</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
         // Caution / info AREA (restricted / cable / pipeline / seabed / TSS).
-        const CAUTION_LABELS: Record<string, string> = {
-            RESARE: 'Restricted area',
-            CBLARE: 'Submarine cable area',
-            PIPARE: 'Pipeline area',
-            SBDARE: 'Seabed (nature of bottom)',
-            TSSLPT: 'Traffic separation lane',
-        };
+        // Reached when there is NO charted water under the tap — over water
+        // the caution folds into the DEPARE popup instead (extras.caution).
         const cls = String(props._caution ?? '');
         title = CAUTION_LABELS[cls] ?? 'Charted area';
         // Accent matches the per-class render colours (restricted magenta,
@@ -513,23 +553,7 @@ export function buildFeaturePopupHtml(
                       ? '#f59e0b'
                       : '#d43fc0';
         // RESTRN (restriction) — the values a skipper meets most.
-        const RESTRN_LABELS: Record<string, string> = {
-            '1': 'Anchoring prohibited',
-            '2': 'Anchoring restricted',
-            '3': 'Fishing prohibited',
-            '4': 'Fishing restricted',
-            '5': 'Trawling prohibited',
-            '6': 'Trawling restricted',
-            '7': 'Entry prohibited',
-            '8': 'Entry restricted',
-            '14': 'No wake',
-            '27': 'No anchoring / no fishing (cable/pipeline)',
-        };
-        const restrn = String(props.RESTRN ?? props.restrn ?? '')
-            .split(',')
-            .map((r) => RESTRN_LABELS[r.trim()])
-            .filter(Boolean)
-            .join(' · ');
+        const restrn = restrnNames(props.RESTRN ?? props.restrn);
         if (restrn) body += `<div class="enc-popup-row"><span>Restriction</span><b>${esc(restrn)}</b></div>`;
         else if (cls === 'CBLARE' || cls === 'PIPARE')
             body += `<div class="enc-popup-row"><span>Note</span><b>No anchoring</b></div>`;
