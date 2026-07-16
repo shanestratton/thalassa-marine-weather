@@ -31,6 +31,7 @@
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
+import { getGlazeCell, putGlazeCell } from './glazeCellCache';
 
 import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
@@ -588,25 +589,9 @@ const inflightMerges = new Map<string, Promise<EncMergedVectorData | null>>();
  *  the blob itself (WeakMap). */
 const depareExtentCache = new WeakMap<object, [number, number, number, number] | null>();
 
-/** Per-cell GLAZE output cache. The output for a coarse cell depends
- *  only on its own blob + the shadowing cells that clip it, both
- *  immutable per registry version, so it memoizes cleanly. Keyed
- *  `v{ver}:{cellId}:{sortedShadowIds}`; capped, LRU by insertion order.
- *  `upgraded` marks entries the geometry worker has re-clipped against
- *  TRUE fine-survey coverage (hole-free); un-upgraded entries hold the
- *  instant rectangle clip and are re-queued for upgrade on use. */
-const glazeCellCache = new Map<string, { upgraded: boolean; feats: Feature[] }>();
-const GLAZE_CELL_CACHE_MAX = 32;
-
-function putGlazeCell(key: string, entry: { upgraded: boolean; feats: Feature[] }): void {
-    glazeCellCache.delete(key);
-    glazeCellCache.set(key, entry);
-    while (glazeCellCache.size > GLAZE_CELL_CACHE_MAX) {
-        const oldest = glazeCellCache.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        glazeCellCache.delete(oldest);
-    }
-}
+// Per-cell GLAZE output cache now owns its own module (glazeCellCache.ts) —
+// one more step decomposing this god-module's 16 module-scope caches
+// (mission audit). getGlazeCell/putGlazeCell are imported below.
 
 /** Durable memo for the worker's derived contours — the DEPCNT_DERIVED
  *  analogue of glazeCellCache (2026-07-15). Without it the contours live
@@ -668,7 +653,7 @@ function applyGlazeUpgrade(job: PendingGeometryJob): void {
     if (!cached) return;
     const feats: Feature[] = [];
     for (const key of job.glazeKeys) {
-        const entry = glazeCellCache.get(key);
+        const entry = getGlazeCell(key);
         if (!entry) return; // evicted mid-flight — abandon, stay on fast version
         feats.push(...entry.feats);
     }
@@ -1521,7 +1506,7 @@ async function buildMergedVectorData(
                 .map((s) => s.id)
                 .sort()
                 .join(',')}`;
-            const cached = glazeCellCache.get(glazeKey);
+            const cached = getGlazeCell(glazeKey);
             let needQueue = false;
             if (cached) {
                 putGlazeCell(glazeKey, cached); // refresh LRU position
@@ -1594,7 +1579,7 @@ async function buildMergedVectorData(
                     });
                 } else {
                     // No real coverage to subtract — the rectangle grade IS final.
-                    const entry = glazeCellCache.get(glazeKey);
+                    const entry = getGlazeCell(glazeKey);
                     if (entry) entry.upgraded = true;
                 }
             }
