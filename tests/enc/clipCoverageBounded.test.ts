@@ -170,6 +170,51 @@ describe('clipFeatureOutsideCoverage — bounded pairs', () => {
         expect(GLAZE_MARTINEZ_VERTEX_CAP).toBeGreaterThan(1000);
     });
 
+    it('ROUND-2 CASCADE REGRESSION: an over-cap fine FIRST cannot poison later martinez pairs', () => {
+        // Round 1 interleaved strip degrades with martinez pairs; the strip
+        // output's edge-adjacent pieces made every later martinez call
+        // throw (device round 1 + repro on real cells: exact=0 across the
+        // set). Two-phase ordering runs martinez on clean geometry no
+        // matter where the over-cap fine sits in the array.
+        const stats = emptyClipStats();
+        const over: FineCoverage = {
+            bbox: [7, 7, 9, 9],
+            coverage: [
+                [
+                    Array.from({ length: 40 }, (_, i): Position => {
+                        const a = (i / 39) * 2 * Math.PI;
+                        return [8 + Math.cos(a), 8 + Math.sin(a)];
+                    }),
+                ],
+            ],
+            stripRects: [[7, 7, 9, 9]],
+        };
+        // over-cap FIRST, under-cap SECOND — the poisoning order.
+        const out = clipFeatureOutsideCoverage(coarseBand(), [over, fineL()], 20, stats);
+        expect(stats.pairsExact).toBe(1); // the L still clips exactly
+        expect(stats.pairsRectFallback).toBe(0); // no throw cascade
+        expect(covered(out, 4.5, 4.5)).toBe(true); // exact clip spared the corner
+        expect(covered(out, 1, 1)).toBe(false); // L carved out
+        expect(covered(out, 8, 8)).toBe(false); // strip degrade still applied
+    });
+
+    it('exhausted job budget degrades every remaining pair to strips', () => {
+        const stats = emptyClipStats();
+        const budget = { remaining: 0 };
+        const fine: FineCoverage = { ...fineL(), stripRects: [[0, 0, 6, 3]] };
+        const out = clipFeatureOutsideCoverage(coarseBand(), [fine], GLAZE_MARTINEZ_VERTEX_CAP, stats, budget);
+        expect(stats.pairsExact).toBe(0);
+        expect(stats.pairsStripped).toBe(1);
+        expect(covered(out, 1, 1)).toBe(false); // strip still clips
+        expect(covered(out, 1, 5)).toBe(true); // but only the strip
+    });
+
+    it('exact pairs consume the job budget by their vertex count', () => {
+        const budget = { remaining: 100 };
+        clipFeatureOutsideCoverage(coarseBand(), [fineL()], GLAZE_MARTINEZ_VERTEX_CAP, undefined, budget);
+        expect(budget.remaining).toBe(100 - 12); // subject 5 + coverage 7
+    });
+
     it('subject growth from an earlier clip feeds the next pair gate', () => {
         const stats = emptyClipStats();
         // First fine clips exactly (subject grows past 5 verts as the L is
