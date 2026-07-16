@@ -11,6 +11,7 @@ import type { IsochroneNode } from './types';
 import { haversineNm, initialBearing, projectPosition } from './geodesy';
 import * as HazardQueryService from '../HazardQueryService';
 import type { HazardResult } from '../HazardQueryService';
+import type { RouteAdvisory } from '../enc/EncHazardReportService';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -498,27 +499,38 @@ export interface ValidateRouteOptions {
 
 /**
  * Build the route-wide "verify visually" advisories for a route that
- * validated CLEAN but carries caveats — a low-confidence CATZOC survey zone
- * and/or no-depth-data points (uncharted + GEBCO unavailable, treated as
- * passable so an outage can't block routing, but NOT confirmed clear). Pure
- * + exported so the surfacing logic is unit-tested away from the validator.
+ * validated CLEAN but carries caveats. Two SEVERITIES (mission audit: the
+ * GEBCO-outage no-data path was a silent fail-open; route+warn is only
+ * defensible if the warn is LOUD):
+ *  - `caution` — NO-DEPTH-DATA points (uncharted AND GEBCO unavailable). The
+ *    router still returns a line (availability) and prefers charted water via
+ *    the depth cost, but the depth is UNVERIFIED. Ranked first.
+ *  - `note` — charted but low-confidence CATZOC survey.
+ * Pure + exported so the surfacing logic is unit-tested away from the validator.
  */
-export function buildRouteAdvisories(results: HazardResult[]): string[] {
-    const advisories: string[] = [];
+export function buildRouteAdvisories(results: HazardResult[]): RouteAdvisory[] {
+    const advisories: RouteAdvisory[] = [];
+    // No-data first — it's the louder caution (unknown depth, not just
+    // low-confidence). This is the route+warn signal the skipper must see.
+    const noDataHits = results.filter((r) => r.source === 'none').length;
+    if (noDataHits > 0) {
+        advisories.push({
+            severity: 'caution',
+            text:
+                `${noDataHits}/${results.length} route point(s) have NO depth data ` +
+                `(uncharted + GEBCO unavailable) — routed but NOT confirmed safe, verify visually`,
+        });
+    }
     let worstCatzoc: number | null = null;
     for (const r of results) {
         if (typeof r.catzoc !== 'number') continue;
         if (worstCatzoc === null || r.catzoc > worstCatzoc) worstCatzoc = r.catzoc;
     }
     if (worstCatzoc !== null && worstCatzoc >= 4) {
-        advisories.push(`Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`);
-    }
-    const noDataHits = results.filter((r) => r.source === 'none').length;
-    if (noDataHits > 0) {
-        advisories.push(
-            `${noDataHits}/${results.length} route point(s) have NO depth data ` +
-                `(uncharted + GEBCO unavailable) — NOT confirmed safe, verify visually`,
-        );
+        advisories.push({
+            severity: 'note',
+            text: `Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`,
+        });
     }
     return advisories;
 }
@@ -600,7 +612,7 @@ export async function validateRouteSegments(
     // CLEAN but carries caveats (low-confidence survey, no-depth-data
     // points). Populated in the clean-break below and ATTACHED to the
     // hazard report so the skipper actually sees them.
-    let routeAdvisories: string[] = [];
+    let routeAdvisories: RouteAdvisory[] = [];
 
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
         // ── 1. Sample all segments ──
@@ -732,7 +744,7 @@ export async function validateRouteSegments(
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
                 `(${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})` +
-                (routeAdvisories.length > 0 ? ` ⚠ ${routeAdvisories.join(' · ')}` : '');
+                (routeAdvisories.length > 0 ? ` ⚠ ${routeAdvisories.map((a) => a.text).join(' · ')}` : '');
             if (routeAdvisories.length > 0) landLog.warn(clearMsg);
             else landLog.info(clearMsg);
             break;

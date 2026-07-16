@@ -79,6 +79,23 @@ export interface RouteHazardReportEntry {
     catzoc?: EncCatzoc | null;
 }
 
+/**
+ * A route-wide caveat not tied to a single charted feature.
+ *
+ * `severity`:
+ *  - `caution` — the route crosses water with NO confirmed depth data
+ *    (uncharted AND GEBCO unavailable). Under the route+warn policy the
+ *    router still returns a line (availability > blocking on a data gap) and
+ *    prefers charted water via the depth cost, but the depth is UNVERIFIED,
+ *    so this is a LOUD caution the UI surfaces prominently, not a footnote.
+ *  - `note` — the route stays inside charted water but a low-confidence
+ *    survey zone (CATZOC C/D/U) warrants a visual check.
+ */
+export interface RouteAdvisory {
+    severity: 'caution' | 'note';
+    text: string;
+}
+
 export interface RouteHazardReport {
     /** Total cells consulted (the report covers their union). */
     cellsConsulted: number;
@@ -87,14 +104,12 @@ export interface RouteHazardReport {
     /** Hazards found, sorted by distance ascending. */
     entries: RouteHazardReportEntry[];
     /**
-     * Route-wide "verify visually" advisories that aren't tied to a
-     * single charted feature — e.g. "N route points have no depth data
-     * (uncharted + GEBCO offline)" or "low-confidence CATZOC zones along
-     * route". Surfaced by the validator so a caveat on a route that
-     * otherwise validated CLEAN reaches the skipper instead of dying in
-     * a prod-silenced log (mission audit: the no-data note was invisible).
+     * Route-wide "verify visually" advisories that aren't tied to a single
+     * charted feature. Surfaced by the validator so a caveat on a route that
+     * otherwise validated CLEAN reaches the skipper instead of dying in a
+     * prod-silenced log (mission audit: the no-data note was invisible).
      */
-    advisories?: string[];
+    advisories?: RouteAdvisory[];
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────
