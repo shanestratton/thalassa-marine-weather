@@ -201,6 +201,22 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.segmentHazard(0, -1, 0, 1).covered).toBe(false);
     });
 
+    it('SEGMENT crossing: a berth-exempt TERMINAL does not flag the leg for sitting in its own shoal', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, 0.5), 2)]); // shoal berth at origin
+        // Leg starts INSIDE the berth and exits north.
+        expect(i.segmentHazard(0, 0, 5, 0).hazard).toBe(true); // no exemption → flagged
+        expect(i.segmentHazard(0, 0, 5, 0, true, false).covered).toBe(false); // exemptStart → skipped
+    });
+
+    it('SEGMENT crossing: berth exemption STILL flags a separate islet the leg crosses', () => {
+        const i = idx('A', [
+            hz('DEPARE', square(0, 0, 0.3), 2), // berth shoal (contains origin [0,0])
+            hz('LNDARE', square(0, 3, 0.3)), // islet at lat 3 — contains neither endpoint
+        ]);
+        // Origin (in the berth) → far north; berth is exempt but the islet is not.
+        expect(i.segmentHazard(0, 0, 6, 0, true, false)).toMatchObject({ hazard: true, hazardType: 'land' });
+    });
+
     it('COMPOSES across cells like queryHazards — worst hazard wins, order-independent', () => {
         // Overlapping coarse (shallow) + fine (rock) cells over one point.
         const coarse = idx('coarse', [hz('DEPARE', square(0, 0, 2), 3)]);
