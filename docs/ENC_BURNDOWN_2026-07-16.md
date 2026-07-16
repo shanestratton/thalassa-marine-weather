@@ -111,14 +111,16 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 
 ### Device-gated
 
-- [ ] **1.75 — Ship the martinez true-coverage glaze on-device** — CODE
-      SHIPPED 2026-07-17 (see below), banks only after the on-device verify.
-      The post-mortem's re-enable precondition is met: per-pair vertex cap
-      (`GLAZE_MARTINEZ_VERTEX_CAP` 12k) with over-cap pairs degrading to the
-      strip-rect clip, shallow-band-only coverage payload, `[glaze]` stats
-      warn line for cap tuning. REMAINING (the gate): Shane's iPhone session —
-      shallow-wash visuals, the de-dup gate on live partial-coverage cells,
-      memory stability while panning the Newport/Bribie seam at z10+.
+- [x] **1.75 — Ship the martinez true-coverage glaze on-device** — DONE,
+      VERIFIED ON DEVICE 2026-07-17 (Shane: "working perfect"). Round 1
+      (`fd020956`) crashed ~10 s in — diagnosed against the real
+      Newport-window cells: no aggregate bound + 14.5 MB payload clone.
+      Round 2 (`8f400a4c`) added the queue-side feature prefilter, per-job
+      shared coverage library, 500k aggregate vertex budget atop the 12k
+      per-pair cap, worker breathing, and the two-phase clip. Device
+      session: sustained 14-27-cell merges crash-free; jobs 87 ms-2 s
+      off-thread; `exact=53-129` true clips per job, `rect-fallback=0`,
+      over-cap giants (55,888-vert pairs) degrading to strips as designed.
 
 ## Ledger
 
@@ -140,8 +142,11 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | Batch-2 area classes live (Pi #2 → v7) + FAIRWY rendered       | 0.5  | `0e6f9870` | 95.05             |
 | 2026-07-16 | Night dim v1 (red-tinted, persisted toggle)                    | 0.5  | `f39bfb33` | 95.55             |
 | 2026-07-17 | EncVectorLayer logic tests (pickAreaTap / needsTideWindow)     | 0.4  | `b8d4e1b8` | 95.95             |
+| 2026-07-17 | Martinez true-coverage glaze ON-DEVICE (verified by Shane)     | 1.75 | `8f400a4c` | 97.7              |
 
-**95.95 vs the 2026-07-16 bar. Every non-device item is burned.** What
-remains to cross 96: the device-gated martinez glaze session (1.75, needs
-Shane's iPhone) or curated VTS geometry (0.4, deferred with reason). Then
-the protocol's final open adversarial audit.
+**97.7 vs the 2026-07-16 bar — THE LIST IS BURNED.** Every item except
+the VTS deferral (0.4, needs curated gazetted geometry, not code) is
+banked, device item verified on Shane's iPhone 2026-07-17. Protocol
+step 2 is now due: ONE final open adversarial audit as the honesty
+check. Its findings seed the NEXT burn-down; they do not retroactively
+unbank these points.
