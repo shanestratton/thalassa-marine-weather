@@ -77,17 +77,17 @@ route. Fix the silent failures first.
 - [x] **0.25 — ≥10 m sounding rounding** — DONE (floor, shallow-biased). — soundings ≥10 m
       round to NEAREST metre (10.9 prints 11 — deeper than charted); floor
       instead, shallow-biased.
-- [ ] **0.5 — TSEZNE visually identical to TSSLPT** — separation zone needs
+- [x] **0.5 — TSEZNE visually identical to TSSLPT** — DONE (burnt-orange zone at double the lane's wash). — separation zone needs
       its own read (stipple/darker wash) vs the lane.
-- [ ] **0.25 — CATLAM 3/4 banded icons** — preferred-channel laterals render
+- [x] **0.25 — CATLAM 3/4 banded icons** — DONE (region-aware banded hulls, buoys). — preferred-channel laterals render
       as plain port/stbd marks; banding lost (region-aware SVGs).
-- [ ] **0.25 — Isolated-danger topmark** — two spheres drawn side-by-side;
+- [x] **0.25 — Isolated-danger topmark** — DONE (spheres vertical per INT1). — two spheres drawn side-by-side;
       INT1 wants them VERTICAL.
-- [ ] **0.25 — Rock WATLEV / obstruction CATOBS glyph conflations** vs INT1
+- [x] **0.25 — Rock WATLEV / obstruction CATOBS glyphs** — DONE (K11 asterisk / K12 dotted cross / K13 cross split; CATOBS 7 foul-ground hash). vs INT1
       K-section.
 - [ ] **0.25 — Night scrim ≠ S-52 night palette** — honest v1 shipped;
       full palette swap or defer-with-reason.
-- [ ] **0.25 — Drying soundings drop the INT1 underline** — khaki ink is
+- [x] **0.25 — Drying soundings underline** — DONE (combining U+0332 on the whole-metre digit). — khaki ink is
       the only 'dries' channel; add underline (combining U+0332) or
       equivalent.
 - [x] **0.25 — Contour labels round non-integer VALDCO** — DONE (one decimal kept). — a wrong depth
