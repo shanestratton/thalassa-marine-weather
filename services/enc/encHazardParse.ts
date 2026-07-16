@@ -19,7 +19,7 @@
 
 import type { Feature, FeatureCollection } from 'geojson';
 
-import { type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
+import { type EncCatzocZone, type EncCoastline, type EncCautionArea } from './EncSpatialIndex';
 import { ENC_HAZARD_DEPTH_M } from './types';
 import type { EncCatzoc, EncConversionResult, EncHazard, EncLayer } from './types';
 
@@ -130,6 +130,37 @@ export function buildHazardsForCell(blob: EncConversionResult): EncHazard[] {
     // extracted for DISPLAY only, never entered the hazard model).
     all.push(...buildSoundingHazards(blob));
     return all;
+}
+
+/** Caution AREA classes that raise a route-CROSSING advisory. SBDARE
+ *  (seabed nature) is deliberately excluded — it's an anchoring aid, not a
+ *  crossing warning, and blankets the whole seabed. */
+const CAUTION_ADVISORY_CLASSES = ['RESARE', 'CBLARE', 'PIPARE', 'TSSLPT'] as const;
+
+/**
+ * Build the per-cell caution AREAS (restricted / cable / pipeline / TSS) the
+ * route validator warns on CROSSING. Polygons only; carries RESTRN + OBJNAM
+ * so the advisory can say WHAT the restriction is. Fed to EncSpatialIndex's
+ * caution tree (separate from the grounding hazard tree).
+ */
+export function buildCautionAreas(blob: EncConversionResult): EncCautionArea[] {
+    const out: EncCautionArea[] = [];
+    for (const cls of CAUTION_ADVISORY_CLASSES) {
+        const fc = blob.layers[cls];
+        if (!fc || !Array.isArray(fc.features)) continue;
+        for (const feat of fc.features) {
+            const g = feat?.geometry;
+            if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+            const restrnRaw = (feat.properties as Record<string, unknown> | null)?.RESTRN ?? feat.properties?.restrn;
+            out.push({
+                geometry: g,
+                cls,
+                restrn: restrnRaw != null ? String(restrnRaw) : undefined,
+                name: readString(feat, 'OBJNAM'),
+            });
+        }
+    }
+    return out;
 }
 
 /**

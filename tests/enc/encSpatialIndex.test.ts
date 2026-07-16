@@ -219,6 +219,16 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.segmentHazard(0, 0, 6, 0, true, false)).toMatchObject({ hazard: true, hazardType: 'land' });
     });
 
+    it('SEGMENT CAUTION: flags a restricted/cable area the segment crosses (advisory, not a hazard)', () => {
+        const i = new EncSpatialIndex('A', [], [], [], [{ geometry: square(0, 0, 0.5), cls: 'RESARE', restrn: '7' }]);
+        const crossed = i.segmentCautions(0, -1, 0, 1); // W→E through the area
+        expect(crossed).toHaveLength(1);
+        expect(crossed[0]).toMatchObject({ cls: 'RESARE', restrn: '7' });
+        expect(i.segmentCautions(5, -1, 5, 1)).toHaveLength(0); // misses → none
+        // Caution areas are NOT grounding hazards — queryPoint ignores them.
+        expect(i.queryPoint(0, 0).covered).toBe(false);
+    });
+
     it('COMPOSES across cells like queryHazards — worst hazard wins, order-independent', () => {
         // Overlapping coarse (shallow) + fine (rock) cells over one point.
         const coarse = idx('coarse', [hz('DEPARE', square(0, 0, 2), 3)]);

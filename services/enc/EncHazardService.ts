@@ -46,7 +46,15 @@ import {
 } from './scaleShadow';
 import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
-import { buildCatzocZones, buildCoastlines, buildHazardsForCell, explodeSoundings, readNumber } from './encHazardParse';
+import {
+    buildCatzocZones,
+    buildCautionAreas,
+    buildCoastlines,
+    buildHazardsForCell,
+    explodeSoundings,
+    readNumber,
+} from './encHazardParse';
+import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults } from './hazardSeverity';
 import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES } from './types';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
@@ -136,11 +144,13 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
     const hazards = buildHazardsForCell(blob);
     const catzocZones = buildCatzocZones(blob);
     const coastlines = buildCoastlines(blob);
-    const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines);
+    const cautionAreas = buildCautionAreas(blob);
+    const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines, cautionAreas);
     cacheIndex(cellId, index);
     log.info(
         `built spatial index for cell ${cellId}: ${hazards.length} hazards, ` +
-            `${catzocZones.length} CATZOC zones, ${coastlines.length} coastlines`,
+            `${catzocZones.length} CATZOC zones, ${coastlines.length} coastlines, ` +
+            `${cautionAreas.length} caution areas`,
     );
     return index;
 }
@@ -316,6 +326,51 @@ export async function querySegmentHazards(
             merged = mergeHazardResults(merged, r);
         }
         results[i] = merged;
+    }
+    return results;
+}
+
+/**
+ * Caution AREAS each route SEGMENT crosses (restricted / cable / pipeline /
+ * TSS), composed across every covering cell and de-duped by class+name+RESTRN.
+ * A warn-on-crossing advisory — never a reroute. Empty when no ENC coverage.
+ */
+export async function querySegmentCautions(
+    segments: { lat1: number; lon1: number; lat2: number; lon2: number }[],
+): Promise<EncCautionArea[][]> {
+    const results: EncCautionArea[][] = segments.map(() => []);
+    if (segments.length === 0 || !hasAnyCells()) return results;
+
+    let qMinLon = Infinity;
+    let qMinLat = Infinity;
+    let qMaxLon = -Infinity;
+    let qMaxLat = -Infinity;
+    for (const s of segments) {
+        qMinLon = Math.min(qMinLon, s.lon1, s.lon2);
+        qMinLat = Math.min(qMinLat, s.lat1, s.lat2);
+        qMaxLon = Math.max(qMaxLon, s.lon1, s.lon2);
+        qMaxLat = Math.max(qMaxLat, s.lat1, s.lat2);
+    }
+    const candidateCells = cellMeta.cellsForBBox([qMinLon, qMinLat, qMaxLon, qMaxLat]);
+    if (candidateCells.length === 0) return results;
+
+    const candidateIndexes: EncSpatialIndex[] = [];
+    await mapWithConcurrency(candidateCells, 4, async (cell) => {
+        const idx = await getOrBuildIndex(cell.id);
+        if (idx) candidateIndexes.push(idx);
+    });
+
+    for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        const seen = new Set<string>();
+        for (const idx of candidateIndexes) {
+            for (const area of idx.segmentCautions(s.lat1, s.lon1, s.lat2, s.lon2)) {
+                const key = `${area.cls}|${area.name ?? ''}|${area.restrn ?? ''}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                results[i].push(area);
+            }
+        }
     }
     return results;
 }

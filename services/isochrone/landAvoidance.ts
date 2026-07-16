@@ -12,6 +12,7 @@ import { haversineNm, initialBearing, projectPosition } from './geodesy';
 import * as HazardQueryService from '../HazardQueryService';
 import type { HazardResult } from '../HazardQueryService';
 import type { RouteAdvisory } from '../enc/EncHazardReportService';
+import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -535,6 +536,49 @@ export function buildRouteAdvisories(results: HazardResult[]): RouteAdvisory[] {
     return advisories;
 }
 
+/**
+ * Summarise the caution AREAS a route crosses into one "check restrictions"
+ * advisory ("Route crosses restricted area (entry prohibited) · submarine
+ * cable area — check restrictions"). Deduped by class + restriction. Returns
+ * null when the route crosses none. Pure + exported for unit testing.
+ */
+export function describeCautionCrossings(areas: EncCautionArea[]): string | null {
+    if (areas.length === 0) return null;
+    const CLS_LABEL: Record<string, string> = {
+        RESARE: 'restricted area',
+        CBLARE: 'submarine cable area',
+        PIPARE: 'pipeline area',
+        TSSLPT: 'traffic-separation lane',
+    };
+    const RESTRN_LABEL: Record<string, string> = {
+        '1': 'anchoring prohibited',
+        '2': 'anchoring restricted',
+        '3': 'fishing prohibited',
+        '7': 'entry prohibited',
+        '8': 'entry restricted',
+        '14': 'no wake',
+        '27': 'no anchoring / no fishing',
+    };
+    const seen = new Set<string>();
+    const parts: string[] = [];
+    for (const a of areas) {
+        const label = CLS_LABEL[a.cls] ?? 'charted area';
+        let detail = '';
+        if (a.restrn) {
+            const rs = a.restrn
+                .split(',')
+                .map((r) => RESTRN_LABEL[r.trim()])
+                .filter(Boolean);
+            if (rs.length) detail = ` (${rs.join(', ')})`;
+        }
+        const key = label + detail;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        parts.push(label + detail);
+    }
+    return `Route crosses ${parts.join(' · ')} — check restrictions`;
+}
+
 export async function validateRouteSegments(
     route: IsochroneNode[],
     options: ValidateRouteOptions = {},
@@ -741,6 +785,26 @@ export async function validateRouteSegments(
             // skipper sees them, and logged at warn() — createLogger silences
             // info() in prod, which is why the old no-data note reached no one.
             routeAdvisories = buildRouteAdvisories(allResults);
+            // Caution-area crossings (restricted / cable / pipeline / TSS) →
+            // a "check restrictions" note. NOT a reroute — you can transit
+            // most, but a best-in-class ENC tells you (audit: the last real
+            // safety gap once the classes went data-live). ENC-only, cheap.
+            try {
+                const cautionSegs = [];
+                for (let i = 0; i < result.length - 1; i++) {
+                    cautionSegs.push({
+                        lat1: result[i].lat,
+                        lon1: result[i].lon,
+                        lat2: result[i + 1].lat,
+                        lon2: result[i + 1].lon,
+                    });
+                }
+                const perSeg = await HazardQueryService.querySegmentCautions(cautionSegs);
+                const note = describeCautionCrossings(perSeg.flat());
+                if (note) routeAdvisories.push({ severity: 'note', text: note });
+            } catch (err) {
+                landLog.warn('[ValidateRoute] caution-area crossing check failed', err);
+            }
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
                 `(${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})` +

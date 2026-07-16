@@ -13,8 +13,10 @@ import type { IsochroneNode, Isochrone, IsochroneResult } from '../services/isoc
 import { pruneWavefrontWithFallbacks } from '../services/isochrone/pruning';
 import { backtrack, smoothRoute } from '../services/isochrone/smoothing';
 import { detectTurnWaypoints, isochroneToGeoJSON } from '../services/isochrone/output';
-import { buildRouteAdvisories } from '../services/isochrone/landAvoidance';
+import { buildRouteAdvisories, describeCautionCrossings } from '../services/isochrone/landAvoidance';
 import type { HazardResult } from '../services/HazardQueryService';
+import type { EncCautionArea } from '../services/enc/EncSpatialIndex';
+import type { Geometry } from 'geojson';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -354,5 +356,29 @@ describe('buildRouteAdvisories', () => {
         expect(out).toHaveLength(2);
         expect(out[0].severity).toBe('caution');
         expect(out[1].severity).toBe('note');
+    });
+});
+
+describe('describeCautionCrossings', () => {
+    const g = {} as Geometry;
+    const area = (cls: string, restrn?: string): EncCautionArea => ({ geometry: g, cls, restrn });
+
+    it('no crossings → null', () => {
+        expect(describeCautionCrossings([])).toBeNull();
+    });
+
+    it('summarises class + RESTRN and dedups repeats', () => {
+        const out = describeCautionCrossings([area('RESARE', '7'), area('RESARE', '7'), area('CBLARE')]);
+        expect(out).toContain('restricted area (entry prohibited)');
+        expect(out).toContain('submarine cable area');
+        expect(out).toContain('check restrictions');
+        // deduped: 'restricted area (entry prohibited)' appears once
+        expect(out!.match(/restricted area \(entry prohibited\)/g)).toHaveLength(1);
+    });
+
+    it('maps a RESTRN list to readable restrictions', () => {
+        expect(describeCautionCrossings([area('RESARE', '1,3')])).toContain(
+            'restricted area (anchoring prohibited, fishing prohibited)',
+        );
     });
 });
