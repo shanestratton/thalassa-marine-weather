@@ -496,6 +496,22 @@ export interface ValidateRouteOptions {
      * nearby), the validator silently degrades to `tideOffsetM`.
      */
     departureTimeMs?: number;
+    /**
+     * Liveness probe for the SINGLETON hazard report (2026-07-17 audit):
+     * an un-cancelled validator whose caller had moved on — the timeout
+     * won the Promise.race, or a new plan superseded this one — used to
+     * finish anyway and overwrite the live report with one computed for
+     * a DISCARDED polyline. When this returns false at publish time,
+     * phase 5 skips every setLastReport write. Route geometry is still
+     * returned (the caller's own guards decide whether to use it).
+     */
+    stillCurrent?: () => boolean;
+    /**
+     * False for validators whose polyline is NOT the primary route (the
+     * ECMWF model-comparison braid): they must never own the singleton
+     * report the HazardReportPanel renders. Default true.
+     */
+    publishReport?: boolean;
 }
 
 /**
@@ -969,10 +985,22 @@ export async function validateRouteSegments(
     // We import dynamically so the hazard-report module isn't pulled
     // into routes that don't have any ENC coverage (it'd no-op
     // anyway, but avoiding the import keeps cold-start lean).
-    if (HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])) {
+    // Publish gate (2026-07-17 audit): a superseded validator (timeout won
+    // the caller's race, or a newer plan started) must not overwrite the
+    // live report with one for a discarded polyline — and the ECMWF braid
+    // never owns the report at all. Checked again AFTER the await below:
+    // the report walk itself can take seconds, plenty of time to go stale.
+    const mayPublish = (): boolean => (options.publishReport ?? true) && (options.stillCurrent?.() ?? true);
+    if (!mayPublish()) {
+        landLog.warn('[ValidateRoute] report publish skipped — superseded or non-primary polyline');
+    } else if (HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])) {
         try {
             const { findHazardsAlongRoute, setLastReport } = await import('./../enc/EncHazardReportService');
             const report = await findHazardsAlongRoute(result.map((n) => ({ lat: n.lat, lon: n.lon })));
+            if (!mayPublish()) {
+                landLog.warn('[ValidateRoute] report publish skipped — went stale during hazard walk');
+                return result;
+            }
             setLastReport(routeAdvisories.length > 0 ? { ...report, advisories: routeAdvisories } : report);
             if (report.entries.length > 0) {
                 landLog.info(
@@ -990,11 +1018,13 @@ export async function validateRouteSegments(
         // report rather than dropping them silently.
         try {
             const { setLastReport } = await import('./../enc/EncHazardReportService');
-            setLastReport(
-                routeAdvisories.length > 0
-                    ? { cellsConsulted: 0, bufferNm: 1.0, entries: [], advisories: routeAdvisories }
-                    : null,
-            );
+            if (mayPublish()) {
+                setLastReport(
+                    routeAdvisories.length > 0
+                        ? { cellsConsulted: 0, bufferNm: 1.0, entries: [], advisories: routeAdvisories }
+                        : null,
+                );
+            }
         } catch {
             /* best effort */
         }

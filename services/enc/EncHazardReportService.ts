@@ -489,6 +489,30 @@ export function subscribeToReport(listener: () => void): () => void {
 }
 
 /**
+ * Publish a LOUD "this route was never verified" report (2026-07-17 audit:
+ * when the validation race's timeout won, the drawn route shipped silently
+ * and the panel kept showing the PREVIOUS route's clean report). Replaces
+ * whatever report is up — a stale clean face is exactly the failure mode
+ * this exists to kill.
+ */
+export function publishRouteNotValidated(detail: string): void {
+    setLastReport({
+        cellsConsulted: 0,
+        bufferNm: 1.0,
+        entries: [],
+        advisories: [
+            {
+                severity: 'caution',
+                text:
+                    `Route NOT verified: ${detail}. The drawn line has not been checked ` +
+                    `against charted rocks, wrecks or depths — treat it as a suggestion ` +
+                    `and verify depths on the chart before sailing it.`,
+            },
+        ],
+    });
+}
+
+/**
  * React hook — re-renders the consumer whenever the last hazard
  * report changes. Returns the current report (or null).
  */

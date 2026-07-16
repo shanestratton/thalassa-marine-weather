@@ -1335,14 +1335,31 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         // (see services/units.ts).
                         const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
                         const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
+                        // Timeout race guard (2026-07-17 audit): when the
+                        // ceiling wins, the still-running validator must not
+                        // later overwrite the live report for a line we
+                        // discarded — and the skipper must HEAR that the
+                        // drawn line was never verified (it used to ship
+                        // with a prod-silenced log.info and the previous
+                        // route's clean report still up).
+                        let shortRouteStale = false;
                         const validated = await Promise.race([
-                            validateRouteSegments(seedNodes, { vesselDraftM, departureTimeMs }),
+                            validateRouteSegments(seedNodes, {
+                                vesselDraftM,
+                                departureTimeMs,
+                                stillCurrent: () => !shortRouteStale,
+                            }),
                             // 30s ceiling (was 12s). Multi-pass detour
                             // search across reef-strewn coastal waters
                             // can take ~15-20s — 12s was killing the
                             // validator mid-fix and leaving a polyline
                             // that still crossed land.
-                            new Promise<null>((r) => setTimeout(() => r(null), 30_000)),
+                            new Promise<null>((r) =>
+                                setTimeout(() => {
+                                    shortRouteStale = true;
+                                    r(null);
+                                }, 30_000),
+                            ),
                         ]);
                         if (validated && validated.length >= 2) {
                             validatedRoute = validated.map((n) => ({ lat: n.lat, lon: n.lon }));
@@ -1352,10 +1369,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 );
                             }
                         } else {
-                            log.info('[Passage] Short route: GEBCO validation timed out or empty — using great-circle');
+                            log.warn('[Passage] Short route: GEBCO validation timed out or empty — using great-circle');
+                            const { publishRouteNotValidated } =
+                                await import('../../services/enc/EncHazardReportService');
+                            publishRouteNotValidated('depth validation timed out (30 s)');
                         }
                     } catch (e) {
                         log.warn('[Passage] Short route: GEBCO validation failed — using great-circle:', e);
+                        try {
+                            const { publishRouteNotValidated } =
+                                await import('../../services/enc/EncHazardReportService');
+                            publishRouteNotValidated('depth validation failed');
+                        } catch {
+                            /* best effort */
+                        }
                     }
 
                     // Recompute distance from the validated polyline so
@@ -1778,10 +1805,36 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             // (see services/units.ts).
                             const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
                             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
+                            // Report-race guard (2026-07-17 audit): this fine
+                            // pass is the ONLY validateRouteSegments on the
+                            // long-route path, so its report is the one the
+                            // panel shows — but only while this plan is live
+                            // and the timeout hasn't already abandoned it.
+                            let deferredStale = false;
                             const validated = await Promise.race([
-                                validateRouteSegments(isoResult.route, { vesselDraftM, departureTimeMs }),
-                                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+                                validateRouteSegments(isoResult.route, {
+                                    vesselDraftM,
+                                    departureTimeMs,
+                                    stillCurrent: () => !deferredStale && computeGenRef.current === gen,
+                                }),
+                                new Promise<null>((resolve) =>
+                                    setTimeout(() => {
+                                        deferredStale = true;
+                                        resolve(null);
+                                    }, 15_000),
+                                ),
                             ]);
+                            if (!validated && computeGenRef.current === gen) {
+                                // Timed out: the drawn route was checked against
+                                // the coarse 0.1° grid only — say so, loudly,
+                                // instead of leaving the previous route's clean
+                                // report on the panel.
+                                const { publishRouteNotValidated } =
+                                    await import('../../services/enc/EncHazardReportService');
+                                publishRouteNotValidated(
+                                    'fine-resolution depth validation timed out (15 s) — route checked against coarse bathymetry only',
+                                );
+                            }
                             if (!validated || computeGenRef.current !== gen) return; // stale or timed out
 
                             // Check if validation actually changed anything
@@ -2103,7 +2156,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                                 ? new Date(departureTime).getTime()
                                                 : undefined;
                                             const validated = await Promise.race([
-                                                validateRouteSegments(ecmwfNodes, { vesselDraftM, departureTimeMs }),
+                                                validateRouteSegments(ecmwfNodes, {
+                                                    vesselDraftM,
+                                                    departureTimeMs,
+                                                    // The braid is the ECMWF COMPARISON line,
+                                                    // not the sailed route — it must never own
+                                                    // the singleton hazard report (2026-07-17
+                                                    // audit: it overwrote the primary's).
+                                                    publishReport: false,
+                                                }),
                                                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
                                             ]);
                                             if (!validated || computeGenRef.current !== gen) return;
