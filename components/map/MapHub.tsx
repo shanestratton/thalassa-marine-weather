@@ -85,6 +85,7 @@ import {
     encHasClickableFeatureAt,
     encSuppressNextClickPopup,
     setEncDraftAssumed,
+    setEncNightDim,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
 import {
@@ -2587,6 +2588,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the offset is re-read live on every boot, and the badge makes the
     // mode unmistakable, so stickiness is safe.
     const [tideDepthMode, setTideDepthMode] = usePersistedState('thalassa_tide_depth_mode', false);
+    // Night dim — chartplotter-style red-tinted uniform dim (burn-down:
+    // the white DEPARE ramp killed night vision at the helm).
+    const [nightDim, setNightDim] = usePersistedState('thalassa_enc_night_dim', false);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        try {
+            setEncNightDim(map, nightDim);
+        } catch {
+            /* style mid-swap — the next mapReady pass reapplies */
+        }
+    }, [nightDim, mapReady]);
     const [tideOffsetInfo, setTideOffsetInfo] = useState<TideOffsetRead | null>(null);
     const [showTideAck, setShowTideAck] = useState(false);
     /** Scrubber position in QUARTER-HOURS AHEAD of now, 0 = live now
@@ -5899,6 +5912,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     }}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}
+                    nightDim={nightDim}
+                    onToggleNightDim={() => setNightDim(!nightDim)}
                     onOpenChartKey={() => setChartKeyOpen(true)}
                     encCellCount={encCellCount}
                     seawayDebugVisible={seawayDebugVisible}
