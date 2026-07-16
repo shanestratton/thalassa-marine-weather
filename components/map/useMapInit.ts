@@ -1311,6 +1311,14 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapRef.current = map;
 
+        // ENC boot pre-warm: run the first chart merge's CPU work (blob read/
+        // parse/glaze) UNDER the style+tile network wait instead of after it —
+        // the largest single warm-boot win (z10-boot audit #4). No-ops below
+        // the merge floor (the wide no-fix fallback boot) or with no cells.
+        void import('./useEncVectorLayer')
+            .then(({ prewarmEncMerge }) => prewarmEncMerge(map))
+            .catch(() => undefined);
+
         // Dev-only escape hatch: layer/source forensics from the browser
         // console ("why isn't X painting") without prop-drilling a debug
         // surface. Stripped from production by the DEV guard.

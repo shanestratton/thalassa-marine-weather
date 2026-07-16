@@ -187,7 +187,11 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
                 return false;
             }
             const { saveCellGeoJSON } = await import('./EncCellStore');
-            await saveCellGeoJSON(cellId, candidate as EncConversionResult);
+            // Bare payload (no {cells:[…]} wrapper) → the wire text IS the
+            // blob's serialization: hand it through so the store doesn't
+            // re-stringify a multi-MB object on the UI thread (audit #9).
+            const bare = (cell as unknown) === (parsed as unknown);
+            await saveCellGeoJSON(cellId, candidate as EncConversionResult, bare ? text : undefined);
             // The registry entry was seeded from the manifest with the
             // 'cloud' placeholder — now the blob is in hand, patch the REAL
             // provenance in. sourceHO drives IALA region (red/green sides);

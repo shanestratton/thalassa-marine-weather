@@ -149,10 +149,14 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
 export async function saveCellGeoJSON(
     cellId: string,
     blob: EncConversionResult,
+    /** Pre-serialized JSON for `blob`, when the caller already holds the wire
+     *  text (cloud hydration) — skips re-stringifying a multi-MB object on
+     *  the UI thread (z10-boot audit #9). MUST parse back to `blob`. */
+    serialized?: string,
 ): Promise<{ path: string; sizeBytes: number }> {
     await ensureDir();
     const path = relPath(cellId);
-    const data = JSON.stringify(blob);
+    const data = serialized ?? JSON.stringify(blob);
     await Filesystem.writeFile({
         path,
         data,
