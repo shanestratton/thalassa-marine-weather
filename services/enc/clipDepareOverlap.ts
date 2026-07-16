@@ -25,7 +25,7 @@
 import type { Feature, MultiPolygon, Polygon, Position } from 'geojson';
 import { diff as martinezDiff } from 'martinez-polygon-clipping';
 
-type Bbox = [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+export type Bbox = [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
 type Ring = Position[];
 type PolyRings = Ring[]; // [outer, ...holes]
 /** MultiPolygon coordinate array — martinez's native geometry shape. */
@@ -37,6 +37,51 @@ export interface FineCoverage {
     bbox: Bbox;
     /** The ACTUAL charted polygons (DEPARE + DRGARE), not their rectangle. */
     coverage: CoverageGeom;
+    /** Strip-rect rasterisation of `coverage` (coverageMaskStrips) — the
+     *  bounded fallback an over-cap martinez pair degrades to. Absent →
+     *  the data-extent bbox is the fallback. Empty array = the three-state
+     *  rule's "clip NOTHING" (never conflate with absent). */
+    stripRects?: Bbox[];
+}
+
+/** Hard ceiling on the vertices martinez may see in ONE subject/clip pair
+ *  (subject's current rings + the fine coverage's rings). This is THE
+ *  bound the 2026-07-13 post-mortem demanded before the true-coverage
+ *  glaze could return: martinez's allocation spike scales with input
+ *  vertices, and an unbounded pair OOM-killed the whole renderer process
+ *  — from a worker (workers protect against hangs, not process OOM).
+ *  Over-cap pairs degrade to the strip-rect clip (Sutherland–Hodgman,
+ *  bounded by construction) instead. 12k vertices keeps martinez's
+ *  transient allocation in the low MB; the [glaze] stats line reports
+ *  maxPairVertices so a device profiling session can tune this. */
+export const GLAZE_MARTINEZ_VERTEX_CAP = 12_000;
+
+/** Per-job telemetry the bounded clip accumulates — surfaced as the
+ *  main-thread `[glaze]` warn line so the device session can see the
+ *  exact/degraded split without a debugger. */
+export interface CoverageClipStats {
+    /** Pairs martinez actually clipped (exact result). */
+    pairsExact: number;
+    /** Pairs over GLAZE_MARTINEZ_VERTEX_CAP → strip-rect fallback. */
+    pairsStripped: number;
+    /** Pairs where martinez threw (degenerate ring) → rect fallback. */
+    pairsRectFallback: number;
+    /** Largest subject+clip vertex count seen (cap tuning signal). */
+    maxPairVertices: number;
+}
+
+export const emptyClipStats = (): CoverageClipStats => ({
+    pairsExact: 0,
+    pairsStripped: 0,
+    pairsRectFallback: 0,
+    maxPairVertices: 0,
+});
+
+/** Total ring vertices in a multipolygon coordinate array. */
+export function coverageVertexCount(geom: CoverageGeom): number {
+    let n = 0;
+    for (const poly of geom) for (const ring of poly) n += ring.length;
+    return n;
 }
 
 const EPS = 1e-12;
@@ -468,53 +513,85 @@ function coordsBbox(polys: CoverageGeom): Bbox {
  * genuinely silent, so exactly one band covers charted water and ZERO
  * bands cover only what nobody charted.
  *
+ * BOUNDED (2026-07-17, the re-enable precondition): martinez never sees a
+ * subject+clip pair over `maxPairVertices` — such a pair degrades to that
+ * fine's strip-rect clip (or its data-extent rect when strips are absent),
+ * which is Sutherland–Hodgman and bounded by construction. The subject's
+ * vertex count is re-measured after every clip, so growth from earlier
+ * pairs feeds the next pair's gate.
+ *
  * Returns the original feature untouched when no coverage overlaps it,
  * null when swallowed whole, otherwise a NEW feature. Falls back to the
  * rectangle clip per fine cell if martinez rejects a degenerate ring —
  * a possible hole beats a crashed merge.
  */
-export function clipFeatureOutsideCoverage(feature: Feature, fines: readonly FineCoverage[]): Feature | null {
+export function clipFeatureOutsideCoverage(
+    feature: Feature,
+    fines: readonly FineCoverage[],
+    maxPairVertices: number = GLAZE_MARTINEZ_VERTEX_CAP,
+    stats?: CoverageClipStats,
+): Feature | null {
     const g = feature.geometry;
     if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return feature;
     let coords: CoverageGeom =
         g.type === 'Polygon' ? [g.coordinates as PolyRings] : (g.coordinates as unknown as CoverageGeom);
     const fb = coordsBbox(coords);
+    let subjectVerts = coverageVertexCount(coords);
+
+    const coordsAsFeature = (): Feature => ({
+        ...feature,
+        geometry:
+            coords.length === 1
+                ? { type: 'Polygon', coordinates: coords[0] }
+                : { type: 'MultiPolygon', coordinates: coords as MultiPolygon['coordinates'] },
+    });
+    /** Apply a rect-list clip to the running coords. Returns false when
+     *  the rects swallow the subject whole (caller returns null). */
+    const clipCoordsToRects = (rects: readonly Bbox[]): boolean => {
+        const clipped = clipFeatureOutsideBboxes(coordsAsFeature(), rects);
+        if (!clipped) return false;
+        const rg = clipped.geometry as Polygon | MultiPolygon;
+        coords = rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
+        subjectVerts = coverageVertexCount(coords);
+        return true;
+    };
 
     let touched = false;
     for (const fine of fines) {
         if (!bboxesIntersect(fb, fine.bbox)) continue;
+        const pairVerts = subjectVerts + coverageVertexCount(fine.coverage);
+        if (stats && pairVerts > stats.maxPairVertices) stats.maxPairVertices = pairVerts;
+        if (pairVerts > maxPairVertices) {
+            // Over the martinez bound — degrade THIS pair to the bounded
+            // strip clip. `stripRects: []` is the three-state rule's
+            // "charted but nothing to clip": touch nothing (falling back
+            // to the extent rect here would re-create the whole-rectangle
+            // blackout the strips exist to prevent).
+            if (stats) stats.pairsStripped++;
+            const rects = fine.stripRects ?? [fine.bbox];
+            if (rects.length === 0) continue;
+            touched = true;
+            if (!clipCoordsToRects(rects)) return null;
+            continue;
+        }
         try {
             const out = martinezDiff(
                 coords as unknown as Parameters<typeof martinezDiff>[0],
                 fine.coverage as unknown as Parameters<typeof martinezDiff>[1],
             ) as unknown as CoverageGeom | null;
             touched = true;
+            if (stats) stats.pairsExact++;
             if (!out || out.length === 0) return null;
             coords = out;
+            subjectVerts = coverageVertexCount(coords);
         } catch {
-            const asFeature: Feature = {
-                ...feature,
-                geometry:
-                    coords.length === 1
-                        ? { type: 'Polygon', coordinates: coords[0] }
-                        : { type: 'MultiPolygon', coordinates: coords as MultiPolygon['coordinates'] },
-            };
-            const rect = clipFeatureOutsideBboxes(asFeature, [fine.bbox]);
-            if (!rect) return null;
+            if (stats) stats.pairsRectFallback++;
             touched = true;
-            const rg = rect.geometry as Polygon | MultiPolygon;
-            coords =
-                rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
+            if (!clipCoordsToRects([fine.bbox])) return null;
         }
     }
     if (!touched) return feature;
-    return {
-        ...feature,
-        geometry:
-            coords.length === 1
-                ? { type: 'Polygon', coordinates: coords[0] }
-                : { type: 'MultiPolygon', coordinates: coords as MultiPolygon['coordinates'] },
-    };
+    return coordsAsFeature();
 }
 
 /**
