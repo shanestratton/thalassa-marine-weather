@@ -285,6 +285,14 @@ const TIDE_ADOPT_FACTOR = 0.7;
 // re-expose the button.
 const AUTO_ROUTE_BUTTON_VISIBLE = false;
 
+// The guided course-frame (From/To boxes + 🧭 Set course) and its ⚡
+// Auto-to-destination button are PARKED with it (Shane 2026-07-16: "remove
+// autoroute and set course — they are both hopeless. we don't need the from
+// and to boxes either; we just start by clicking a spot"). The wiring
+// (setCourseFrame, autoCompleteTrace, traceDest et al) stays intact for a
+// future rework — flip to true to re-expose.
+const COURSE_FRAME_VISIBLE = false;
+
 /** Equirectangular distance in metres between two lat/lon points. */
 const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
     const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
@@ -4888,7 +4896,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             >
                                                 {plotArmed ? '✏️ Plotting' : '⏸ Paused'}
                                             </button>
-                                            {(capturedCoords.length > 0 || traceOrigin) &&
+                                            {COURSE_FRAME_VISIBLE &&
+                                                (capturedCoords.length > 0 || traceOrigin) &&
                                                 (traceDest || passage.arrival) && (
                                                     <button
                                                         onClick={() => void autoCompleteTrace()}
@@ -4937,10 +4946,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {DEFAULT_TIDE_SAFETY_M} m margin at low tide
                                             </div>
                                         )}
-                                        {/* Course frame (guided front door): From/To lives
-                                HERE, not in the old planner. Optional — the
-                                punter can ignore it and just tap the chart. */}
-                                        {!traceDest && capturedCoords.length === 0 && (
+                                        {/* Course frame (guided front door) — PARKED behind
+                                COURSE_FRAME_VISIBLE (Shane 2026-07-16: no
+                                From/To boxes, "we just start by clicking a
+                                spot"). */}
+                                        {COURSE_FRAME_VISIBLE && !traceDest && capturedCoords.length === 0 && (
                                             <div className="space-y-1.5 border-b border-white/10 px-3 py-2">
                                                 <input
                                                     value={fromQuery}
@@ -5023,11 +5033,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {traceFeedback}
                                             </div>
                                         )}
-                                        {/* Guided builder: hand the open water to the
-                                four-tier router — an OFFER, never a grab. The
-                                course frame arms it with zero pins too ("do
-                                the whole thing for me" is a legitimate ask). */}
-                                        {(capturedCoords.length > 0 || traceOrigin) &&
+                                        {/* Guided builder ⚡ Auto-to-destination — PARKED with
+                                the course frame (COURSE_FRAME_VISIBLE). */}
+                                        {COURSE_FRAME_VISIBLE &&
+                                            (capturedCoords.length > 0 || traceOrigin) &&
                                             (traceDest || passage.arrival) && (
                                                 <div className="border-b border-white/10 px-3 py-1.5">
                                                     <button
@@ -5377,34 +5386,80 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         {/* Departure date/time (Shane 2026-07-16): anchors the
                                             tide windows at each leg's ETA, the departure-window
                                             headline, and the report's per-waypoint weather.
-                                            Empty = leave now. */}
-                                        <div className="flex items-center gap-1.5 border-t border-white/10 px-3 py-2">
-                                            <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                                🕐 Depart
-                                            </span>
-                                            <input
-                                                type="datetime-local"
-                                                value={departureMs !== null ? msToLocalInput(departureMs) : ''}
-                                                onChange={(e) => {
-                                                    const t = e.target.value ? new Date(e.target.value).getTime() : NaN;
-                                                    triggerHaptic('light');
-                                                    setDepartureMs(Number.isFinite(t) ? t : null);
-                                                }}
-                                                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
-                                            />
-                                            {departureMs !== null ? (
+                                            Empty = leave now. Two lines (date, then time) so
+                                            neither is squeezed; OK blurs the native picker
+                                            closed (iOS keeps it open until the input blurs). */}
+                                        <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
+                                            <div className="flex items-baseline justify-between">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                                    🕐 Depart
+                                                </span>
+                                                {departureMs === null && (
+                                                    <span className="text-[10px] font-bold text-emerald-300/80">now</span>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-1.5">
+                                                <input
+                                                    type="date"
+                                                    value={departureMs !== null ? msToLocalInput(departureMs).slice(0, 10) : ''}
+                                                    onChange={(e) => {
+                                                        triggerHaptic('light');
+                                                        if (!e.target.value) {
+                                                            setDepartureMs(null);
+                                                            return;
+                                                        }
+                                                        const time =
+                                                            departureMs !== null
+                                                                ? msToLocalInput(departureMs).slice(11, 16)
+                                                                : msToLocalInput(Date.now()).slice(11, 16);
+                                                        const t = new Date(`${e.target.value}T${time}`).getTime();
+                                                        if (Number.isFinite(t)) setDepartureMs(t);
+                                                    }}
+                                                    aria-label="Departure date"
+                                                    className="min-w-0 flex-[3] rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                                                />
+                                                <input
+                                                    type="time"
+                                                    value={departureMs !== null ? msToLocalInput(departureMs).slice(11, 16) : ''}
+                                                    onChange={(e) => {
+                                                        if (!e.target.value) return;
+                                                        triggerHaptic('light');
+                                                        const date =
+                                                            departureMs !== null
+                                                                ? msToLocalInput(departureMs).slice(0, 10)
+                                                                : msToLocalInput(Date.now()).slice(0, 10);
+                                                        const t = new Date(`${date}T${e.target.value}`).getTime();
+                                                        if (Number.isFinite(t)) setDepartureMs(t);
+                                                    }}
+                                                    aria-label="Departure time"
+                                                    className="min-w-0 flex-[2] rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                                                />
+                                            </div>
+                                            <div className="flex gap-1.5">
                                                 <button
                                                     onClick={() => {
                                                         triggerHaptic('light');
-                                                        setDepartureMs(null);
+                                                        // Blur = the only reliable way to close the
+                                                        // native date/time wheel on iOS.
+                                                        (document.activeElement as HTMLElement | null)?.blur?.();
                                                     }}
-                                                    className="shrink-0 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                                                    className="flex-1 rounded-lg bg-sky-500/20 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95"
                                                 >
-                                                    Now
+                                                    OK
                                                 </button>
-                                            ) : (
-                                                <span className="shrink-0 text-[10px] font-bold text-emerald-300/80">now</span>
-                                            )}
+                                                {departureMs !== null && (
+                                                    <button
+                                                        onClick={() => {
+                                                            triggerHaptic('light');
+                                                            (document.activeElement as HTMLElement | null)?.blur?.();
+                                                            setDepartureMs(null);
+                                                        }}
+                                                        className="flex-1 rounded-lg bg-white/10 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                                                    >
+                                                        Now
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                         {/* Build a route by keying GPS fixes — decimal, DMM
                                             ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
