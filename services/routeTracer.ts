@@ -96,7 +96,7 @@ export interface TracerContext {
      *  the chart against the disc's OWN mark here, not the narrower
      *  soloLaterals list (Shane 2026-07-16: unnumbered red beacon nagged
      *  "danger side" because it had a disc but no soloLateral entry). */
-    markHazards: TracePoint[];
+    markHazards: MarkHazard[];
     cardinals: CardinalDisc[];
     gatePairs: GatePair[];
     leads: LeadingLine[];
@@ -299,11 +299,29 @@ export function tracerContextFromLayers(
  *  side). This is the SAME feature set that stamps markDiscBlocked, so §1 can
  *  chart-read against the exact mark that produced the disc it just entered —
  *  no dependency on the numbered-name soloLaterals filter. */
-export function parseMarkHazards(features: readonly unknown[]): TracePoint[] {
-    const out: TracePoint[] = [];
+export interface MarkHazard extends TracePoint {
+    /** IALA lateral hand, when the disc came from a lateral mark: 'port' (RED
+     *  in region A) | 'starboard' (GREEN) | null (a direct point hazard, or a
+     *  lateral with no colour). Lets §1 give the IALA rule when the chart alone
+     *  can't call the side (Shane 2026-07-16: "we are IALA-A, so this IS the
+     *  correct side?" — a red mark HAS a determinate keep-side given a heading). */
+    hand: 'port' | 'starboard' | null;
+}
+
+export function parseMarkHazards(features: readonly unknown[]): MarkHazard[] {
+    const out: MarkHazard[] = [];
+    const handOf = (kind: unknown): 'port' | 'starboard' | null =>
+        kind === 'port' ? 'port' : kind === 'starboard' ? 'starboard' : null;
     for (const f of features) {
         const feat = f as {
-            properties?: { _class?: string; _cardinalDir?: string | null; _markerLat?: number; _markerLon?: number };
+            properties?: {
+                _class?: string;
+                _cardinalDir?: string | null;
+                _markerLat?: number;
+                _markerLon?: number;
+                _markerKind?: string;
+                _origin?: { _markerKind?: string } | null;
+            };
             geometry?: { type?: string; coordinates?: unknown };
         } | null;
         const p = feat?.properties;
@@ -311,15 +329,18 @@ export function parseMarkHazards(features: readonly unknown[]): TracePoint[] {
         const cls = p._class;
         if (cls !== 'lateral-marker-as-hazard' && cls !== 'direct-hazard' && cls !== 'iala-oriented-hazard') continue;
         if (cls === 'iala-oriented-hazard' && p._cardinalDir != null) continue; // cardinal → §2
+        // The lateral hand rides on the point (_markerKind) or, once the disc
+        // was oriented, on its _origin (the raw lateral it was built from).
+        const hand = handOf(p._markerKind ?? p._origin?._markerKind);
         if (typeof p._markerLat === 'number' && typeof p._markerLon === 'number') {
-            out.push({ lat: p._markerLat, lon: p._markerLon });
+            out.push({ lat: p._markerLat, lon: p._markerLon, hand });
             continue;
         }
         // Fall back to the geometry point (raw hazard points) / first ring vertex.
         const g = feat?.geometry;
         if (g?.type === 'Point' && Array.isArray(g.coordinates)) {
             const [lon, lat] = g.coordinates as [number, number];
-            if (typeof lon === 'number' && typeof lat === 'number') out.push({ lat, lon });
+            if (typeof lon === 'number' && typeof lat === 'number') out.push({ lat, lon, hand });
         } else if (g?.type === 'Polygon' && Array.isArray(g.coordinates)) {
             const ring = (g.coordinates as number[][][])[0];
             if (ring && ring.length) {
@@ -329,7 +350,7 @@ export function parseMarkHazards(features: readonly unknown[]): TracePoint[] {
                     sx += lon;
                     sy += lat;
                 }
-                out.push({ lat: sy / ring.length, lon: sx / ring.length });
+                out.push({ lat: sy / ring.length, lon: sx / ring.length, hand });
             }
         }
     }
@@ -656,7 +677,7 @@ export function validateTraceLeg(
         const cardinalOwns = ctx.cardinals.some((c) => closestOnLeg(c, a, b).distM < CARDINAL_BAND_M);
         const soloOwns = ctx.soloLaterals.some((m) => closestOnLeg(m, a, b).distM < SOLO_LATERAL_BAND_M);
         if (!cardinalOwns && !soloOwns) {
-            let nearest: TracePoint | null = null;
+            let nearest: MarkHazard | null = null;
             let nd = Infinity;
             for (const mk of ctx.markHazards ?? []) {
                 const d = distM(mk, mz);
@@ -667,16 +688,31 @@ export function validateTraceLeg(
             }
             const read =
                 grid && nearest ? lateralPassRead(grid, nearest, closestOnLeg(nearest, a, b).point, keelM) : 'unknown';
-            if (read !== 'clean') {
-                issues.push({
-                    severity: 'caution',
-                    message:
-                        read === 'shoalside'
-                            ? 'bank side of a nearby mark — favour the deeper side'
-                            : 'near a mark — check which side is safe',
-                    at: mz,
-                });
+            if (read === 'shoalside') {
+                issues.push({ severity: 'caution', message: 'bank side of a nearby mark — favour the deeper side', at: mz });
+            } else if (read === 'unknown') {
+                // The chart can't call the side (open water, or the boat is
+                // passing right over the mark). If we know the mark's IALA hand,
+                // give the RULE — a red mark HAS a determinate keep-side once
+                // you know your heading (Shane 2026-07-16, IALA-A). We state
+                // which side of THIS course the mark sits on + the rule, and let
+                // the skipper apply their inbound/outbound knowledge. Honest: we
+                // don't fabricate the direction of buoyage, we hand over the rule.
+                let message = 'near a mark — check which side is safe';
+                if (nearest?.hand) {
+                    const kx = Math.cos((a.lat * Math.PI) / 180);
+                    const dx = (b.lon - a.lon) * kx;
+                    const dy = b.lat - a.lat;
+                    const px = (nearest.lon - a.lon) * kx;
+                    const py = nearest.lat - a.lat;
+                    // cross > 0 ⇒ mark is to the LEFT of the course = your port side.
+                    const courseSide = dx * py - dy * px > 0 ? 'port' : 'starboard';
+                    const isPort = nearest.hand === 'port';
+                    message = `${isPort ? 'Red port-hand' : 'Green starboard-hand'} mark on your ${courseSide} — IALA-A: keep ${isPort ? 'red to port' : 'green to starboard'} heading in`;
+                }
+                issues.push({ severity: 'caution', message, at: mz });
             }
+            // read === 'clean' → silent (chart confirms the safe side).
         }
     } else if (bankShaveAt) {
         issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });

@@ -127,16 +127,37 @@ describe('mark-inference discs in the tracer verdict', () => {
         expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
     });
 
-    it('an AMBIGUOUS pass (deep both sides) gets the honest "check which side", never "danger side"', () => {
+    it('an AMBIGUOUS pass gives the IALA-A rule for the mark hand, never "danger side"', () => {
+        // Deep both sides → the chart can't call it, but the disc IS a RED
+        // (port-hand) mark, so IALA-A gives a determinate rule. The mark sits
+        // SOUTH of the eastbound leg → on the boat's starboard. Shane
+        // 2026-07-16: "we are IALA-A so this is the correct side?" — hand it the
+        // rule + which side the mark is on, and let the skipper apply heading.
         const ctx = makeCtx({
             DEPARE: DEEP, // 6 m everywhere → chart can't call the side
-            OBSTRN: markHazardOBSTRN,
+            OBSTRN: markHazardOBSTRN, // _markerKind: 'port' → red port-hand
         } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).toContain('caution:near a mark — check which side is safe');
+        expect(msgs).toContain('caution:Red port-hand mark on your starboard');
+        expect(msgs).toContain('keep red to port heading in');
         expect(msgs).not.toContain('danger side');
         expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
+    });
+
+    it('reports the correct hand + side for a GREEN mark to port', () => {
+        // Green (starboard-hand) mark NORTH of the eastbound leg → on the boat's
+        // port. Locks the other colour and the port course-side.
+        const greenN = fc({
+            type: 'Feature',
+            properties: { _class: 'lateral-marker-as-hazard', _markerKind: 'starboard' },
+            geometry: { type: 'Point', coordinates: [MARK_LON, -27.1497] },
+        });
+        const ctx = makeCtx({ DEPARE: DEEP, OBSTRN: greenN } as Partial<InshoreLayers>);
+        const v = validateTraceLeg(A, B, ctx);
+        const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
+        expect(msgs).toContain('Green starboard-hand mark on your port');
+        expect(msgs).toContain('keep green to starboard heading in');
     });
 
     it('a genuine BANK-SIDE pass still warns with teeth (shoal on the boat side)', () => {
