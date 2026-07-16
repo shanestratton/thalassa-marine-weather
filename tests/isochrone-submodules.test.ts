@@ -357,6 +357,17 @@ describe('buildRouteAdvisories', () => {
         expect(out[0].severity).toBe('caution');
         expect(out[1].severity).toBe('note');
     });
+
+    it('flags a draft beyond the 5 m depth-model clamp (was a silent tighter-than-shown margin)', () => {
+        const out = buildRouteAdvisories([r({})], 6.2);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].text).toContain('6.2');
+        expect(out[0].text).toContain('5 m maximum');
+        // At or under the clamp → no advisory.
+        expect(buildRouteAdvisories([r({})], 5)).toEqual([]);
+        expect(buildRouteAdvisories([r({})], 2.1)).toEqual([]);
+    });
 });
 
 describe('describeCautionCrossings', () => {

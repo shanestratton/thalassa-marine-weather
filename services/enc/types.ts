@@ -536,6 +536,13 @@ export interface EncHazardResult {
     hazardType?: EncHazardType;
     cellId?: string;
     catzoc?: EncCatzoc | null;
+    /** True when the ONLY basis for this result is spot sounding(s) — no
+     *  area (DEPARE/DRGARE/land) or point/line hazard coverage under the
+     *  point. A lone sounding is hazard EVIDENCE, not area coverage: if the
+     *  draft re-eval clears it, the caller must fall through to GEBCO
+     *  rather than treat the point as ENC-verified clear (burn-down
+     *  2026-07-16: guard-radius SOUNDG hits were granting coverage). */
+    soundingOnly?: boolean;
 }
 
 // ── Spatial index entry (RBush format) ─────────────────────────────

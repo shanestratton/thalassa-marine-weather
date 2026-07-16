@@ -626,8 +626,11 @@ export class EncSpatialIndex {
 
             // Inside a charted feature (depth area, land, or a point hazard)
             // → this cell authoritatively covers the point, even when the
-            // feature is DEEP water (classifyHazard → null below).
-            insideCharted = true;
+            // feature is DEEP water (classifyHazard → null below). EXCEPT a
+            // spot sounding: a lone SOUNDG within the guard radius is hazard
+            // EVIDENCE, never area coverage — it must not be able to suppress
+            // the GEBCO fallback on its own (burn-down 2026-07-16).
+            if (entry.hazard.layer !== 'SOUNDG') insideCharted = true;
 
             const type = classifyHazard(entry.hazard);
             if (!type) continue; // deep DEPARE/DRGARE — covered, not a hazard.
@@ -643,24 +646,30 @@ export class EncSpatialIndex {
             }
         }
 
+        // A FOUND hazard is authoritative danger evidence regardless of area
+        // coverage — a shoal sounding sitting in a coverage gap must still
+        // flag. `soundingOnly` marks the no-area-coverage case so the caller
+        // can fall through to GEBCO if the draft re-eval clears it (a lone
+        // 12 m sounding must not certify the water around it).
+        if (bestType !== null) {
+            return {
+                covered: true,
+                hazard: true,
+                minDepthM: bestDepth,
+                hazardType: bestType,
+                cellId: this.cellId,
+                catzoc,
+                ...(insideCharted ? {} : { soundingOnly: true }),
+            };
+        }
+
         // Inside the cell bbox and inside the candidates' bboxes, but inside
         // NO actual polygon → still a gap. Fall back to GEBCO.
         if (!insideCharted) {
             return { covered: false, hazard: false, minDepthM: null };
         }
 
-        if (bestType === null) {
-            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId, catzoc };
-        }
-
-        return {
-            covered: true,
-            hazard: true,
-            minDepthM: bestDepth,
-            hazardType: bestType,
-            cellId: this.cellId,
-            catzoc,
-        };
+        return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId, catzoc };
     }
 
     /**
