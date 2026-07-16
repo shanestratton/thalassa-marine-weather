@@ -5525,6 +5525,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     fixBusy={fixBusyLeg}
                     vesselName={settings.vessel?.name}
                     draftM={vesselDraftMetres(settings.vessel)}
+                    cruisingSpeedKts={settings.vessel?.cruisingSpeed}
                     onFlyTo={(pt) => {
                         setShowReport(false);
                         mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });
