@@ -225,6 +225,27 @@ export async function preloadForBBox(bbox: [number, number, number, number]): Pr
  * NOAA in Torres Strait), we merge results by severity: any
  * hazard hit wins, otherwise the first covered "clear" answer.
  */
+/**
+ * Resolve the spatial indexes for every imported cell intersecting `bbox`,
+ * built through the capped pool (same flood risk as preloadForBBox when the
+ * bbox spans a route) and DETERMINISTICALLY sorted by cellId. The severity
+ * fold is a total order so correctness never depended on iteration order,
+ * but the pool completes nondeterministically — the sort makes per-segment
+ * caution lists and any diagnostic output reproducible. (Burn-down: this
+ * block was triplicated across the three query APIs.)
+ */
+async function resolveCandidateIndexes(bbox: [number, number, number, number]): Promise<EncSpatialIndex[]> {
+    const candidateCells = cellMeta.cellsForBBox(bbox);
+    if (candidateCells.length === 0) return [];
+    const out: EncSpatialIndex[] = [];
+    await mapWithConcurrency(candidateCells, 4, async (cell) => {
+        const idx = await getOrBuildIndex(cell.id);
+        if (idx) out.push(idx);
+    });
+    out.sort((a, b) => a.getCellId().localeCompare(b.getCellId()));
+    return out;
+}
+
 export async function queryHazards(points: { lat: number; lon: number }[]): Promise<EncHazardResult[]> {
     const results: EncHazardResult[] = new Array(points.length);
     if (points.length === 0) return results;
@@ -247,22 +268,13 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
         if (p.lon > qMaxLon) qMaxLon = p.lon;
         if (p.lat > qMaxLat) qMaxLat = p.lat;
     }
-    const candidateCells = cellMeta.cellsForBBox([qMinLon, qMinLat, qMaxLon, qMaxLat]);
-
-    if (candidateCells.length === 0) {
+    const candidateIndexes = await resolveCandidateIndexes([qMinLon, qMinLat, qMaxLon, qMaxLat]);
+    if (candidateIndexes.length === 0) {
         for (let i = 0; i < points.length; i++) {
             results[i] = { covered: false, hazard: false, minDepthM: null };
         }
         return results;
     }
-
-    // Pre-build the candidate indexes through the capped pool — same
-    // flood risk as preloadForBBox when the query bbox spans a route.
-    const candidateIndexes: EncSpatialIndex[] = [];
-    await mapWithConcurrency(candidateCells, 4, async (cell) => {
-        const idx = await getOrBuildIndex(cell.id);
-        if (idx) candidateIndexes.push(idx);
-    });
 
     // Per-point query against the resolved indexes. Fold every covering
     // cell's result through mergeHazardResults, which keeps the MOST SEVERE
@@ -319,17 +331,11 @@ export async function querySegmentHazards(
         qMaxLon = Math.max(qMaxLon, s.lon1, s.lon2);
         qMaxLat = Math.max(qMaxLat, s.lat1, s.lat2);
     }
-    const candidateCells = cellMeta.cellsForBBox([qMinLon, qMinLat, qMaxLon, qMaxLat]);
-    if (candidateCells.length === 0) {
+    const candidateIndexes = await resolveCandidateIndexes([qMinLon, qMinLat, qMaxLon, qMaxLat]);
+    if (candidateIndexes.length === 0) {
         for (let i = 0; i < segments.length; i++) results[i] = miss();
         return results;
     }
-
-    const candidateIndexes: EncSpatialIndex[] = [];
-    await mapWithConcurrency(candidateCells, 4, async (cell) => {
-        const idx = await getOrBuildIndex(cell.id);
-        if (idx) candidateIndexes.push(idx);
-    });
 
     for (let i = 0; i < segments.length; i++) {
         const s = segments[i];
@@ -365,14 +371,8 @@ export async function querySegmentCautions(
         qMaxLon = Math.max(qMaxLon, s.lon1, s.lon2);
         qMaxLat = Math.max(qMaxLat, s.lat1, s.lat2);
     }
-    const candidateCells = cellMeta.cellsForBBox([qMinLon, qMinLat, qMaxLon, qMaxLat]);
-    if (candidateCells.length === 0) return results;
-
-    const candidateIndexes: EncSpatialIndex[] = [];
-    await mapWithConcurrency(candidateCells, 4, async (cell) => {
-        const idx = await getOrBuildIndex(cell.id);
-        if (idx) candidateIndexes.push(idx);
-    });
+    const candidateIndexes = await resolveCandidateIndexes([qMinLon, qMinLat, qMaxLon, qMaxLat]);
+    if (candidateIndexes.length === 0) return results;
 
     for (let i = 0; i < segments.length; i++) {
         const s = segments[i];
