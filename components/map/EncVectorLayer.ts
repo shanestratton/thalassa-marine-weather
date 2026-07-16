@@ -59,7 +59,6 @@ import { buildFeaturePopupHtml, type PopupExtras } from './encPopup';
 export { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
 import {
     DEFAULT_SAFETY_DEPTH_M,
-    ENC_HAZARD_MAGENTA,
     DEPARE_CHART_OPACITY,
     DEPCNT_LABEL_INK_DATUM,
     DEPCNT_LABEL_INK_LIVE,
@@ -552,29 +551,30 @@ function mountPointMarkLayers(
     beforeIdFor: (layerId: string) => string | undefined,
 ): void {
     // ── Hazard points (filtered by `_kind` from one merged source) ─
-    // OBSTRN, WRECKS, UWTROC are all magenta point hazards in IHO
-    // styling. We use circle-stroke + circle-color to differentiate.
+    // OBSTRN, WRECKS, UWTROC draw as INT1 K-section glyphs (burn-down:
+    // they were generic circles — a mariner reads +/*/hull symbols off a
+    // paper chart, and a dangerous wreck must not look like a swept one).
+    // Layer ids keep their legacy '-circle' suffix — they're load-bearing
+    // (click handlers, hide lists), same precedent as the lateral marks.
     // Hazards lacking SCAMIN/_minZoom are NEVER zoom-hidden (the
     // `scaminAware` no-_minZoom arm) — they're the things the router
     // routes around.
-    const POINT_BASE_COLOR = ENC_HAZARD_MAGENTA;
+    const hazardIconSize = ['interpolate', ['linear'], ['zoom'], 7, 0.3, 11, 0.45, 15, 0.62] as unknown;
 
     if (!map.getLayer(ENC_VEC_LAYERS.OBSTRN)) {
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.OBSTRN,
-                type: 'circle',
+                type: 'symbol',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
                 filter: scaminAware(['==', ['get', '_kind'], 'OBSTRN']),
-                paint: {
-                    'circle-color': POINT_BASE_COLOR,
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2, 11, 4, 15, 6],
-                    'circle-stroke-color': '#ffffff',
-                    'circle-stroke-width': 1.2,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
+                layout: {
+                    'icon-image': 'sm-hazard-obstruction',
+                    'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
+                    'icon-allow-overlap': true, // a danger symbol never yields to declutter
                 },
+                paint: { 'icon-opacity': opacity },
             },
             beforeIdFor(ENC_VEC_LAYERS.OBSTRN),
         );
@@ -583,18 +583,25 @@ function mountPointMarkLayers(
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.WRECKS,
-                type: 'circle',
+                type: 'symbol',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
                 filter: scaminAware(['==', ['get', '_kind'], 'WRECKS']),
-                paint: {
-                    'circle-color': POINT_BASE_COLOR,
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 3, 11, 5, 15, 7],
-                    'circle-stroke-color': '#ffd1ec',
-                    'circle-stroke-width': 2,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
+                layout: {
+                    // CATWRK 1 = non-dangerous → outline hull; everything
+                    // else INCLUDING unknown → filled dangerous hull (safety
+                    // bias: an uncategorised wreck reads dangerous).
+                    'icon-image': [
+                        'match',
+                        ['to-string', ['coalesce', ['get', 'CATWRK'], ['get', 'catwrk'], '']],
+                        '1',
+                        'sm-hazard-wreck',
+                        'sm-hazard-wreck-dangerous',
+                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
+                    'icon-allow-overlap': true,
                 },
+                paint: { 'icon-opacity': opacity },
             },
             beforeIdFor(ENC_VEC_LAYERS.WRECKS),
         );
@@ -603,18 +610,26 @@ function mountPointMarkLayers(
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.UWTROC,
-                type: 'circle',
+                type: 'symbol',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
                 filter: scaminAware(['==', ['get', '_kind'], 'UWTROC']),
-                paint: {
-                    'circle-color': '#ffffff',
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 1.5, 11, 3, 15, 5],
-                    'circle-stroke-color': POINT_BASE_COLOR,
-                    'circle-stroke-width': 1.5,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
+                layout: {
+                    // WATLEV 4 (covers+uncovers) / 5 (awash) → INT1 asterisk;
+                    // submerged/unknown → the + cross.
+                    'icon-image': [
+                        'match',
+                        ['to-string', ['coalesce', ['get', 'WATLEV'], ['get', 'watlev'], '']],
+                        '4',
+                        'sm-hazard-rock-awash',
+                        '5',
+                        'sm-hazard-rock-awash',
+                        'sm-hazard-rock',
+                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
+                    'icon-allow-overlap': true,
                 },
+                paint: { 'icon-opacity': opacity },
             },
             beforeIdFor(ENC_VEC_LAYERS.UWTROC),
         );

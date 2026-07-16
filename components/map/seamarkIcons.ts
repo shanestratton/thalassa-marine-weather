@@ -211,6 +211,47 @@ export interface SeamarkIconDef {
 }
 
 /** All icon definitions, keyed by seamark:type value */
+// ── INT1 hazard glyphs (K-section) ──────────────────────────────────────────
+// Wreck / rock / obstruction drawn as the paper-chart symbols a mariner
+// already reads, magenta like all IHO danger symbology, on a soft white disc
+// so they hold up on chart white AND satellite imagery (burn-down: hazard
+// points rendered as generic circles with no CATWRK/WATLEV differentiation).
+
+function hazardDiscSvg(inner: string): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+        <circle cx="24" cy="24" r="16" fill="#ffffff" fill-opacity="0.75"/>
+        ${inner}
+    </svg>`;
+}
+
+/** INT1 K13 — submerged rock: the + cross. */
+function rockSubmergedSvg(): string {
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="3.5" stroke-linecap="round">
+        <line x1="24" y1="12" x2="24" y2="36"/><line x1="12" y1="24" x2="36" y2="24"/></g>`);
+}
+
+/** INT1 K12 — rock awash / covers-and-uncovers: the * asterisk. */
+function rockAwashSvg(): string {
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="3" stroke-linecap="round">
+        <line x1="24" y1="11" x2="24" y2="37"/><line x1="11" y1="24" x2="37" y2="24"/>
+        <line x1="15" y1="15" x2="33" y2="33"/><line x1="33" y1="15" x2="15" y2="33"/></g>`);
+}
+
+/** INT1 K28/K29-style wreck: hull + masts. Dangerous = FILLED hull;
+ *  non-dangerous (CATWRK 1) = outline only. */
+function wreckSvg(dangerous: boolean): string {
+    const fill = dangerous ? COLOURS.magenta : 'none';
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="2.5" fill="${fill}" stroke-linecap="round">
+        <path d="M12 28 Q24 36 36 28 L33 24 L15 24 Z"/>
+        <line x1="18" y1="24" x2="18" y2="15"/><line x1="24" y1="24" x2="24" y2="12"/><line x1="30" y1="24" x2="30" y2="15"/></g>`);
+}
+
+/** Obstruction / foul ground: dashed circle + centre dot. */
+function obstructionSvg(): string {
+    return hazardDiscSvg(`<circle cx="24" cy="24" r="11" fill="none" stroke="${COLOURS.magenta}" stroke-width="2.5" stroke-dasharray="4 3"/>
+        <circle cx="24" cy="24" r="2.5" fill="${COLOURS.magenta}"/>`);
+}
+
 export function getSeamarkIconDefs(): SeamarkIconDef[] {
     return [
         // Lateral buoys (Region A — IALA A)
@@ -234,6 +275,13 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-safe-water', svg: safeWaterSvg(), size: 48 },
         { id: 'sm-isolated-danger', svg: isolatedDangerSvg(), size: 48 },
         { id: 'sm-special', svg: specialMarkSvg(), size: 48 },
+
+        // INT1 hazard glyphs (K-section) — see hazardDiscSvg block above.
+        { id: 'sm-hazard-rock', svg: rockSubmergedSvg(), size: 48 },
+        { id: 'sm-hazard-rock-awash', svg: rockAwashSvg(), size: 48 },
+        { id: 'sm-hazard-wreck-dangerous', svg: wreckSvg(true), size: 48 },
+        { id: 'sm-hazard-wreck', svg: wreckSvg(false), size: 48 },
+        { id: 'sm-hazard-obstruction', svg: obstructionSvg(), size: 48 },
 
         // Lights
         { id: 'sm-light-major', svg: lightSvg(COLOURS.yellow, true), size: 48 },
