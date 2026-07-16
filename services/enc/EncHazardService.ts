@@ -640,6 +640,12 @@ let geoWorkerBroken = false;
 let geoJobSeq = 0;
 const pendingGeometryJobs = new Map<number, PendingGeometryJob>();
 const geometryUpgradeListeners = new Set<() => void>();
+/** Round-2 payload prefilter's parked features: per glazeKey, the cell's
+ *  base features whose bbox touches NO fine coverage — they skip the
+ *  worker round-trip entirely and reassemble with its answer (the
+ *  worker only ever sees the touched subset). References only; cleared
+ *  on answer, job error, and worker death. */
+const glazeAssemblyBase = new Map<string, Feature[]>();
 
 /** Notify when a background geometry upgrade landed in the cached merge —
  *  the render hook re-pushes just the affected sources. */
@@ -690,6 +696,7 @@ function getGeoWorker(): Worker | null {
         geoWorkerBroken = true;
         geoWorker = null;
         pendingGeometryJobs.clear();
+        glazeAssemblyBase.clear();
         log.warn('geometry worker died — staying on fast glaze/contours this session');
     };
     geoWorker.onmessage = (
@@ -705,7 +712,12 @@ function getGeoWorker(): Worker | null {
         const { jobId, type, glazeKey, features, message } = ev.data;
         const job = pendingGeometryJobs.get(jobId);
         if (type === 'glaze-cell' && glazeKey && features) {
-            putGlazeCell(glazeKey, { upgraded: true, feats: features });
+            // Reassemble: the worker clipped only the TOUCHED subset; the
+            // untouched majority parked main-thread side. Band order within
+            // a cell is immaterial (bands are disjoint).
+            const untouched = glazeAssemblyBase.get(glazeKey) ?? [];
+            glazeAssemblyBase.delete(glazeKey);
+            putGlazeCell(glazeKey, { upgraded: true, feats: [...untouched, ...features] });
             return;
         }
         if (type === 'contours' && features && job) {
@@ -736,6 +748,7 @@ function getGeoWorker(): Worker | null {
         }
         if (type === 'error') {
             pendingGeometryJobs.delete(jobId);
+            for (const key of job?.glazeKeys ?? []) glazeAssemblyBase.delete(key);
             log.warn(`geometry worker job failed (fast version stays): ${message ?? 'unknown'}`);
         }
     };
@@ -981,14 +994,30 @@ export function shallowClipCoverage(collections: Array<FeatureCollection | undef
  *  (lesson_web_gpu_oom_tilecache).
  *
  *  DEVICE SESSION ROUND 1 (2026-07-17): crashed to the glass page ~10 s
- *  in, right after a 10-cell wide merge dispatched. The one job that
- *  answered reported exact=0 strip-capped=0 maxPairVerts=0 in 13 ms —
- *  ZERO pairs reached the clipper, so martinez wasn't the killer this
- *  time. Prime suspects: the structured-clone payload spike (a wide
- *  window's full band features + coverages + strips, cloned twice) and
- *  the zero-pair mystery itself (why did no feature bbox intersect any
- *  coverage bbox?). OFF again until both are answered with a local repro
- *  on real cells.
+ *  in, right after a 10-cell wide merge dispatched. Local repro on the
+ *  REAL Newport-window cells (pi-cache) explained it:
+ *   - the zero-pair stats job was benign (Newport's cell queued 4 tiny
+ *     fine shadows its bands never touch — 1.3 MB payload, zero work);
+ *   - one wide merge cloned 14.5 MB of payload (× 2 for the clone), and
+ *     ~660 real martinez pairs ran with NO aggregate bound — clone spike
+ *     plus stacked martinez transients = jetsam.
+ *  (A repro artefact nearly misled the diagnosis: under node, martinez
+ *  resolves to its broken CJS build and EVERY diff throws "Y is not a
+ *  constructor" — the exact interop trap the 2026-07-13 post-mortem
+ *  warned benchmarks about. The device's vite bundle runs the ESM build:
+ *  ~4 ms per bounded real pair.)
+ *
+ *  ROUND 2 (same day) — ON again with four bounds: queue-side feature
+ *  prefilter (only coverage-touching features ride to the worker; the
+ *  untouched majority parks in glazeAssemblyBase), a per-job shared
+ *  coverage library (the same fine cell's polygons used to clone once
+ *  PER coarse cell), per-job aggregate vertex budget
+ *  (GLAZE_JOB_VERTEX_BUDGET) on top of the per-pair cap, and the worker
+ *  breathing one macrotask between cells so GC reclaims between spikes.
+ *  The clip is also two-phase now (martinez before any rect degrade —
+ *  subtraction commutes) so boolean ops never see S–H piece output.
+ *  If round 2 still crashes: flip OFF; next suspect is the RESULT clone
+ *  (clipped MultiPolygons back to main).
  *
  *  CONTOURS (Delaunay + isoline march) were NEVER the crash — they were a
  *  main-thread HANG (2026-07-12), which is exactly what a worker cures.
@@ -996,7 +1025,7 @@ export function shallowClipCoverage(collections: Array<FeatureCollection | undef
  *  (DERIVED_CONTOUR_MAX_SOUNDINGS = 30 k), so the worker's peak allocation
  *  is bounded. Contours ride the same worker; their dispatch never queues
  *  a glaze cell. */
-const GLAZE_WORKER_ENABLED = false;
+const GLAZE_WORKER_ENABLED = true;
 const DERIVED_CONTOUR_WORKER_ENABLED = true;
 
 /** "Is the user mid-gesture?" probe, registered by the map hook (it
@@ -1134,14 +1163,15 @@ export function buildContourPayload(soundings: Feature[]): { lon: number; lat: n
     return out;
 }
 
-/** One glaze true-coverage upgrade queued for the worker. Coverages carry
- *  their strip rects so an over-cap martinez pair can degrade to the same
- *  bounded strip clip the instant grade used (see FineCoverage). */
+/** One glaze true-coverage upgrade queued for the worker. `coverageIds`
+ *  index into the job's shared coverage library (one FineCoverage per
+ *  fine cell per JOB, not per coarse cell — the same fine cell shadows
+ *  several coarse cells, and per-cell copies dominated the clone). */
 type GlazeUpgradeItem = {
     cellId: string;
     glazeKey: string;
     features: Feature[];
-    coverages: FineCoverage[];
+    coverageIds: string[];
 };
 
 /**
@@ -1195,6 +1225,7 @@ function dispatchGeometryWork(
     densify: boolean,
     glazeUpgradeQueue: GlazeUpgradeItem[],
     mergeGlazeKeys: string[],
+    glazeCoverageLib?: ReadonlyMap<string, FineCoverage>,
 ): void {
     let wantContours =
         DERIVED_CONTOUR_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
@@ -1219,8 +1250,21 @@ function dispatchGeometryWork(
         glazeKeys: glazeUpgradeQueue.length > 0 ? mergeGlazeKeys : [],
     });
     const contourPoints = wantContours ? buildContourPayload(merged.SOUNDG.features) : undefined;
+    // Ship only the library entries the queued cells actually reference.
+    let coverageLib: Record<string, FineCoverage> | undefined;
+    if (glazeUpgradeQueue.length > 0 && glazeCoverageLib) {
+        coverageLib = {};
+        for (const item of glazeUpgradeQueue) {
+            for (const id of item.coverageIds) {
+                if (!coverageLib[id]) {
+                    const c = glazeCoverageLib.get(id);
+                    if (c) coverageLib[id] = c;
+                }
+            }
+        }
+    }
     try {
-        worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, contourPoints });
+        worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, coverageLib, contourPoints });
     } catch (err) {
         pendingGeometryJobs.delete(jobId);
         log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -1368,6 +1412,9 @@ async function buildMergedVectorData(
 
     // Per-merge bookkeeping for the worker's true-coverage glaze upgrade.
     const glazeUpgradeQueue: GlazeUpgradeItem[] = [];
+    // The job's shared coverage library (cellId → FineCoverage) the queue
+    // items reference by id — cloned to the worker ONCE per job.
+    const glazeCoverageLib = new Map<string, FineCoverage>();
     const mergeGlazeKeys: string[] = [];
 
     for (const cell of cellsCoarseToFine) {
@@ -1634,42 +1681,71 @@ async function buildMergedVectorData(
                 needQueue = glazeShadows.length > 0;
             }
             if (needQueue && GLAZE_WORKER_ENABLED) {
-                // Payload for the worker's true-coverage upgrade: the
-                // decorated base features + the shadowing cells' actual
-                // charted polygons (coordinate arrays shared with the
-                // cached blobs — structured-clone copies them off-thread).
-                // Gated on the flag so a disabled worker costs ZERO — no
-                // payload copies built just to be thrown away.
-                const fineCoverages = glazeShadows
-                    .map((s): FineCoverage | null => {
-                        const cov = coverageFor(s.id);
-                        // Empty = nothing shallow = nothing to subtract.
-                        // Strip rects ride along as the worker's bounded
-                        // fallback for over-cap martinez pairs — the memo
-                        // already computed them for the instant grade.
-                        return cov && cov.length > 0
-                            ? { bbox: s.bbox, coverage: cov, stripRects: stripRectsFor(s.id, s.bbox) }
-                            : null;
-                    })
-                    .filter((c): c is FineCoverage => c !== null);
-                if (fineCoverages.length > 0) {
+                // Payload for the worker's true-coverage upgrade. Coverages
+                // dedupe into a per-JOB library (repro: the same fine cell
+                // shadows several coarse cells, so per-cell copies made the
+                // coverage arrays the bulk of a 14.5 MB clone); cells carry
+                // ids into it. Gated on the flag so a disabled worker costs
+                // ZERO — no payload copies built just to be thrown away.
+                const coverageIds: string[] = [];
+                for (const s of glazeShadows) {
+                    const cov = coverageFor(s.id);
+                    // Empty = nothing shallow = nothing to subtract. Strip
+                    // rects ride along as the worker's bounded fallback for
+                    // over-cap martinez pairs — the memo already computed
+                    // them for the instant grade.
+                    if (!cov || cov.length === 0) continue;
+                    if (!glazeCoverageLib.has(s.id)) {
+                        glazeCoverageLib.set(s.id, {
+                            bbox: s.bbox,
+                            coverage: cov,
+                            stripRects: stripRectsFor(s.id, s.bbox),
+                        });
+                    }
+                    coverageIds.push(s.id);
+                }
+                if (coverageIds.length > 0) {
                     const glazeRank = cellScaleRank(cell.bbox);
-                    const baseFeats: Feature[] = [];
+                    const covBoxes = coverageIds.map((id) => glazeCoverageLib.get(id)!.bbox);
+                    // PRE-FILTER (round 2): only features whose bbox touches
+                    // a coverage extent ride to the worker — repro on real
+                    // cells put the untouched majority at 80-100% of the
+                    // payload (Newport's cell queued a pointless 1.3 MB with
+                    // ZERO intersecting features). Untouched features park
+                    // here and reassemble with the worker's answer in the
+                    // glaze-cell handler.
+                    const touchedFeats: Feature[] = [];
+                    const untouchedFeats: Feature[] = [];
                     for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
                         for (const feat of fc?.features ?? []) {
                             if (!feat || !feat.geometry) continue;
-                            baseFeats.push({
+                            const decorated = {
                                 ...feat,
                                 properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
-                            });
+                            };
+                            const fbb = featureBboxCached(feat);
+                            const touches =
+                                fbb != null &&
+                                covBoxes.some(
+                                    (b) => !(fbb[2] <= b[0] || fbb[0] >= b[2] || fbb[3] <= b[1] || fbb[1] >= b[3]),
+                                );
+                            (touches ? touchedFeats : untouchedFeats).push(decorated);
                         }
                     }
-                    glazeUpgradeQueue.push({
-                        cellId: cell.id,
-                        glazeKey,
-                        features: baseFeats,
-                        coverages: fineCoverages,
-                    });
+                    if (touchedFeats.length > 0) {
+                        glazeAssemblyBase.set(glazeKey, untouchedFeats);
+                        glazeUpgradeQueue.push({
+                            cellId: cell.id,
+                            glazeKey,
+                            features: touchedFeats,
+                            coverageIds,
+                        });
+                    } else {
+                        // Nothing this cell charts touches any fine coverage —
+                        // the instant grade IS the true-coverage result.
+                        const entry = getGlazeCell(glazeKey);
+                        if (entry) entry.upgraded = true;
+                    }
                 } else {
                     // No real coverage to subtract — the rectangle grade IS final.
                     const entry = getGlazeCell(glazeKey);
@@ -1770,7 +1846,7 @@ async function buildMergedVectorData(
     // worker; answers swap into this cached merge via the geometry-upgrade
     // hook. CONTOURS (Delaunay, bounded) dispatch when enabled + under cap;
     // GLAZE only rides along when GLAZE_WORKER_ENABLED queued cells above.
-    dispatchGeometryWork(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys);
+    dispatchGeometryWork(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys, glazeCoverageLib);
 
     if (missingBlobs.length > 0) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);

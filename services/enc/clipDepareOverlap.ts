@@ -514,11 +514,23 @@ function coordsBbox(polys: CoverageGeom): Bbox {
  * bands cover only what nobody charted.
  *
  * BOUNDED (2026-07-17, the re-enable precondition): martinez never sees a
- * subject+clip pair over `maxPairVertices` — such a pair degrades to that
- * fine's strip-rect clip (or its data-extent rect when strips are absent),
- * which is Sutherland–Hodgman and bounded by construction. The subject's
- * vertex count is re-measured after every clip, so growth from earlier
- * pairs feeds the next pair's gate.
+ * subject+clip pair over `maxPairVertices`, and a shared `budget` (scoped
+ * to one worker JOB) caps the AGGREGATE martinez work — both degrade
+ * over-limit pairs to that fine's strip-rect clip (or its data-extent
+ * rect when strips are absent), Sutherland–Hodgman, bounded by
+ * construction.
+ *
+ * TWO-PHASE (round 2): every martinez pair runs FIRST on clean geometry;
+ * every degraded pair's rects apply in ONE combined S–H pass at the END.
+ * Set subtraction commutes, so the result is identical — but martinez
+ * never sees strip-clip output (S–H emits edge-adjacent pieces, the
+ * shape boolean-ops libraries are most fragile on). NOTE the honest
+ * history: round 1's interleaving was first blamed for a repro's
+ * exact=0/rect-fallback cascade, but that repro turned out to be running
+ * martinez's BROKEN CJS build under node ("Y is not a constructor" —
+ * the same interop trap the 2026-07-13 post-mortem documented); the
+ * device's vite bundle uses the working ESM build (~4 ms per real
+ * bounded pair). Two-phase stays as cheap insurance, verified by tests.
  *
  * Returns the original feature untouched when no coverage overlaps it,
  * null when swallowed whole, otherwise a NEW feature. Falls back to the
@@ -530,6 +542,7 @@ export function clipFeatureOutsideCoverage(
     fines: readonly FineCoverage[],
     maxPairVertices: number = GLAZE_MARTINEZ_VERTEX_CAP,
     stats?: CoverageClipStats,
+    budget?: { remaining: number },
 ): Feature | null {
     const g = feature.geometry;
     if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return feature;
@@ -545,33 +558,27 @@ export function clipFeatureOutsideCoverage(
                 ? { type: 'Polygon', coordinates: coords[0] }
                 : { type: 'MultiPolygon', coordinates: coords as MultiPolygon['coordinates'] },
     });
-    /** Apply a rect-list clip to the running coords. Returns false when
-     *  the rects swallow the subject whole (caller returns null). */
-    const clipCoordsToRects = (rects: readonly Bbox[]): boolean => {
-        const clipped = clipFeatureOutsideBboxes(coordsAsFeature(), rects);
-        if (!clipped) return false;
-        const rg = clipped.geometry as Polygon | MultiPolygon;
-        coords = rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
-        subjectVerts = coverageVertexCount(coords);
-        return true;
-    };
 
     let touched = false;
+    // Phase 2's combined rect list — over-cap strips, over-budget strips,
+    // and martinez-throw rect fallbacks all land here, applied in one
+    // S–H pass after every martinez pair has run on clean geometry.
+    const degradeRects: Bbox[] = [];
+
     for (const fine of fines) {
         if (!bboxesIntersect(fb, fine.bbox)) continue;
         const pairVerts = subjectVerts + coverageVertexCount(fine.coverage);
         if (stats && pairVerts > stats.maxPairVertices) stats.maxPairVertices = pairVerts;
-        if (pairVerts > maxPairVertices) {
-            // Over the martinez bound — degrade THIS pair to the bounded
-            // strip clip. `stripRects: []` is the three-state rule's
-            // "charted but nothing to clip": touch nothing (falling back
-            // to the extent rect here would re-create the whole-rectangle
-            // blackout the strips exist to prevent).
+        if (pairVerts > maxPairVertices || (budget != null && budget.remaining <= 0)) {
+            // Over the per-pair or per-job martinez bound — degrade THIS
+            // pair to the bounded strip clip. `stripRects: []` is the
+            // three-state rule's "charted but nothing to clip": touch
+            // nothing (falling back to the extent rect here would
+            // re-create the whole-rectangle blackout the strips exist to
+            // prevent).
             if (stats) stats.pairsStripped++;
             const rects = fine.stripRects ?? [fine.bbox];
-            if (rects.length === 0) continue;
-            touched = true;
-            if (!clipCoordsToRects(rects)) return null;
+            if (rects.length > 0) degradeRects.push(...rects);
             continue;
         }
         try {
@@ -581,13 +588,26 @@ export function clipFeatureOutsideCoverage(
             ) as unknown as CoverageGeom | null;
             touched = true;
             if (stats) stats.pairsExact++;
+            if (budget) budget.remaining -= pairVerts;
             if (!out || out.length === 0) return null;
             coords = out;
             subjectVerts = coverageVertexCount(coords);
         } catch {
             if (stats) stats.pairsRectFallback++;
+            degradeRects.push(fine.bbox);
+        }
+    }
+    if (degradeRects.length > 0) {
+        const before = coordsAsFeature();
+        const clipped = clipFeatureOutsideBboxes(before, degradeRects);
+        if (!clipped) return null;
+        // Identity return = none of the rects touched the subject: only
+        // then does the degrade pass leave `touched` alone.
+        if (clipped !== before) {
             touched = true;
-            if (!clipCoordsToRects([fine.bbox])) return null;
+            const rg = clipped.geometry as Polygon | MultiPolygon;
+            coords =
+                rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
         }
     }
     if (!touched) return feature;
