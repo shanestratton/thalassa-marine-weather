@@ -30,19 +30,20 @@ route. Fix the silent failures first.
       / 15 s deferred / ECMWF braid); un-cancelled validator overwrites the
       live report via `setLastReport` for a DISCARDED polyline. Fix:
       genRef/cancellation guard on the report write (mirror `computeGenRef`) + "route NOT validated" advisory when the timeout wins.
-- [ ] **0.5 — Short-route (<100 NM) ETAs pinned to departure time** — every
-      Moreton Bay passage credits departure-tide height to crossings reached
-      hours later. Fix: seed arrival-node `timeHours = distanceNM/cruisingKt`
-      (usePassagePlanner ~1314-1324). CHIEF'S FIX-FIRST.
+- [x] **0.5 — Short-route (<100 NM) ETAs pinned to departure time** — DONE:
+      all three zero-ETA sites (seed pair, minimal route points, ECMWF braid
+      nodes) now carry honest cumulative ETAs via the new pure
+      `cumulativeLegs` (geodesy.ts) — the tide-curve window sized from the
+      last node un-collapses too. CHIEF'S FIX-FIRST.
 - [ ] **0.75 — Tide-gated legs validate silently clean** — flag hazards
       cleared ONLY by positive tide credit; surface a "tide-constrained leg"
       advisory with the window.
 - [ ] **0.5 — GEBCO MSL-vs-LAT datum offset uncompensated** — subtract a
       conservative regional MSL→LAT delta (~1.0-1.3 m in Moreton Bay) before
       threshold comparison on GEBCO fallback points.
-- [ ] **0.25 — Degenerate short-route ETAs (red-team add)** — covered by the
-      fix-first item above; verify with a test that crossings carry
-      monotonic ETAs.
+- [x] **0.25 — Degenerate short-route ETAs (red-team add)** — DONE with the
+      above: `cumulativeLegs` tests lock monotonic ETAs, the 4-hour-leg
+      scenario, NaN/zero-speed floors, and empty/single-point safety.
 
 ### Rendering (3.25)
 
@@ -92,5 +93,6 @@ workflow `wf_d5a64621-927` journal.
 
 ## Ledger
 
-| Date | Item | Pts | Commit | Running (vs 83.75) |
-| ---- | ---- | --- | ------ | ------------------ |
+| Date       | Item                                                         | Pts  | Commit      | Running (vs 83.75) |
+| ---------- | ------------------------------------------------------------ | ---- | ----------- | ------------------ |
+| 2026-07-17 | Short-route ETAs un-pinned (cumulativeLegs, 3 sites + tests) | 0.75 | see git log | 84.5               |

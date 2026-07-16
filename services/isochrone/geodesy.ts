@@ -16,6 +16,30 @@ export function haversineNm(lat1: number, lon1: number, lat2: number, lon2: numb
     return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * Cumulative along-track state for a polyline sailed at a constant cruise
+ * speed: per point, the distance-so-far (NM) and the honest ETA offset
+ * (hours from departure). Built for the 2026-07-17 audit's fix-first: the
+ * short-route/braid validators seeded every node with timeHours 0, so the
+ * tide-aware depth checks credited DEPARTURE-hour water to crossings the
+ * boat reaches hours later. Monotonic by construction; point 0 is always
+ * {nm: 0, hours: 0}. Speed floors at 0.5 kt so a degenerate input can
+ * never produce Infinity.
+ */
+export function cumulativeLegs(
+    points: ReadonlyArray<{ lat: number; lon: number }>,
+    cruisingKt: number,
+): Array<{ nm: number; hours: number }> {
+    // Not Math.max: Math.max(0.5, NaN) is NaN — the comparison form floors
+    // NaN/negative/zero speeds to 0.5 kt so hours can never go non-finite.
+    const kt = cruisingKt > 0.5 ? cruisingKt : 0.5;
+    let nm = 0;
+    return points.map((p, i) => {
+        if (i > 0) nm += haversineNm(points[i - 1].lat, points[i - 1].lon, p.lat, p.lon);
+        return { nm, hours: nm / kt };
+    });
+}
+
 export function initialBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLon = toRad(lon2 - lon1);
     const y = Math.sin(dLon) * Math.cos(toRad(lat2));
