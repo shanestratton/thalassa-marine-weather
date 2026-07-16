@@ -115,6 +115,31 @@ function colourNames(colour: unknown): string {
         .join(' · ');
 }
 
+/** S-57 NATSUR (nature of surface) codes → names — the anchoring read
+ *  ("Sand / Mud" holds, "Rock" doesn't). Shared by the caution-area popup
+ *  and the DEPARE popup's seabed enrichment (extras.seabed). */
+const NATSUR_LABELS: Record<string, string> = {
+    '1': 'Mud',
+    '2': 'Clay',
+    '3': 'Silt',
+    '4': 'Sand',
+    '5': 'Stone',
+    '6': 'Gravel',
+    '7': 'Pebbles',
+    '8': 'Cobbles',
+    '9': 'Rock',
+    '11': 'Coral',
+    '14': 'Shells',
+};
+
+function natsurNames(natsur: unknown): string {
+    return String(natsur ?? '')
+        .split(',')
+        .map((n) => NATSUR_LABELS[n.trim()])
+        .filter(Boolean)
+        .join(' / ');
+}
+
 /** The light attribute rows (character / period / height / range /
  *  colour) — shared between the standalone Light popup and the
  *  "Light" section folded into a lit mark's popup. The mark's name
@@ -169,6 +194,11 @@ export interface PopupExtras {
      *  info entirely (Shane 2026-07-15: "all markers that have lights
      *  are just showing the light information"). */
     light?: Record<string, unknown>;
+    /** Props of an SBDARE (seabed nature) polygon under a DEPARE tap —
+     *  folded into the depth popup as a "Seabed" row. The SBDARE wash is
+     *  non-clickable by design (it stole the depth popup — audit); this is
+     *  how its NATSUR anchoring read reaches the user. */
+    seabed?: Record<string, unknown>;
 }
 
 const fmtHm = (ms: number): string =>
@@ -250,6 +280,12 @@ export function buildFeaturePopupHtml(
             }
         } else {
             body += `<div class="enc-popup-row"><span>Type</span><b>Charted depth area</b></div>`;
+        }
+        // Seabed nature under the tap (co-located SBDARE) — the anchoring
+        // read, in the popup a punter actually opens ("Seabed: Sand / Mud").
+        if (extras.seabed) {
+            const sb = natsurNames(extras.seabed.NATSUR ?? extras.seabed.natsur);
+            if (sb) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(sb)}</b></div>`;
         }
     } else if (layerId === ENC_VEC_LAYERS.LNDARE) {
         title = 'Land';
@@ -464,7 +500,18 @@ export function buildFeaturePopupHtml(
         };
         const cls = String(props._caution ?? '');
         title = CAUTION_LABELS[cls] ?? 'Charted area';
-        accent = cls === 'SBDARE' ? '#8a8a5a' : '#d43fc0';
+        // Accent matches the per-class render colours (restricted magenta,
+        // cable/pipeline violet, TSS amber, seabed olive).
+        accent =
+            cls === 'SBDARE'
+                ? '#8a8a5a'
+                : cls === 'CBLARE'
+                  ? '#8b5cf6'
+                  : cls === 'PIPARE'
+                    ? '#7c3aed'
+                    : cls === 'TSSLPT'
+                      ? '#f59e0b'
+                      : '#d43fc0';
         // RESTRN (restriction) — the values a skipper meets most.
         const RESTRN_LABELS: Record<string, string> = {
             '1': 'Anchoring prohibited',
@@ -487,24 +534,7 @@ export function buildFeaturePopupHtml(
         else if (cls === 'CBLARE' || cls === 'PIPARE')
             body += `<div class="enc-popup-row"><span>Note</span><b>No anchoring</b></div>`;
         // NATSUR (nature of surface) for seabed areas — the anchoring read.
-        const NATSUR_LABELS: Record<string, string> = {
-            '1': 'Mud',
-            '2': 'Clay',
-            '3': 'Silt',
-            '4': 'Sand',
-            '5': 'Stone',
-            '6': 'Gravel',
-            '7': 'Pebbles',
-            '8': 'Cobbles',
-            '9': 'Rock',
-            '11': 'Coral',
-            '14': 'Shells',
-        };
-        const natsur = String(props.NATSUR ?? props.natsur ?? '')
-            .split(',')
-            .map((n) => NATSUR_LABELS[n.trim()])
-            .filter(Boolean)
-            .join(' / ');
+        const natsur = natsurNames(props.NATSUR ?? props.natsur);
         if (natsur) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(natsur)}</b></div>`;
         const informRaw = props.INFORM ?? props.inform ?? props.NINFOM ?? props.ninfom;
         const inform = typeof informRaw === 'string' ? informRaw.trim() : '';

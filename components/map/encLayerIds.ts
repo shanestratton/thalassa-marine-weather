@@ -56,12 +56,17 @@ export const ENC_VEC_LAYERS = {
     DEPCNT_SAFETY: 'enc-vec-depcnt-safety',
     DEPCNT_LABEL: 'enc-vec-depcnt-label',
     COALNE: 'enc-vec-coalne-line',
-    /** Caution / info AREAS (RESARE/CBLARE/PIPARE/SBDARE/TSSLPT). A faint
-     *  data-driven wash + a magenta dashed outline — S-52 draws restricted /
-     *  cable / pipeline zones in magenta. Fill is tappable (read the
-     *  restriction); the outline is decoration. */
+    /** Caution / info AREAS (RESARE/CBLARE/PIPARE/TSSLPT). A faint
+     *  per-class wash + dashed outline (restricted magenta, cable/pipeline
+     *  violet, TSS amber). Fill is tappable (read the restriction); the
+     *  outline is decoration. SBDARE is deliberately NOT here — see below. */
     CAUTION_AREA_FILL: 'enc-vec-caution-fill',
     CAUTION_AREA_LINE: 'enc-vec-caution-line',
+    /** Seabed nature (SBDARE) — a SUBTLE olive wash at anchoring zoom (z13+),
+     *  NON-clickable: as a whole-seabed blanket it stole the DEPARE depth
+     *  popup and cluttered z11 (audit). The click handler queries this layer
+     *  at a DEPARE tap and folds "Seabed: Sand" into the depth popup. */
+    SBDARE_FILL: 'enc-vec-sbdare-fill',
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
     UWTROC: 'enc-vec-uwtroc-circle',
@@ -115,6 +120,8 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPARE_FINE, // fine-survey water beats coarse land bleed
     // Caution AREAS over the water fills but UNDER contours/soundings/marks,
     // so numbers + navaids always read on top of a restricted/cable wash.
+    // SBDARE's subtle fill sits lowest of the three (pure background info).
+    ENC_VEC_LAYERS.SBDARE_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_LINE,
     // Sounding-derived contours sit UNDER the official DEPCNT trio so a
@@ -200,6 +207,8 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.VHF_BADGE &&
         id !== ENC_VEC_LAYERS.VHF_BADGE_VTS &&
         // The caution-area FILL is tappable (read "restricted — no anchoring");
-        // its outline is just decoration and stays non-tappable.
-        id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE,
+        // its outline is decoration, and the SBDARE seabed wash must NEVER
+        // steal the DEPARE depth popup (its info folds into that popup instead).
+        id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE &&
+        id !== ENC_VEC_LAYERS.SBDARE_FILL,
 );
