@@ -581,6 +581,20 @@ export function buildRouteAdvisories(
                 `invisible to it.${failedNote}`,
         });
     }
+    // Tide-constrained clearances (audit #4): points that pass the draft
+    // check ONLY because of the predicted tide credit. At chart datum
+    // that water is too shallow — a leg passable at HW only must not
+    // read the same as unconditionally clear water.
+    const tideGated = results.filter((r) => r.tideConstrained).length;
+    if (tideGated > 0) {
+        advisories.push({
+            severity: 'caution',
+            text:
+                `${tideGated} depth check(s) clear ONLY with the predicted tide — at chart ` +
+                `datum that water is too shallow for your draft. This leg is tide-constrained: ` +
+                `sail it on schedule, and re-plan if your departure or speed slips.`,
+        });
+    }
     let worstCatzoc: number | null = null;
     for (const r of results) {
         if (typeof r.catzoc !== 'number') continue;

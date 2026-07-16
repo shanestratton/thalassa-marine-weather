@@ -80,6 +80,14 @@ export interface HazardResult {
      * for GEBCO results.
      */
     catzoc?: EncCatzoc | null;
+    /**
+     * True when this point clears the draft threshold ONLY because of
+     * positive tide credit — at chart datum the water is too shallow
+     * (2026-07-17 audit #4: such legs validated silently clean, making
+     * a passable-at-HW-only bank indistinguishable from unconditionally
+     * clear water). Feeds the "tide-constrained leg" route advisory.
+     */
+    tideConstrained?: boolean;
 }
 
 // ── Hazard threshold ──────────────────────────────────────────────
@@ -165,12 +173,20 @@ export function encToHazardResult(
     const chartDepth = enc.minDepthM == null ? null : -enc.minDepthM;
     const effectiveDepth = applyTide(chartDepth, tideOffsetM);
     let isHazard = enc.hazard;
+    let tideConstrained = false;
 
     // Re-evaluate `shallow` hazards against the caller's draft +
     // tide. Solid hazards (land/rock/wreck/obstruction with no
     // depth) stay hazards regardless of tide.
     if (enc.hazard && enc.hazardType === 'shallow' && effectiveDepth !== null) {
         isHazard = effectiveDepth > hazardThresholdM;
+        // Cleared ONLY by the tide credit? At chart datum this water is
+        // too shallow — the clearance is conditional on arriving with
+        // the predicted water, and the skipper must hear that (audit #4:
+        // a passable-at-HW-only bank validated silently clean).
+        if (!isHazard && tideOffsetM > 0 && chartDepth !== null && chartDepth > hazardThresholdM) {
+            tideConstrained = true;
+        }
     }
 
     return {
@@ -182,6 +198,7 @@ export function encToHazardResult(
         cellId: enc.cellId,
         hazardType: enc.hazardType,
         catzoc: enc.catzoc ?? null,
+        ...(tideConstrained ? { tideConstrained: true } : {}),
     };
 }
 

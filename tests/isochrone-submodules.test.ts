@@ -361,6 +361,14 @@ describe('buildRouteAdvisories', () => {
         expect(buildRouteAdvisories([r({}), r({})], undefined, ['OC-61-10ENB5'])).toEqual([]);
     });
 
+    it('tide-constrained clearances surface as a CAUTION with the count (audit #4)', () => {
+        const out = buildRouteAdvisories([r({ tideConstrained: true }), r({ tideConstrained: true }), r({})]);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].text).toContain('2 depth check(s)');
+        expect(out[0].text).toContain('tide-constrained');
+    });
+
     it('flags low-confidence CATZOC (≥4) as a NOTE with the WORST value in view', () => {
         const out = buildRouteAdvisories([r({ catzoc: 2 }), r({ catzoc: 5 })]);
         expect(out).toHaveLength(1);

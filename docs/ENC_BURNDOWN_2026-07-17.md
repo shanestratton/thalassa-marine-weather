@@ -43,9 +43,12 @@ route. Fix the silent failures first.
       nodes) now carry honest cumulative ETAs via the new pure
       `cumulativeLegs` (geodesy.ts) — the tide-curve window sized from the
       last node un-collapses too. CHIEF'S FIX-FIRST.
-- [ ] **0.75 — Tide-gated legs validate silently clean** — flag hazards
-      cleared ONLY by positive tide credit; surface a "tide-constrained leg"
-      advisory with the window.
+- [x] **0.75 — Tide-gated legs validate silently clean** — DONE:
+      `encToHazardResult` flags `tideConstrained` when a shallow band clears
+      the draft check ONLY via positive tide credit (hazard at chart datum);
+      `buildRouteAdvisories` surfaces the count as a CAUTION ("sail it on
+      schedule, re-plan if you slip"). Per-crossing passable-time windows
+      remain a future enhancement — the silence is dead. 6 tests.
 - [ ] **0.5 — GEBCO MSL-vs-LAT datum offset uncompensated** — subtract a
       conservative regional MSL→LAT delta (~1.0-1.3 m in Moreton Bay) before
       threshold comparison on GEBCO fallback points.

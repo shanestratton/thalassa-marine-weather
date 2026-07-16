@@ -29,7 +29,7 @@ vi.mock('../services/GebcoDepthService', () => ({
     },
 }));
 
-import { queryHazards } from '../services/HazardQueryService';
+import { queryHazards, encToHazardResult } from '../services/HazardQueryService';
 
 const P = [{ lat: -27.4, lon: 153.1 }];
 
@@ -91,5 +91,48 @@ describe('queryHazards phase-1/2 partition', () => {
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -3.2 }]);
         const out = await queryHazards(P, { vesselDraftM: 2, tideOffsetM: 2 });
         expect(out[0]).toMatchObject({ isHazard: true, source: 'gebco', depth_m: -3.2 });
+    });
+});
+
+describe('encToHazardResult — tide-constrained clearances (audit #4)', () => {
+    const pt = { lat: -27.4, lon: 153.1 };
+    const shallowBand = (minDepthM: number): EncHazardResult => ({
+        hazard: true,
+        hazardType: 'shallow',
+        minDepthM,
+        covered: true,
+        cellId: 'OC-61-10ENB5',
+    });
+
+    it('a band cleared ONLY by tide credit is flagged tideConstrained', () => {
+        // 2 m at datum, 2.5 m threshold (draft ~2 m): hazard at datum,
+        // clears with +1.5 m of predicted tide.
+        const r = encToHazardResult(pt, shallowBand(2), -2.5, 1.5);
+        expect(r.isHazard).toBe(false);
+        expect(r.tideConstrained).toBe(true);
+    });
+
+    it('a band clear even at chart datum carries NO flag', () => {
+        const r = encToHazardResult(pt, shallowBand(6), -2.5, 1.5);
+        expect(r.isHazard).toBe(false);
+        expect(r.tideConstrained).toBeUndefined();
+    });
+
+    it('a band still hazardous WITH the tide stays a hazard, unflagged', () => {
+        const r = encToHazardResult(pt, shallowBand(0.5), -2.5, 1.0);
+        expect(r.isHazard).toBe(true);
+        expect(r.tideConstrained).toBeUndefined();
+    });
+
+    it('zero or negative tide never flags (no credit was given)', () => {
+        expect(encToHazardResult(pt, shallowBand(6), -2.5, 0).tideConstrained).toBeUndefined();
+        expect(encToHazardResult(pt, shallowBand(6), -2.5, -0.4).tideConstrained).toBeUndefined();
+    });
+
+    it('solid hazards (rock/wreck) are never tide-cleared or flagged', () => {
+        const rock: EncHazardResult = { hazard: true, hazardType: 'rock', minDepthM: null, covered: true, cellId: 'X' };
+        const r = encToHazardResult(pt, rock, -2.5, 3.0);
+        expect(r.isHazard).toBe(true);
+        expect(r.tideConstrained).toBeUndefined();
     });
 });
