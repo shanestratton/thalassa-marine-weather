@@ -19,7 +19,13 @@ route. Fix the silent failures first.
 
 ## The list (16.25 pts priced; #5's CQ+perf twin counted once as a fix)
 
-### Safety (4.0)
+### Safety (4.0) — one remaining + a bookkeeping correction
+
+- [ ] **0.25 — No advisory for quality-unknown ENC coverage** — M_QUAL-absent
+      cells (and GEBCO-verified inshore gaps) carry no survey-quality note.
+      NOTE: banks at NET ZERO — the ETA row below over-banked by 0.25 (the
+      "red-team add" was misattributed to ETAs before the transcript was
+      itemised; the real 0.25 is this item).
 
 - [x] **1.0 + 0.5 UX — Corrupt-cell → GEBCO degrade is silent** — DONE:
       `buildRouteAdvisories` now surfaces the GEBCO share every route
@@ -68,10 +74,26 @@ route. Fix the silent failures first.
       corrected to "Preferred channel to starboard/port", dead codes 5-8
       deleted, and preferred-channel marks now get their passing rule
       ("Leave to PORT — for the preferred channel").
-- [ ] **0.25 — ≥10 m sounding rounding (red-team add)** — verify display
-      rounding vs charted value at the 10 m boundary.
-- [ ] **2.25 — remaining confirmed rendering findings** — full detail in the
-      audit transcript (`wf_d5a64621-927`); itemise when picked up.
+- [ ] **0.25 — ≥10 m sounding rounding (red-team add)** — soundings ≥10 m
+      round to NEAREST metre (10.9 prints 11 — deeper than charted); floor
+      instead, shallow-biased.
+- [ ] **0.5 — TSEZNE visually identical to TSSLPT** — separation zone needs
+      its own read (stipple/darker wash) vs the lane.
+- [ ] **0.25 — CATLAM 3/4 banded icons** — preferred-channel laterals render
+      as plain port/stbd marks; banding lost (region-aware SVGs).
+- [ ] **0.25 — Isolated-danger topmark** — two spheres drawn side-by-side;
+      INT1 wants them VERTICAL.
+- [ ] **0.25 — Rock WATLEV / obstruction CATOBS glyph conflations** vs INT1
+      K-section.
+- [ ] **0.25 — Night scrim ≠ S-52 night palette** — honest v1 shipped;
+      full palette swap or defer-with-reason.
+- [ ] **0.25 — Drying soundings drop the INT1 underline** — khaki ink is
+      the only 'dries' channel; add underline (combining U+0332) or
+      equivalent.
+- [ ] **0.25 — Contour labels round non-integer VALDCO** — a wrong depth
+      number at chart datum; show the decimal.
+- [ ] **0.25 — TSS family gaps at the extractor** — TSELNE/TSSBND/PRCARE/
+      DWRTPT never reach the renderer (bundle with next Pi re-extract).
 
 ### Performance (2.25)
 
@@ -83,7 +105,13 @@ route. Fix the silent failures first.
 - [x] **0.5 — Duplicate-job race (twin of the CQ glazeKey finding)** —
       DONE with the CQ fix: an in-flight glaze key (owner-checked marker)
       is never re-dispatched by an overlapping merge.
-- [ ] **1.0 — remaining confirmed perf findings** — itemise from transcript.
+- [ ] **0.5 — Spatial-index LRU cap (24) below the ~30-cell route set** —
+      sequential-scan thrash rebuilds every index on long-route validation;
+      resize + comment.
+- [ ] **0.25 — Superseded merges never aborted** — fast panning stacks
+      concurrent full merges; cooperative abort at slice boundaries.
+- [ ] **0.25 — First mount uploads all 14 sources in one tick** — stagger
+      the initial setData like the refresh path.
 
 ### Code quality (4.0)
 
@@ -94,14 +122,39 @@ route. Fix the silent failures first.
       their own job's entries; worker death clears all. 5 protocol tests
       incl. the exact overlapping-job truncation scenario. (Counts the
       perf 0.5 twin.)
-- [ ] **3.0 — remaining confirmed CQ findings** — itemise from transcript.
+- [ ] **0.75 — Worker protocol: zero test coverage + hand-mirrored inline
+      message types** — shared wire-type module + handler tests (protocol
+      STATE tests landed with #5; the type unification remains).
+- [ ] **0.25 — postMessage-failure leak** — FIXED with #6 (symmetric
+      release); bank on next batch.
+- [ ] **0.75 — Residual god-module** — EncHazardService ~2000 lines w/
+      ~575-line merge closure; EncVectorLayer ~2300 lines. Carve next slabs.
+- [ ] **0.5 — Case-defensive S-57 reads hand-repeated at ~40 sites** —
+      one shared reader util, mechanical sweep.
+- [ ] **0.25 — Stale glazeCellCache header comment** — documents the
+      abandoned v{ver} key scheme.
+- [ ] **0.25 — Dead export coverageStripRects** — superseded by
+      coverageMaskStrips, still shipped.
+- [ ] **0.25 — ~30 `as unknown as` casts on Mapbox filters/expressions** —
+      typed expression helpers.
 
 ### UX (2.75)
 
 - [x] **0.5 — GEBCO-tier verification invisible in HazardReportPanel** —
       DONE, folded into the corrupt-cell fix above (counted there).
-- [ ] **0.25 — No-coverage affordance (red-team add)**.
-- [ ] **2.0 — remaining confirmed UX findings** — itemise from transcript.
+- [ ] **0.25 — No-coverage affordance (red-team add)** — browsing uncharted
+      water is indistinguishable from chart-off; add a "no chart coverage
+      here" read at nav zooms.
+- [ ] **0.5 — Night dim covers the canvas only** — DOM UI still glares and
+      later-added layers escape; one full-screen overlay retires both.
+- [ ] **0.5 — Chart-key legend omissions** — marine farms, special (yellow)
+      marks, fairway boundary, recommended tracks render but aren't keyed.
+- [ ] **0.5 — Sub-legibility typography on safety-critical surfaces** —
+      bump the sub-10 px text.
+- [ ] **0.25 — Advisory headline substring-matching** — first-caution-wins
+      hides co-present cautions collapsed; derive from structured kind.
+- [ ] **0.25 — Popup a11y** — close target under platform floor; async
+      tide-window swap unannounced (aria-live).
 
 ## Protocol
 
