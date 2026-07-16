@@ -644,6 +644,11 @@ export async function validateRouteSegments(
         }
     }
 
+    // Set at tide-curve load when ONE station's curve is being applied
+    // across a long route (spatial tidal-range variation unmodelled) —
+    // appended to the route advisories in both exit branches below.
+    let singleStationTideNote: RouteAdvisory | null = null;
+
     // ── Per-waypoint tide curve ──────────────────────────────────
     // When the caller supplied a departure time, fetch a real tide
     // curve at the route midpoint covering the planned passage.
@@ -669,6 +674,25 @@ export async function validateRouteSegments(
                     `[ValidateRoute] tide curve loaded: ${curve.stationName ?? 'station unknown'} ` +
                         `(${curve.heights.length} heights)`,
                 );
+                // SPATIAL TIDE HONESTY (burn-down): ONE station's curve gets
+                // applied to the whole route, but tidal range varies wildly
+                // along the QLD coast (Broad Sound ~8 m vs Moreton ~2 m). On a
+                // long route, crediting the midpoint station's tide at a
+                // distant shallow can be wrong by metres — say so.
+                let routeNm = 0;
+                for (let i = 0; i < route.length - 1; i++) {
+                    routeNm += haversineNm(route[i].lat, route[i].lon, route[i + 1].lat, route[i + 1].lon);
+                }
+                if (routeNm > 40) {
+                    singleStationTideNote = {
+                        severity: 'note',
+                        text:
+                            `Tide corrections use ONE station near the route midpoint` +
+                            `${curve.stationName ? ` (${curve.stationName})` : ''} — over ` +
+                            `${Math.round(routeNm)} NM the tidal range varies; verify tides locally ` +
+                            `at critical shallows.`,
+                    };
+                }
             } else {
                 landLog.info('[ValidateRoute] no tide curve available — falling back to static tideOffsetM');
             }
@@ -870,6 +894,7 @@ export async function validateRouteSegments(
             // skipper sees them, and logged at warn() — createLogger silences
             // info() in prod, which is why the old no-data note reached no one.
             routeAdvisories = buildRouteAdvisories(allResults, options.vesselDraftM);
+            if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
             await appendCautionCrossings();
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
@@ -923,6 +948,7 @@ export async function validateRouteSegments(
             },
             ...buildRouteAdvisories(lastAllResults, options.vesselDraftM),
         ];
+        if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
         await appendCautionCrossings();
         landLog.warn(
             `[ValidateRoute] EXHAUSTED ${MAX_VALIDATION_PASSES} passes with ${unresolvedAfterPasses} ` +
