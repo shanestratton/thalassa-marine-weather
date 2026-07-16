@@ -167,12 +167,31 @@ export async function saveCellGeoJSON(
 }
 
 /**
- * Load and parse the GeoJSON for a cell. Returns null if the file
- * is missing or malformed. A missing blob falls back to the CLOUD
- * bucket once (desktop builder, Phase 5 — the browser can't reach
- * the Pi, so registered-but-not-downloaded cells hydrate on demand).
+ * Cheap existence probe: is this cell's blob on the device (or already in the
+ * parse cache)? Filesystem.stat only — no read, no JSON.parse — so the
+ * corridor prefetch can scan a whole route's cells without touching the ones
+ * that are already local.
  */
-export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Promise<EncConversionResult | null> {
+export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
+    if (touchBlob(cellId)) return true;
+    try {
+        await Filesystem.stat({ path: relPath(cellId), directory: DIRECTORY });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Load and parse the GeoJSON for a cell. Returns null if the file
+ * is missing or malformed. A missing blob climbs the remote ladder ONCE:
+ *   1. the boat's Pi (LAN — fast, free, works fully offline; unreachable
+ *      from the HTTPS web page, where downloadPiCell fails instantly), then
+ *   2. the cloud bucket (desktop builder, Phase 5 — hydrates on demand).
+ * `remoteFallback=false` marks the post-download retry so a bad blob can't
+ * loop the ladder forever.
+ */
+export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Promise<EncConversionResult | null> {
     const cached = touchBlob(cellId);
     if (cached) return cached;
     try {
@@ -193,7 +212,13 @@ export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Pro
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/not exist|ENOENT|File does not exist/i.test(msg)) {
-            if (cloudFallback) {
+            if (remoteFallback) {
+                // Rung 1: the boat's Pi. importCell persists + warms the parse
+                // cache, so the retry read is a cache hit. No-ops in <1 ms when
+                // the Pi probe says unreachable (off the boat / HTTPS web).
+                const { downloadPiCell } = await import('./piCellSync');
+                if (await downloadPiCell(cellId)) return loadCellGeoJSON(cellId, false);
+                // Rung 2: the cloud bucket.
                 const { downloadCloudCell } = await import('./cloudCellSync');
                 if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
             }

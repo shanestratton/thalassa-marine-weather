@@ -419,6 +419,21 @@ export const MapHub: React.FC<MapHubProps> = ({
         setCanRedoTrace(traceRedoRef.current.length > 0);
     }, []);
 
+    // Corridor chart prefetch (Shane 2026-07-16): the app knows the route's
+    // start/finish the moment two pins exist — quietly pull the ENC cells for
+    // the padded corridor in the background (device → Pi → cloud ladder) while
+    // the skipper keeps tracing. Debounced so a burst of pin edits costs one
+    // run; the service is single-flight + per-run capped, so this stays cheap.
+    useEffect(() => {
+        if (!coordCaptureMode || capturedCoords.length < 2) return;
+        const t = window.setTimeout(() => {
+            void import('../../services/enc/corridorPrefetch').then(({ prefetchCorridorCells }) =>
+                prefetchCorridorCells(capturedCoords),
+            );
+        }, 1500);
+        return () => window.clearTimeout(t);
+    }, [capturedCoords, coordCaptureMode]);
+
     const [coordsCopied, setCoordsCopied] = useState(false);
     const coordCaptureRef = useRef(false);
     /** The PEN switch (Shane 2026-07-11: stray taps while the tracer is
