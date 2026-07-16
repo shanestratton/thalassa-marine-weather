@@ -30,6 +30,7 @@
 
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
+import { getDerivedContours, putDerivedContours } from './derivedContourCache';
 
 import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
@@ -556,20 +557,8 @@ function putGlazeCell(key: string, entry: { upgraded: boolean; feats: Feature[] 
  *  encodes cell set + densify flag + sounding-LOD bucket, so an identical
  *  key means an identical sounding set means identical contours — a
  *  re-merge reuses the computed lines synchronously: no flicker, no
- *  redundant worker pass. Holds only LineString segments (small); capped
- *  well above mergedCache so it survives the excursion that evicts it. */
-const derivedContourCache = new Map<string, Feature[]>();
-const DERIVED_CONTOUR_CACHE_MAX = 12;
-
-function putDerivedContours(key: string, feats: Feature[]): void {
-    derivedContourCache.delete(key);
-    derivedContourCache.set(key, feats);
-    while (derivedContourCache.size > DERIVED_CONTOUR_CACHE_MAX) {
-        const oldest = derivedContourCache.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        derivedContourCache.delete(oldest);
-    }
-}
+ *  redundant worker pass. Now owns its own module (derivedContourCache.ts)
+ *  as one step of decomposing this god-module's 11+ caches. */
 
 // ── Async geometry upgrades (the heavy-geometry worker) ────────────
 //
@@ -1120,7 +1109,7 @@ function dispatchGeometryWork(
         // prior visit the merged cache has since evicted). Fill them in
         // synchronously — no blank on the rebuilt merge, no redundant worker
         // pass — and skip the contour job entirely.
-        const memo = derivedContourCache.get(cacheKey);
+        const memo = getDerivedContours(cacheKey);
         if (memo) {
             merged.DEPCNT_DERIVED.features = memo;
             putDerivedContours(cacheKey, memo); // refresh LRU position
