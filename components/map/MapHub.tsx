@@ -5438,11 +5438,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                     open={showReport}
                     onClose={() => setShowReport(false)}
                     pins={capturedCoords}
+                    routeName={traceName}
                     verdicts={legVerdicts}
                     tideLabels={tideLabels}
                     departureLabel={departureLabel}
                     ackedLegs={ackedLegs}
                     fixBusy={fixBusyLeg}
+                    vesselName={settings.vessel?.name}
+                    draftM={vesselDraftMetres(settings.vessel)}
                     onFlyTo={(pt) => {
                         setShowReport(false);
                         mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });
