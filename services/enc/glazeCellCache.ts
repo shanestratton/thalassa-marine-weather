@@ -49,3 +49,60 @@ export function clearGlazeCell(): void {
 export function glazeCellCacheSize(): number {
     return cache.size;
 }
+
+// ── Worker-assembly parking (round-2 payload prefilter) ─────────────
+//
+// The prefilter sends only coverage-touching features to the geometry
+// worker; the untouched majority PARKS here and reassembles with the
+// answer. 2026-07-17 audit (finding #5, on this very code the day it
+// shipped): keyed by glazeKey alone, two overlapping jobs carrying the
+// same cell truncated each other's parked majority and cached the
+// incomplete glaze as upgraded — a persistent wrong keel-safety wash.
+// Now: parked entries key on `${jobId}:${glazeKey}` and the in-flight
+// marker records its OWNING job, so job B can neither consume A's
+// parked features nor clear A's in-flight claim.
+
+const parkedAssemblies = new Map<string, Feature[]>();
+const inFlightByKey = new Map<string, number>();
+
+/** Park a cell's untouched features for one job + mark it in flight. */
+export function parkGlazeAssembly(jobId: number, glazeKey: string, untouched: Feature[]): void {
+    parkedAssemblies.set(`${jobId}:${glazeKey}`, untouched);
+    inFlightByKey.set(glazeKey, jobId);
+}
+
+/** Consume a job's parked features (empty if none/already taken) and
+ *  release the in-flight marker — only if this job still owns it. */
+export function takeGlazeAssembly(jobId: number, glazeKey: string): Feature[] {
+    const key = `${jobId}:${glazeKey}`;
+    const feats = parkedAssemblies.get(key) ?? [];
+    parkedAssemblies.delete(key);
+    if (inFlightByKey.get(glazeKey) === jobId) inFlightByKey.delete(glazeKey);
+    return feats;
+}
+
+/** True while some job owes an answer for this glaze key — the queue
+ *  skips re-dispatching a cell that's already being upgraded. */
+export function isGlazeInFlight(glazeKey: string): boolean {
+    return inFlightByKey.has(glazeKey);
+}
+
+/** Job-scoped cleanup (job error / failed dispatch / done leftovers):
+ *  releases ONLY this job's parked entries and in-flight claims. */
+export function releaseGlazeAssemblies(jobId: number, glazeKeys: readonly string[]): void {
+    for (const k of glazeKeys) {
+        parkedAssemblies.delete(`${jobId}:${k}`);
+        if (inFlightByKey.get(k) === jobId) inFlightByKey.delete(k);
+    }
+}
+
+/** Worker death / full reset — every job is dead, drop everything. */
+export function clearAllGlazeAssemblies(): void {
+    parkedAssemblies.clear();
+    inFlightByKey.clear();
+}
+
+/** Test/stat hook. */
+export function glazeAssemblyCount(): number {
+    return parkedAssemblies.size;
+}
