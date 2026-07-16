@@ -1551,6 +1551,57 @@ export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorDa
  *  older one (per map is overkill: one chart map exists per session). */
 let refreshGeneration = 0;
 
+// ── Night dim (S-52 night-palette v1) ──────────────────────────────
+// The near-opaque white DEPARE ramp at the helm destroys night vision
+// (burn-down). Chartplotter-style uniform dim: one dark-red-tinted fill
+// over the WHOLE map stack (red preserves scotopic vision), added with no
+// beforeId so it sits above every map layer — DOM UI is unaffected. A
+// world polygon avoids fighting the dynamic paint state machines
+// (syncDepareBaseTreatment / applyTideOffsetPaint) that own the ENC fills.
+
+const NIGHT_DIM_SRC = 'enc-night-dim-src';
+const NIGHT_DIM_LAYER = 'enc-night-dim';
+export const ENC_NIGHT_DIM_KEY = 'thalassa_enc_night_dim';
+
+export function setEncNightDim(map: mapboxgl.Map, on: boolean): void {
+    if (!on) {
+        if (map.getLayer(NIGHT_DIM_LAYER)) map.removeLayer(NIGHT_DIM_LAYER);
+        return;
+    }
+    if (!map.getSource(NIGHT_DIM_SRC)) {
+        map.addSource(NIGHT_DIM_SRC, {
+            type: 'geojson',
+            data: {
+                type: 'Feature',
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [
+                        [
+                            [-180, -85],
+                            [180, -85],
+                            [180, 85],
+                            [-180, 85],
+                            [-180, -85],
+                        ],
+                    ],
+                },
+                properties: {},
+            },
+        });
+    }
+    if (!map.getLayer(NIGHT_DIM_LAYER)) {
+        map.addLayer({
+            id: NIGHT_DIM_LAYER,
+            type: 'fill',
+            source: NIGHT_DIM_SRC,
+            paint: {
+                'fill-color': '#1a0505',
+                'fill-opacity': 0.45,
+            },
+        }); // no beforeId — topmost map layer by design
+    }
+}
+
 export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorData): void {
     const generation = ++refreshGeneration;
     const setData = (id: string, fc: FeatureCollection) => {

@@ -156,6 +156,9 @@ interface ChartModesProps {
      *  predicted tide (visual only; MapHub owns the disclaimer + badge). */
     tideDepthMode?: boolean;
     onToggleTideDepth?: () => void;
+    /** Night dim — chartplotter-style red-tinted screen dim for the helm. */
+    nightDim?: boolean;
+    onToggleNightDim?: () => void;
 
     /** Chart key — the plain-words legend card (MapHub owns the card). */
     onOpenChartKey?: () => void;
@@ -664,6 +667,50 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 depths as they are right now, not chart datum
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && props.onToggleNightDim && (
+                                    <button
+                                        onClick={() => {
+                                            props.onToggleNightDim?.();
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.nightDim
+                                                ? 'rgba(220, 80, 60, 0.18)'
+                                                : 'rgba(220, 80, 60, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(220, 80, 60, 0.25)',
+                                        }}
+                                        aria-label="Toggle night dim"
+                                        aria-pressed={props.nightDim ?? false}
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#e07a5f', fontSize: 14 }}
+                                        >
+                                            ☾
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#e07a5f', fontSize: 13 }}
+                                            >
+                                                Night dim {props.nightDim ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                red-tinted dim protects night vision at the helm
                                             </span>
                                         </span>
                                     </button>
