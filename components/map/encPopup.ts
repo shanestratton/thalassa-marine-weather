@@ -565,6 +565,12 @@ export function buildFeaturePopupHtml(
         // NATSUR (nature of surface) for seabed areas — the anchoring read.
         const natsur = natsurNames(props.NATSUR ?? props.natsur);
         if (natsur) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(natsur)}</b></div>`;
+        // TSS lane direction (ORIENT) — the one thing a separation lane
+        // must tell you is which WAY it flows.
+        const orient = Number(props.ORIENT ?? props.orient);
+        if (cls === 'TSSLPT' && Number.isFinite(orient)) {
+            body += `<div class="enc-popup-row"><span>Lane direction</span><b>${esc(`${String(Math.round(orient)).padStart(3, '0')}°`)}</b></div>`;
+        }
         const informRaw = props.INFORM ?? props.inform ?? props.NINFOM ?? props.ninfom;
         const inform = typeof informRaw === 'string' ? informRaw.trim() : '';
         if (inform) body += `<div class="enc-popup-row"><span>Note</span><b>${esc(inform)}</b></div>`;

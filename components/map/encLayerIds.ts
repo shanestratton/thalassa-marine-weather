@@ -67,6 +67,10 @@ export const ENC_VEC_LAYERS = {
      *  popup and cluttered z11 (audit). The click handler queries this layer
      *  at a DEPARE tap and folds "Seabed: Sand" into the depth popup. */
     SBDARE_FILL: 'enc-vec-sbdare-fill',
+    /** TSS lane-direction arrows (⇧ rotated by ORIENT) — a directionless
+     *  lane wash told the helmsman nothing about which WAY the lane runs
+     *  (audit). Map-aligned so the arrow points the lane's true bearing. */
+    TSSLPT_ARROW: 'enc-vec-tsslpt-arrow',
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
     UWTROC: 'enc-vec-uwtroc-circle',
@@ -124,6 +128,7 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.SBDARE_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_FILL,
     ENC_VEC_LAYERS.CAUTION_AREA_LINE,
+    ENC_VEC_LAYERS.TSSLPT_ARROW,
     // Sounding-derived contours sit UNDER the official DEPCNT trio so a
     // surveyed line always draws over an interpolated one where both exist.
     ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
@@ -210,5 +215,6 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         // its outline is decoration, and the SBDARE seabed wash must NEVER
         // steal the DEPARE depth popup (its info folds into that popup instead).
         id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE &&
-        id !== ENC_VEC_LAYERS.SBDARE_FILL,
+        id !== ENC_VEC_LAYERS.SBDARE_FILL &&
+        id !== ENC_VEC_LAYERS.TSSLPT_ARROW,
 );
