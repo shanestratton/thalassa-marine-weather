@@ -331,22 +331,28 @@ describe('buildRouteAdvisories', () => {
         expect(buildRouteAdvisories([r({ source: 'enc', catzoc: 1 }), r({ source: 'gebco' })])).toEqual([]);
     });
 
-    it('flags low-confidence CATZOC (≥4) with the WORST value in view', () => {
+    it('flags low-confidence CATZOC (≥4) as a NOTE with the WORST value in view', () => {
         const out = buildRouteAdvisories([r({ catzoc: 2 }), r({ catzoc: 5 })]);
         expect(out).toHaveLength(1);
-        expect(out[0]).toContain('CATZOC 5');
+        expect(out[0].severity).toBe('note');
+        expect(out[0].text).toContain('CATZOC 5');
     });
 
-    it('flags no-depth-data (source none) points with an N/total count', () => {
+    it('flags no-depth-data (source none) as a CAUTION with an N/total count', () => {
         const out = buildRouteAdvisories([
             r({ source: 'none' }),
             r({ source: 'enc', catzoc: 1 }),
             r({ source: 'none' }),
         ]);
-        expect(out.some((a) => a.includes('2/3') && a.includes('NO depth data'))).toBe(true);
+        const c = out.find((a) => a.severity === 'caution');
+        expect(c?.text).toContain('2/3');
+        expect(c?.text).toContain('NO depth data');
     });
 
-    it('surfaces BOTH caveats together', () => {
-        expect(buildRouteAdvisories([r({ catzoc: 6 }), r({ source: 'none' })])).toHaveLength(2);
+    it('surfaces BOTH, with the no-data CAUTION ranked first (louder than the CATZOC note)', () => {
+        const out = buildRouteAdvisories([r({ catzoc: 6 }), r({ source: 'none' })]);
+        expect(out).toHaveLength(2);
+        expect(out[0].severity).toBe('caution');
+        expect(out[1].severity).toBe('note');
     });
 });

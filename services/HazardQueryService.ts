@@ -116,7 +116,18 @@ export function hazardDepthForDraft(draftM: number | null | undefined): number {
 }
 
 function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolean {
-    if (depth_m == null) return false; // No data → don't flag.
+    // ROUTE+WARN POLICY (deliberate, not fail-open): null = NO depth data
+    // (uncharted + GEBCO unavailable). We return false so the router still
+    // yields a line — availability beats stranding a vessel over a data gap,
+    // and a GEBCO gap is usually open ocean, not shoal. Unknown is NOT treated
+    // as confirmed-clear: every no-data point becomes a LOUD 'caution' route
+    // advisory (landAvoidance.buildRouteAdvisories → RouteHazardReport →
+    // HazardReportPanel red banner), so the depth reads UNVERIFIED-and-surfaced,
+    // never silently safe. (A GebcoDepthService.depthCostPenalty(null)=1.2
+    // caution multiplier is computed in WeatherRoutingService but is NOT yet
+    // consumed by route selection — wiring that to actually steer around
+    // no-data water is a tracked follow-up; today the surfacing IS the warn.)
+    if (depth_m == null) return false;
     return depth_m > hazardThresholdM;
 }
 
@@ -326,7 +337,10 @@ export async function queryHazards(
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
-                    isHazard: false, // Conservative: don't false-positive on offline GEBCO.
+                    // Route+warn on outage: source:'none' keeps the route
+                    // available but flags every point UNVERIFIED — surfaced by
+                    // the red route advisory (see gebcoIsHazard). Not a silent clear.
+                    isHazard: false,
                     depth_m: null,
                     source: 'none',
                 };

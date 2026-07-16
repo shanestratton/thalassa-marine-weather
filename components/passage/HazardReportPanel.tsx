@@ -97,12 +97,22 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
     if (!report || (report.entries.length === 0 && advisories.length === 0)) return null;
 
     const total = report.entries.length;
-    const headline =
-        total === 0
-            ? 'Route advisory — verify visually'
-            : total === 1
-              ? '1 hazard near route'
-              : `${total} hazards near route`;
+    // A 'caution' advisory = the route crosses water with NO confirmed depth
+    // (route+warn policy). It outranks hazards in the headline because it's the
+    // one thing the skipper can't see on the chart at all.
+    const hasCaution = advisories.some((a) => a.severity === 'caution');
+    const cautionText = advisories.find((a) => a.severity === 'caution')?.text;
+    const headline = hasCaution
+        ? 'Unverified depth on route'
+        : total === 0
+          ? 'Route advisory — verify visually'
+          : total === 1
+            ? '1 hazard near route'
+            : `${total} hazards near route`;
+    // Red frame + icon when depth is unverified; amber otherwise.
+    const accent = hasCaution
+        ? { border: 'border-red-500/50', ring: 'border-red-500/40', title: 'text-red-300', icon: '🛑' }
+        : { border: 'border-amber-500/40', ring: 'border-amber-500/30', title: 'text-amber-300', icon: '⚠' };
 
     return (
         <div
@@ -116,23 +126,27 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         >
             <button
                 onClick={() => setExpanded((x) => !x)}
-                className="w-full rounded-xl border border-amber-500/40 bg-black/75 backdrop-blur-md px-3 py-2 text-left hover:bg-black/85 transition-colors active:scale-[0.98]"
+                className={`w-full rounded-xl border ${accent.border} bg-black/75 backdrop-blur-md px-3 py-2 text-left hover:bg-black/85 transition-colors active:scale-[0.98]`}
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-base">{'⚠'}</span>
+                    <span className="text-base">{accent.icon}</span>
                     <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-bold text-amber-300 leading-tight">{headline}</p>
-                        <p className="text-[10px] text-amber-300/70 leading-tight">
-                            {total > 0
-                                ? // Mixed case: surface the no-data / CATZOC advisory in the
-                                  // COLLAPSED header too, not only when there are zero hazards
-                                  // (audit: it was hidden behind a manual expand here).
-                                  `within ${report.bufferNm.toFixed(1)} NM · ENC vector data${
-                                      advisories.length > 0
-                                          ? ` · ⚠ ${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'}`
-                                          : ''
-                                  }`
-                                : `${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'} · tap to read`}
+                        <p className={`text-[12px] font-bold ${accent.title} leading-tight`}>{headline}</p>
+                        <p
+                            className={`text-[10px] ${hasCaution ? 'text-red-300/80' : 'text-amber-300/70'} leading-tight`}
+                        >
+                            {hasCaution
+                                ? // Route+warn: the no-data caution text rides IN the collapsed
+                                  // header so an unverified-depth route can't be missed without
+                                  // expanding (audit: no-data was a silent soft advisory).
+                                  cautionText
+                                : total > 0
+                                  ? `within ${report.bufferNm.toFixed(1)} NM · ENC vector data${
+                                        advisories.length > 0
+                                            ? ` · ⚠ ${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'}`
+                                            : ''
+                                    }`
+                                  : `${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'} · tap to read`}
                         </p>
                     </div>
                     <svg
@@ -154,12 +168,21 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                 >
                     {advisories.length > 0 && (
                         <div className="mb-1.5 pb-1.5 border-b border-amber-500/20" role="listitem">
-                            {advisories.map((a, i) => (
-                                <div key={`adv-${i}`} className="flex items-start gap-2 py-1">
-                                    <span className="text-sm shrink-0 mt-0.5">{'⚠'}</span>
-                                    <p className="text-[11px] text-amber-100 leading-snug">{a}</p>
-                                </div>
-                            ))}
+                            {advisories.map((a, i) => {
+                                const caution = a.severity === 'caution';
+                                return (
+                                    <div key={`adv-${i}`} className="flex items-start gap-2 py-1">
+                                        <span className="text-sm shrink-0 mt-0.5">{caution ? '🛑' : '⚠'}</span>
+                                        <p
+                                            className={`text-[11px] leading-snug ${
+                                                caution ? 'text-red-200 font-semibold' : 'text-amber-100'
+                                            }`}
+                                        >
+                                            {a.text}
+                                        </p>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                     {report.entries.map((entry, i) => {
