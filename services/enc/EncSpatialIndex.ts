@@ -156,6 +156,33 @@ export interface EncCoastline {
     geometry: Geometry;
 }
 
+// ── Caution / info areas (RESARE/CBLARE/PIPARE/TSSLPT) ─────────────
+
+/**
+ * A charted caution AREA the route validator warns on CROSSING (not a
+ * grounding hazard — you can transit most, but you must KNOW: a restricted
+ * zone, a submarine cable/pipeline no-anchor area, a TSS lane). SBDARE
+ * (seabed nature) is deliberately NOT a caution — it's an anchoring aid, not
+ * a crossing warning. Stored in its own tree, queried per route segment.
+ */
+export interface EncCautionArea {
+    geometry: Geometry;
+    /** S-57 class: RESARE / CBLARE / PIPARE / TSSLPT. */
+    cls: string;
+    /** RESTRN restriction code(s) for RESARE (comma list). */
+    restrn?: string;
+    /** OBJNAM if present. */
+    name?: string;
+}
+
+interface CautionEntry {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    area: EncCautionArea;
+}
+
 // ── BBox computation ───────────────────────────────────────────────
 
 /**
@@ -258,6 +285,7 @@ export class EncSpatialIndex {
     private readonly hazardTree: RBush<BBoxEntry>;
     private readonly catzocTree: RBush<CatzocEntry>;
     private readonly coastlineTree: RBush<CoastlineEntry>;
+    private readonly cautionTree: RBush<CautionEntry>;
     private readonly cellId: string;
     private readonly bbox: [number, number, number, number];
     private readonly hazardCount: number;
@@ -269,11 +297,13 @@ export class EncSpatialIndex {
         hazards: EncHazard[],
         catzocZones: EncCatzocZone[] = [],
         coastlines: EncCoastline[] = [],
+        cautionAreas: EncCautionArea[] = [],
     ) {
         this.cellId = cellId;
         this.hazardTree = new RBush<BBoxEntry>();
         this.catzocTree = new RBush<CatzocEntry>();
         this.coastlineTree = new RBush<CoastlineEntry>();
+        this.cautionTree = new RBush<CautionEntry>();
 
         const hazardEntries: BBoxEntry[] = [];
         let minLon = Infinity;
@@ -360,7 +390,53 @@ export class EncSpatialIndex {
         this.coastlineTree.load(coastlineEntries);
         this.coastlineCount = coastlineEntries.length;
 
+        // Build the caution-area tree (RESARE/CBLARE/PIPARE/TSSLPT). Own tree
+        // like CATZOC/coastline: these are never grounding hazards, only a
+        // crossing advisory, so they must not inflate the routing hazard query.
+        const cautionEntries: CautionEntry[] = [];
+        for (const area of cautionAreas) {
+            const [aMinLon, aMinLat, aMaxLon, aMaxLat] = geometryBBox(area.geometry);
+            cautionEntries.push({ minX: aMinLon, minY: aMinLat, maxX: aMaxLon, maxY: aMaxLat, area });
+            if (aMinLon < minLon) minLon = aMinLon;
+            if (aMinLat < minLat) minLat = aMinLat;
+            if (aMaxLon > maxLon) maxLon = aMaxLon;
+            if (aMaxLat > maxLat) maxLat = aMaxLat;
+        }
+        this.cautionTree.load(cautionEntries);
+
         this.bbox = Number.isFinite(minLon) ? [minLon, minLat, maxLon, maxLat] : [0, 0, 0, 0];
+    }
+
+    /**
+     * Caution AREAS this route SEGMENT crosses (RESARE/CBLARE/PIPARE/TSSLPT) —
+     * a warn-on-crossing advisory, NOT a reroute. Same segment-vs-polygon test
+     * as segmentHazard (endpoint-inside OR the segment intersects an edge).
+     */
+    segmentCautions(lat1: number, lon1: number, lat2: number, lon2: number): EncCautionArea[] {
+        const candidates = this.cautionTree.search({
+            minX: Math.min(lon1, lon2),
+            minY: Math.min(lat1, lat2),
+            maxX: Math.max(lon1, lon2),
+            maxY: Math.max(lat1, lat2),
+        });
+        if (candidates.length === 0) return [];
+        const segLine = turfLineString([
+            [lon1, lat1],
+            [lon2, lat2],
+        ]);
+        const pA = turfPoint([lon1, lat1]);
+        const pB = turfPoint([lon2, lat2]);
+        const out: EncCautionArea[] = [];
+        for (const entry of candidates) {
+            const geom = entry.area.geometry;
+            if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
+            const crosses =
+                booleanPointInPolygon(pA, geom) ||
+                booleanPointInPolygon(pB, geom) ||
+                lineIntersect(segLine, geom).features.length > 0;
+            if (crosses) out.push(entry.area);
+        }
+        return out;
     }
 
     /**

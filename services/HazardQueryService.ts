@@ -31,6 +31,7 @@ import { GebcoDepthService } from './GebcoDepthService';
 import * as EncHazardService from './enc/EncHazardService';
 import type { EncCatzoc, EncHazardResult, EncHazardType } from './enc/types';
 import { ENC_HAZARD_DEPTH_M } from './enc/types';
+import type { EncCautionArea } from './enc/EncSpatialIndex';
 
 const log = createLogger('HazardQueryService');
 
@@ -402,6 +403,18 @@ export async function querySegmentHazards(
         const r = encToHazardResult({ lat: midLat, lon: midLon }, enc, hazardThresholdM, tideM);
         return { isHazard: r.isHazard, hazardType: enc.hazardType, source: 'enc' as const };
     });
+}
+
+/**
+ * Caution AREAS (restricted/cable/pipeline/TSS) each route segment crosses.
+ * ENC-only, no draft/tide — it's a warn-on-crossing advisory, not a grounding
+ * check. Thin pass-through to the ENC layer so landAvoidance stays on the one
+ * HazardQueryService facade.
+ */
+export async function querySegmentCautions(
+    segments: { lat1: number; lon1: number; lat2: number; lon2: number }[],
+): Promise<EncCautionArea[][]> {
+    return EncHazardService.querySegmentCautions(segments);
 }
 
 // ── Constants re-exported for backward compatibility ──────────────

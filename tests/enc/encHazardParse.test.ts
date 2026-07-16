@@ -10,6 +10,7 @@ import type { Feature, FeatureCollection } from 'geojson';
 
 import {
     buildCatzocZones,
+    buildCautionAreas,
     buildCoastlines,
     buildHazardsForCell,
     buildSoundingHazards,
@@ -156,6 +157,40 @@ describe('buildHazardsForCell — aggregation', () => {
         };
         const h = buildHazardsForCell(blob({ DEPARE: fc([pt({ DRVAL1: 25 })]), SOUNDG: fc([soundg]) }));
         expect(h.some((x) => x.layer === 'SOUNDG' && x.minDepthM === 1.2)).toBe(true);
+    });
+});
+
+describe('buildCautionAreas — caution/info areas', () => {
+    const poly = (props: Record<string, unknown>): Feature => ({
+        type: 'Feature',
+        geometry: {
+            type: 'Polygon',
+            coordinates: [
+                [
+                    [0, 0],
+                    [1, 0],
+                    [1, 1],
+                    [0, 1],
+                    [0, 0],
+                ],
+            ],
+        },
+        properties: props,
+    });
+    it('parses RESARE with class + RESTRN + name', () => {
+        const c = buildCautionAreas(blob({ RESARE: fc([poly({ RESTRN: '7,8', OBJNAM: 'Naval area' })]) }));
+        expect(c).toHaveLength(1);
+        expect(c[0]).toMatchObject({ cls: 'RESARE', restrn: '7,8', name: 'Naval area' });
+    });
+    it('parses CBLARE/PIPARE/TSSLPT too', () => {
+        const c = buildCautionAreas(blob({ CBLARE: fc([poly({})]), PIPARE: fc([poly({})]), TSSLPT: fc([poly({})]) }));
+        expect(c.map((a) => a.cls).sort()).toEqual(['CBLARE', 'PIPARE', 'TSSLPT']);
+    });
+    it('EXCLUDES SBDARE (anchoring aid, not a crossing caution)', () => {
+        expect(buildCautionAreas(blob({ SBDARE: fc([poly({ NATSUR: '4' })]) }))).toEqual([]);
+    });
+    it('skips non-polygon geometries', () => {
+        expect(buildCautionAreas(blob({ RESARE: fc([pt({ RESTRN: '1' })]) }))).toEqual([]);
     });
 });
 
