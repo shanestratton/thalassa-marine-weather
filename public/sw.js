@@ -151,9 +151,12 @@
 // in") instead of an amber caution. New 'info' issue severity that doesn't
 // escalate the leg grade; amber only when the depth is unproven or you're on
 // the shoal side.
-const CACHE_NAME = 'thalassa-v97-core';
-const TILE_CACHE = 'thalassa-v97-tiles';
-const DATA_CACHE = 'thalassa-v97-data';
+// v98: GPS-fix input placeholder now reads "e.g. 27 08.5S 153 09.2E" — the old
+// "Add a GPS fix — 27 08.5S…" clipped to "…— 27" in the narrow box and looked
+// like a field number (Shane 2026-07-16: "what is the 27 for?").
+const CACHE_NAME = 'thalassa-v98-core';
+const TILE_CACHE = 'thalassa-v98-tiles';
+const DATA_CACHE = 'thalassa-v98-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

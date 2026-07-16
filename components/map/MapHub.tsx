@@ -5173,7 +5173,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 autoCapitalize="characters"
                                                 autoCorrect="off"
                                                 spellCheck={false}
-                                                placeholder="Add a GPS fix — 27 08.5S 153 09.2E"
+                                                placeholder="e.g. 27 08.5S 153 09.2E"
                                                 className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-emerald-500/50 focus:outline-none"
                                             />
                                             <button
