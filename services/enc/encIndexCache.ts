@@ -20,7 +20,7 @@ const indexes = new Map<string, EncSpatialIndex>();
  *  candidate sets). 24 holds a passage leg's worth; the original leak this
  *  cap fixed was 30+ PINNED indexes with no eviction at all — still bounded. */
 const INDEX_CACHE_MAX = 24;
-const failedLoads = new Set<string>();
+const failedLoads = new Map<string, number>();
 
 /** Get a cached index, refreshing its LRU position (most-recently-used). */
 export function touchIndex(cellId: string): EncSpatialIndex | undefined {
@@ -43,14 +43,31 @@ export function cacheIndex(cellId: string, index: EncSpatialIndex): void {
     }
 }
 
-/** True if this cell's blob was already found missing/corrupt. */
+/** Failed loads retry after a cooldown, not never (2026-07-17 audit
+ *  finding #1: a transient read failure — mid-hydration, FS hiccup —
+ *  used to pin the cell failed for the WHOLE SESSION, silently dropping
+ *  its water to GEBCO for every route until restart). A genuinely
+ *  corrupt blob still only costs one re-load attempt per minute. */
+export const INDEX_FAIL_RETRY_MS = 60_000;
+
+/** True if this cell's blob recently failed to load (cooldown running). */
 export function isIndexFailed(cellId: string): boolean {
-    return failedLoads.has(cellId);
+    const at = failedLoads.get(cellId);
+    if (at === undefined) return false;
+    if (Date.now() - at < INDEX_FAIL_RETRY_MS) return true;
+    failedLoads.delete(cellId); // cooldown over — let the next query retry
+    return false;
 }
 
 /** Record that a cell's blob failed to load (missing/corrupt). */
 export function markIndexFailed(cellId: string): void {
-    failedLoads.add(cellId);
+    failedLoads.set(cellId, Date.now());
+}
+
+/** Cells currently in the failed state — feeds the route advisory that
+ *  tells the skipper charted water fell back to GEBCO. */
+export function failedCellIds(): string[] {
+    return [...failedLoads.keys()].filter((id) => isIndexFailed(id));
 }
 
 /** Forget a cell entirely — index + failed flag (on re-import / removal). */

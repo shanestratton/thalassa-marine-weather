@@ -13,6 +13,7 @@ import * as HazardQueryService from '../HazardQueryService';
 import type { HazardResult } from '../HazardQueryService';
 import type { RouteAdvisory } from '../enc/EncHazardReportService';
 import type { EncCautionArea } from '../enc/EncSpatialIndex';
+import { failedCellIds } from '../enc/encIndexCache';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -528,7 +529,11 @@ export interface ValidateRouteOptions {
  *  - `note` — charted but low-confidence CATZOC survey.
  * Pure + exported so the surfacing logic is unit-tested away from the validator.
  */
-export function buildRouteAdvisories(results: HazardResult[], vesselDraftM?: number): RouteAdvisory[] {
+export function buildRouteAdvisories(
+    results: HazardResult[],
+    vesselDraftM?: number,
+    failedCellIds?: readonly string[],
+): RouteAdvisory[] {
     const advisories: RouteAdvisory[] = [];
     // The depth-threshold model clamps draft to 5 m (hazardDepthForDraft) — a
     // deeper vessel silently got 5 m math. Say so (burn-down 2026-07-16).
@@ -549,6 +554,31 @@ export function buildRouteAdvisories(results: HazardResult[], vesselDraftM?: num
             text:
                 `${noDataHits}/${results.length} route point(s) have NO depth data ` +
                 `(uncharted + GEBCO unavailable) — routed but NOT confirmed safe, verify visually`,
+        });
+    }
+    // GEBCO-tier verification made visible (2026-07-17 audit finding #1: a
+    // corrupt/unloadable ENC cell silently dropped its water to the ~460 m
+    // GEBCO raster and the panel showed the same clean face — a route over
+    // a charted rock "validated clean" against open-ocean bathymetry).
+    // Loud caution when imported cells actually FAILED (that water was
+    // supposed to be charted) or when GEBCO carries a large share; plain
+    // note for the honest offshore case (genuinely uncharted water).
+    const gebcoHits = results.filter((r) => r.source === 'gebco').length;
+    if (gebcoHits > 0 && results.length > 0) {
+        const pct = Math.round((gebcoHits / results.length) * 100);
+        const failed = failedCellIds ?? [];
+        const failedNote =
+            failed.length > 0
+                ? ` ${failed.length} imported chart cell(s) FAILED to load (${failed.slice(0, 3).join(', ')}${
+                      failed.length > 3 ? ', …' : ''
+                  }) — their water fell back to GEBCO; re-import may be needed.`
+                : '';
+        advisories.push({
+            severity: failed.length > 0 || pct >= 30 ? 'caution' : 'note',
+            text:
+                `${gebcoHits}/${results.length} depth check(s) (${pct}%) used ~460 m GEBCO ocean ` +
+                `bathymetry, not charted ENC data — shoals smaller than the grid spacing are ` +
+                `invisible to it.${failedNote}`,
         });
     }
     let worstCatzoc: number | null = null;
@@ -909,7 +939,7 @@ export async function validateRouteSegments(
             // but carries caveats. ATTACHED to the hazard report below so the
             // skipper sees them, and logged at warn() — createLogger silences
             // info() in prod, which is why the old no-data note reached no one.
-            routeAdvisories = buildRouteAdvisories(allResults, options.vesselDraftM);
+            routeAdvisories = buildRouteAdvisories(allResults, options.vesselDraftM, failedCellIds());
             if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
             await appendCautionCrossings();
             const clearMsg =
@@ -962,7 +992,7 @@ export async function validateRouteSegments(
                     `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
                     `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
             },
-            ...buildRouteAdvisories(lastAllResults, options.vesselDraftM),
+            ...buildRouteAdvisories(lastAllResults, options.vesselDraftM, failedCellIds()),
         ];
         if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
         await appendCautionCrossings();

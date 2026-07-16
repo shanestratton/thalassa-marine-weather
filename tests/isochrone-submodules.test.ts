@@ -330,7 +330,35 @@ describe('buildRouteAdvisories', () => {
     });
 
     it('no caveats → no advisories', () => {
-        expect(buildRouteAdvisories([r({ source: 'enc', catzoc: 1 }), r({ source: 'gebco' })])).toEqual([]);
+        expect(buildRouteAdvisories([r({ source: 'enc', catzoc: 1 }), r({ source: 'enc', catzoc: 1 })])).toEqual([]);
+    });
+
+    it('GEBCO share below 30% with no failed cells → informational NOTE naming the count', () => {
+        // 1/4 = 25%: the honest offshore case — genuinely uncharted water.
+        const out = buildRouteAdvisories([r({ source: 'gebco' }), r({}), r({}), r({})]);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('note');
+        expect(out[0].text).toContain('1/4');
+        expect(out[0].text).toContain('GEBCO');
+    });
+
+    it('GEBCO share ≥30% escalates to CAUTION (audit #1: silent 460 m-grid verification)', () => {
+        const out = buildRouteAdvisories([r({ source: 'gebco' }), r({ source: 'gebco' }), r({})]);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].text).toContain('67%');
+    });
+
+    it('FAILED chart cells force CAUTION at any share and name the cells', () => {
+        const out = buildRouteAdvisories([r({ source: 'gebco' }), r({}), r({}), r({})], undefined, ['OC-61-10ENB5']);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].text).toContain('OC-61-10ENB5');
+        expect(out[0].text).toContain('FAILED to load');
+    });
+
+    it('failed cells with zero gebco hits stay silent (nothing actually degraded on this route)', () => {
+        expect(buildRouteAdvisories([r({}), r({})], undefined, ['OC-61-10ENB5'])).toEqual([]);
     });
 
     it('flags low-confidence CATZOC (≥4) as a NOTE with the WORST value in view', () => {
