@@ -146,9 +146,14 @@
 // tracer now gives the IALA-A rule for the mark's hand instead of a vague
 // "check which side" — e.g. "Red port-hand mark on your starboard — IALA-A:
 // keep red to port heading in". Mark hand carried through markHazards.
-const CACHE_NAME = 'thalassa-v96-core';
-const TILE_CACHE = 'thalassa-v96-tiles';
-const DATA_CACHE = 'thalassa-v96-data';
+// v97: passing a lateral mark on the correct side in safe water now reads
+// GREEN with a confirming note ("Red mark to your port — correct side heading
+// in") instead of an amber caution. New 'info' issue severity that doesn't
+// escalate the leg grade; amber only when the depth is unproven or you're on
+// the shoal side.
+const CACHE_NAME = 'thalassa-v97-core';
+const TILE_CACHE = 'thalassa-v97-tiles';
+const DATA_CACHE = 'thalassa-v97-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

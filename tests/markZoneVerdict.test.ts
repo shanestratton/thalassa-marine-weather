@@ -109,10 +109,11 @@ describe('mark-inference discs in the tracer verdict', () => {
         geometry: { type: 'Point', coordinates: [MARK_LON, MARK_LAT] },
     });
 
-    it("a CLEAN pass says NOTHING — the disc mark's shoal is on the FAR side (Shane's fix)", () => {
-        // Deep (6 m) NORTH where the line runs, shoal (1 m) SOUTH by the land.
-        // The mark isn't in soloLaterals, but §1 reads markHazards → clean →
-        // silent. Needs the extended probe to see the shoal PAST the 60 m disc.
+    it('a CLEAN deep-water pass reads GREEN (info) with the IALA confirmation, grade stays clear', () => {
+        // Deep (6 m) NORTH where the line runs, shoal SOUTH. Boat on the deep
+        // side, red mark to starboard → correct heading out. Shane 2026-07-16:
+        // "can it be green because I'm on the correct side?" — YES: 'info', and
+        // the leg grade stays clear (green), no amber.
         const ctx = makeCtx({
             DEPARE: fc(
                 poly(153.0, MARK_LAT, 153.1, -27.1, { DRVAL1: 6, DRVAL2: 10 }), // north deep
@@ -122,32 +123,29 @@ describe('mark-inference discs in the tracer verdict', () => {
         } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).not.toContain('danger side');
-        expect(msgs).not.toContain('near a mark'); // clean → fully silent
-        expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
+        expect(msgs).toContain('info:Red port-hand mark to your starboard — correct side heading out (IALA-A)');
+        expect(v.grade).toBe('clear'); // ← GREEN, not amber
+        expect(v.issues.some((i) => i.severity === 'caution' || i.severity === 'danger')).toBe(false);
     });
 
-    it('an AMBIGUOUS pass gives the IALA-A rule for the mark hand, never "danger side"', () => {
-        // Deep both sides → the chart can't call it, but the disc IS a RED
-        // (port-hand) mark, so IALA-A gives a determinate rule. The mark sits
-        // SOUTH of the eastbound leg → on the boat's starboard. Shane
-        // 2026-07-16: "we are IALA-A so this is the correct side?" — hand it the
-        // rule + which side the mark is on, and let the skipper apply heading.
+    it('a deep-water pass with no confirmed shoal ALSO reads GREEN (info), never amber', () => {
+        // Deep both sides → chart can't call the side, but the water is keel-safe
+        // where the boat sails → a safe pass → GREEN with the IALA context.
         const ctx = makeCtx({
-            DEPARE: DEEP, // 6 m everywhere → chart can't call the side
-            OBSTRN: markHazardOBSTRN, // _markerKind: 'port' → red port-hand
+            DEPARE: DEEP, // 6 m everywhere
+            OBSTRN: markHazardOBSTRN, // red port-hand
         } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).toContain('caution:Red port-hand mark on your starboard');
-        expect(msgs).toContain('keep red to port heading in');
+        expect(msgs).toContain('info:Red port-hand mark to your starboard — correct side heading out (IALA-A)');
+        expect(v.grade).toBe('clear');
+        expect(msgs).not.toContain('caution:');
         expect(msgs).not.toContain('danger side');
-        expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
     });
 
-    it('reports the correct hand + side for a GREEN mark to port', () => {
+    it('a GREEN mark to port reads the right hand + side, GREEN', () => {
         // Green (starboard-hand) mark NORTH of the eastbound leg → on the boat's
-        // port. Locks the other colour and the port course-side.
+        // port. Locks the other colour + the port course-side.
         const greenN = fc({
             type: 'Feature',
             properties: { _class: 'lateral-marker-as-hazard', _markerKind: 'starboard' },
@@ -156,8 +154,20 @@ describe('mark-inference discs in the tracer verdict', () => {
         const ctx = makeCtx({ DEPARE: DEEP, OBSTRN: greenN } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).toContain('Green starboard-hand mark on your port');
-        expect(msgs).toContain('keep green to starboard heading in');
+        expect(msgs).toContain('info:Green starboard-hand mark to your port — correct side heading out (IALA-A)');
+        expect(v.grade).toBe('clear');
+    });
+
+    it('when the depth is unproven (leg passing over the mark), it falls back to the amber IALA rule', () => {
+        // A short leg entirely inside the 60 m disc → no least-depth read →
+        // depth NOT confirmed safe → the advisory stays amber with the rule.
+        const ctx = makeCtx({ DEPARE: DEEP, OBSTRN: markHazardOBSTRN } as Partial<InshoreLayers>);
+        const shortA = { lat: MARK_LAT, lon: 153.0495 };
+        const shortB = { lat: MARK_LAT, lon: 153.0505 };
+        const v = validateTraceLeg(shortA, shortB, ctx);
+        const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
+        expect(msgs).toContain('IALA-A: keep red to port heading in');
+        expect(v.issues.some((i) => i.severity === 'caution')).toBe(true);
     });
 
     it('a genuine BANK-SIDE pass still warns with teeth (shoal on the boat side)', () => {
