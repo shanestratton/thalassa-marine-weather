@@ -30,6 +30,7 @@
 
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
+import { reduceNamedAreas } from './seaareLabels';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
 import { getGlazeCell, putGlazeCell } from './glazeCellCache';
 import { touchIndex, cacheIndex, isIndexFailed, markIndexFailed, dropIndex, clearIndexCache } from './encIndexCache';
@@ -1606,62 +1607,12 @@ async function buildMergedVectorData(
         // and the finest chart's tighter geometry wins the dedupe).
         // The AU SENC emits most named areas as POINTS — the
         // cartographer's own label anchor, use it verbatim.
-        const labelAnchorFor = (g: Feature['geometry']): [number, number] | null => {
-            if (!g) return null;
-            if (g.type === 'Point') {
-                const c = g.coordinates as number[];
-                return Number.isFinite(c?.[0]) && Number.isFinite(c?.[1]) ? [c[0], c[1]] : null;
-            }
-            if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') return null;
-            const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-            let ring: number[][] | null = null;
-            for (const poly of polys) {
-                const outer = poly?.[0] as number[][] | undefined;
-                if (outer && outer.length >= 4 && (!ring || outer.length > ring.length)) ring = outer;
-            }
-            if (!ring) return null;
-            let sx = 0;
-            let sy = 0;
-            const n = ring.length - 1; // skip the closing duplicate vertex
-            for (let i = 0; i < n; i++) {
-                sx += ring[i][0];
-                sy += ring[i][1];
-            }
-            return [sx / n, sy / n];
-        };
-        // SCAMIN gates the 1:90k channel/bank names to z12.6 — "need
-        // to be at zoom 13 to see any names... probably a bit high"
-        // (Shane 2026-07-14). Same doctrine as the sounding ladder:
-        // SCAMIN is paper declutter advice, not law. Keep the
-        // HIERARCHY (bay names before bank names) but pull the whole
-        // ladder ~2.5 levels earlier: 12.6→10.1, 11.6→9.1, 8.5→the
-        // layer floor. Collision handles the density.
-        const reduceNamedAreas = (fc: FeatureCollection | undefined, kind: 'water' | 'land'): void => {
-            for (const feat of fc?.features ?? []) {
-                const g = feat?.geometry;
-                if (!g) continue;
-                const props = (feat.properties ?? {}) as Record<string, unknown>;
-                const rawName = props.OBJNAM ?? props.objnam;
-                const name = typeof rawName === 'string' ? rawName.trim() : '';
-                if (!name) continue;
-                const anchor = labelAnchorFor(g);
-                if (!anchor) continue;
-                const labelProps: Record<string, unknown> = { _name: name, _kind: kind };
-                if (typeof props._minZoom === 'number') {
-                    labelProps._minZoom = Math.max(7, props._minZoom - 2.5);
-                }
-                seaareByName.set(`${kind}:${name}`, {
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: anchor },
-                    properties: labelProps,
-                });
-            }
-        };
-        reduceNamedAreas(blob.layers.SEAARE, 'water');
-        // Islands: LNDARE already carries OBJNAM on named land ("High
-        // Peak Island", "Fisherman Islands") — no LNDRGN extraction
-        // needed for island names.
-        reduceNamedAreas(blob.layers.LNDARE, 'land');
+        // Named areas → ONE label point per name (SEAARE waterways + named
+        // LNDARE islands — LNDARE already carries OBJNAM on named land, no
+        // LNDRGN extraction needed). Extracted to seaareLabels.ts (pure +
+        // tested); finest-cell-wins via the shared seaareByName accumulator.
+        reduceNamedAreas(blob.layers.SEAARE, 'water', seaareByName);
+        reduceNamedAreas(blob.layers.LNDARE, 'land', seaareByName);
 
         // Soundings: explode each MultiPoint cloud into labelled points via
         // the pure explodeSoundings (no provenance — the minimal {_d,_minZoom}
