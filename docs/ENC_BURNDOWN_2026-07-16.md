@@ -61,12 +61,14 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 
 ### Performance
 
-- [ ] **1.75 — Off-thread/chunk the merge's three indivisible main-thread
-      passes** — multi-MB JSON.parse (EncCellStore:186), the tagAndPush fold,
-      the sounding-density ladder. The per-feature glaze yield proves the pattern.
-- [ ] **1.2 — Bound the GEBCO depth cache; resize INDEX_CACHE_MAX** for
-      route-length candidate sets; VTS boundaries from pi-cache data, not a
-      hardcoded rectangle.
+- [x] **1.75 — Chunk the merge's three indivisible main-thread passes** —
+      DONE (`caa339da`): tagAndPush yields per-64-features through the
+      cooperative slicer; the sounding ladder self-slices every 1024 points;
+      the JSON.parse pass already yielded per-cell (verified).
+- [x] **1.2 → 0.8 banked — GEBCO cache bound (20k LRU) + INDEX_CACHE_MAX
+      12→24** — DONE (`f909cb3d`). VTS-from-data (0.4) DEFERRED WITH REASON:
+      OSM does not reliably carry MSQ's gazetted VTS boundary — needs curated
+      gazetted geometry, not a code change.
 
 ### Code quality
 
@@ -113,3 +115,5 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | depthCost nudge wired into selection                           | 1.5  | `72751355` | 83.85             |
 | 2026-07-16 | Grounding-query edges (soundingOnly / sub-231 m / draft clamp) | 1.5  | `d2baa0eb` | 85.35             |
 | 2026-07-16 | Advisory UX cluster (tiers / headlines / raw codes / a11y)     | 1.75 | `e58c8f8d` | 87.1              |
+| 2026-07-16 | Merge main-thread passes sliced (fold + ladder)                | 1.75 | `caa339da` | 88.85             |
+| 2026-07-16 | GEBCO cache bound + index LRU resize (VTS deferred w/ reason)  | 0.8  | `f909cb3d` | 89.65             |
