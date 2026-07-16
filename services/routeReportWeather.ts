@@ -93,9 +93,13 @@ export async function fetchRouteWaypointWeather(
         return rows.map(etaOnly);
     }
 
-    // forecast_days must reach the last ETA; Open-Meteo customer caps at 16.
-    const maxHours = rows[rows.length - 1]?.hoursFromDep ?? 0;
-    const days = Math.min(16, Math.max(2, Math.ceil(maxHours / 24) + 1));
+    // forecast_days must reach the last ETA — measured from NOW, because the
+    // departure may be days out (departure date/time planning, 2026-07-16).
+    // Open-Meteo's forecast starts today; unixtime matching finds each ETA's
+    // hour inside it. Customer plan caps at 16 days; ETAs beyond the horizon
+    // come back beyondForecast=true.
+    const lastEtaMs = rows[rows.length - 1]?.etaMs ?? departureMs;
+    const days = Math.min(16, Math.max(2, Math.ceil((lastEtaMs - Date.now()) / 86_400_000) + 1));
     const lats = pins.map((p) => p.lat.toFixed(4)).join(',');
     const lons = pins.map((p) => p.lon.toFixed(4)).join(',');
     const url =

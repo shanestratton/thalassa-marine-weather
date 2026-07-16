@@ -291,6 +291,14 @@ const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: numb
     return Math.hypot((q.lat - p.lat) * 110_540, (q.lon - p.lon) * mLon);
 };
 
+/** Epoch ms → the LOCAL "yyyy-MM-ddTHH:mm" a datetime-local input wants
+ *  (toISOString would shift to UTC — off by the timezone). */
+const msToLocalInput = (ms: number): string => {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     onLocationSelect,
@@ -419,6 +427,29 @@ export const MapHub: React.FC<MapHubProps> = ({
         setCanUndoTrace(true);
         setCanRedoTrace(traceRedoRef.current.length > 0);
     }, []);
+
+    // Departure date/time for the plan (Shane 2026-07-16): anchors the
+    // per-leg tide windows (evaluated at each leg's ETA), the departure-window
+    // headline, and the report's weather ETAs. null = "leave now".
+    // Session-persisted beside the WIP pins; a departure >1 h in the past is
+    // stale planning state and resets to "now" on restore.
+    const [departureMs, setDepartureMs] = useState<number | null>(() => {
+        try {
+            const raw = sessionStorage.getItem('thalassa_trace_departure_ms');
+            const v = raw ? Number(raw) : NaN;
+            return Number.isFinite(v) && v > Date.now() - 3_600_000 ? v : null;
+        } catch {
+            return null;
+        }
+    });
+    useEffect(() => {
+        try {
+            if (departureMs === null) sessionStorage.removeItem('thalassa_trace_departure_ms');
+            else sessionStorage.setItem('thalassa_trace_departure_ms', String(departureMs));
+        } catch {
+            /* private mode — departure just doesn't survive reloads */
+        }
+    }, [departureMs]);
 
     // Corridor chart prefetch (Shane 2026-07-16): the app knows the route's
     // start/finish the moment two pins exist — quietly pull the ENC cells for
@@ -1551,6 +1582,22 @@ export const MapHub: React.FC<MapHubProps> = ({
     const { settings } = useSettings();
     const { setPage, currentView } = useUI();
 
+    // Per-leg transit offsets (ms from departure to leg i's START pin) at
+    // cruising speed — the ETA the tide windows are evaluated at. Pin-start
+    // ETA is close enough to the gate's mid-leg spot: tide windows are hours
+    // wide, legs are minutes long.
+    const legEtaOffsetsMs = useMemo(() => {
+        const spdRaw = settings.vessel?.cruisingSpeed;
+        const spd = typeof spdRaw === 'number' && spdRaw > 0 ? spdRaw : 6;
+        const out: number[] = [];
+        let cumNM = 0;
+        for (let i = 0; i + 1 < capturedCoords.length; i++) {
+            out.push((cumNM / spd) * 3_600_000);
+            cumNM += distMetres(capturedCoords[i], capturedCoords[i + 1]) / 1852;
+        }
+        return out;
+    }, [capturedCoords, settings.vessel]);
+
     // ⚡ Auto route (Shane 2026-07-15: "follow deep water. if there is a
     // place we cannot cross, then check that against tide times. we cannot
     // cross land"). Drives the REAL inshore routing engine (tryInshoreRoute)
@@ -1768,13 +1815,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!showReport) return;
         setDepartureLabel(null);
         let stale = false;
-        void commonDepartureWindowLabel(legVerdicts, vesselDraftMetres(settings.vessel)).then((label) => {
+        void commonDepartureWindowLabel(legVerdicts, vesselDraftMetres(settings.vessel), {
+            departureMs,
+            etaOffsetsMs: legEtaOffsetsMs,
+        }).then((label) => {
             if (!stale) setDepartureLabel(label ?? '');
         });
         return () => {
             stale = true;
         };
-    }, [showReport, legVerdicts, settings.vessel]);
+    }, [showReport, legVerdicts, settings.vessel, departureMs, legEtaOffsetsMs]);
     // ── Community flywheel handlers (#38) ──
     // Consent share: first tap ARMS with the plain-english consent copy;
     // second tap submits. Explicit every time — never a background upload.
@@ -2040,7 +2090,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         const next: Record<number, string> = {};
         legVerdicts.forEach((v, i) => {
             if (!v || !v.needsTide || v.minDepthM === null || !v.minAt) return;
-            const spot = `${v.minAt.lat.toFixed(5)}|${v.minAt.lon.toFixed(5)}|${v.minDepthM}`;
+            // Window anchored at the leg's ARRIVAL (departure + transit), not
+            // "now" — the crossing question is about when you're THERE. The
+            // 30-min ETA bucket in the cache key re-fetches when the departure
+            // (or the route ahead of this leg) moves the arrival materially.
+            const fromMs = (departureMs ?? Date.now()) + (legEtaOffsetsMs[i] ?? 0);
+            const spot = `${v.minAt.lat.toFixed(5)}|${v.minAt.lon.toFixed(5)}|${v.minDepthM}|t${Math.round(fromMs / 1_800_000)}`;
             const cached = tideSpotCacheRef.current.get(spot);
             if (cached) {
                 next[i] = cached;
@@ -2048,7 +2103,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             }
             if (tideReqRef.current.has(spot)) return;
             tideReqRef.current.add(spot);
-            void tideWindowLabelFor(v.minDepthM, draftM, v.minAt).then((label) => {
+            void tideWindowLabelFor(v.minDepthM, draftM, v.minAt, fromMs).then((label) => {
                 if (!label) {
                     // Fetch failed (offline) — release the spot so a later
                     // pass retries; the old design got free retries from
@@ -2074,7 +2129,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pk.length === nk.length && nk.every((k) => prev[k as never] === next[k as never])) return prev;
             return next;
         });
-    }, [legVerdicts, coordCaptureMode, settings.vessel]);
+    }, [legVerdicts, coordCaptureMode, settings.vessel, departureMs, legEtaOffsetsMs]);
 
     const [isoProgress, setIsoProgress] = useState<{
         step: number;
@@ -5289,6 +5344,38 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 )}
                                             </div>
                                         )}
+                                        {/* Departure date/time (Shane 2026-07-16): anchors the
+                                            tide windows at each leg's ETA, the departure-window
+                                            headline, and the report's per-waypoint weather.
+                                            Empty = leave now. */}
+                                        <div className="flex items-center gap-1.5 border-t border-white/10 px-3 py-2">
+                                            <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                                🕐 Depart
+                                            </span>
+                                            <input
+                                                type="datetime-local"
+                                                value={departureMs !== null ? msToLocalInput(departureMs) : ''}
+                                                onChange={(e) => {
+                                                    const t = e.target.value ? new Date(e.target.value).getTime() : NaN;
+                                                    triggerHaptic('light');
+                                                    setDepartureMs(Number.isFinite(t) ? t : null);
+                                                }}
+                                                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                                            />
+                                            {departureMs !== null ? (
+                                                <button
+                                                    onClick={() => {
+                                                        triggerHaptic('light');
+                                                        setDepartureMs(null);
+                                                    }}
+                                                    className="shrink-0 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                                                >
+                                                    Now
+                                                </button>
+                                            ) : (
+                                                <span className="shrink-0 text-[10px] font-bold text-emerald-300/80">now</span>
+                                            )}
+                                        </div>
                                         {/* Build a route by keying GPS fixes — decimal, DMM
                                             ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
                                             Each Add drops the next pin (Shane 2026-07-16). */}
@@ -5582,6 +5669,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     vesselName={settings.vessel?.name}
                     draftM={vesselDraftMetres(settings.vessel)}
                     cruisingSpeedKts={settings.vessel?.cruisingSpeed}
+                    departureMs={departureMs}
                     onFlyTo={(pt) => {
                         setShowReport(false);
                         mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });

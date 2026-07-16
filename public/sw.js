@@ -192,9 +192,13 @@
 // cold-store downloads run 3-wide with paint-in-waves, unclamped merge
 // yields, Pi auto-sync deferred out of the boot window, hydration skips a
 // multi-MB re-stringify, and a [perf] line measures every merge.
-const CACHE_NAME = 'thalassa-v109-core';
-const TILE_CACHE = 'thalassa-v109-tiles';
-const DATA_CACHE = 'thalassa-v109-data';
+// v110: departure date/time on the tracer (🕐 Depart picker, default now) —
+// per-waypoint weather ETAs anchor at the chosen departure, per-leg tide
+// windows evaluate at each leg's ARRIVAL time, and the departure-window
+// headline shifts every gate back by its transit time (a true "leave X–Y").
+const CACHE_NAME = 'thalassa-v110-core';
+const TILE_CACHE = 'thalassa-v110-tiles';
+const DATA_CACHE = 'thalassa-v110-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

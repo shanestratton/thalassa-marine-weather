@@ -960,23 +960,38 @@ const fmtHm = (ms: number): string =>
 
 /** "today" / "tonight" / "tomorrow" for a window opening — a bare "08:45"
  *  read tonight was tomorrow's window to the punter (windows shift ~50 min/
- *  day, so acting on the wrong day is a real grounding vector). */
+ *  day, so acting on the wrong day is a real grounding vector). Beyond
+ *  tomorrow (departure-time planning) the actual date is the only honest
+ *  label: "Sat 19 Jul". */
 function dayWord(ms: number): string {
     const now = new Date();
     const then = new Date(ms);
-    if (then.getDate() !== now.getDate() || then.getMonth() !== now.getMonth()) return 'tomorrow';
-    return then.getHours() >= 18 ? 'tonight' : 'today';
+    if (then.getDate() === now.getDate() && then.getMonth() === now.getMonth()) {
+        return then.getHours() >= 18 ? 'tonight' : 'today';
+    }
+    const tomorrow = new Date(now.getTime() + 24 * 3600_000);
+    if (then.getDate() === tomorrow.getDate() && then.getMonth() === tomorrow.getMonth()) return 'tomorrow';
+    return then.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 /**
  * "clears 08:45–14:30 today" ("(approx)" from interpolated extremes) for a
- * shallow spot over the next 24 h, or "needs +X.X m — no tide window in
- * 24 h". Null when tide data is unavailable (offline) — the leg stays red
- * with its depth message; never guess a window.
+ * shallow spot over the 24 h from `fromMs`, or "needs +X.X m — no tide
+ * window in 24 h". Null when tide data is unavailable (offline) — the leg
+ * stays red with its depth message; never guess a window.
+ *
+ * `fromMs` (default now) is the leg's ARRIVAL time when a departure date/
+ * time is set (Shane 2026-07-16: "the tide crossings need to update with the
+ * departure time") — the window question becomes "is there water when I'm
+ * actually THERE", not "is there water right now".
  */
-export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: TracePoint): Promise<string | null> {
+export async function tideWindowLabelFor(
+    minDepthM: number,
+    draftM: number,
+    at: TracePoint,
+    fromMs: number = Date.now(),
+): Promise<string | null> {
     try {
-        const fromMs = Date.now();
         const untilMs = fromMs + 24 * 3600_000;
         const curve = await fetchTideCurve(at.lat, at.lon, fromMs, untilMs);
         if (!curve) return null;
@@ -985,14 +1000,16 @@ export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: 
         // enough to matter — say so (the popup used to show "tide data
         // unavailable" for this, review minor 2026-07-11). Zero/negative
         // rise = nothing to say, as before.
-        if (res.alwaysOpen) return res.requiredRiseM > 0 ? 'the tide covers this all day today' : null;
+        if (res.alwaysOpen) return res.requiredRiseM > 0 ? 'the tide covers this all day' : null;
         if (res.windows.length === 0) return `needs +${res.requiredRiseM.toFixed(1)} m — no tide window in 24 h`;
         const w = res.windows[0];
-        // Window already open at "now": say so — the 17:34 bug (Shane
-        // 2026-07-12: "+1 m of water... it always says this") was this
-        // exact case pointed at the NEXT window instead.
+        // Window already open at the reference time: say so — the 17:34 bug
+        // (Shane 2026-07-12: "+1 m of water... it always says this") was this
+        // exact case pointed at the NEXT window instead. "NOW" only when the
+        // reference time IS now; a future arrival says "on arrival".
         if (w.openMs <= fromMs) {
-            return `clears NOW until ${fmtHm(w.closeMs)} ${dayWord(w.closeMs)}${w.approx ? ' (approx)' : ''}`;
+            const openWord = fromMs - Date.now() > 5 * 60_000 ? 'on arrival' : 'NOW';
+            return `clears ${openWord} until ${fmtHm(w.closeMs)} ${dayWord(w.closeMs)}${w.approx ? ' (approx)' : ''}`;
         }
         return `clears ${fmtHm(w.openMs)}–${fmtHm(w.closeMs)} ${dayWord(w.openMs)}${w.approx ? ' (approx)' : ''}`;
     } catch (err) {
@@ -1544,22 +1561,34 @@ function intersectWindows(
  * The report-modal headline: intersect every tide-gated leg's windows into
  * ONE departure call — "leave 09:10–13:30 today and every tide gate clears".
  * Returns null when no leg needs tide (nothing to say) or tide data is
- * unavailable (never guess). NOTE v1 checks the gates against the same clock
- * (no transit-time offset) — honest for day-hop traces where gates sit within
- * a few hours of departure; the label says "gates checked for today's tide".
+ * unavailable (never guess).
+ *
+ * `opts.departureMs` anchors the 24 h search at the chosen departure (Shane
+ * 2026-07-16), default now. `opts.etaOffsetsMs[i]` is leg i's transit time
+ * from departure: each gate's water windows are computed AT ITS ARRIVAL span
+ * and shifted BACK by the transit time before intersecting — so the label is
+ * a true DEPARTURE window ("leave inside this span and every gate has water
+ * when you actually reach it"). Without offsets, v1's same-clock check.
  */
 export async function commonDepartureWindowLabel(
     verdicts: ReadonlyArray<TraceLegVerdict | null | undefined>,
     draftM: number,
+    opts: { departureMs?: number | null; etaOffsetsMs?: ReadonlyArray<number | undefined> } = {},
 ): Promise<string | null> {
-    const gated = verdicts.filter(
-        (v): v is TraceLegVerdict => !!v && v.needsTide && v.minDepthM !== null && v.minAt !== null,
-    );
+    const gated = verdicts
+        .map((v, i) => ({ v, i }))
+        .filter(
+            (x): x is { v: TraceLegVerdict; i: number } =>
+                !!x.v && x.v.needsTide && x.v.minDepthM !== null && x.v.minAt !== null,
+        );
     if (gated.length === 0) return null;
-    const fromMs = Date.now();
-    const untilMs = fromMs + 24 * 3600_000;
+    const departMs = opts.departureMs ?? Date.now();
+    const withTransit = !!opts.etaOffsetsMs;
     let common: Array<{ o: number; c: number }> | null = null;
-    for (const v of gated) {
+    for (const { v, i } of gated) {
+        const dt = opts.etaOffsetsMs?.[i] ?? 0;
+        const fromMs = departMs + dt;
+        const untilMs = fromMs + 24 * 3600_000;
         const curve = await fetchTideCurve(v.minAt!.lat, v.minAt!.lon, fromMs, untilMs);
         if (!curve) return null; // offline — the per-leg red rows still stand
         const res = computeTidalWindows({
@@ -1570,13 +1599,16 @@ export async function commonDepartureWindowLabel(
             untilMs,
         });
         if (res.alwaysOpen) continue;
-        const wins = res.windows.map((w) => ({ o: w.openMs, c: w.closeMs }));
+        // Shift the gate's WATER windows back by its transit time → the
+        // DEPARTURE windows that put the boat there while it's open.
+        const wins = res.windows.map((w) => ({ o: w.openMs - dt, c: w.closeMs - dt }));
         if (wins.length === 0) return 'no tide window clears every gate in 24 h — wait or re-route';
         common = common === null ? wins : intersectWindows(common, wins);
-        if (common.length === 0) return 'no COMMON window clears every gate in 24 h — split the passage';
+        if (common.length === 0) return 'no COMMON departure window clears every gate in 24 h — split the passage';
     }
     if (!common || common.length === 0) return null;
     const w = common[0];
-    const openLabel = w.o <= fromMs ? 'now' : fmtHm(w.o);
-    return `leave ${openLabel}–${fmtHm(w.c)} ${dayWord(w.o)} and every tide gate clears (checked at today's tide)`;
+    const openLabel = w.o <= Date.now() ? 'now' : fmtHm(w.o);
+    const method = withTransit ? 'transit times included' : "checked at today's tide";
+    return `leave ${openLabel}–${fmtHm(w.c)} ${dayWord(Math.max(w.o, Date.now()))} and every tide gate clears (${method})`;
 }
