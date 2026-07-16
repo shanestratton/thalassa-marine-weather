@@ -153,9 +153,13 @@
 // the shoal side.
 // v99: GPS-fix input placeholder is now the plain "Add a GPS coordinate"
 // (Shane 2026-07-16) — no clipped example.
-const CACHE_NAME = 'thalassa-v99-core';
-const TILE_CACHE = 'thalassa-v99-tiles';
-const DATA_CACHE = 'thalassa-v99-data';
+// v100: route report now shows the route heading (its name) and has a ⬇ PDF
+// button — exports a shareable/printable PDF (title, health tally, departure
+// window, every waypoint in DMM, per-leg verdicts) via the iOS share sheet /
+// web download. jsPDF lazy-loaded off the main bundle.
+const CACHE_NAME = 'thalassa-v100-core';
+const TILE_CACHE = 'thalassa-v100-tiles';
+const DATA_CACHE = 'thalassa-v100-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

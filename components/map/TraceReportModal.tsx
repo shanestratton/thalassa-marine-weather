@@ -12,11 +12,16 @@
 import React from 'react';
 import type { TraceLegVerdict, TracePoint } from '../../services/routeTracer';
 import { traceHealth } from '../../services/routeTracer';
+import { triggerHaptic } from '../../utils/system';
+// The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
+// handler so it never weighs down the chart's initial bundle.
 
 interface Props {
     open: boolean;
     onClose: () => void;
     pins: TracePoint[];
+    /** The route heading shown in the report + PDF, e.g. "Bribie - Newport". */
+    routeName: string;
     /** null slot = leg still grading in its build window. */
     verdicts: Array<TraceLegVerdict | null>;
     tideLabels: Record<number, string>;
@@ -29,6 +34,8 @@ interface Props {
     onFixLeg: (i: number) => void;
     onFixAll: () => void;
     onAckLeg: (i: number) => void;
+    vesselName?: string;
+    draftM?: number;
 }
 
 /** Decimal degrees → degrees-decimal-minutes with hemisphere (the marine
@@ -107,6 +114,7 @@ export const TraceReportModal: React.FC<Props> = ({
     open,
     onClose,
     pins,
+    routeName,
     verdicts,
     tideLabels,
     departureLabel,
@@ -116,7 +124,41 @@ export const TraceReportModal: React.FC<Props> = ({
     onFixLeg,
     onFixAll,
     onAckLeg,
+    vesselName,
+    draftM,
 }) => {
+    const [exporting, setExporting] = React.useState(false);
+    const [exportMsg, setExportMsg] = React.useState<string | null>(null);
+    const onExportPdf = React.useCallback(async () => {
+        if (pins.length < 2 || exporting) return;
+        setExporting(true);
+        setExportMsg(null);
+        triggerHaptic('medium');
+        try {
+            // Yield so the spinner paints, and lazy-load jsPDF off the main bundle.
+            const [{ generateRouteReportPdf, getRouteReportFileName }, { sharePdfBlob }] = await Promise.all([
+                import('../../services/RouteReportPdfService'),
+                import('../../utils/sharePdf'),
+            ]);
+            const blob = generateRouteReportPdf({
+                routeName,
+                pins,
+                verdicts,
+                tideLabels,
+                departureLabel,
+                vesselName,
+                draftM,
+                nowMs: Date.now(),
+            });
+            const outcome = await sharePdfBlob(blob, getRouteReportFileName(routeName), `Route report - ${routeName || 'route'}`);
+            if (outcome === 'downloaded') setExportMsg('PDF downloaded');
+        } catch (err) {
+            setExportMsg(`Couldn’t make the PDF (${err instanceof Error ? err.message.slice(0, 40) : 'error'})`);
+        } finally {
+            setExporting(false);
+        }
+    }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, exporting]);
+
     if (!open) return null;
     const h = traceHealth(verdicts);
     const graded = verdicts.map((v, i) => ({ v, i })).filter((x): x is { v: TraceLegVerdict; i: number } => !!x.v);
@@ -126,12 +168,31 @@ export const TraceReportModal: React.FC<Props> = ({
     return (
         <div className="fixed inset-0 z-[10050] flex items-end justify-center bg-black/60 sm:items-center">
             <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-t-3xl border border-white/10 bg-slate-900 shadow-2xl sm:rounded-3xl">
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <span className="text-sm font-black uppercase tracking-widest text-amber-300">Route report</span>
-                    <button onClick={onClose} className="text-sm font-bold text-gray-400">
-                        Close
-                    </button>
+                <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
+                    <div className="min-w-0">
+                        <div className="text-sm font-black uppercase tracking-widest text-amber-300">Route report</div>
+                        {routeName.trim() !== '' && (
+                            <div className="truncate text-[13px] font-bold text-gray-100">{routeName}</div>
+                        )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                        <button
+                            onClick={() => void onExportPdf()}
+                            disabled={exporting || pins.length < 2}
+                            className="rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
+                        >
+                            {exporting ? 'Making…' : '⬇ PDF'}
+                        </button>
+                        <button onClick={onClose} className="text-sm font-bold text-gray-400">
+                            Close
+                        </button>
+                    </div>
                 </div>
+                {exportMsg && (
+                    <div className="border-b border-white/10 bg-sky-500/10 px-4 py-1.5 text-[11px] font-bold text-sky-300">
+                        {exportMsg}
+                    </div>
+                )}
                 <div className="border-b border-white/10 px-4 py-2 text-[12px] font-bold">
                     <span className="text-emerald-300">{h.clear} clear</span>
                     <span className="text-gray-500"> · </span>
