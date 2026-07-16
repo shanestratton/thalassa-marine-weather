@@ -55,9 +55,9 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
       draft-cleared sounding-only result to GEBCO); the sub-231 m zero-sample
       break removed (crossing test always runs); >5 m draft clamp surfaced as a
       loud caution.
-- [ ] **1.0 — Spatial tide honesty** — per-region tide curves on long routes,
-      or a station-distance advisory (Broad Sound ~8 m vs Moreton ~2 m on one
-      mid-route curve today).
+- [x] **1.0 — Spatial tide honesty** — DONE (`8fc0fad1`): routes >40 NM
+      with a live curve carry a named-station single-curve advisory, appended
+      in both exit branches.
 
 ### Performance
 
@@ -81,10 +81,11 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 
 ### Rendering
 
-- [ ] **0.75 — INT1 glyph set** for UWTROC/WRECKS/OBSTRN with CATWRK/WATLEV
-      differentiation (dangerous vs swept wreck).
-- [ ] **0.75 — TSS directionality end-to-end** — read ORIENT in
-      buildCautionAreas, lane arrows on the wash, direction row in the popup.
+- [x] **0.75 — INT1 glyph set** — DONE (`938f52c1`): +/\* rocks by WATLEV,
+      filled-vs-outline wreck hull by CATWRK (unknown reads dangerous),
+      foul-ground obstruction circle; icon-allow-overlap.
+- [x] **0.75 — TSS directionality** — DONE (`8fc0fad1`): map-aligned ⇧
+      rotated to ORIENT on each lane + "Lane direction: 057°" popup row.
 - [ ] **0.5 — S-52 day/dusk/night palette** for the chart layers (the white
       ramp kills night vision at the helm).
 - [ ] **0.5 — Missing charted-area classes** — CTNARE, TSEZNE, ACHARE,
@@ -117,3 +118,6 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | Advisory UX cluster (tiers / headlines / raw codes / a11y)     | 1.75 | `e58c8f8d` | 87.1              |
 | 2026-07-16 | Merge main-thread passes sliced (fold + ladder)                | 1.75 | `caa339da` | 88.85             |
 | 2026-07-16 | GEBCO cache bound + index LRU resize (VTS deferred w/ reason)  | 0.8  | `f909cb3d` | 89.65             |
+| 2026-07-16 | Spatial tide single-station advisory                           | 1.0  | `8fc0fad1` | 90.65             |
+| 2026-07-16 | TSS lane directionality (ORIENT arrows + popup)                | 0.75 | `8fc0fad1` | 91.4              |
+| 2026-07-16 | INT1 hazard glyphs (CATWRK/WATLEV differentiated)              | 0.75 | `938f52c1` | 92.15             |
