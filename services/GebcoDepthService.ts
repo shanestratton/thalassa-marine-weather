@@ -93,9 +93,16 @@ class GebcoDepthServiceClass {
                 const idx = uncachedIndices[j];
                 results[idx] = fetched[j];
 
-                // Cache the result
-                const key = cacheKey(fetched[j].lat, fetched[j].lon);
-                depthCache.set(key, fetched[j].depth_m);
+                // Cache REAL depths only. GEBCO is global bathymetry — a null
+                // here always means the FETCH failed (edge error / offline),
+                // never "no data exists at this point". Caching the null
+                // poisoned the session: one transient outage degraded every
+                // affected point to source:'none'/advisory-only until restart
+                // (mission audit). Uncached → retried on the next query.
+                if (fetched[j].depth_m !== null) {
+                    const key = cacheKey(fetched[j].lat, fetched[j].lon);
+                    depthCache.set(key, fetched[j].depth_m);
+                }
             }
         }
 
