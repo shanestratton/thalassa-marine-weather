@@ -434,15 +434,16 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                 type: 'fill',
                 source: ENC_VEC_SRC.CAUTION_AREAS,
                 minzoom: 11,
+                // SBDARE (seabed nature) is EXCLUDED from the fill — it's a
+                // near-invisible anchoring-info wash that blankets whole seabed
+                // areas, and being clickable + above DEPARE it stole the
+                // flagship depth/keel-verdict popup on a tap in open water
+                // (audit: "Seabed: Sand" over the Newport demo). It keeps its
+                // outline below; the true caution zones keep their tappable wash.
+                filter: ['!=', ['get', '_caution'], 'SBDARE'],
                 paint: {
-                    'fill-color': colourExpr as mapboxgl.ExpressionSpecification,
-                    'fill-opacity': [
-                        'match',
-                        ['get', '_caution'],
-                        'SBDARE',
-                        0.05,
-                        0.1,
-                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    'fill-color': '#c0209a',
+                    'fill-opacity': 0.1,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_FILL),
