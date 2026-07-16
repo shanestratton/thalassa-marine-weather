@@ -768,6 +768,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         if (!v) continue; // pending slot — still grading
                         for (const iss of v.issues) {
                             if (!iss.at) continue;
+                            if (iss.severity === 'info') continue; // green confirmation → no ⚠ on the chart
                             issueFeats.push({
                                 type: 'Feature',
                                 properties: { severity: iss.severity },
@@ -4970,13 +4971,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                           : v.grade === 'caution'
                                                             ? 'text-amber-300'
                                                             : 'text-emerald-300';
+                                                    // A clear leg normally reads "clear — N m least",
+                                                    // but a green 'info' note (e.g. "Red mark to your
+                                                    // port — correct side heading in") takes its place
+                                                    // so a right mark-pass shows its confirmation.
+                                                    const infoNote = v?.issues.find((iss) => iss.severity === 'info');
                                                     const msg = !v
                                                         ? 'checking…'
                                                         : v.grade === 'clear'
-                                                          ? v.minDepthM !== null
-                                                              ? `clear — ${v.minDepthM.toFixed(1)} m least`
-                                                              : 'clear'
-                                                          : (v.issues[0]?.message ?? v.grade);
+                                                          ? infoNote
+                                                              ? infoNote.message
+                                                              : v.minDepthM !== null
+                                                                ? `clear — ${v.minDepthM.toFixed(1)} m least`
+                                                                : 'clear'
+                                                          : (v.issues.find((iss) => iss.severity !== 'info')?.message ?? v.grade);
                                                     // Tap a leg row → fly to the MARK it's
                                                     // about (haloed) when there is one, else
                                                     // the problem spot / leg midpoint.

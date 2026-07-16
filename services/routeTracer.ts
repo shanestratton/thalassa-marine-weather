@@ -53,7 +53,10 @@ export interface TracePoint {
 export type TraceGrade = 'clear' | 'caution' | 'danger';
 
 export interface TraceIssue {
-    severity: 'caution' | 'danger';
+    /** 'info' = a GREEN confirmation, not a problem — it does NOT escalate the
+     *  leg grade (stays 'clear'). Used to say "you're passing this mark on the
+     *  correct side" so a right pass reads green, not amber (Shane 2026-07-16). */
+    severity: 'info' | 'caution' | 'danger';
     /** Skipper-readable, ≤ ~60 chars — shown on the leg row in the panel. */
     message: string;
     at?: TracePoint;
@@ -689,30 +692,52 @@ export function validateTraceLeg(
             const read =
                 grid && nearest ? lateralPassRead(grid, nearest, closestOnLeg(nearest, a, b).point, keelM) : 'unknown';
             if (read === 'shoalside') {
+                // Chart puts the boat on the SHOAL side of the mark — a real
+                // risk, keep the teeth.
                 issues.push({ severity: 'caution', message: 'bank side of a nearby mark — favour the deeper side', at: mz });
-            } else if (read === 'unknown') {
-                // The chart can't call the side (open water, or the boat is
-                // passing right over the mark). If we know the mark's IALA hand,
-                // give the RULE — a red mark HAS a determinate keep-side once
-                // you know your heading (Shane 2026-07-16, IALA-A). We state
-                // which side of THIS course the mark sits on + the rule, and let
-                // the skipper apply their inbound/outbound knowledge. Honest: we
-                // don't fabricate the direction of buoyage, we hand over the rule.
-                let message = 'near a mark — check which side is safe';
-                if (nearest?.hand) {
-                    const kx = Math.cos((a.lat * Math.PI) / 180);
-                    const dx = (b.lon - a.lon) * kx;
-                    const dy = b.lat - a.lat;
-                    const px = (nearest.lon - a.lon) * kx;
-                    const py = nearest.lat - a.lat;
-                    // cross > 0 ⇒ mark is to the LEFT of the course = your port side.
-                    const courseSide = dx * py - dy * px > 0 ? 'port' : 'starboard';
-                    const isPort = nearest.hand === 'port';
-                    message = `${isPort ? 'Red port-hand' : 'Green starboard-hand'} mark on your ${courseSide} — IALA-A: keep ${isPort ? 'red to port' : 'green to starboard'} heading in`;
+            } else if (nearest?.hand) {
+                // A lateral mark with a known IALA hand. Which side of THIS
+                // course does it sit on? (signed cross-product, cos-lat scaled).
+                const kx = Math.cos((a.lat * Math.PI) / 180);
+                const dx = (b.lon - a.lon) * kx;
+                const dy = b.lat - a.lat;
+                const px = (nearest.lon - a.lon) * kx;
+                const py = nearest.lat - a.lat;
+                // cross > 0 ⇒ mark is to the LEFT of the course = your port side.
+                const courseSide = dx * py - dy * px > 0 ? 'port' : 'starboard';
+                const isPort = nearest.hand === 'port';
+                const colour = isPort ? 'Red port-hand' : 'Green starboard-hand';
+                // Red-to-port / green-to-starboard is the config you're in
+                // proceeding WITH the buoyage (inbound); the opposite is the
+                // outbound-correct config. So the mark's side tells the skipper
+                // which HEADING this is the correct side for.
+                const keepInbound = (isPort && courseSide === 'port') || (!isPort && courseSide === 'starboard');
+                // The SAFETY truth is the charted depth where the boat sails:
+                // clean read, or a keel-safe least-depth on the leg. Deep water
+                // ⇒ this is a safe pass ⇒ GREEN confirmation with the IALA
+                // context, not an amber nag (Shane 2026-07-16: "can it be green
+                // because I'm on the correct side?"). Sub-keel / unproven water
+                // keeps the amber advisory (and the depth block flags the depth).
+                const depthSafe = read === 'clean' || (minDepthM !== null && minDepthM >= keelM);
+                if (depthSafe) {
+                    issues.push({
+                        severity: 'info',
+                        message: `${colour} mark to your ${courseSide} — correct side heading ${keepInbound ? 'in' : 'out'} (IALA-A)`,
+                        at: mz,
+                    });
+                } else {
+                    issues.push({
+                        severity: 'caution',
+                        message: `${colour} mark on your ${courseSide} — IALA-A: keep ${isPort ? 'red to port' : 'green to starboard'} heading in`,
+                        at: mz,
+                    });
                 }
-                issues.push({ severity: 'caution', message, at: mz });
+            } else if (read !== 'clean') {
+                // No IALA hand (a direct point-hazard inference) and the chart
+                // can't confirm clean → honest verify.
+                issues.push({ severity: 'caution', message: 'near a mark — check which side is safe', at: mz });
             }
-            // read === 'clean' → silent (chart confirms the safe side).
+            // read === 'clean' with no hand → silent (chart confirms the side).
         }
     } else if (bankShaveAt) {
         issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });
@@ -904,9 +929,11 @@ export function validateTraceLeg(
         issues.push({ severity: 'caution', message: 'checked against a default 2.5 m draft — set your vessel' });
     }
 
+    // 'info' issues are GREEN confirmations — they must NOT escalate the grade
+    // (a right mark-pass reads clear, not amber). Only a real caution does.
     const grade: TraceGrade = issues.some((i) => i.severity === 'danger')
         ? 'danger'
-        : issues.length > 0
+        : issues.some((i) => i.severity === 'caution')
           ? 'caution'
           : 'clear';
     return { grade, issues, minDepthM, minAt, needsTide, nudge };

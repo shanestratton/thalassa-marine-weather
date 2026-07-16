@@ -53,7 +53,11 @@ const sevRow = (
     onFixLeg: Props['onFixLeg'],
     onAckLeg: Props['onAckLeg'],
 ): React.ReactNode => {
-    const spot = v.issues[0]?.mark ?? v.issues[0]?.at ?? v.minAt ?? pins[i];
+    // 'info' issues are green confirmations, not problems — never headline a
+    // danger/caution row with one (a thin-water leg can also carry a correct-
+    // mark-pass note). Report only the real issues here.
+    const problems = v.issues.filter((iss) => iss.severity !== 'info');
+    const spot = problems[0]?.mark ?? problems[0]?.at ?? v.minAt ?? pins[i];
     const isAcked = acked.has(i);
     return (
         <div key={i} className={`rounded-xl border border-white/10 bg-white/5 p-2 ${isAcked ? 'opacity-50' : ''}`}>
@@ -66,11 +70,11 @@ const sevRow = (
                         <span className="font-mono text-gray-400">
                             leg {i + 1}→{i + 2}
                         </span>{' '}
-                        {v.issues[0]?.message ?? v.grade}
+                        {problems[0]?.message ?? v.grade}
                     </span>
                 </div>
                 <div className="pl-5 text-[11px] leading-tight text-gray-400">
-                    {v.issues.slice(1).map((iss, k) => (
+                    {problems.slice(1).map((iss, k) => (
                         <div key={k}>· {iss.message}</div>
                     ))}
                     {tideLabels[i] && <div>🌊 {tideLabels[i]}</div>}
