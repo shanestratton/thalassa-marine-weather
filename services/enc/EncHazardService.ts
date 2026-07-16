@@ -1372,13 +1372,18 @@ async function buildMergedVectorData(
             ? reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents, GLAZE_SHADOW_RATIO))
             : [];
 
-        const tagAndPush = (
+        const tagAndPush = async (
             target: keyof Omit<EncMergedVectorData, 'cellCount'>,
             fc: FeatureCollection | undefined,
-        ) => {
+        ): Promise<void> => {
             if (!fc || !Array.isArray(fc.features)) return;
             const dest = merged[target];
+            // PER-FEATURE-BATCH yielding (burn-down: the fold ran each dense
+            // cell in one synchronous gulp — the only yield was per-CELL, so
+            // a 10k-feature harbour cell blew the 12 ms slice on its own).
+            let processed = 0;
             for (const feat of fc.features) {
+                if ((++processed & 63) === 0) await yieldIfNeeded();
                 if (!feat || !feat.geometry) continue;
                 // Sub-pixel cull (2026-07-13, the z7-8 OOM): at passage zoom
                 // a shoal patch / islet / contour scrap smaller than ~2 px
@@ -1519,12 +1524,12 @@ async function buildMergedVectorData(
             }
         };
 
-        tagAndPush('DEPARE', blob.layers.DEPARE);
+        await tagAndPush('DEPARE', blob.layers.DEPARE);
         // DRGARE (dredged areas) carries DRVAL1 just like DEPARE —
         // merge into the same collection so dredged basins shade
         // with the draft-aware depth bands instead of rendering as
         // chart holes.
-        tagAndPush('DEPARE', blob.layers.DRGARE);
+        await tagAndPush('DEPARE', blob.layers.DRGARE);
         // Glaze variant — built from the ORIGINAL band features (NOT the
         // post-featureIsShadowed survivors). Two grades:
         //  - INSTANT (here, main thread): finer cells' data-extent
@@ -1633,14 +1638,14 @@ async function buildMergedVectorData(
             }
             mergeGlazeKeys.push(glazeKey);
         }
-        tagAndPush('LNDARE', blob.layers.LNDARE);
-        tagAndPush('COALNE', blob.layers.COALNE);
-        tagAndPush('DEPCNT', blob.layers.DEPCNT);
+        await tagAndPush('LNDARE', blob.layers.LNDARE);
+        await tagAndPush('COALNE', blob.layers.COALNE);
+        await tagAndPush('DEPCNT', blob.layers.DEPCNT);
         // Every S-57 point-mark class, driven by the canonical registry
         // (#2a full bind) — a class added there can't be silently forgotten
         // here (order across these distinct collections is immaterial).
-        for (const cls of S57_POINT_MARK_CLASSES) tagAndPush(cls, blob.layers[cls]);
-        tagAndPush('RECTRC', blob.layers.RECTRC);
+        for (const cls of S57_POINT_MARK_CLASSES) await tagAndPush(cls, blob.layers[cls]);
+        await tagAndPush('RECTRC', blob.layers.RECTRC);
 
         // Caution / info AREAS → one CAUTION_AREAS collection, each feature
         // tagged `_caution` with its S-57 class so the renderer styles
@@ -1696,8 +1701,9 @@ async function buildMergedVectorData(
     // surviving number is always the scariest nearby). Runs on the
     // MERGED set, not per cell — per-cell passes double density at
     // every cell seam.
-    await yieldIfNeeded(); // the ladder is one indivisible hot pass
-    assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
+    // The ladder now slices itself through the merge's cooperative yielder
+    // every 1024 points (was one indivisible hot pass — burn-down).
+    await assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>, yieldIfNeeded);
 
     // Sounding LOD cull (2026-07-13, the z7-8 OOM): the ladder just stamped
     // every sounding with the min-zoom it becomes visible at. A wide-window
