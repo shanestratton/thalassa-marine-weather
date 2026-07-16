@@ -504,6 +504,44 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
             beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_LINE),
         );
     }
+    if (!map.getLayer(ENC_VEC_LAYERS.TSSLPT_ARROW)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.TSSLPT_ARROW,
+                type: 'symbol',
+                source: ENC_VEC_SRC.CAUTION_AREAS,
+                minzoom: 11,
+                // Lane-direction arrow at the lane polygon's anchor, rotated
+                // to the S-57 ORIENT bearing and MAP-aligned so it points the
+                // lane's true direction at any camera rotation (audit: the
+                // wash was directionless — the one thing a TSS lane must say
+                // is which WAY it flows).
+                filter: [
+                    'all',
+                    ['==', ['get', '_caution'], 'TSSLPT'],
+                    ['any', ['has', 'ORIENT'], ['has', 'orient']],
+                ] as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'symbol-placement': 'point',
+                    'text-field': '⇧',
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 11, 18, 15, 30],
+                    'text-rotate': [
+                        'to-number',
+                        ['coalesce', ['get', 'ORIENT'], ['get', 'orient'], 0],
+                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    'text-rotation-alignment': 'map',
+                    'text-allow-overlap': true,
+                },
+                paint: {
+                    'text-color': '#d97706',
+                    'text-opacity': 0.9,
+                    'text-halo-color': 'rgba(255,255,255,0.7)',
+                    'text-halo-width': 1,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.TSSLPT_ARROW),
+        );
+    }
 }
 
 /** mountPointMarkLayers — lifted from the mount monolith (#2b, pure statement move). */
