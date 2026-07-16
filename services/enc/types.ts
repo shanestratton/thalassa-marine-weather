@@ -618,8 +618,23 @@ export interface EncConversionResult {
          *  ("Mooloolah River"). Reduced to ONE label point per name at
          *  merge time; only the name ink renders, never the polygons. */
         SEAARE?: GeoJSON.FeatureCollection;
+        /** Restricted area (RESTRN/CATREA). Caution-area polygon. */
+        RESARE?: GeoJSON.FeatureCollection;
+        /** Submarine cable area — no anchoring. Caution-area polygon. */
+        CBLARE?: GeoJSON.FeatureCollection;
+        /** Pipeline area — no anchoring. Caution-area polygon. */
+        PIPARE?: GeoJSON.FeatureCollection;
+        /** Seabed nature (NATSUR: sand/mud/rock). Anchoring-aid polygon. */
+        SBDARE?: GeoJSON.FeatureCollection;
+        /** Traffic Separation Scheme lane part (ORIENT). Info polygon. */
+        TSSLPT?: GeoJSON.FeatureCollection;
     };
 }
+
+/** The caution / information AREA classes drawn as chart furniture (one
+ *  CAUTION_AREAS collection, tagged `_caution`). 2026-07-16 audit. */
+export const CAUTION_AREA_CLASSES = ['RESARE', 'CBLARE', 'PIPARE', 'SBDARE', 'TSSLPT'] as const;
+export type CautionAreaClass = (typeof CAUTION_AREA_CLASSES)[number];
 
 /**
  * Wire format for batch (multi-cell) conversion results. The Pi

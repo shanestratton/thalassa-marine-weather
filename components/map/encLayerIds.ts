@@ -21,6 +21,7 @@ export const ENC_VEC_SRC = {
     LIGHTSEC: 'enc-vec-lightsec', // light-sector arcs + limit legs
     DEPCNT_DERIVED: 'enc-vec-depcnt-derived', // contours interpolated from soundings
     SEAARE_LABELS: 'enc-vec-seaare-labels', // one label point per named sea area
+    CAUTION_AREAS: 'enc-vec-caution-areas', // restricted/cable/pipeline/seabed/TSS polygons
 } as const;
 
 // NOTE: layer-id stability is load-bearing. Click handlers, the
@@ -55,6 +56,12 @@ export const ENC_VEC_LAYERS = {
     DEPCNT_SAFETY: 'enc-vec-depcnt-safety',
     DEPCNT_LABEL: 'enc-vec-depcnt-label',
     COALNE: 'enc-vec-coalne-line',
+    /** Caution / info AREAS (RESARE/CBLARE/PIPARE/SBDARE/TSSLPT). A faint
+     *  data-driven wash + a magenta dashed outline — S-52 draws restricted /
+     *  cable / pipeline zones in magenta. Fill is tappable (read the
+     *  restriction); the outline is decoration. */
+    CAUTION_AREA_FILL: 'enc-vec-caution-fill',
+    CAUTION_AREA_LINE: 'enc-vec-caution-line',
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
     UWTROC: 'enc-vec-uwtroc-circle',
@@ -106,6 +113,10 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
     ENC_VEC_LAYERS.DEPARE_FINE, // fine-survey water beats coarse land bleed
+    // Caution AREAS over the water fills but UNDER contours/soundings/marks,
+    // so numbers + navaids always read on top of a restricted/cable wash.
+    ENC_VEC_LAYERS.CAUTION_AREA_FILL,
+    ENC_VEC_LAYERS.CAUTION_AREA_LINE,
     // Sounding-derived contours sit UNDER the official DEPCNT trio so a
     // surveyed line always draws over an interpolated one where both exist.
     ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
@@ -187,5 +198,8 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.SEAARE_LABEL &&
         id !== ENC_VEC_LAYERS.LNDARE_LABEL &&
         id !== ENC_VEC_LAYERS.VHF_BADGE &&
-        id !== ENC_VEC_LAYERS.VHF_BADGE_VTS,
+        id !== ENC_VEC_LAYERS.VHF_BADGE_VTS &&
+        // The caution-area FILL is tappable (read "restricted — no anchoring");
+        // its outline is just decoration and stays non-tappable.
+        id !== ENC_VEC_LAYERS.CAUTION_AREA_LINE,
 );
