@@ -3,7 +3,7 @@
  * out of the EncHazardService god-module. Locks in LRU touch, eviction, the
  * failed-load flag, and drop/clear.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import {
     touchIndex,
@@ -13,6 +13,8 @@ import {
     dropIndex,
     clearIndexCache,
     indexCacheSize,
+    failedCellIds,
+    INDEX_FAIL_RETRY_MS,
 } from '../../services/enc/encIndexCache';
 import { EncSpatialIndex } from '../../services/enc/EncSpatialIndex';
 
@@ -50,5 +52,46 @@ describe('encIndexCache', () => {
         dropIndex('a');
         expect(touchIndex('a')).toBeUndefined();
         expect(isIndexFailed('a')).toBe(false);
+    });
+});
+
+describe('failed-load cooldown retry (2026-07-17 audit #1: session-pinning killed)', () => {
+    beforeEach(() => {
+        clearIndexCache();
+        vi.useFakeTimers();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('a failed cell retries after the cooldown instead of staying dead all session', () => {
+        markIndexFailed('cell-a');
+        expect(isIndexFailed('cell-a')).toBe(true);
+        vi.advanceTimersByTime(INDEX_FAIL_RETRY_MS - 1);
+        expect(isIndexFailed('cell-a')).toBe(true);
+        vi.advanceTimersByTime(2);
+        expect(isIndexFailed('cell-a')).toBe(false); // cooldown over — next query retries
+    });
+
+    it('a repeated failure restarts the cooldown', () => {
+        markIndexFailed('cell-a');
+        vi.advanceTimersByTime(INDEX_FAIL_RETRY_MS + 1);
+        expect(isIndexFailed('cell-a')).toBe(false);
+        markIndexFailed('cell-a'); // retry failed again
+        vi.advanceTimersByTime(INDEX_FAIL_RETRY_MS - 1);
+        expect(isIndexFailed('cell-a')).toBe(true);
+    });
+
+    it('failedCellIds lists only cells still inside their cooldown', () => {
+        markIndexFailed('cell-a');
+        vi.advanceTimersByTime(INDEX_FAIL_RETRY_MS / 2);
+        markIndexFailed('cell-b');
+        vi.advanceTimersByTime(INDEX_FAIL_RETRY_MS / 2 + 1);
+        expect(failedCellIds()).toEqual(['cell-b']); // cell-a's cooldown expired
+    });
+
+    it('dropIndex clears the failed state immediately (re-import path)', () => {
+        markIndexFailed('cell-a');
+        dropIndex('cell-a');
+        expect(isIndexFailed('cell-a')).toBe(false);
+        expect(failedCellIds()).toEqual([]);
     });
 });

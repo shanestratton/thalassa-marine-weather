@@ -21,10 +21,14 @@ route. Fix the silent failures first.
 
 ### Safety (4.0)
 
-- [ ] **1.0 + 0.5 UX — Corrupt-cell → GEBCO degrade is silent** — propagate
-      cell-failure + `source:'gebco'` counts into `buildRouteAdvisories` as a
-      loud caution ("N% of route verified on 460 m ocean bathymetry only");
-      retry failed blobs instead of session-pinning. (Retires finding #1.)
+- [x] **1.0 + 0.5 UX — Corrupt-cell → GEBCO degrade is silent** — DONE:
+      `buildRouteAdvisories` now surfaces the GEBCO share every route
+      ("N/M depth checks (P%) used ~460 m GEBCO ocean bathymetry") — NOTE
+      for the honest offshore case, CAUTION at ≥30% share or whenever
+      imported cells FAILED to load (named in the advisory, "re-import may
+      be needed"); failed blobs retry after a 60 s cooldown
+      (`INDEX_FAIL_RETRY_MS`) instead of session-pinning. 9 new tests.
+      (Retires finding #1 + its UX twin.)
 - [x] **1.0 — Validation-timeout race ships unvalidated route + stale
       report** — DONE: `ValidateRouteOptions.stillCurrent` gates every
       phase-5 `setLastReport` write (checked again after the hazard walk);
@@ -83,8 +87,8 @@ route. Fix the silent failures first.
 
 ### UX (2.75)
 
-- [ ] **0.5 — GEBCO-tier verification invisible in HazardReportPanel** —
-      folded into the corrupt-cell fix above.
+- [x] **0.5 — GEBCO-tier verification invisible in HazardReportPanel** —
+      DONE, folded into the corrupt-cell fix above (counted there).
 - [ ] **0.25 — No-coverage affordance (red-team add)**.
 - [ ] **2.0 — remaining confirmed UX findings** — itemise from transcript.
 
