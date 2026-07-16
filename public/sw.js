@@ -142,9 +142,13 @@
 // order (DMM, tap-to-fly); (3) special-purpose (yellow) marks show their
 // charted purpose — CATSPM category + free-text INFORM/NINFOM, honest when
 // the chart carries none.
-const CACHE_NAME = 'thalassa-v95-core';
-const TILE_CACHE = 'thalassa-v95-tiles';
-const DATA_CACHE = 'thalassa-v95-data';
+// v96: when the chart can't call which side of a lateral mark is safe, the
+// tracer now gives the IALA-A rule for the mark's hand instead of a vague
+// "check which side" — e.g. "Red port-hand mark on your starboard — IALA-A:
+// keep red to port heading in". Mark hand carried through markHazards.
+const CACHE_NAME = 'thalassa-v96-core';
+const TILE_CACHE = 'thalassa-v96-tiles';
+const DATA_CACHE = 'thalassa-v96-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
