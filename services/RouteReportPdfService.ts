@@ -190,7 +190,9 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     if (wx) {
         doc.setFontSize(7);
         doc.setTextColor(...COLORS.dim);
-        doc.text(`ETA + wind — leave now @ ${data.cruisingSpeedKts ?? 6} kt`, W - margin, y + 4, { align: 'right' });
+        doc.text(`ETA + wind — leave now @ ${(data.cruisingSpeedKts ?? 6).toFixed(1)} kt`, W - margin, y + 4, {
+            align: 'right',
+        });
     }
     y += 8;
     doc.setFontSize(9.5);

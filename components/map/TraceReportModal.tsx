@@ -299,7 +299,7 @@ export const TraceReportModal: React.FC<Props> = ({
                                     {weatherLoading
                                         ? 'loading weather…'
                                         : weather
-                                          ? `ETA + wind · leave now @ ${spd}kt`
+                                          ? `ETA + wind · leave now @ ${spd.toFixed(1)}kt`
                                           : ''}
                                 </span>
                             </div>
