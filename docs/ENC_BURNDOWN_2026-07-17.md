@@ -25,11 +25,15 @@ route. Fix the silent failures first.
       cell-failure + `source:'gebco'` counts into `buildRouteAdvisories` as a
       loud caution ("N% of route verified on 460 m ocean bathymetry only");
       retry failed blobs instead of session-pinning. (Retires finding #1.)
-- [ ] **1.0 — Validation-timeout race ships unvalidated route + stale
-      report** — 4 race sites (isochroneEnhancer 15 s, usePassagePlanner 30 s
-      / 15 s deferred / ECMWF braid); un-cancelled validator overwrites the
-      live report via `setLastReport` for a DISCARDED polyline. Fix:
-      genRef/cancellation guard on the report write (mirror `computeGenRef`) + "route NOT validated" advisory when the timeout wins.
+- [x] **1.0 — Validation-timeout race ships unvalidated route + stale
+      report** — DONE: `ValidateRouteOptions.stillCurrent` gates every
+      phase-5 `setLastReport` write (checked again after the hazard walk);
+      `publishReport:false` bars the ECMWF braid from ever owning the
+      singleton report; all 4 race sites flip a stale flag when their
+      timeout wins; new `publishRouteNotValidated` posts a loud "Route NOT
+      verified" caution on timeout AND on validator throw (was a
+      prod-silenced log.info with the previous route's clean report still
+      up). 3 tests lock the publish helper.
 - [x] **0.5 — Short-route (<100 NM) ETAs pinned to departure time** — DONE:
       all three zero-ETA sites (seed pair, minimal route points, ECMWF braid
       nodes) now carry honest cumulative ETAs via the new pure

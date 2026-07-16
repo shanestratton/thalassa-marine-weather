@@ -416,15 +416,30 @@ export async function enhanceVoyagePlanWithIsochrone(
         try {
             const { validateRouteSegments } = await import('./isochrone/landAvoidance');
             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
+            // Report-race guard + loud timeout (2026-07-17 audit): the
+            // timed-out validator must not later overwrite the live report
+            // for a line we shipped un-verified — and the shipping itself
+            // must be announced, not buried in a prod-silenced log.
+            let enhancerStale = false;
             const validated = await Promise.race([
                 validateRouteSegments(isoResult.route, {
                     // The field name says M — vessel.draft is FEET. Raw
                     // feet here was the "bathymetry is sometimes off" bug.
                     vesselDraftM: vesselDraftMetres(vessel),
                     departureTimeMs,
+                    stillCurrent: () => !enhancerStale,
                 }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+                new Promise<null>((resolve) =>
+                    setTimeout(() => {
+                        enhancerStale = true;
+                        resolve(null);
+                    }, 15_000),
+                ),
             ]);
+            if (!validated) {
+                const { publishRouteNotValidated } = await import('./enc/EncHazardReportService');
+                publishRouteNotValidated('depth validation timed out (15 s)');
+            }
             if (validated && validated.length !== isoResult.route.length) {
                 const added = validated.length - isoResult.route.length;
                 log.info(`GEBCO island validation: inserted ${added} detour waypoint(s)`);
