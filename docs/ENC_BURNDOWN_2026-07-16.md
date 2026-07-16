@@ -111,10 +111,14 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 
 ### Device-gated
 
-- [ ] **1.75 — Ship the martinez true-coverage glaze on-device**
-      (process-isolated worker or precomputed coverage) + verify shallow-wash
-      visuals + the de-dup gate on live partial-coverage cells. Needs Shane's
-      iPhone + profiling.
+- [ ] **1.75 — Ship the martinez true-coverage glaze on-device** — CODE
+      SHIPPED 2026-07-17 (see below), banks only after the on-device verify.
+      The post-mortem's re-enable precondition is met: per-pair vertex cap
+      (`GLAZE_MARTINEZ_VERTEX_CAP` 12k) with over-cap pairs degrading to the
+      strip-rect clip, shallow-band-only coverage payload, `[glaze]` stats
+      warn line for cap tuning. REMAINING (the gate): Shane's iPhone session —
+      shallow-wash visuals, the de-dup gate on live partial-coverage cells,
+      memory stability while panning the Newport/Bribie seam at z10+.
 
 ## Ledger
 

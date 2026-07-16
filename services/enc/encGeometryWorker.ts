@@ -23,7 +23,12 @@
  */
 
 import type { Feature } from 'geojson';
-import { clipFeatureOutsideCoverage, type FineCoverage } from './clipDepareOverlap';
+import {
+    clipFeatureOutsideCoverage,
+    emptyClipStats,
+    GLAZE_MARTINEZ_VERTEX_CAP,
+    type FineCoverage,
+} from './clipDepareOverlap';
 import { buildDerivedContours } from './derivedContours';
 
 interface GlazeCellJob {
@@ -47,11 +52,19 @@ const ctx = self as unknown as {
 ctx.onmessage = (ev: MessageEvent<JobMsg>) => {
     const { jobId, glazeCells, contourPoints } = ev.data;
     try {
+        // One stats bag per job — the 'done' message carries it back so the
+        // main thread can log the exact/degraded split (the device-session
+        // tuning signal for GLAZE_MARTINEZ_VERTEX_CAP).
+        const stats = emptyClipStats();
+        const glazeT0 = performance.now();
         for (const cell of glazeCells ?? []) {
             const out: Feature[] = [];
             for (const f of cell.features) {
                 if (!f || !f.geometry) continue;
-                const clipped = cell.coverages.length > 0 ? clipFeatureOutsideCoverage(f, cell.coverages) : f;
+                const clipped =
+                    cell.coverages.length > 0
+                        ? clipFeatureOutsideCoverage(f, cell.coverages, GLAZE_MARTINEZ_VERTEX_CAP, stats)
+                        : f;
                 if (clipped) out.push(clipped);
             }
             ctx.postMessage({ jobId, type: 'glaze-cell', cellId: cell.cellId, glazeKey: cell.glazeKey, features: out });
@@ -59,7 +72,12 @@ ctx.onmessage = (ev: MessageEvent<JobMsg>) => {
         if (contourPoints && contourPoints.length > 0) {
             ctx.postMessage({ jobId, type: 'contours', features: buildDerivedContours(contourPoints) });
         }
-        ctx.postMessage({ jobId, type: 'done' });
+        ctx.postMessage({
+            jobId,
+            type: 'done',
+            glazeStats:
+                (glazeCells?.length ?? 0) > 0 ? { ...stats, ms: Math.round(performance.now() - glazeT0) } : undefined,
+        });
     } catch (e) {
         ctx.postMessage({ jobId, type: 'error', message: e instanceof Error ? e.message : String(e) });
     }

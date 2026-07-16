@@ -60,6 +60,8 @@ import {
     clipLineFeatureOutsideBboxes,
     coverageMaskStrips,
     type CoverageGeom,
+    type CoverageClipStats,
+    type FineCoverage,
 } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import {
@@ -691,7 +693,14 @@ function getGeoWorker(): Worker | null {
         log.warn('geometry worker died — staying on fast glaze/contours this session');
     };
     geoWorker.onmessage = (
-        ev: MessageEvent<{ jobId: number; type: string; glazeKey?: string; features?: Feature[]; message?: string }>,
+        ev: MessageEvent<{
+            jobId: number;
+            type: string;
+            glazeKey?: string;
+            features?: Feature[];
+            message?: string;
+            glazeStats?: CoverageClipStats & { ms: number };
+        }>,
     ) => {
         const { jobId, type, glazeKey, features, message } = ev.data;
         const job = pendingGeometryJobs.get(jobId);
@@ -714,6 +723,15 @@ function getGeoWorker(): Worker | null {
         if (type === 'done' && job) {
             pendingGeometryJobs.delete(jobId);
             if (job.glazeKeys.length > 0) applyGlazeUpgrade(job);
+            // warn, not info (info is silent in prod): THE device-session
+            // signal — exact/degraded split + the cap-tuning vertex peak.
+            const gs = ev.data.glazeStats;
+            if (gs) {
+                log.warn(
+                    `[glaze] true-coverage upgrade: exact=${gs.pairsExact} strip-capped=${gs.pairsStripped} ` +
+                        `rect-fallback=${gs.pairsRectFallback} maxPairVerts=${gs.maxPairVertices} in ${gs.ms}ms`,
+                );
+            }
             return;
         }
         if (type === 'error') {
@@ -945,25 +963,30 @@ export function shallowClipCoverage(collections: Array<FeatureCollection | undef
  *  single GEOMETRY_WORKER_ENABLED gate threw the safe job out with the
  *  dangerous one.
  *
- *  GLAZE (martinez true-coverage clip) is the OOM detonator. A Worker is
- *  a separate THREAD in the SAME renderer process, so martinez's
- *  allocation spike still kills the whole tab ("Aw, Snap" returned within
- *  minutes of the worker shipping 2026-07-13; the flag-off build before
- *  it was confirmed crash-free). Workers protect against HANGS, not
- *  process OOM. This stays OFF until the clip is bounded (per-pair vertex
- *  caps / chunked jobs / a bounded clipping algorithm to replace
- *  martinez); the instant rectangle glaze remains the only glaze.
+ *  GLAZE (martinez true-coverage clip) was the OOM detonator: a Worker is
+ *  a separate THREAD in the SAME renderer process, so an unbounded
+ *  martinez allocation spike killed the whole tab ("Aw, Snap" returned
+ *  within minutes of the worker shipping 2026-07-13). Workers protect
+ *  against HANGS, not process OOM. The post-mortem's re-enable
+ *  precondition — "do not flip on until the clip is bounded (per-pair
+ *  vertex caps / chunked jobs / a bounded clipper)" — is now met
+ *  (2026-07-17): clipFeatureOutsideCoverage gates every subject/clip pair
+ *  on GLAZE_MARTINEZ_VERTEX_CAP and degrades over-cap pairs to the
+ *  strip-rect clip (bounded by construction), and the coverage payload is
+ *  the SHALLOW-band subset (GLAZE_CLIP_MAX_SAFE_M), a fraction of the
+ *  2026-07-13 full-coverage input. The 'done' message carries per-job
+ *  clip stats, logged as the `[glaze]` warn line — watch it during the
+ *  device session and tune the cap from maxPairVertices. If the tab ever
+ *  dies with this on, flip it OFF first and re-read the post-mortem
+ *  (lesson_web_gpu_oom_tilecache).
  *
  *  CONTOURS (Delaunay + isoline march) were NEVER the crash — they were a
  *  main-thread HANG (2026-07-12), which is exactly what a worker cures.
  *  delaunator is O(n) over flat typed arrays and the input is hard-capped
  *  (DERIVED_CONTOUR_MAX_SOUNDINGS = 30 k), so the worker's peak allocation
- *  is bounded — the "bound the inputs first" precondition the glaze still
- *  fails is already met here. Contours ride the same worker but their
- *  dispatch never queues a glaze cell, so martinez is never CALLED on
- *  their behalf: turning this on alone restores the SonarChart-HD depth
- *  densification off-thread with zero OOM exposure. */
-const GLAZE_WORKER_ENABLED = false;
+ *  is bounded. Contours ride the same worker; their dispatch never queues
+ *  a glaze cell. */
+const GLAZE_WORKER_ENABLED = true;
 const DERIVED_CONTOUR_WORKER_ENABLED = true;
 
 /** "Is the user mid-gesture?" probe, registered by the map hook (it
@@ -1101,12 +1124,14 @@ export function buildContourPayload(soundings: Feature[]): { lon: number; lat: n
     return out;
 }
 
-/** One glaze true-coverage upgrade queued for the worker. */
+/** One glaze true-coverage upgrade queued for the worker. Coverages carry
+ *  their strip rects so an over-cap martinez pair can degrade to the same
+ *  bounded strip clip the instant grade used (see FineCoverage). */
 type GlazeUpgradeItem = {
     cellId: string;
     glazeKey: string;
     features: Feature[];
-    coverages: Array<{ bbox: [number, number, number, number]; coverage: CoverageGeom }>;
+    coverages: FineCoverage[];
 };
 
 /**
@@ -1332,12 +1357,7 @@ async function buildMergedVectorData(
     const seaareByName = new Map<string, Feature>();
 
     // Per-merge bookkeeping for the worker's true-coverage glaze upgrade.
-    const glazeUpgradeQueue: Array<{
-        cellId: string;
-        glazeKey: string;
-        features: Feature[];
-        coverages: Array<{ bbox: [number, number, number, number]; coverage: CoverageGeom }>;
-    }> = [];
+    const glazeUpgradeQueue: GlazeUpgradeItem[] = [];
     const mergeGlazeKeys: string[] = [];
 
     for (const cell of cellsCoarseToFine) {
@@ -1611,12 +1631,17 @@ async function buildMergedVectorData(
                 // Gated on the flag so a disabled worker costs ZERO — no
                 // payload copies built just to be thrown away.
                 const fineCoverages = glazeShadows
-                    .map((s) => {
+                    .map((s): FineCoverage | null => {
                         const cov = coverageFor(s.id);
                         // Empty = nothing shallow = nothing to subtract.
-                        return cov && cov.length > 0 ? { bbox: s.bbox, coverage: cov } : null;
+                        // Strip rects ride along as the worker's bounded
+                        // fallback for over-cap martinez pairs — the memo
+                        // already computed them for the instant grade.
+                        return cov && cov.length > 0
+                            ? { bbox: s.bbox, coverage: cov, stripRects: stripRectsFor(s.id, s.bbox) }
+                            : null;
                     })
-                    .filter((c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null);
+                    .filter((c): c is FineCoverage => c !== null);
                 if (fineCoverages.length > 0) {
                     const glazeRank = cellScaleRank(cell.bbox);
                     const baseFeats: Feature[] = [];
