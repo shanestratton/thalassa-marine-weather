@@ -142,7 +142,7 @@ import {
     type TracerContext,
     type SavedTrace,
 } from '../../services/routeTracer';
-import { consumeTracerOpenRequest } from '../../services/deepLink';
+import { consumeTracerOpenRequest, consumeTracerAction } from '../../services/deepLink';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import {
     subscribe as subscribeToEnc,
@@ -751,11 +751,31 @@ export const MapHub: React.FC<MapHubProps> = ({
             consumeTracerOpenRequest();
             setWeatherInspectMode(false);
             setCoordCaptureMode(true);
+            // PLAN-page front-door actions (Shane 2026-07-16): the button on
+            // the planner both opens the tracer AND performs its action.
+            // paste runs SYNCHRONOUSLY inside the dispatching click so the
+            // clipboard read keeps its user-activation on iOS.
+            const action = consumeTracerAction();
+            if (action === 'paste') void pasteTrace();
+            else if (action === 'voyage') void openVoyagePicker();
+            else if (action === 'saved') setShowSavedTraces(true);
         };
         if (consumeTracerOpenRequest()) open();
         window.addEventListener('thalassa:trace-mode', open);
         return () => window.removeEventListener('thalassa:trace-mode', open);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [embedded, pickerMode, hideTracer, isPinView]);
+
+    // Departure set on the PLAN page (DepartControl) → adopt it here so the
+    // tide windows / weather ETAs re-anchor without a remount.
+    useEffect(() => {
+        const onDep = (e: Event) => {
+            const ms = (e as CustomEvent).detail?.ms as unknown;
+            setDepartureMs(typeof ms === 'number' && Number.isFinite(ms) ? ms : null);
+        };
+        window.addEventListener('thalassa:departure-changed', onDep);
+        return () => window.removeEventListener('thalassa:departure-changed', onDep);
+    }, []);
     // (Tap-the-water popup suppression lives below, after mapRef/mapReady
     // are declared — it's per-map now, not module-global.)
     useEffect(() => {
