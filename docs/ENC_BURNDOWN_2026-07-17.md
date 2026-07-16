@@ -68,21 +68,25 @@ route. Fix the silent failures first.
 
 ### Performance (2.25)
 
-- [ ] **0.75 — Post-worker-death glaze machinery fails open** — gate
-      queueing on `geoWorkerBroken` liveness; skip prefilter/parking when
-      dead; symmetric cleanup in the postMessage catch. (Also retires the
-      0.25 CQ leak.)
-- [ ] **0.5 — Duplicate-job race (twin of the CQ glazeKey finding)** — one
-      fix, see code quality below.
+- [x] **0.75 — Post-worker-death glaze machinery fails open** — DONE:
+      queue gate now checks `geoWorkerBroken` liveness (dead worker = no
+      prefilter, no parking, no payload builds); failed postMessage
+      releases its own parked assemblies + in-flight claims symmetrically.
+      (Also retires the 0.25 CQ leak.)
+- [x] **0.5 — Duplicate-job race (twin of the CQ glazeKey finding)** —
+      DONE with the CQ fix: an in-flight glaze key (owner-checked marker)
+      is never re-dispatched by an overlapping merge.
 - [ ] **1.0 — remaining confirmed perf findings** — itemise from transcript.
 
 ### Code quality (4.0)
 
-- [ ] **1.0 — `glazeAssemblyBase` keyed by glazeKey, not job** — overlapping
-      jobs truncate the parked majority and cache incomplete glaze as
-      `upgraded:true` (persistent wrong keel-safety wash); error handler
-      deletes other jobs' keys. Fix: key by jobId(+glazeKey), per-handler
-      cleanup, worker-protocol round-trip test. (Counts the perf 0.5 twin.)
+- [x] **1.0 — `glazeAssemblyBase` keyed by glazeKey, not job** — DONE:
+      parking moved into glazeCellCache as `parkGlazeAssembly`/
+      `takeGlazeAssembly` keyed `${jobId}:${glazeKey}` with an
+      OWNER-CHECKED in-flight marker; done/error handlers release only
+      their own job's entries; worker death clears all. 5 protocol tests
+      incl. the exact overlapping-job truncation scenario. (Counts the
+      perf 0.5 twin.)
 - [ ] **3.0 — remaining confirmed CQ findings** — itemise from transcript.
 
 ### UX (2.75)

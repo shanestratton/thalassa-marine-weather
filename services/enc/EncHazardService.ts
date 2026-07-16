@@ -32,7 +32,15 @@ import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { reduceNamedAreas } from './seaareLabels';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
-import { getGlazeCell, putGlazeCell } from './glazeCellCache';
+import {
+    getGlazeCell,
+    putGlazeCell,
+    parkGlazeAssembly,
+    takeGlazeAssembly,
+    isGlazeInFlight,
+    releaseGlazeAssemblies,
+    clearAllGlazeAssemblies,
+} from './glazeCellCache';
 import { touchIndex, cacheIndex, isIndexFailed, markIndexFailed, dropIndex, clearIndexCache } from './encIndexCache';
 import {
     getMergedData,
@@ -633,6 +641,10 @@ interface PendingGeometryJob {
     cacheKey: string;
     /** Ordered per-cell glaze keys composing that merge's glaze. */
     glazeKeys: string[];
+    /** The subset actually QUEUED to the worker this job — the cleanup
+     *  scope for parked assemblies + in-flight claims (audit #5: cleaning
+     *  by the merge-wide list clobbered OTHER jobs' state). */
+    queuedGlazeKeys: string[];
 }
 
 let geoWorker: Worker | null = null;
@@ -640,12 +652,8 @@ let geoWorkerBroken = false;
 let geoJobSeq = 0;
 const pendingGeometryJobs = new Map<number, PendingGeometryJob>();
 const geometryUpgradeListeners = new Set<() => void>();
-/** Round-2 payload prefilter's parked features: per glazeKey, the cell's
- *  base features whose bbox touches NO fine coverage — they skip the
- *  worker round-trip entirely and reassemble with its answer (the
- *  worker only ever sees the touched subset). References only; cleared
- *  on answer, job error, and worker death. */
-const glazeAssemblyBase = new Map<string, Feature[]>();
+// Parked untouched-feature assemblies + in-flight claims live in
+// glazeCellCache (job-scoped keys, owner-checked release — audit #5).
 
 /** Notify when a background geometry upgrade landed in the cached merge —
  *  the render hook re-pushes just the affected sources. */
@@ -696,7 +704,7 @@ function getGeoWorker(): Worker | null {
         geoWorkerBroken = true;
         geoWorker = null;
         pendingGeometryJobs.clear();
-        glazeAssemblyBase.clear();
+        clearAllGlazeAssemblies();
         log.warn('geometry worker died — staying on fast glaze/contours this session');
     };
     geoWorker.onmessage = (
@@ -713,10 +721,12 @@ function getGeoWorker(): Worker | null {
         const job = pendingGeometryJobs.get(jobId);
         if (type === 'glaze-cell' && glazeKey && features) {
             // Reassemble: the worker clipped only the TOUCHED subset; the
-            // untouched majority parked main-thread side. Band order within
-            // a cell is immaterial (bands are disjoint).
-            const untouched = glazeAssemblyBase.get(glazeKey) ?? [];
-            glazeAssemblyBase.delete(glazeKey);
+            // untouched majority parked main-thread side under THIS job's
+            // key (audit #5: keying by glazeKey alone let overlapping jobs
+            // truncate each other's majority and cache the incomplete
+            // glaze as upgraded). Band order within a cell is immaterial
+            // (bands are disjoint).
+            const untouched = takeGlazeAssembly(jobId, glazeKey);
             putGlazeCell(glazeKey, { upgraded: true, feats: [...untouched, ...features] });
             return;
         }
@@ -734,6 +744,10 @@ function getGeoWorker(): Worker | null {
         }
         if (type === 'done' && job) {
             pendingGeometryJobs.delete(jobId);
+            // Defensive leftover sweep — glaze-cell answers should have
+            // consumed every parked entry; job-scoped so other jobs'
+            // state is untouched (audit #5).
+            releaseGlazeAssemblies(jobId, job.queuedGlazeKeys);
             if (job.glazeKeys.length > 0) applyGlazeUpgrade(job);
             // warn, not info (info is silent in prod): THE device-session
             // signal — exact/degraded split + the cap-tuning vertex peak.
@@ -748,7 +762,7 @@ function getGeoWorker(): Worker | null {
         }
         if (type === 'error') {
             pendingGeometryJobs.delete(jobId);
-            for (const key of job?.glazeKeys ?? []) glazeAssemblyBase.delete(key);
+            if (job) releaseGlazeAssemblies(jobId, job.queuedGlazeKeys);
             log.warn(`geometry worker job failed (fast version stays): ${message ?? 'unknown'}`);
         }
     };
@@ -1172,6 +1186,10 @@ type GlazeUpgradeItem = {
     glazeKey: string;
     features: Feature[];
     coverageIds: string[];
+    /** The prefilter's untouched majority — parked main-thread side at
+     *  dispatch (job-scoped), NEVER sent to the worker. Stripped from
+     *  the wire payload in dispatchGeometryWork. */
+    untouched: Feature[];
 };
 
 /**
@@ -1245,10 +1263,15 @@ function dispatchGeometryWork(
     const worker = getGeoWorker();
     if (!worker) return;
     const jobId = ++geoJobSeq;
+    const queuedGlazeKeys = glazeUpgradeQueue.map((item) => item.glazeKey);
     pendingGeometryJobs.set(jobId, {
         cacheKey,
         glazeKeys: glazeUpgradeQueue.length > 0 ? mergeGlazeKeys : [],
+        queuedGlazeKeys,
     });
+    // Park each cell's untouched majority under THIS job's key + claim
+    // the in-flight marker (audit #5: job-scoped, owner-checked).
+    for (const item of glazeUpgradeQueue) parkGlazeAssembly(jobId, item.glazeKey, item.untouched);
     const contourPoints = wantContours ? buildContourPayload(merged.SOUNDG.features) : undefined;
     // Ship only the library entries the queued cells actually reference.
     let coverageLib: Record<string, FineCoverage> | undefined;
@@ -1263,10 +1286,18 @@ function dispatchGeometryWork(
             }
         }
     }
+    // The wire payload strips `untouched` — those features exist to NOT
+    // ride the structured clone.
+    const glazeCells = glazeUpgradeQueue.map(({ untouched: _parked, ...wire }) => wire);
     try {
-        worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, coverageLib, contourPoints });
+        worker.postMessage({ jobId, glazeCells, coverageLib, contourPoints });
     } catch (err) {
+        // Symmetric cleanup (audit #6): a failed dispatch must release its
+        // parked assemblies + in-flight claims or they leak until worker
+        // death — in exactly the memory-stressed mode this machinery
+        // exists to survive.
         pendingGeometryJobs.delete(jobId);
+        releaseGlazeAssemblies(jobId, queuedGlazeKeys);
         log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
@@ -1680,7 +1711,13 @@ async function buildMergedVectorData(
                 putGlazeCell(glazeKey, { upgraded: glazeShadows.length === 0, feats: glazeOut });
                 needQueue = glazeShadows.length > 0;
             }
-            if (needQueue && GLAZE_WORKER_ENABLED) {
+            // Gates (audit #5/#6): compile flag; worker LIVENESS — after a
+            // worker death the prefilter/parking machinery must not keep
+            // accumulating payloads nothing will ever consume; and an
+            // in-flight claim — a cell already being upgraded by an earlier
+            // job is not re-dispatched (its answer upgrades the shared
+            // cache for everyone).
+            if (needQueue && GLAZE_WORKER_ENABLED && !geoWorkerBroken && !isGlazeInFlight(glazeKey)) {
                 // Payload for the worker's true-coverage upgrade. Coverages
                 // dedupe into a per-JOB library (repro: the same fine cell
                 // shadows several coarse cells, so per-cell copies made the
@@ -1733,12 +1770,12 @@ async function buildMergedVectorData(
                         }
                     }
                     if (touchedFeats.length > 0) {
-                        glazeAssemblyBase.set(glazeKey, untouchedFeats);
                         glazeUpgradeQueue.push({
                             cellId: cell.id,
                             glazeKey,
                             features: touchedFeats,
                             coverageIds,
+                            untouched: untouchedFeats,
                         });
                     } else {
                         // Nothing this cell charts touches any fine coverage —

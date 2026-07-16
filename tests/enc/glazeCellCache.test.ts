@@ -5,11 +5,19 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
+import type { Feature } from 'geojson';
+
 import {
     getGlazeCell,
     putGlazeCell,
     clearGlazeCell,
     glazeCellCacheSize,
+    parkGlazeAssembly,
+    takeGlazeAssembly,
+    isGlazeInFlight,
+    releaseGlazeAssemblies,
+    clearAllGlazeAssemblies,
+    glazeAssemblyCount,
     type GlazeCellEntry,
 } from '../../services/enc/glazeCellCache';
 
@@ -43,5 +51,63 @@ describe('glazeCellCache', () => {
         putGlazeCell('k32', entry()); // pushes to 33 → evict oldest (k1, not k0)
         expect(getGlazeCell('k0')?.upgraded).toBe(true); // survived
         expect(getGlazeCell('k1')).toBeUndefined();
+    });
+});
+
+describe('worker-assembly parking — job-scoped, owner-checked (audit #5)', () => {
+    const feat = (id: string): Feature => ({
+        type: 'Feature',
+        properties: { id },
+        geometry: { type: 'Point', coordinates: [0, 0] },
+    });
+
+    beforeEach(() => clearAllGlazeAssemblies());
+
+    it('parks and takes per (job, key) — the round trip returns exactly what parked', () => {
+        parkGlazeAssembly(1, 'cellX@1', [feat('a'), feat('b')]);
+        expect(isGlazeInFlight('cellX@1')).toBe(true);
+        const got = takeGlazeAssembly(1, 'cellX@1');
+        expect(got.map((f) => (f.properties as { id: string }).id)).toEqual(['a', 'b']);
+        expect(isGlazeInFlight('cellX@1')).toBe(false);
+        // Consumed — a second take is empty, never a duplicate.
+        expect(takeGlazeAssembly(1, 'cellX@1')).toEqual([]);
+    });
+
+    it('OVERLAPPING JOBS on the same key cannot truncate each other (the audit scenario)', () => {
+        parkGlazeAssembly(1, 'cellX@1', [feat('a1')]);
+        parkGlazeAssembly(2, 'cellX@1', [feat('a2')]);
+        // Job 1's answer takes ITS parked majority, not job 2's.
+        expect(takeGlazeAssembly(1, 'cellX@1').map((f) => (f.properties as { id: string }).id)).toEqual(['a1']);
+        // Job 2's parked entry survives job 1's consumption…
+        expect(takeGlazeAssembly(2, 'cellX@1').map((f) => (f.properties as { id: string }).id)).toEqual(['a2']);
+    });
+
+    it('release is owner-checked: job B cleanup cannot clear job A in-flight claim', () => {
+        parkGlazeAssembly(1, 'cellX@1', [feat('a')]);
+        // Job 2 parked the same key later — it now owns the in-flight marker.
+        parkGlazeAssembly(2, 'cellX@1', [feat('b')]);
+        releaseGlazeAssemblies(1, ['cellX@1']); // job 1 errors out
+        // Job 2's claim + parked entry both survive.
+        expect(isGlazeInFlight('cellX@1')).toBe(true);
+        expect(takeGlazeAssembly(2, 'cellX@1')).toHaveLength(1);
+    });
+
+    it('releaseGlazeAssemblies clears only the named job/keys', () => {
+        parkGlazeAssembly(1, 'k1', [feat('a')]);
+        parkGlazeAssembly(1, 'k2', [feat('b')]);
+        parkGlazeAssembly(2, 'k3', [feat('c')]);
+        releaseGlazeAssemblies(1, ['k1', 'k2']);
+        expect(glazeAssemblyCount()).toBe(1);
+        expect(isGlazeInFlight('k1')).toBe(false);
+        expect(isGlazeInFlight('k3')).toBe(true);
+    });
+
+    it('clearAllGlazeAssemblies (worker death) drops everything', () => {
+        parkGlazeAssembly(1, 'k1', [feat('a')]);
+        parkGlazeAssembly(2, 'k2', [feat('b')]);
+        clearAllGlazeAssemblies();
+        expect(glazeAssemblyCount()).toBe(0);
+        expect(isGlazeInFlight('k1')).toBe(false);
+        expect(isGlazeInFlight('k2')).toBe(false);
     });
 });
