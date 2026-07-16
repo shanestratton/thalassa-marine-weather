@@ -179,6 +179,14 @@ const ENC_LAYERS = [
     'BCNSAW',
     'BOYISD',
     'BCNISD',
+    // Caution / information AREAS (2026-07-16 ENC-completeness audit) —
+    // mirrored with ROUTING_CLASSES; EncVectorLayer draws them as chart
+    // furniture. Restricted / cable / pipeline / seabed-nature / TSS.
+    'RESARE',
+    'CBLARE',
+    'PIPARE',
+    'SBDARE',
+    'TSSLPT',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
