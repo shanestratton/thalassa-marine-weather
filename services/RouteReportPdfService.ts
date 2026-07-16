@@ -76,19 +76,21 @@ export interface RouteReportPdfData {
     departureLabel: string | null;
     vesselName?: string;
     draftM?: number;
-    /** Per-waypoint ETA + wind (departing now). null/absent → no weather column. */
+    /** Per-waypoint ETA + wind. null/absent → no weather column. */
     weather?: WaypointWeather[] | null;
     /** Cruising speed used for the ETAs (kts), for the header note. */
     cruisingSpeedKts?: number;
+    /** Chosen departure (epoch ms); null/absent = departing now. */
+    departureMs?: number | null;
     /** Epoch ms for the "generated" stamp (passed in — Date.now() is banned in
      *  some contexts and keeps this pure/testable). */
     nowMs: number;
 }
 
-/** "+3h20 14:30" / "now 09:05" arrival label. */
-function etaLabel(w: WaypointWeather): string {
+/** "+3h20 14:30" arrival label; the start pin reads "now"/"dep". */
+function etaLabel(w: WaypointWeather, departingNow: boolean): string {
     const clock = new Date(w.etaMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
-    if (w.hoursFromDep < 0.02) return `now ${clock}`;
+    if (w.hoursFromDep < 0.02) return `${departingNow ? 'now' : 'dep'} ${clock}`;
     const h = Math.floor(w.hoursFromDep);
     const m = Math.round((w.hoursFromDep - h) * 60);
     const rel = h > 0 ? `+${h}h${m > 0 ? String(m).padStart(2, '0') : ''}` : `+${m}m`;
@@ -148,6 +150,11 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
         .filter(Boolean)
         .join('  ·  ');
     if (vesselLine) doc.text(vesselLine, W - margin - 6, y + 23, { align: 'right' });
+    // Chosen departure — the anchor every ETA/wind/tide figure hangs off.
+    if (data.departureMs != null) {
+        doc.setTextColor(...COLORS.amber);
+        doc.text(`Departing ${nowLabel(data.departureMs)}`, W - margin - 6, y + 15, { align: 'right' });
+    }
     y += 27 + 5;
 
     // ── Health tally ──
@@ -190,9 +197,12 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     if (wx) {
         doc.setFontSize(7);
         doc.setTextColor(...COLORS.dim);
-        doc.text(`ETA + wind — leave now @ ${(data.cruisingSpeedKts ?? 6).toFixed(1)} kt`, W - margin, y + 4, {
-            align: 'right',
-        });
+        doc.text(
+            `ETA + wind — leave ${data.departureMs != null ? nowLabel(data.departureMs) : 'now'} @ ${(data.cruisingSpeedKts ?? 6).toFixed(1)} kt`,
+            W - margin,
+            y + 4,
+            { align: 'right' },
+        );
     }
     y += 8;
     doc.setFontSize(9.5);
@@ -206,7 +216,7 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
         if (w) {
             doc.setFontSize(8);
             doc.setTextColor(...COLORS.primary);
-            doc.text(etaLabel(w), W - margin - 34, y + 3.5, { align: 'right' });
+            doc.text(etaLabel(w, data.departureMs == null), W - margin - 34, y + 3.5, { align: 'right' });
             const wind = windLabel(w);
             if (wind) {
                 doc.setTextColor(...(w.gustKts != null && w.gustKts >= 25 ? COLORS.amber : COLORS.muted));

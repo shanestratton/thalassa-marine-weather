@@ -17,15 +17,26 @@ import { windCompass, type WaypointWeather } from '../../services/routeReportWea
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
 
-/** "+3h20 · 14:30" arrival label, or "now" for the start. */
-const fmtEta = (w: WaypointWeather): string => {
+/** "+3h20 · 14:30" arrival label; the start pin reads "now"/"dep". */
+const fmtEta = (w: WaypointWeather, departingNow: boolean): string => {
     const clock = new Date(w.etaMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
-    if (w.hoursFromDep < 0.02) return `now · ${clock}`;
+    if (w.hoursFromDep < 0.02) return `${departingNow ? 'now' : 'dep'} · ${clock}`;
     const h = Math.floor(w.hoursFromDep);
     const m = Math.round((w.hoursFromDep - h) * 60);
     const rel = h > 0 ? `+${h}h${m > 0 ? String(m).padStart(2, '0') : ''}` : `+${m}m`;
     return `${rel} · ${clock}`;
 };
+
+/** "Sat 19 Jul 09:00" for a chosen departure. */
+const fmtDepart = (ms: number): string =>
+    new Date(ms).toLocaleString('en-AU', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
 /** "SW 14kt G22", or a beyond-forecast note. */
 const fmtWind = (w: WaypointWeather): string => {
     if (w.beyondForecast) return 'beyond forecast';
@@ -56,6 +67,9 @@ interface Props {
     draftM?: number;
     /** Cruising speed (kts) for the per-waypoint ETA/weather. Defaults to 6. */
     cruisingSpeedKts?: number;
+    /** Chosen departure (epoch ms), null/absent = leave now. Anchors the
+     *  per-waypoint ETAs + weather (the tide labels are anchored upstream). */
+    departureMs?: number | null;
 }
 
 /** Decimal degrees → degrees-decimal-minutes with hemisphere (the marine
@@ -147,14 +161,16 @@ export const TraceReportModal: React.FC<Props> = ({
     vesselName,
     draftM,
     cruisingSpeedKts,
+    departureMs,
 }) => {
     const [exporting, setExporting] = React.useState(false);
     const [exportMsg, setExportMsg] = React.useState<string | null>(null);
-    // Per-waypoint weather at the ETA (departing NOW). Fetched when the report
-    // opens; feeds both the on-screen waypoint list and the PDF.
+    // Per-waypoint weather at the ETA from the chosen departure (or NOW).
+    // Fetched when the report opens; feeds the waypoint list and the PDF.
     const [weather, setWeather] = React.useState<WaypointWeather[] | null>(null);
     const [weatherLoading, setWeatherLoading] = React.useState(false);
     const spd = cruisingSpeedKts && cruisingSpeedKts > 0 ? cruisingSpeedKts : 6;
+    const departingNow = departureMs == null;
     React.useEffect(() => {
         if (!open || pins.length < 2) {
             setWeather(null);
@@ -162,7 +178,7 @@ export const TraceReportModal: React.FC<Props> = ({
         }
         let live = true;
         setWeatherLoading(true);
-        const departM = Date.now();
+        const departM = departureMs ?? Date.now();
         void (async () => {
             try {
                 const { fetchRouteWaypointWeather } = await import('../../services/routeReportWeather');
@@ -177,8 +193,8 @@ export const TraceReportModal: React.FC<Props> = ({
         return () => {
             live = false;
         };
-        // Re-fetch when the report (re)opens or the route/speed changes.
-    }, [open, pins, spd]);
+        // Re-fetch when the report (re)opens or the route/speed/departure changes.
+    }, [open, pins, spd, departureMs]);
     const onExportPdf = React.useCallback(async () => {
         if (pins.length < 2 || exporting) return;
         setExporting(true);
@@ -200,6 +216,7 @@ export const TraceReportModal: React.FC<Props> = ({
                 draftM,
                 weather,
                 cruisingSpeedKts: spd,
+                departureMs,
                 nowMs: Date.now(),
             });
             const outcome = await sharePdfBlob(blob, getRouteReportFileName(routeName), `Route report - ${routeName || 'route'}`);
@@ -209,7 +226,7 @@ export const TraceReportModal: React.FC<Props> = ({
         } finally {
             setExporting(false);
         }
-    }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, weather, spd, exporting]);
+    }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, weather, spd, departureMs, exporting]);
 
     if (!open) return null;
     const h = traceHealth(verdicts);
@@ -299,7 +316,7 @@ export const TraceReportModal: React.FC<Props> = ({
                                     {weatherLoading
                                         ? 'loading weather…'
                                         : weather
-                                          ? `ETA + wind · leave now @ ${spd.toFixed(1)}kt`
+                                          ? `ETA + wind · leave ${departingNow ? 'now' : fmtDepart(departureMs!)} @ ${spd.toFixed(1)}kt`
                                           : ''}
                                 </span>
                             </div>
@@ -317,7 +334,7 @@ export const TraceReportModal: React.FC<Props> = ({
                                             <span className="tabular-nums">{fmtFix(p)}</span>
                                             {w && (
                                                 <span className="ml-auto shrink-0 text-right">
-                                                    <span className="text-sky-300/90">{fmtEta(w)}</span>
+                                                    <span className="text-sky-300/90">{fmtEta(w, departingNow)}</span>
                                                     {windStr && (
                                                         <span
                                                             className={`ml-2 ${w.beyondForecast ? 'text-gray-500' : w.gustKts != null && w.gustKts >= 25 ? 'text-amber-300' : 'text-gray-300'}`}
