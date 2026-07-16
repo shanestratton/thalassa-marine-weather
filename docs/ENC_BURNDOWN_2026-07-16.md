@@ -72,12 +72,15 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 
 ### Code quality
 
-- [ ] **1.2 — End-to-end merge-fold tests** (task #27) — shadow-drop +
-      line-dedup + cull interplay through buildMergedVectorData.
-- [ ] **1.6 — Seam tests + dedupe** — HazardQueryService phase-1/2 split +
-      outage catch tests; EncVectorLayer logic extraction/tests
-      (fillDepareTideWindow, click routing); dedupe the triplicated
-      candidate-resolution boilerplate with a determinism sort.
+- [x] **1.2 — End-to-end merge-fold tests** — DONE (`eab82ed0`): the REAL
+      fold driven through getMergedVectorData over a coarse+fine library —
+      shadow-drop, presence-gated line de-dup, provenance, cautions, SEAARE
+      labels, sounding explode+ladder. Task #27 closed.
+- [x] **1.6 → 1.2 banked — Seam tests + dedupe** — DONE (`eab82ed0`):
+      partition tests (ENC/GEBCO split, soundingOnly demotion, outage
+      degradation, LAT/MSL clamp) + resolveCandidateIndexes dedupe with a
+      deterministic cellId sort. REMAINING (0.4): EncVectorLayer logic tests
+      (fillDepareTideWindow, click routing).
 
 ### Rendering
 
@@ -121,3 +124,5 @@ without the device item, 96.35 — **96 is reachable fully non-device.**
 | 2026-07-16 | Spatial tide single-station advisory                           | 1.0  | `8fc0fad1` | 90.65             |
 | 2026-07-16 | TSS lane directionality (ORIENT arrows + popup)                | 0.75 | `8fc0fad1` | 91.4              |
 | 2026-07-16 | INT1 hazard glyphs (CATWRK/WATLEV differentiated)              | 0.75 | `938f52c1` | 92.15             |
+| 2026-07-16 | Merge-fold e2e tests (task #27 closed)                         | 1.2  | `eab82ed0` | 93.35             |
+| 2026-07-16 | Partition seam tests + candidate-resolution dedupe             | 1.2  | `eab82ed0` | 94.55             |
