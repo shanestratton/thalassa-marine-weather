@@ -13,6 +13,8 @@ import type { IsochroneNode, Isochrone, IsochroneResult } from '../services/isoc
 import { pruneWavefrontWithFallbacks } from '../services/isochrone/pruning';
 import { backtrack, smoothRoute } from '../services/isochrone/smoothing';
 import { detectTurnWaypoints, isochroneToGeoJSON } from '../services/isochrone/output';
+import { buildRouteAdvisories } from '../services/isochrone/landAvoidance';
+import type { HazardResult } from '../services/HazardQueryService';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -312,5 +314,39 @@ describe('isochroneToGeoJSON', () => {
         };
         const { wavefronts } = isochroneToGeoJSON(sparse);
         expect(wavefronts.features.length).toBe(0);
+    });
+});
+
+describe('buildRouteAdvisories', () => {
+    const r = (over: Partial<HazardResult>): HazardResult => ({
+        lat: 0,
+        lon: 0,
+        isHazard: false,
+        depth_m: -20,
+        source: 'enc',
+        ...over,
+    });
+
+    it('no caveats → no advisories', () => {
+        expect(buildRouteAdvisories([r({ source: 'enc', catzoc: 1 }), r({ source: 'gebco' })])).toEqual([]);
+    });
+
+    it('flags low-confidence CATZOC (≥4) with the WORST value in view', () => {
+        const out = buildRouteAdvisories([r({ catzoc: 2 }), r({ catzoc: 5 })]);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toContain('CATZOC 5');
+    });
+
+    it('flags no-depth-data (source none) points with an N/total count', () => {
+        const out = buildRouteAdvisories([
+            r({ source: 'none' }),
+            r({ source: 'enc', catzoc: 1 }),
+            r({ source: 'none' }),
+        ]);
+        expect(out.some((a) => a.includes('2/3') && a.includes('NO depth data'))).toBe(true);
+    });
+
+    it('surfaces BOTH caveats together', () => {
+        expect(buildRouteAdvisories([r({ catzoc: 6 }), r({ source: 'none' })])).toHaveLength(2);
     });
 });

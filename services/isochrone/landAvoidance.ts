@@ -496,6 +496,33 @@ export interface ValidateRouteOptions {
     departureTimeMs?: number;
 }
 
+/**
+ * Build the route-wide "verify visually" advisories for a route that
+ * validated CLEAN but carries caveats — a low-confidence CATZOC survey zone
+ * and/or no-depth-data points (uncharted + GEBCO unavailable, treated as
+ * passable so an outage can't block routing, but NOT confirmed clear). Pure
+ * + exported so the surfacing logic is unit-tested away from the validator.
+ */
+export function buildRouteAdvisories(results: HazardResult[]): string[] {
+    const advisories: string[] = [];
+    let worstCatzoc: number | null = null;
+    for (const r of results) {
+        if (typeof r.catzoc !== 'number') continue;
+        if (worstCatzoc === null || r.catzoc > worstCatzoc) worstCatzoc = r.catzoc;
+    }
+    if (worstCatzoc !== null && worstCatzoc >= 4) {
+        advisories.push(`Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`);
+    }
+    const noDataHits = results.filter((r) => r.source === 'none').length;
+    if (noDataHits > 0) {
+        advisories.push(
+            `${noDataHits}/${results.length} route point(s) have NO depth data ` +
+                `(uncharted + GEBCO unavailable) — NOT confirmed safe, verify visually`,
+        );
+    }
+    return advisories;
+}
+
 export async function validateRouteSegments(
     route: IsochroneNode[],
     options: ValidateRouteOptions = {},
@@ -686,34 +713,11 @@ export async function validateRouteSegments(
         if (landSegments.length === 0) {
             const encHits = allResults.filter((r) => r.source === 'enc').length;
             const gebcoHits = allResults.filter((r) => r.source === 'gebco').length;
-            // Build "verify visually" advisories for a route that validated
-            // CLEAN but carries caveats. These get ATTACHED to the hazard
-            // report below so the skipper actually sees them, and are logged
-            // at warn() level — createLogger silences info() in prod, which
-            // is exactly why the old no-data note never reached anyone.
-            routeAdvisories = [];
-            // Flag any ENC point in a low-confidence (CATZOC C/D/U) zone.
-            let worstCatzoc: number | null = null;
-            for (const r of allResults) {
-                if (typeof r.catzoc !== 'number') continue;
-                if (worstCatzoc === null || r.catzoc > worstCatzoc) worstCatzoc = r.catzoc;
-            }
-            if (worstCatzoc !== null && worstCatzoc >= 4) {
-                routeAdvisories.push(
-                    `Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`,
-                );
-            }
-            // No-data points (uncharted + GEBCO unavailable, source:'none')
-            // are treated as passable so a GEBCO outage can't block routing —
-            // but they are NOT confirmed clear, so surface them rather than
-            // let the false-clear stay silent (mission-audit hardening).
-            const noDataHits = allResults.filter((r) => r.source === 'none').length;
-            if (noDataHits > 0) {
-                routeAdvisories.push(
-                    `${noDataHits}/${allResults.length} route point(s) have NO depth data ` +
-                        `(uncharted + GEBCO unavailable) — NOT confirmed safe, verify visually`,
-                );
-            }
+            // "verify visually" advisories for a route that validated CLEAN
+            // but carries caveats. ATTACHED to the hazard report below so the
+            // skipper sees them, and logged at warn() — createLogger silences
+            // info() in prod, which is why the old no-data note reached no one.
+            routeAdvisories = buildRouteAdvisories(allResults);
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
                 `(${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})` +
