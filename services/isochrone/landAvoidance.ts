@@ -504,8 +504,10 @@ export interface ValidateRouteOptions {
  * GEBCO-outage no-data path was a silent fail-open; route+warn is only
  * defensible if the warn is LOUD):
  *  - `caution` — NO-DEPTH-DATA points (uncharted AND GEBCO unavailable). The
- *    router still returns a line (availability) and prefers charted water via
- *    the depth cost, but the depth is UNVERIFIED. Ranked first.
+ *    router still returns a line (availability), and the depth is UNVERIFIED.
+ *    There is NO graded steer-away-from-unknown-water cost in route selection
+ *    today (depthCostMultiplier is computed for display only) — this loud
+ *    advisory IS the entire warn. Ranked first.
  *  - `note` — charted but low-confidence CATZOC survey.
  * Pure + exported so the surfacing logic is unit-tested away from the validator.
  */
@@ -657,6 +659,10 @@ export async function validateRouteSegments(
     // points). Populated in the clean-break below and ATTACHED to the
     // hazard report so the skipper actually sees them.
     let routeAdvisories: RouteAdvisory[] = [];
+    // >0 → the loop hit MAX_VALIDATION_PASSES while still inserting detours:
+    // the FINAL route revision was never re-verified (mission audit: this
+    // exhaustion path used to fall through silently as if clean).
+    let unresolvedAfterPasses = 0;
 
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
         // ── 1. Sample all segments ──
@@ -811,6 +817,7 @@ export async function validateRouteSegments(
                 (routeAdvisories.length > 0 ? ` ⚠ ${routeAdvisories.map((a) => a.text).join(' · ')}` : '');
             if (routeAdvisories.length > 0) landLog.warn(clearMsg);
             else landLog.info(clearMsg);
+            unresolvedAfterPasses = 0; // clean exit — every segment verified
             break;
         }
 
@@ -832,11 +839,35 @@ export async function validateRouteSegments(
         }
 
         result = fixed;
+        // If this was the LAST allowed pass, the detours just inserted were
+        // never re-verified — record it so the exhaustion caution below fires.
+        unresolvedAfterPasses = landSegments.length;
+    }
+
+    // ── Exhaustion caution (mission audit: this path fell through SILENTLY,
+    // and the old phase-5 comment claimed the route was "guaranteed clear").
+    // Hitting the pass limit means the final revision was NOT re-verified and
+    // may still cross charted land/shoal — say so, loudly, on the report.
+    if (unresolvedAfterPasses > 0) {
+        routeAdvisories.push({
+            severity: 'caution',
+            text:
+                `Route validation hit its ${MAX_VALIDATION_PASSES}-pass limit with ` +
+                `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
+                `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
+        });
+        landLog.warn(
+            `[ValidateRoute] EXHAUSTED ${MAX_VALIDATION_PASSES} passes with ${unresolvedAfterPasses} ` +
+                `segment(s) unresolved — route NOT verified clear`,
+        );
     }
 
     // ── Phase 5: Hazard proximity report ─────────────────────────
-    // After validation succeeds the route is guaranteed clear of
-    // hazards. But the user still wants to know about charted
+    // After a CLEAN validation pass the route is clear of charted
+    // hazards at the sampled + segment-crossing tests; on pass-limit
+    // exhaustion it is NOT verified (the loud exhaustion caution above
+    // owns that case — the old "guaranteed clear" claim here was false).
+    // Either way the user still wants to know about charted
     // obstructions / wrecks / rocks NEAR the route — a wreck 0.4 NM
     // off the rhumbline is worth flagging even though we won't be
     // routing through it.
