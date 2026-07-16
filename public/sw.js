@@ -174,9 +174,13 @@
 // load clear both stacks. Redo button beside Undo in both control rows.
 // v105: route-report cruising speed shows one decimal ("8.9kt", not
 // "8.899438184514795kt") — screen + PDF.
-const CACHE_NAME = 'thalassa-v105-core';
-const TILE_CACHE = 'thalassa-v105-tiles';
-const DATA_CACHE = 'thalassa-v105-data';
+// v106: the chart opens at zoom 10 exactly (the golden size — every nav mark
+// visible, local water fills the screen) centred on the selected location /
+// GPS, instead of the whole-Aus+NZ fit. Only the no-fix fallback keeps the
+// wide view.
+const CACHE_NAME = 'thalassa-v106-core';
+const TILE_CACHE = 'thalassa-v106-tiles';
+const DATA_CACHE = 'thalassa-v106-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
