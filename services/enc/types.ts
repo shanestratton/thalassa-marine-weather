@@ -222,9 +222,14 @@ export function encNavaidIconId(
     if (kind === 'BOYLAT' || kind === 'BCNLAT') {
         const raw = p.CATLAM ?? p.catlam;
         const c = Math.round(Number(raw));
+        const isBeacon = kind === 'BCNLAT';
+        // Preferred-channel marks (3/4) get their BANDED hull on buoys —
+        // the band is the "junction here" read (audit). Beacons fall back
+        // to the hand-shape treatment below (band SVG is buoy-hulled).
+        if (!isBeacon && c === 3) return region === 'A' ? 'sm-buoy-prefchan-stbd' : 'sm-buoy-prefchan-stbd-b';
+        if (!isBeacon && c === 4) return region === 'A' ? 'sm-buoy-prefchan-port' : 'sm-buoy-prefchan-port-b';
         const isPortHand = c === 1 || c === 3;
         const isStbdHand = c === 2 || c === 4;
-        const isBeacon = kind === 'BCNLAT';
         if (isPortHand) {
             // Port-hand beacons carry the CAN (square) topmark — the
             // shape channel must disambiguate the hand for colour-blind

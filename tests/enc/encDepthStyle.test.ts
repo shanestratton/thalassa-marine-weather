@@ -114,7 +114,9 @@ describe('hard rule 5 — sounding subscript carry', () => {
         expect(sounding({ _d: 0.66 }, 1.3)).toBe('2');
     });
     it('drying heights render as magnitude (khaki convention), no minus sign', () => {
-        expect(sounding({ _d: -0.3 })).toBe('0₃');
+        // INT1: drying soundings carry the underline (combining U+0332) —
+        // magnitude only, no minus sign, khaki ink carries the rest.
+        expect(sounding({ _d: -0.3 })).toBe('0\u0332₃');
     });
     it('deep water rounds whole', () => {
         expect(sounding({ _d: 12.4 })).toBe('12');

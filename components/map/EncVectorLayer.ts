@@ -440,7 +440,7 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
         'TSSLPT',
         '#d97706', // TSS lane — amber
         'TSEZNE',
-        '#d97706', // TSS separation zone — amber family (keep OUT)
+        '#c2410c', // TSS separation zone — burnt orange, darker than the lane (audit: zone read identical to lane)
         'ACHARE',
         '#2f6fd0', // designated anchorage — marine blue
         'MARCUL',
@@ -462,7 +462,15 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                 filter: ['!=', ['get', '_caution'], 'SBDARE'],
                 paint: {
                     'fill-color': colourExpr as mapboxgl.ExpressionSpecification,
-                    'fill-opacity': 0.1,
+                    // The separation ZONE is a keep-out, not a lane — it reads
+                    // at double the wash so the two are never confusable
+                    // (audit: TSEZNE was visually identical to TSSLPT).
+                    'fill-opacity': [
+                        'case',
+                        ['==', ['get', '_caution'], 'TSEZNE'],
+                        0.22,
+                        0.1,
+                    ] as unknown as mapboxgl.ExpressionSpecification,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_FILL),
@@ -599,7 +607,16 @@ function mountPointMarkLayers(
                 minzoom: minZoom,
                 filter: scaminAware(['==', ['get', '_kind'], 'OBSTRN']),
                 layout: {
-                    'icon-image': 'sm-hazard-obstruction',
+                    // CATOBS 7 = foul ground (K31 hash: anchoring/gear risk,
+                    // not surface danger) — everything else, incl. unknown,
+                    // keeps the dangerous-obstruction circle (audit).
+                    'icon-image': [
+                        'match',
+                        ['to-string', ['coalesce', ['get', 'CATOBS'], ['get', 'catobs'], '']],
+                        '7',
+                        'sm-hazard-foul',
+                        'sm-hazard-obstruction',
+                    ] as unknown as mapboxgl.ExpressionSpecification,
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
                     'icon-allow-overlap': true, // a danger symbol never yields to declutter
                 },
@@ -644,15 +661,17 @@ function mountPointMarkLayers(
                 minzoom: minZoom,
                 filter: scaminAware(['==', ['get', '_kind'], 'UWTROC']),
                 layout: {
-                    // WATLEV 4 (covers+uncovers) / 5 (awash) → INT1 asterisk;
-                    // submerged/unknown → the + cross.
+                    // INT1 K-section (audit: 4 and 5 shared a glyph):
+                    // WATLEV 4 covers+uncovers → K11 asterisk; WATLEV 5
+                    // awash at CD → K12 dotted cross; submerged/unknown →
+                    // K13 plain cross.
                     'icon-image': [
                         'match',
                         ['to-string', ['coalesce', ['get', 'WATLEV'], ['get', 'watlev'], '']],
                         '4',
                         'sm-hazard-rock-awash',
                         '5',
-                        'sm-hazard-rock-awash',
+                        'sm-hazard-rock-awash-cd',
                         'sm-hazard-rock',
                     ] as unknown as mapboxgl.ExpressionSpecification,
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,

@@ -54,6 +54,26 @@ function lateralBuoySvg(colour: string, shape: 'can' | 'cone'): string {
     </svg>`;
 }
 
+/** Preferred-channel lateral (CATLAM 3/4): main colour with a single
+ *  contrasting band — the banding IS the "junction here" signal the audit
+ *  said we dropped. Same topmark/hull grammar as lateralBuoySvg. */
+function preferredChannelBuoySvg(main: string, band: string, shape: 'can' | 'cone'): string {
+    const top =
+        shape === 'can'
+            ? `<rect x="12" y="8" width="24" height="4" rx="1" fill="${main}"/>`
+            : `<polygon points="24,6 12,12 36,12" fill="${main}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+        <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
+        <g filter="url(#s)" stroke="${COLOURS.white}" stroke-width="1.5">
+            ${top}
+            <rect x="14" y="12" width="20" height="22" rx="3" fill="${main}"/>
+            <rect x="14" y="19" width="20" height="8" fill="${band}" stroke="none"/>
+            <rect x="14" y="12" width="20" height="22" rx="3" fill="none"/>
+            <line x1="24" y1="34" x2="24" y2="42" stroke="${main}" stroke-width="3"/>
+        </g>
+    </svg>`;
+}
+
 /** Cardinal buoy — Yellow/Black horizontal bands with cone topmarks */
 function cardinalBuoySvg(direction: 'north' | 'south' | 'east' | 'west'): string {
     // Band patterns: N=BY, S=YB, E=BYB, W=YBY (top to bottom)
@@ -105,12 +125,14 @@ function isolatedDangerSvg(): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
         <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
         <g filter="url(#s)">
-            <circle cx="21" cy="6" r="3" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
-            <circle cx="27" cy="6" r="3" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
-            <rect x="14" y="10" width="20" height="8" rx="1" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
-            <rect x="14" y="18" width="20" height="8" rx="0" fill="${COLOURS.red}" stroke="${COLOURS.white}" stroke-width="1"/>
-            <rect x="14" y="26" width="20" height="8" rx="1" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
-            <line x1="24" y1="34" x2="24" y2="42" stroke="${COLOURS.black}" stroke-width="3"/>
+            <!-- INT1: TWO BLACK SPHERES, VERTICAL (audit: side-by-side read
+                 as a different topmark at a glance) -->
+            <circle cx="24" cy="4" r="2.6" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
+            <circle cx="24" cy="10" r="2.6" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
+            <rect x="14" y="14" width="20" height="7" rx="1" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
+            <rect x="14" y="21" width="20" height="7" rx="0" fill="${COLOURS.red}" stroke="${COLOURS.white}" stroke-width="1"/>
+            <rect x="14" y="28" width="20" height="7" rx="1" fill="${COLOURS.black}" stroke="${COLOURS.white}" stroke-width="1"/>
+            <line x1="24" y1="35" x2="24" y2="43" stroke="${COLOURS.black}" stroke-width="3"/>
         </g>
     </svg>`;
 }
@@ -250,6 +272,25 @@ function rockAwashSvg(): string {
         <line x1="15" y1="15" x2="33" y2="33"/><line x1="33" y1="15" x2="15" y2="33"/></g>`);
 }
 
+/** INT1 K12 — rock AWASH at chart datum: the + cross with a dot in each
+ *  quadrant (distinct from K11 covers-and-uncovers asterisk — audit:
+ *  both WATLEV 4 and 5 shared one glyph). */
+function rockAwashCdSvg(): string {
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="3.5" stroke-linecap="round">
+        <line x1="24" y1="11" x2="24" y2="37"/><line x1="11" y1="24" x2="37" y2="24"/></g>
+        <g fill="${COLOURS.magenta}">
+        <circle cx="17" cy="17" r="2"/><circle cx="31" cy="17" r="2"/>
+        <circle cx="17" cy="31" r="2"/><circle cx="31" cy="31" r="2"/></g>`);
+}
+
+/** INT1 K31-style foul ground (CATOBS 7): hash — not dangerous to
+ *  surface navigation but foul for anchoring/fishing gear. */
+function foulGroundSvg(): string {
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="2.5" stroke-linecap="round">
+        <line x1="19" y1="12" x2="15" y2="36"/><line x1="33" y1="12" x2="29" y2="36"/>
+        <line x1="12" y1="19" x2="36" y2="19"/><line x1="12" y1="29" x2="36" y2="29"/></g>`);
+}
+
 /** INT1 K28/K29-style wreck: hull + masts. Dangerous = FILLED hull;
  *  non-dangerous (CATWRK 1) = outline only. */
 function wreckSvg(dangerous: boolean): string {
@@ -278,6 +319,14 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-buoy-port-b', svg: lateralBuoySvg(COLOURS.green, 'can'), size: 48 },
         { id: 'sm-buoy-starboard-b', svg: lateralBuoySvg(COLOURS.red, 'cone'), size: 48 },
 
+        // Preferred-channel laterals (CATLAM 3/4) — region A: 3 = red
+        // w/ green band (pass as port-hand for the preferred channel),
+        // 4 = green w/ red band; region B swaps the colours.
+        { id: 'sm-buoy-prefchan-stbd', svg: preferredChannelBuoySvg(COLOURS.red, COLOURS.green, 'can'), size: 48 },
+        { id: 'sm-buoy-prefchan-port', svg: preferredChannelBuoySvg(COLOURS.green, COLOURS.red, 'cone'), size: 48 },
+        { id: 'sm-buoy-prefchan-stbd-b', svg: preferredChannelBuoySvg(COLOURS.green, COLOURS.red, 'can'), size: 48 },
+        { id: 'sm-buoy-prefchan-port-b', svg: preferredChannelBuoySvg(COLOURS.red, COLOURS.green, 'cone'), size: 48 },
+
         // Cardinal buoys
         { id: 'sm-cardinal-north', svg: cardinalBuoySvg('north'), size: 48 },
         { id: 'sm-cardinal-south', svg: cardinalBuoySvg('south'), size: 48 },
@@ -292,6 +341,8 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         // INT1 hazard glyphs (K-section) — see hazardDiscSvg block above.
         { id: 'sm-hazard-rock', svg: rockSubmergedSvg(), size: 48 },
         { id: 'sm-hazard-rock-awash', svg: rockAwashSvg(), size: 48 },
+        { id: 'sm-hazard-rock-awash-cd', svg: rockAwashCdSvg(), size: 48 },
+        { id: 'sm-hazard-foul', svg: foulGroundSvg(), size: 48 },
         { id: 'sm-hazard-wreck-dangerous', svg: wreckSvg(true), size: 48 },
         { id: 'sm-hazard-wreck', svg: wreckSvg(false), size: 48 },
         { id: 'sm-hazard-obstruction', svg: obstructionSvg(), size: 48 },

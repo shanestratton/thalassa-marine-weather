@@ -266,7 +266,15 @@ export function buildSoundingTextField(tideOffsetM = 0): ExpressionSpecification
     return [
         'case',
         ['<', ['abs', v], 10],
-        ['concat', ['to-string', whole], ['case', ['==', tenth, 0], '', ['at', tenth, ['literal', SUBSCRIPT_DIGITS]]]],
+        [
+            'concat',
+            ['to-string', whole],
+            // INT1: DRYING soundings are UNDERLINED — the khaki ink was the
+            // only 'dries' channel (audit). Combining low line U+0332 under
+            // the whole-metre digit; drying heights are single-digit.
+            ['case', ['<', v, 0], '\u0332', ''],
+            ['case', ['==', tenth, 0], '', ['at', tenth, ['literal', SUBSCRIPT_DIGITS]]],
+        ],
         // ≥10 m: FLOOR, not round (audit: 10.9 printed "11" — deeper than
         // charted). Truncation is the shallow-biased, safe direction; the
         // rare ≥10 m drying height keeps round (floor would overstate it in
