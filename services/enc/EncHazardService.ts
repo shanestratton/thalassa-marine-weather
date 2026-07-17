@@ -78,7 +78,7 @@ import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults } from './hazardSeverity';
 import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES } from './types';
 import { readS57 } from './types';
-import type { EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
+import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import {
     buildLightCharacterLabel,
     encNavaidIconId,
@@ -351,14 +351,33 @@ export async function querySegmentHazards(
     for (let i = 0; i < segments.length; i++) {
         const s = segments[i];
         let merged: EncHazardResult = miss();
+        // Lateral-graze near-miss (burn-down 2026-07-18 #1) rides its OWN fold
+        // channel: mergeHazardResults returns one winning result wholesale, so
+        // a graze from a NON-winning cell would be dropped. Accumulate it
+        // independently of the severity merge and attach it after.
+        let graze: EncAreaGraze | null = null;
         for (const idx of candidateIndexes) {
             const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2, s.exemptStart, s.exemptEnd);
-            if (!r.covered) continue;
-            merged = mergeHazardResults(merged, r);
+            if (r.covered) merged = mergeHazardResults(merged, r);
+            const g = idx.segmentAreaGraze(s.lat1, s.lon1, s.lat2, s.lon2);
+            if (g) graze = foldGraze(graze, g);
         }
-        results[i] = merged;
+        results[i] = graze ? { ...merged, graze } : merged;
     }
     return results;
+}
+
+/** Fold two per-cell lateral grazes into the more significant one for the same
+ *  segment: land (drying bank / islet) before shoal/obstruction, then the
+ *  closest. Mirrors the ranking inside segmentAreaGraze so the cross-cell fold
+ *  and the per-cell pick agree. */
+function foldGraze(a: EncAreaGraze | null, b: EncAreaGraze | null): EncAreaGraze | null {
+    if (a === null) return b;
+    if (b === null) return a;
+    const aLand = a.type === 'land';
+    const bLand = b.type === 'land';
+    if (aLand !== bLand) return aLand ? a : b;
+    return b.clearanceM < a.clearanceM ? b : a;
 }
 
 /**

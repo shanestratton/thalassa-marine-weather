@@ -13,8 +13,9 @@ import type { IsochroneNode, Isochrone, IsochroneResult } from '../services/isoc
 import { pruneWavefrontWithFallbacks } from '../services/isochrone/pruning';
 import { backtrack, smoothRoute } from '../services/isochrone/smoothing';
 import { detectTurnWaypoints, isochroneToGeoJSON } from '../services/isochrone/output';
-import { buildRouteAdvisories, describeCautionCrossings } from '../services/isochrone/landAvoidance';
+import { buildRouteAdvisories, describeAreaGraze, describeCautionCrossings } from '../services/isochrone/landAvoidance';
 import type { HazardResult } from '../services/HazardQueryService';
+import type { EncAreaGraze } from '../services/enc/types';
 import type { EncCautionArea } from '../services/enc/EncSpatialIndex';
 import type { Geometry } from 'geojson';
 
@@ -390,6 +391,17 @@ describe('buildRouteAdvisories', () => {
         expect(out[0].text).toContain('ZOC D'); // decoded, not the raw code (closing audit)
     });
 
+    it('ZOC-B (3) now triggers the low-confidence note — ±50 m positional error (burn-down 2026-07-18 #1)', () => {
+        const out = buildRouteAdvisories([r({ catzoc: 1 }), r({ catzoc: 3 })]);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('note');
+        expect(out[0].text).toContain('ZOC B');
+    });
+
+    it('ZOC-A2 (2) — a fully-systematic ±20 m survey — stays SILENT (the gate is B, not A2)', () => {
+        expect(buildRouteAdvisories([r({ catzoc: 1 }), r({ catzoc: 2 })])).toEqual([]);
+    });
+
     it('flags no-depth-data (source none) as a CAUTION with an N/total count', () => {
         const out = buildRouteAdvisories([
             r({ source: 'none' }),
@@ -417,6 +429,46 @@ describe('buildRouteAdvisories', () => {
         // At or under the clamp → no advisory.
         expect(buildRouteAdvisories([r({})], 5)).toEqual([]);
         expect(buildRouteAdvisories([r({})], 2.1)).toEqual([]);
+    });
+});
+
+describe('describeAreaGraze (ZOC lateral clearance advisory, burn-down 2026-07-18 #1)', () => {
+    const graze = (over: Partial<EncAreaGraze>): EncAreaGraze => ({
+        clearanceM: 12,
+        marginM: 50,
+        catzoc: 3,
+        type: 'shallow',
+        ...over,
+    });
+
+    it('no graze → null', () => {
+        expect(describeAreaGraze(null)).toBeNull();
+    });
+
+    it('grazing LAND (drying bank / islet) is the louder CAUTION', () => {
+        const a = describeAreaGraze(graze({ type: 'land', clearanceM: 8 }))!;
+        expect(a.severity).toBe('caution');
+        expect(a.kind).toBe('lateral-clearance');
+        expect(a.text).toContain('land');
+        expect(a.text).toContain('8 m'); // rounded clearance
+        expect(a.text).toContain('±50 m'); // the positional-uncertainty margin
+        expect(a.text).toContain('ZOC B'); // decoded survey band
+    });
+
+    it('grazing shoal water is a NOTE (depth/tide-dependent, not solid ground)', () => {
+        const a = describeAreaGraze(graze({ type: 'shallow' }))!;
+        expect(a.severity).toBe('note');
+        expect(a.text).toContain('shallow water');
+    });
+
+    it('grazing a polygon obstruction is a NOTE naming the obstruction', () => {
+        expect(describeAreaGraze(graze({ type: 'obstruction' }))!.text).toContain('obstruction');
+    });
+
+    it('omits the ZOC label when no M_QUAL covered the near-miss', () => {
+        const a = describeAreaGraze(graze({ catzoc: null }))!;
+        expect(a.text).not.toContain('ZOC');
+        expect(a.text).toContain('±50 m'); // still names the margin
     });
 });
 

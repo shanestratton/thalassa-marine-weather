@@ -21,7 +21,7 @@ import lineIntersect from '@turf/line-intersect';
 import { lineString as turfLineString, point as turfPoint } from '@turf/helpers';
 import type { Geometry, Position } from 'geojson';
 
-import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
+import type { BBoxEntry, EncAreaGraze, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
 import { ENC_HAZARD_DEPTH_M } from './types';
 import { compareHazardSeverity } from './hazardSeverity';
 
@@ -53,6 +53,45 @@ export const POINT_HAZARD_GUARD_RADIUS_M = 150;
  *  still flags. ~500 m covers a marina basin + its entrance channel
  *  without reaching across a bay. */
 export const BERTH_EXEMPT_RADIUS_M = 500;
+
+// ── ZOC-aware lateral clearance margin (burn-down 2026-07-18 #1) ────
+
+/**
+ * Horizontal positional uncertainty (metres) of a charted feature by its
+ * M_QUAL CATZOC — the IHO S-57 CATZOC table. A route that passes THIS close
+ * to (but does not cross) a charted AREA hazard boundary is inside the
+ * chart's own position error: at that separation "clear" is not a promise,
+ * only an assumption. We surface it as a `segmentAreaGraze` advisory.
+ *
+ * IHO horizontal accuracy: A1 ±5 m, A2 ±20 m, B ±50 m, C ±500 m, D worse.
+ * C/D/U are CAPPED to GRAZE_MARGIN_CAP_M here so the graze advisory stays a
+ * SPECIFIC near-miss caveat and does not fire on every feature within half a
+ * kilometre — the route-wide low-confidence CATZOC note (buildRouteAdvisories,
+ * now ZOC ≥ B) already carries the "poorly surveyed, verify everything"
+ * warning for that water, so the graze pass need not restate it 500 m wide.
+ */
+const POSITIONAL_CEP_M: Record<EncCatzoc, number> = {
+    1: 5, // A1
+    2: 20, // A2
+    3: 50, // B
+    4: 100, // C  (true CEP ±500 m — capped, see above)
+    5: 100, // D  (worse than C — capped)
+    6: 100, // U  (unassessed — capped)
+};
+
+/** Upper bound on the graze margin (m). C/D/U clamp here. Matches the
+ *  point-hazard guard's order of magnitude so a graze can't out-reach a
+ *  reroute. */
+export const GRAZE_MARGIN_CAP_M = 100;
+
+/** Margin (m) for a CATZOC. `null` (no M_QUAL under the segment) is treated
+ *  as ZOC-B (±50 m), NOT worst-case: the separate `quality-unknown` note
+ *  already tells the skipper the survey confidence is unassessed, so the
+ *  graze margin needn't also blow out to the cap on every no-M_QUAL cell. */
+export function zocMarginM(catzoc: EncCatzoc | null): number {
+    if (catzoc == null) return POSITIONAL_CEP_M[3];
+    return Math.min(POSITIONAL_CEP_M[catzoc] ?? GRAZE_MARGIN_CAP_M, GRAZE_MARGIN_CAP_M);
+}
 
 const METRES_PER_DEG_LAT = 111_320;
 const EARTH_RADIUS_M = 6_371_000;
@@ -95,6 +134,48 @@ function pointToSegmentMetres(
     const cx = ax + t * dx;
     const cy = ay + t * dy;
     return Math.sqrt(cx * cx + cy * cy);
+}
+
+/** Min distance (metres) between two segments a→b and c→d. Zero when they
+ *  intersect; otherwise the smallest of the four endpoint-to-opposite-segment
+ *  distances (the closest approach of two non-crossing segments always occurs
+ *  at an endpoint). Reuses pointToSegmentMetres, so equirectangular about each
+ *  probed point — accurate at the sub-km graze ranges. */
+function segmentToSegmentMetres(
+    alat: number,
+    alon: number,
+    blat: number,
+    blon: number,
+    clat: number,
+    clon: number,
+    dlat: number,
+    dlon: number,
+): number {
+    return Math.min(
+        pointToSegmentMetres(alat, alon, clat, clon, dlat, dlon),
+        pointToSegmentMetres(blat, blon, clat, clon, dlat, dlon),
+        pointToSegmentMetres(clat, clon, alat, alon, blat, blon),
+        pointToSegmentMetres(dlat, dlon, alat, alon, blat, blon),
+    );
+}
+
+/** Min clearance (metres) from a segment a→b to any edge of a polygon's rings
+ *  (outer + holes), walking ring vertices as a polyline. Returns Infinity for
+ *  a non-polygon geometry or an empty ring set. Bounded by the ring vertex
+ *  count of the candidate polygons (already bbox-pre-filtered by the caller). */
+function segmentToPolygonMetres(alat: number, alon: number, blat: number, blon: number, geom: Geometry): number {
+    const rings: Position[][] =
+        geom.type === 'Polygon' ? geom.coordinates : geom.type === 'MultiPolygon' ? geom.coordinates.flat() : [];
+    let best = Infinity;
+    for (const ring of rings) {
+        for (let i = 0; i + 1 < ring.length; i++) {
+            const c = ring[i];
+            const d = ring[i + 1];
+            const dist = segmentToSegmentMetres(alat, alon, blat, blon, c[1], c[0], d[1], d[0]);
+            if (dist < best) best = dist;
+        }
+    }
+    return best;
 }
 
 /** Min distance (metres) from a point to a Line/MultiLineString geometry. */
@@ -794,5 +875,86 @@ export class EncSpatialIndex {
             return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId };
         }
         return { covered: true, hazard: true, minDepthM: bestDepth, hazardType: bestType, cellId: this.cellId };
+    }
+
+    /**
+     * Lateral NEAR-MISS of the SEGMENT to a charted AREA grounding hazard it
+     * does NOT cross — the closest such boundary within the chart's ZOC-scaled
+     * horizontal positional-uncertainty margin (burn-down 2026-07-18 #1).
+     *
+     * `segmentHazard` catches a leg that CROSSES a polygon; but a leg validated
+     * "clean" can still run 5 m outside a drying-bank / shoal boundary in
+     * ZOC-B (±50 m) water — inside the chart's own position error — with no
+     * caveat. This returns that near-miss so the validator can advise a wider
+     * berth. ADVISORY ONLY: it never reroutes and never suppresses coverage.
+     *
+     * AREA hazards only (land, shoal DEPARE/DRGARE, polygon OBSTRN), classified
+     * by the SAME `classifyHazard` as the crossing test so graze and crossing
+     * can never disagree about what counts as a hazard — the only difference is
+     * cross → reroute vs near-miss → advise. Point/line hazards are excluded:
+     * they already carry the 150 m guard radius in queryPoint/segmentHazard.
+     *
+     * Margin scales with survey confidence (zocMarginM at the segment
+     * midpoint), so a well-surveyed channel (ZOC-A, ±5 m) does NOT fire on
+     * normal channel-hugging while poorly-surveyed water flags at a wider
+     * separation. A polygon the segment CROSSES (endpoint inside or edge
+     * intersect) is skipped here — that is the crossing path's job. Returns the
+     * most significant graze (land before shoal; then the closest) or null.
+     */
+    segmentAreaGraze(lat1: number, lon1: number, lat2: number, lon2: number): EncAreaGraze | null {
+        const catzoc = this.queryCatzocAt((lat1 + lat2) / 2, (lon1 + lon2) / 2);
+        const marginM = zocMarginM(catzoc);
+
+        // Pad the segment bbox by the margin so a polygon whose (unpadded)
+        // bbox sits up to marginM away is still a candidate — the crossing
+        // search uses the exact bbox and would never see a near-miss.
+        const dLat = marginM / METRES_PER_DEG_LAT;
+        const midLat = (lat1 + lat2) / 2;
+        const cosLat = Math.max(0.05, Math.cos((midLat * Math.PI) / 180));
+        const dLon = marginM / (METRES_PER_DEG_LAT * cosLat);
+        const candidates = this.hazardTree.search({
+            minX: Math.min(lon1, lon2) - dLon,
+            minY: Math.min(lat1, lat2) - dLat,
+            maxX: Math.max(lon1, lon2) + dLon,
+            maxY: Math.max(lat1, lat2) + dLat,
+        });
+        if (candidates.length === 0) return null;
+
+        const segLine = turfLineString([
+            [lon1, lat1],
+            [lon2, lat2],
+        ]);
+        const pA = turfPoint([lon1, lat1]);
+        const pB = turfPoint([lon2, lat2]);
+
+        let best: EncAreaGraze | null = null;
+        for (const entry of candidates) {
+            const geom = entry.hazard.geometry;
+            if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
+            const type = classifyHazard(entry.hazard);
+            // Only AREA grounding hazards — land, shoal DEPARE/DRGARE, polygon
+            // OBSTRN. Deep DEPARE (classifyHazard → null) is clear water: a
+            // route hugging a deep-enough channel edge must NOT graze-flag.
+            if (type !== 'land' && type !== 'shallow' && type !== 'obstruction') continue;
+            // A polygon the segment actually crosses is a CROSSING, handled by
+            // segmentHazard — never double-count it as a graze.
+            if (
+                booleanPointInPolygon(pA, geom) ||
+                booleanPointInPolygon(pB, geom) ||
+                lineIntersect(segLine, geom).features.length > 0
+            ) {
+                continue;
+            }
+            const clearanceM = segmentToPolygonMetres(lat1, lon1, lat2, lon2, geom);
+            if (clearanceM > marginM) continue;
+            const isLand = type === 'land';
+            const bestIsLand = best?.type === 'land';
+            // Land (drying bank / islet — the finding's scary case) outranks a
+            // shoal graze; within the same class the CLOSEST wins.
+            if (best === null || (isLand && !bestIsLand) || (isLand === bestIsLand && clearanceM < best.clearanceM)) {
+                best = { clearanceM, marginM, catzoc, type };
+            }
+        }
+        return best;
     }
 }

@@ -15,7 +15,7 @@ import type { RouteAdvisory } from '../enc/EncHazardReportService';
 import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { failedCellIds } from '../enc/encIndexCache';
 import { GEBCO_MSL_TO_LAT_PESSIMISM_M } from '../HazardQueryService';
-import { CATZOC_LABELS, type EncCatzoc } from '../enc/types';
+import { CATZOC_LABELS, type EncAreaGraze, type EncCatzoc } from '../enc/types';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -607,7 +607,12 @@ export function buildRouteAdvisories(
         if (typeof r.catzoc !== 'number') continue;
         if (worstCatzoc === null || r.catzoc > worstCatzoc) worstCatzoc = r.catzoc;
     }
-    if (worstCatzoc !== null && worstCatzoc >= 4) {
+    // Gate at ZOC-B (3), not C (4) (burn-down 2026-07-18 #1): ZOC-B carries
+    // ±50 m horizontal positional uncertainty — enough that a route validated
+    // "clean" against charted positions may in reality graze a drying bank or
+    // shoal. B/C/D/U all warrant the "verify depths visually" note; only the
+    // fully-systematic A1/A2 surveys (±5 m / ±20 m) are trusted without it.
+    if (worstCatzoc !== null && worstCatzoc >= 3) {
         advisories.push({
             severity: 'note',
             kind: 'catzoc',
@@ -680,6 +685,48 @@ export function describeCautionCrossings(areas: EncCautionArea[]): RouteAdvisory
         severity: entryProhibited ? 'caution' : 'note',
         kind: 'caution-crossing',
         text: `Route crosses ${parts.join(' · ')} — check restrictions`,
+    };
+}
+
+/**
+ * Turn the worst lateral GRAZE along a route into one advisory (burn-down
+ * 2026-07-18 #1). A graze is a leg that validated CLEAN but passes within the
+ * chart's ZOC-scaled horizontal positional-uncertainty margin of a charted
+ * AREA hazard boundary it does not cross — at that separation "clear" is an
+ * assumption, not a promise. Land (drying bank / islet / coast) reads as the
+ * louder `caution`; a shoal/obstruction near-miss is a `note`. Null when the
+ * route grazes nothing. Pure + exported for unit testing.
+ */
+/** True when graze `a` is more significant than `b` for the route-wide
+ *  advisory: land (drying bank / islet) before shoal/obstruction, then the
+ *  closest clearance. Mirrors the cross-cell foldGraze ranking so the pass
+ *  accumulator and the per-cell pick agree on which graze surfaces. */
+function grazeOutranks(a: EncAreaGraze, b: EncAreaGraze): boolean {
+    const aLand = a.type === 'land';
+    const bLand = b.type === 'land';
+    if (aLand !== bLand) return aLand;
+    return a.clearanceM < b.clearanceM;
+}
+
+export function describeAreaGraze(graze: EncAreaGraze | null): RouteAdvisory | null {
+    if (graze === null) return null;
+    const what =
+        graze.type === 'land'
+            ? 'charted land / a drying bank'
+            : graze.type === 'obstruction'
+              ? 'a charted obstruction'
+              : 'charted shallow water';
+    const zoc = graze.catzoc != null ? ` (ZOC ${CATZOC_LABELS[graze.catzoc] ?? graze.catzoc})` : '';
+    const clr = Math.round(graze.clearanceM);
+    const margin = Math.round(graze.marginM);
+    return {
+        // Grazing solid ground within position error is the finding's scary
+        // case — louder. A shoal near-miss is depth/tide-dependent — a note.
+        severity: graze.type === 'land' ? 'caution' : 'note',
+        kind: 'lateral-clearance',
+        text:
+            `Route passes ~${clr} m from ${what} — inside the chart's ±${margin} m ` +
+            `positional uncertainty${zoc}. Give it wider berth or verify visually.`,
     };
 }
 
@@ -807,6 +854,14 @@ export async function validateRouteSegments(
     // sampled-point results carry their own flags; these are the sub-231 m
     // polygon crossings the samples can't see).
     let segTideConstrained = 0;
+    // Worst lateral GRAZE from the latest pass (a leg that validated clean but
+    // passes within the chart's positional-error margin of an AREA hazard —
+    // burn-down 2026-07-18 #1). Reset each pass, surfaced on the clean break.
+    let worstGraze: EncAreaGraze | null = null;
+    // Set when the segment-vs-polygon crossing check THREW this pass — the
+    // sub-231 m thin-islet protection did not run, and a clean report would
+    // otherwise hide that silently (burn-down 2026-07-18, the free one-liner).
+    let segmentCheckFailed = false;
     // Last pass's sample results — kept so the EXHAUSTION path can still
     // build the no-data / CATZOC advisories (audit: they ran only in the
     // clean branch, dropping them from exactly the least-verified routes).
@@ -971,6 +1026,11 @@ export async function validateRouteSegments(
                     timeMs,
                 });
             }
+            segmentCheckFailed = false;
+            // Reset BEFORE the try so a thrown check leaves no STALE graze from
+            // a prior pass to surface on the clean break (the throw is reported
+            // by segmentCheckFailed instead).
+            worstGraze = null;
             try {
                 const segResults = await HazardQueryService.querySegmentHazards(polySegs, queryOpts);
                 segTideConstrained = 0;
@@ -982,9 +1042,18 @@ export async function validateRouteSegments(
                     // was computed then discarded — count it so the
                     // tide-constrained advisory covers segment hits too.
                     if (segResults[k]?.tideConstrained) segTideConstrained++;
+                    // Lateral near-miss of a clean leg to a charted AREA hazard
+                    // within the chart's positional-error margin (burn-down #1).
+                    const g = segResults[k]?.graze;
+                    if (g && (worstGraze === null || grazeOutranks(g, worstGraze))) worstGraze = g;
                 }
             } catch (err) {
                 landLog.warn('[ValidateRoute] segment-polygon check failed (continuing with sample scan):', err);
+                // Loud, not silent: the thin-islet crossing test did not run,
+                // so a "clean" report would hide an unverified sub-231 m
+                // crossing (closing-audit missed finding). Surface it on the
+                // clean break, mirroring the point-path fail-open.
+                segmentCheckFailed = true;
             }
         }
 
@@ -1002,6 +1071,21 @@ export async function validateRouteSegments(
                 segTideConstrained,
             );
             if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
+            // Lateral clearance: a clean leg that still grazes a charted AREA
+            // hazard within the chart's positional-error margin (burn-down #1).
+            const grazeAdvisory = describeAreaGraze(worstGraze);
+            if (grazeAdvisory) routeAdvisories.push(grazeAdvisory);
+            // The thin-islet crossing test threw this pass — say so, rather than
+            // present a clean report over an unrun check (burn-down one-liner).
+            if (segmentCheckFailed) {
+                routeAdvisories.push({
+                    severity: 'caution',
+                    kind: 'segment-check-failed',
+                    text:
+                        'The thin-islet crossing check could not run on this route — a charted shoal ' +
+                        'or islet narrower than the 231 m sampling may be unverified. Verify the line visually.',
+                });
+            }
             await appendCautionCrossings();
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +

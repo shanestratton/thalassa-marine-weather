@@ -584,6 +584,37 @@ export interface EncHazardResult {
      *  rather than treat the point as ENC-verified clear (burn-down
      *  2026-07-16: guard-radius SOUNDG hits were granting coverage). */
     soundingOnly?: boolean;
+    /** Lateral near-miss: the SEGMENT passes within the chart's ZOC-scaled
+     *  positional-uncertainty margin of a charted AREA hazard boundary it
+     *  does NOT cross (burn-down 2026-07-18 finding #1: a validated route
+     *  could graze a drying-bank polygon at 0 m with no caveat). ADVISORY
+     *  ONLY — never a reroute, and NEVER a severity factor: it is set purely
+     *  by `segmentAreaGraze`, folded on its OWN channel in querySegmentHazards
+     *  (NOT via mergeHazardResults, which returns one winning result wholesale
+     *  and would drop it). queryPoint never sets it. */
+    graze?: EncAreaGraze;
+}
+
+/**
+ * A lateral near-miss between a route segment and a charted AREA hazard
+ * boundary the segment does NOT cross, when the clearance falls within the
+ * chart's own horizontal positional uncertainty for the local ZOC. Surfaced
+ * to the skipper as a "give wider berth / verify visually" advisory — it
+ * converts chart positional uncertainty from an invisible assumption into a
+ * visible caveat (burn-down 2026-07-18 finding #1). Never triggers a detour.
+ */
+export interface EncAreaGraze {
+    /** Closest lateral clearance (m) from the segment to the AREA boundary. */
+    clearanceM: number;
+    /** ZOC-scaled positional-uncertainty margin (m) the clearance fell within
+     *  (A1 ±5, A2 ±20, B ±50; C/D/U and no-M_QUAL capped — see zocMarginM). */
+    marginM: number;
+    /** CATZOC at the segment midpoint (null when no M_QUAL covers it). */
+    catzoc: EncCatzoc | null;
+    /** The grazed AREA hazard's type — 'land' (drying bank / islet / coast,
+     *  the finding's scary case → louder advisory), 'shallow' (shoal depth
+     *  area), or 'obstruction' (polygon OBSTRN). */
+    type: EncHazardType;
 }
 
 // ── Spatial index entry (RBush format) ─────────────────────────────

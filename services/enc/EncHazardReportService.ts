@@ -107,7 +107,12 @@ export interface RouteAdvisory {
         | 'exhaustion'
         | 'not-validated'
         | 'caution-crossing'
-        | 'single-station-tide';
+        | 'single-station-tide'
+        // Route validated clean but grazes a charted AREA hazard within the
+        // chart's ZOC positional-error margin (burn-down 2026-07-18 #1).
+        | 'lateral-clearance'
+        // The segment-vs-polygon thin-islet crossing test threw and did not run.
+        | 'segment-check-failed';
 }
 
 export interface RouteHazardReport {
