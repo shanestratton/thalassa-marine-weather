@@ -5077,15 +5077,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 🧭 Trace route{capturedCoords.length > 0 ? ` (${capturedCoords.length})` : ''}
                             </button>
                         ) : (
-                            // Height cap = the glass between the card's bottom
+                            // FIXED height = the glass between the card's bottom
                             // anchor (8.4rem, clear of the scrubber) and just
-                            // under the zoom pill (top 104px + 44px tall + 8px
-                            // gap = 156px). Shane 2026-07-17: "right up to just
-                            // under the zoom info pill — I hate unnecessary
-                            // scroll bars" (the earlier 44dvh clamp scrolled
-                            // routes that still had free screen above them).
-                            // The leg list scrolls only past THIS ceiling.
-                            <div className="flex max-h-[calc(100dvh_-_8.4rem_-_156px_-_env(safe-area-inset-bottom))] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
+                            // under the zoom pill (top 104px + 44px + 8px = 156px).
+                            // Shane 2026-07-17: "the card does not grow when we add
+                            // waypoints — they just utilise the space they have;
+                            // fine to have a scroll bar." Was max-h (grew with
+                            // content); a fixed height keeps the card constant. The
+                            // waypoint list is the ONE flex-1 min-h-0 child, so it
+                            // soaks up all the slack and scrolls, while every action
+                            // below it (Save, Report, Depart) stays pinned.
+                            <div className="flex h-[calc(100dvh_-_8.4rem_-_156px_-_env(safe-area-inset-bottom))] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
                                 {/* The WHOLE header folds/unfolds the card (Shane
                                     2026-07-15: "we need a bigger button to minimise
                                     and maximise the plotting card") — the old chevron
@@ -5217,7 +5219,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="min-h-0 flex-1 overflow-y-auto">
+                                    <div className="flex min-h-0 flex-1 flex-col">
                                         {/* Draft honesty — ALWAYS say what keel the verdicts
                                 checked; amber when it's the 2.5 m fallback, LOUD
                                 when the number reads like a units mix-up (field
@@ -5465,7 +5467,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </div>
                                         )}
                                         {capturedCoords.length === 0 ? (
-                                            <div className="px-3 py-3 text-[11px] leading-snug text-gray-400">
+                                            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] leading-snug text-gray-400">
                                                 Tap the chart along your intended track — each leg is checked for depth,
                                                 markers and land as you go. Zoom right in for tight channels. Drag a pin
                                                 to nudge it; tap a pin to delete it or insert after it.
@@ -5476,7 +5478,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="max-h-48 space-y-1 overflow-y-auto px-3 py-2">
+                                            // THE one scroller — flex-1 min-h-0 soaks up
+                                            // the card's slack and scrolls; every footer
+                                            // action below keeps min-height:auto so it
+                                            // stays pinned (Shane 2026-07-17).
+                                            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
                                                 {capturedCoords.map((c, i) => {
                                                     if (i === 0)
                                                         return (
