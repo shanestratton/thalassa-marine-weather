@@ -124,3 +124,21 @@ banked on top. All real, all cited distinct code paths.
 | 2026-07-19 | buildCellGlaze branch coverage (scheduler residual)                                         | 0.5  | `3c54d0ce` | 91.15              |
 | 2026-07-19 | Cloud-cell download parses off-thread (parseJsonOffThread)                                  | 0.5  | `d024fd40` | 91.65              |
 | 2026-07-19 | Chart-edition currency advisory + coastline-scan hoist                                      | 0.5  | `83258181` | 92.15              |
+
+## Cycle-4 closing audit (protocol step 2): **91.20/100**
+
+`wf_a1b5b444-4b5`, 11 agents, 0 errors, ~1.06M tokens. Arc: 79.6 → 83.75 →
+84.25 → 86.15 → **91.20** — the biggest single-cycle open-score jump. Full
+transcript + top-8: ENC_AUDIT_2026-07-19_closing.md.
+
+The two numbers, kept honest: the vs-bar tally reached **92.15**, the fresh
+open re-audit lands at **91.20**. Every cycle-4 fix that was re-verified held
+(no refutations; chief: "every confirmed safety divergence is fail-safe…
+nothing makes the layer over-confident for Shane's boat"). The ~0.95 gap is the
+fresh audit surfacing NEW findings the frozen seed didn't cover — chiefly a
+**pre-existing** safety #1 (1.5): a failed detailed-cell load can be masked by
+overlapping coarse ENC coverage and present a clean validated face while the
+fine grounding features were never consulted (chief's "fix first"). One
+critique landed on cycle-4's own work: the lateral-graze advisory over-warns
+(static 15 m, not draft-aware) — fail-safe, 0.25, top-8 #8. The new top-8 seeds
+burn-down #5.
