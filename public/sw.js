@@ -248,9 +248,12 @@
 // scrubber (it sat on top of it when folded).
 // v125: tracer-card Depart loses its OK button — the 24-hour selects
 // dismiss themselves; the full-width Now button (back to leave-now) stays.
-const CACHE_NAME = 'thalassa-v125-core';
-const TILE_CACHE = 'thalassa-v125-tiles';
-const DATA_CACHE = 'thalassa-v125-data';
+// v126: leg verdicts persist across reloads/deploys/tab-bounces — a kept
+// route no longer re-checks the entire line when nothing changed. Cache
+// drops itself on a draft change or a chart install (registry version).
+const CACHE_NAME = 'thalassa-v126-core';
+const TILE_CACHE = 'thalassa-v126-tiles';
+const DATA_CACHE = 'thalassa-v126-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
