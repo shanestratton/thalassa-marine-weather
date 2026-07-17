@@ -100,22 +100,34 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
     // A 'caution' advisory = the route crosses water with NO confirmed depth
     // (route+warn policy). It outranks hazards in the headline because it's the
     // one thing the skipper can't see on the chart at all.
-    const hasCaution = advisories.some((a) => a.severity === 'caution');
-    const cautionText = advisories.find((a) => a.severity === 'caution')?.text;
-    // Caution-aware headline (audit: every caution said "Unverified depth"
-    // even when the caution was pass-limit exhaustion or a failed
-    // validation — the headline must match what actually happened).
-    const cautionHeadline = !cautionText
+    const cautions = advisories.filter((a) => a.severity === 'caution');
+    const hasCaution = cautions.length > 0;
+    // Headline from the STRUCTURED advisory kind (2026-07-17 audit: the old
+    // substring matching silently degraded when prose changed, and
+    // first-caution-wins hid co-present cautions when collapsed). Prose
+    // matching remains ONLY as a fallback for kind-less advisories.
+    const KIND_HEADLINES: Record<string, string> = {
+        'no-data': 'Unverified depth on route',
+        'not-validated': 'Route NOT verified',
+        exhaustion: 'Route not fully verified',
+        'draft-clamp': 'Draft exceeds depth model',
+        'caution-crossing': 'Route crosses a prohibited area',
+        'tide-constrained': 'Tide-constrained leg',
+        'gebco-share': 'Depths verified on ocean bathymetry',
+    };
+    const firstCaution = cautions[0];
+    const baseHeadline = !firstCaution
         ? null
-        : cautionText.includes('NO depth data')
-          ? 'Unverified depth on route'
-          : cautionText.includes('NOT been validated') || cautionText.includes('pass limit')
-            ? 'Route not fully verified'
-            : cautionText.includes('draft')
-              ? 'Draft exceeds depth model'
-              : cautionText.includes('Route crosses')
-                ? 'Route crosses a prohibited area'
-                : 'Route caution — verify visually';
+        : (firstCaution.kind && KIND_HEADLINES[firstCaution.kind]) ||
+          (firstCaution.text.includes('NO depth data')
+              ? 'Unverified depth on route'
+              : firstCaution.text.includes('draft')
+                ? 'Draft exceeds depth model'
+                : 'Route caution — verify visually');
+    // Co-present cautions surface in the collapsed header instead of hiding
+    // behind the first one.
+    const cautionHeadline =
+        baseHeadline && cautions.length > 1 ? `${baseHeadline} +${cautions.length - 1} more` : baseHeadline;
     const headline = hasCaution
         ? cautionHeadline!
         : total === 0
@@ -148,13 +160,13 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                     <div className="flex-1 min-w-0">
                         <p className={`text-[12px] font-bold ${accent.title} leading-tight`}>{headline}</p>
                         <p
-                            className={`text-[10px] ${hasCaution ? 'text-red-300/80' : 'text-amber-300/70'} leading-tight`}
+                            className={`text-[12px] ${hasCaution ? 'text-red-300/80' : 'text-amber-300/70'} leading-tight`}
                         >
                             {hasCaution
                                 ? // Route+warn: the no-data caution text rides IN the collapsed
                                   // header so an unverified-depth route can't be missed without
                                   // expanding (audit: no-data was a silent soft advisory).
-                                  cautionText
+                                  firstCaution?.text
                                 : total > 0
                                   ? `within ${report.bufferNm.toFixed(1)} NM · ENC vector data${
                                         advisories.length > 0
@@ -189,7 +201,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                                     <div key={`adv-${i}`} className="flex items-start gap-2 py-1">
                                         <span className="text-sm shrink-0 mt-0.5">{caution ? '🛑' : '⚠'}</span>
                                         <p
-                                            className={`text-[11px] leading-snug ${
+                                            className={`text-[12px] leading-snug ${
                                                 caution ? 'text-red-200 font-semibold' : 'text-amber-100'
                                             }`}
                                         >
@@ -223,16 +235,16 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                                 <div className="flex items-start gap-2">
                                     <span className="text-sm shrink-0 mt-0.5">{hazardIcon(entry.hazardType)}</span>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[11px] font-bold text-amber-100 leading-tight">
+                                        <p className="text-[12px] font-bold text-amber-100 leading-tight">
                                             {entry.description ?? hazardLabel(entry.hazardType)}
                                             <span className="ml-1.5 font-normal text-amber-300/80">
                                                 {formatDistance(entry.distanceNm)} {sideLabel(entry.side)}
                                             </span>
                                         </p>
-                                        <p className="text-[10px] text-amber-200/60 leading-tight font-mono">
+                                        <p className="text-[12px] text-amber-200/75 leading-tight font-mono">
                                             {formatLatLon(entry.representativePoint)}
                                         </p>
-                                        <div className="text-[10px] text-amber-200/50 leading-tight mt-0.5">
+                                        <div className="text-[12px] text-amber-200/70 leading-tight mt-0.5">
                                             {entry.minDepthM != null && <span>{entry.minDepthM.toFixed(1)} m </span>}
                                             <span className="font-mono">{entry.cellId}</span>
                                             <span> · {entry.sourceHO}</span>
@@ -250,7 +262,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                         );
                     })}
                     {total > 0 && (
-                        <p className="mt-2 text-[10px] text-amber-300/50 italic">
+                        <p className="mt-2 text-[12px] text-amber-300/70 italic">
                             From {report.cellsConsulted} ENC cell{report.cellsConsulted === 1 ? '' : 's'}. Verify
                             visually before relying on these positions.
                         </p>

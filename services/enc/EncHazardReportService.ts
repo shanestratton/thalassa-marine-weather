@@ -94,6 +94,20 @@ export interface RouteHazardReportEntry {
 export interface RouteAdvisory {
     severity: 'caution' | 'note';
     text: string;
+    /** Structured advisory kind (2026-07-17 audit: the panel headline was
+     *  derived by SUBSTRING-MATCHING the prose — reword an advisory and the
+     *  headline silently degrades). Producers stamp it; the panel maps it. */
+    kind?:
+        | 'no-data'
+        | 'gebco-share'
+        | 'tide-constrained'
+        | 'draft-clamp'
+        | 'catzoc'
+        | 'quality-unknown'
+        | 'exhaustion'
+        | 'not-validated'
+        | 'caution-crossing'
+        | 'single-station-tide';
 }
 
 export interface RouteHazardReport {
@@ -503,6 +517,7 @@ export function publishRouteNotValidated(detail: string): void {
         advisories: [
             {
                 severity: 'caution',
+                kind: 'not-validated',
                 text:
                     `Route NOT verified: ${detail}. The drawn line has not been checked ` +
                     `against charted rocks, wrecks or depths — treat it as a suggestion ` +

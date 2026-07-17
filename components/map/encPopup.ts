@@ -367,7 +367,7 @@ export function buildFeaturePopupHtml(
                             : `<div class="enc-popup-row"><span>Your keel</span><b style="color:${tideColor}">✓ enough water right now — the tide is in</b></div>`;
                 } else {
                     body += `<div class="enc-popup-row"><span>Your keel</span><b style="color:#fbbf24">needs +${(S - d1).toFixed(1)} m of tide</b></div>`;
-                    body += `<div class="enc-popup-row"><span>Window</span><b class="enc-popup-tidewin" style="color:#fbbf24">checking tides…</b></div>`;
+                    body += `<div class="enc-popup-row"><span>Window</span><b class="enc-popup-tidewin" aria-live="polite" style="color:#fbbf24">checking tides…</b></div>`;
                 }
                 // Draft honesty (mirrors the tracer): a verdict against the
                 // fallback draft always says so.
@@ -657,7 +657,7 @@ export function buildFeaturePopupHtml(
     if (!body) body = `<div class="enc-popup-row"><span>Feature</span><b>${esc(title)}</b></div>`;
 
     return `
-        <div class="enc-popup">
+        <div class="enc-popup" role="dialog" aria-label="${esc(title)}">
             <button class="enc-popup-close" aria-label="Close">×</button>
             <div class="enc-popup-title" style="color:${accent}">${esc(title)}</div>
             <div class="enc-popup-body">${body}</div>
@@ -687,11 +687,11 @@ export function buildFeaturePopupHtml(
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 color: rgb(209, 213, 219);
                 border-radius: 999px;
-                /* 32 px box (was 22) — gloved-hand target on a moving
-                   deck; half of Apple's 44 pt floor was fat-finger
-                   hostile (2026-07-12 audit). */
-                width: 32px;
-                height: 32px;
+                /* 44 px box — Apple's HIG floor, finally met (2026-07-17
+                   audit: 32 was still under it). The VISUAL disc stays
+                   compact via the inner glyph; the hit target is full. */
+                width: 44px;
+                height: 44px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -709,14 +709,14 @@ export function buildFeaturePopupHtml(
                 font-size: 13px;
                 font-weight: 700;
                 margin-bottom: 6px;
-                padding-right: 32px;
+                padding-right: 44px;
             }
             .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
             .enc-popup-sub {
                 margin-top: 6px;
                 padding-top: 6px;
                 border-top: 1px solid rgba(255, 255, 255, 0.08);
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 700;
             }
             .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
@@ -727,7 +727,7 @@ export function buildFeaturePopupHtml(
                 padding-top: 6px;
                 border-top: 1px solid rgba(255, 255, 255, 0.08);
                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                font-size: 10px;
+                font-size: 12px;
                 color: rgba(229, 231, 235, 0.55);
             }
             .mapboxgl-popup-content { background: transparent !important; padding: 0 !important; box-shadow: none !important; }

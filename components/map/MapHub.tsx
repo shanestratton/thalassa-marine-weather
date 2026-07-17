@@ -5415,13 +5415,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     🕐 Depart
                                                 </span>
                                                 {departureMs === null && (
-                                                    <span className="text-[10px] font-bold text-emerald-300/80">now</span>
+                                                    <span className="text-[10px] font-bold text-emerald-300/80">
+                                                        now
+                                                    </span>
                                                 )}
                                             </div>
                                             <div className="flex gap-1.5">
                                                 <input
                                                     type="date"
-                                                    value={departureMs !== null ? msToLocalInput(departureMs).slice(0, 10) : ''}
+                                                    value={
+                                                        departureMs !== null
+                                                            ? msToLocalInput(departureMs).slice(0, 10)
+                                                            : ''
+                                                    }
                                                     onChange={(e) => {
                                                         triggerHaptic('light');
                                                         if (!e.target.value) {
@@ -5440,7 +5446,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 />
                                                 <input
                                                     type="time"
-                                                    value={departureMs !== null ? msToLocalInput(departureMs).slice(11, 16) : ''}
+                                                    value={
+                                                        departureMs !== null
+                                                            ? msToLocalInput(departureMs).slice(11, 16)
+                                                            : ''
+                                                    }
                                                     onChange={(e) => {
                                                         if (!e.target.value) return;
                                                         triggerHaptic('light');
@@ -5871,7 +5881,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     aria-label="Scrub the tide through the next 24 hours"
                                     className={`w-full ${tideScrubQ > 0 ? 'accent-violet-400' : 'accent-teal-400'}`}
                                 />
-                                <div className="flex justify-between text-[9px] font-bold text-gray-400">
+                                <div className="flex justify-between text-[11px] font-bold text-gray-400">
                                     <span>now</span>
                                     <span>+12 h</span>
                                     <span>+24 h</span>
@@ -5890,7 +5900,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setChartKeyOpen((v) => !v);
                         }}
                         aria-label="What the chart colours and numbers mean"
-                        className="absolute bottom-1 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900/70 px-2 py-1 text-[9px] font-semibold tracking-wide text-gray-400 active:scale-95"
+                        className="absolute bottom-1 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900/70 px-2 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95"
                     >
                         {tideDepthMode && tideOffsetInfo
                             ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
@@ -5939,7 +5949,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ).map(([hex, label]) => (
                                 <div key={label} className="flex-1">
                                     <div style={{ background: hex, height: 14 }} />
-                                    <div className="bg-slate-800 py-0.5 text-center text-[8px] font-bold text-gray-300">
+                                    <div className="bg-slate-800 py-0.5 text-center text-[10px] font-bold text-gray-300">
                                         {label}
                                     </div>
                                 </div>
@@ -5975,7 +5985,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 <span className="font-black uppercase tracking-wider text-gray-200">
                                     Marks &amp; lights
                                 </span>
-                                <span className="text-[9px] text-gray-500">tap any to read</span>
+                                <span className="text-[11px] text-gray-400">tap any to read</span>
                             </div>
                             <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                                 {(
@@ -5998,8 +6008,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         ['#c0209a', 'Restricted zone'],
                                         ['#7c3aed', 'Cable / pipeline'],
                                         ['#d97706', 'TSS lane'],
+                                        ['#c2410c', 'TSS keep-out zone'],
                                         ['#8a8a5a', 'Seabed type'],
                                         ['#2f6fd0', 'Anchorage'],
+                                        // Audit: these render but were never keyed.
+                                        ['#5f7a3a', 'Marine farm'],
+                                        ['#ecc94b', 'Special mark'],
+                                        ['#3b82c4', 'Fairway edge'],
+                                        ['#f59e0b', 'Leading line / track'],
+                                        ['#9a9a9a', 'Unknown mark'],
                                     ] as const
                                 ).map(([swatch, label]) => (
                                     <div key={label} className="flex items-center gap-1.5">

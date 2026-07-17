@@ -191,7 +191,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             <button
                 onClick={() => setExpanded((x) => !x)}
                 aria-expanded={expanded}
-                className="rounded-lg border border-emerald-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5"
+                className="rounded-lg border border-emerald-400/30 bg-black/75 backdrop-blur-sm px-2 py-1 text-[11px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5"
             >
                 <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} aria-hidden="true" />
                 <span className="font-bold text-emerald-300">{'⚓'} Charts:</span>
@@ -210,8 +210,8 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             </button>
 
             {expanded && (
-                <div className="mt-1 rounded-lg border border-emerald-400/20 bg-black/80 backdrop-blur-sm px-2 py-2 text-[10px] leading-snug text-emerald-100/80 max-h-[40vh] overflow-y-auto">
-                    <p className="mb-1 text-[10px] uppercase tracking-wider text-emerald-300/60">In view</p>
+                <div className="mt-1 rounded-lg border border-emerald-400/20 bg-black/80 backdrop-blur-sm px-2 py-2 text-[11px] leading-snug text-emerald-100/80 max-h-[40vh] overflow-y-auto">
+                    <p className="mb-1 text-[11px] uppercase tracking-wider text-emerald-300/75">In view</p>
                     {cellsInView.map((cell) => (
                         <div key={cell.id} className="mb-1 last:mb-0">
                             <span className="font-mono text-emerald-200">{cell.id}</span>
@@ -231,17 +231,17 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                             )}
                         </div>
                     ))}
-                    <p className={`mt-2 text-[10px] ${tone.text}`}>
+                    <p className={`mt-2 text-[11px] ${tone.text}`}>
                         <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle ${tone.dot}`} />
                         Worst confidence in view: {tone.label}
                     </p>
                     {ageLabel && (
-                        <p className={`mt-1 text-[10px] ${stale ? 'text-amber-300' : 'text-emerald-300/60'}`}>
+                        <p className={`mt-1 text-[11px] ${stale ? 'text-amber-300' : 'text-emerald-300/75'}`}>
                             Latest edition ~{ageLabel} old
                             {stale ? ' — verify Notices to Mariners' : ''}.
                         </p>
                     )}
-                    <p className="mt-1 text-[10px] text-emerald-300/50 italic">
+                    <p className="mt-1 text-[11px] text-emerald-300/70 italic">
                         Source: hydrographic offices. Verify visually before navigation.
                     </p>
                 </div>

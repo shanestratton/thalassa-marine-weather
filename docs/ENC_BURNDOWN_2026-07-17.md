@@ -145,15 +145,15 @@ route. Fix the silent failures first.
 - [ ] **0.25 — No-coverage affordance (red-team add)** — browsing uncharted
       water is indistinguishable from chart-off; add a "no chart coverage
       here" read at nav zooms.
-- [ ] **0.5 — Night dim covers the canvas only** — DOM UI still glares and
+- [x] **0.5 — Night dim covers the canvas only** — DONE (full-screen DOM overlay: UI dims too, nothing can z-order past it). — DOM UI still glares and
       later-added layers escape; one full-screen overlay retires both.
-- [ ] **0.5 — Chart-key legend omissions** — marine farms, special (yellow)
+- [x] **0.5 — Chart-key legend omissions** — DONE (marine farm, special mark, fairway edge, leading line/track, TSS keep-out, unknown mark all keyed). — marine farms, special (yellow)
       marks, fairway boundary, recommended tracks render but aren't keyed.
-- [ ] **0.5 — Sub-legibility typography on safety-critical surfaces** —
+- [x] **0.5 — Sub-legibility typography** — DONE (12px floor on hazard rows/popup, 10-11px floor on key + chips, opacity floors raised). —
       bump the sub-10 px text.
-- [ ] **0.25 — Advisory headline substring-matching** — first-caution-wins
+- [x] **0.25 — Advisory headline substring-matching** — DONE (RouteAdvisory.kind stamped at all 9 producer sites; panel maps kinds + shows '+N more' for co-present cautions). — first-caution-wins
       hides co-present cautions collapsed; derive from structured kind.
-- [ ] **0.25 — Popup a11y** — close target under platform floor; async
+- [x] **0.25 — Popup a11y** — DONE (44pt close target, role=dialog, aria-live tide window). — close target under platform floor; async
       tide-window swap unannounced (aria-live).
 
 ## Protocol

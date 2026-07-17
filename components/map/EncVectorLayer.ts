@@ -1578,47 +1578,29 @@ let refreshGeneration = 0;
 // world polygon avoids fighting the dynamic paint state machines
 // (syncDepareBaseTreatment / applyTideOffsetPaint) that own the ENC fills.
 
-const NIGHT_DIM_SRC = 'enc-night-dim-src';
 const NIGHT_DIM_LAYER = 'enc-night-dim';
 export const ENC_NIGHT_DIM_KEY = 'thalassa_enc_night_dim';
 
+const NIGHT_DIM_OVERLAY_ID = 'enc-night-dim-overlay';
+
 export function setEncNightDim(map: mapboxgl.Map, on: boolean): void {
+    // ROUND 2 (2026-07-17 audit): the v1 map-LAYER dim covered the canvas
+    // only — DOM UI (panels, sheets, chips) kept full-brightness glare at
+    // the helm, and any layer added after the dim mounted painted ABOVE
+    // it. One fixed full-screen DOM overlay retires both: it sits over
+    // everything the app draws, map and UI alike, and nothing can be
+    // z-ordered past it. pointer-events:none keeps every interaction live.
+    if (map.getLayer(NIGHT_DIM_LAYER)) map.removeLayer(NIGHT_DIM_LAYER); // legacy v1 cleanup
+    const existing = document.getElementById(NIGHT_DIM_OVERLAY_ID);
     if (!on) {
-        if (map.getLayer(NIGHT_DIM_LAYER)) map.removeLayer(NIGHT_DIM_LAYER);
+        existing?.remove();
         return;
     }
-    if (!map.getSource(NIGHT_DIM_SRC)) {
-        map.addSource(NIGHT_DIM_SRC, {
-            type: 'geojson',
-            data: {
-                type: 'Feature',
-                geometry: {
-                    type: 'Polygon',
-                    coordinates: [
-                        [
-                            [-180, -85],
-                            [180, -85],
-                            [180, 85],
-                            [-180, 85],
-                            [-180, -85],
-                        ],
-                    ],
-                },
-                properties: {},
-            },
-        });
-    }
-    if (!map.getLayer(NIGHT_DIM_LAYER)) {
-        map.addLayer({
-            id: NIGHT_DIM_LAYER,
-            type: 'fill',
-            source: NIGHT_DIM_SRC,
-            paint: {
-                'fill-color': '#1a0505',
-                'fill-opacity': 0.45,
-            },
-        }); // no beforeId — topmost map layer by design
-    }
+    if (existing) return;
+    const el = document.createElement('div');
+    el.id = NIGHT_DIM_OVERLAY_ID;
+    el.style.cssText = 'position:fixed;inset:0;background:#1a0505;opacity:0.45;pointer-events:none;z-index:2147483000;';
+    document.body.appendChild(el);
 }
 
 export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorData): void {
