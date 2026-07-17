@@ -38,7 +38,7 @@
  */
 
 import mapboxgl from 'mapbox-gl';
-import { mapExpr } from './encDepthStyle';
+import { mapExpr, mapFilter } from './encDepthStyle';
 import { readS57 } from '../../services/enc/types';
 import type { FeatureCollection } from 'geojson';
 
@@ -275,12 +275,12 @@ const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
  * that doesn't admit dynamic composition cleanly; cast at the seam.
  */
 const scaminAware = (kindFilter: unknown): mapboxgl.FilterSpecification =>
-    ['all', kindFilter, SCAMIN_CLAUSE] as unknown as mapboxgl.FilterSpecification;
+    mapFilter(['all', kindFilter, SCAMIN_CLAUSE]);
 
 // Like scaminAware but with the z10 mark floor — for buoys/beacons/lights,
 // which should be visible from z10 (Shane 2026-07-16).
 const scaminAwareMark = (kindFilter: unknown): mapboxgl.FilterSpecification =>
-    ['all', kindFilter, MARK_SCAMIN_CLAUSE] as unknown as mapboxgl.FilterSpecification;
+    mapFilter(['all', kindFilter, MARK_SCAMIN_CLAUSE]);
 
 /**
  * THE single choke point for draft changes (risk note: a missed
@@ -373,7 +373,7 @@ function mountLandCoastLayers(
                 type: 'circle',
                 source: ENC_VEC_SRC.LNDARE,
                 minzoom: minZoom,
-                filter: ['==', ['geometry-type'], 'Point'] as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(['==', ['geometry-type'], 'Point']),
                 paint: {
                     'circle-color': '#d6c590',
                     'circle-stroke-color': '#5c4a1a',
@@ -587,7 +587,7 @@ function mountSoundingLabelLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.SOUNDG,
                 minzoom: 4,
-                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(SCAMIN_CLAUSE),
                 layout: {
                     // Paper-chart sounding typography: sub-10 m depths carry
                     // their tenths as a TRUE SUBSCRIPT (3₄, not 3.4) — the
@@ -648,11 +648,7 @@ function mountSoundingLabelLayers(
                 // Water names only — island names get their own upright
                 // layer below (paper-chart convention: italic water,
                 // upright land).
-                filter: [
-                    'all',
-                    SCAMIN_CLAUSE,
-                    ['!=', ['get', '_kind'], 'land'],
-                ] as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(['all', SCAMIN_CLAUSE, ['!=', ['get', '_kind'], 'land']]),
                 layout: {
                     'text-field': ['get', '_name'],
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
@@ -693,11 +689,7 @@ function mountSoundingLabelLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.SEAARE_LABELS,
                 minzoom: 9,
-                filter: [
-                    'all',
-                    SCAMIN_CLAUSE,
-                    ['==', ['get', '_kind'], 'land'],
-                ] as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(['all', SCAMIN_CLAUSE, ['==', ['get', '_kind'], 'land']]),
                 layout: {
                     'text-field': ['get', '_name'],
                     'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
@@ -767,7 +759,7 @@ function mountTrackAidLayers(
                 type: 'line',
                 source: ENC_VEC_SRC.LIGHTSEC,
                 minzoom: 11,
-                filter: ['==', ['get', '_secKind'], 'leg'] as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(['==', ['get', '_secKind'], 'leg']),
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
                     // Thin dashed grey radials — the limit bearings, not
@@ -788,7 +780,7 @@ function mountTrackAidLayers(
                 type: 'line',
                 source: ENC_VEC_SRC.LIGHTSEC,
                 minzoom: 11,
-                filter: ['==', ['get', '_secKind'], 'arc'] as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(['==', ['get', '_secKind'], 'arc']),
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
                     // The sector colour itself (red/white/green/amber) —
@@ -849,9 +841,7 @@ function mountTrackAidLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.RECTRC,
                 minzoom: 10.5,
-                filter: (insideVts
-                    ? ['within', BRISBANE_VTS_AREA]
-                    : ['!', ['within', BRISBANE_VTS_AREA]]) as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(insideVts ? ['within', BRISBANE_VTS_AREA] : ['!', ['within', BRISBANE_VTS_AREA]]),
                 layout: {
                     'symbol-placement': 'line',
                     'symbol-spacing': 560,
@@ -890,12 +880,12 @@ function mountTrackAidLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: [
+                filter: mapFilter([
                     'all',
                     ['==', ['get', '_kind'], 'LIGHTS'],
                     MARK_SCAMIN_CLAUSE,
                     ['any', ['==', ['get', '_lightTier'], 'major'], ['>=', ['zoom'], 10]],
-                ] as unknown as mapboxgl.FilterSpecification,
+                ]),
                 layout: {
                     'text-field': '★',
                     'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 11, 16, 15, 22],
@@ -935,7 +925,7 @@ function mountTrackAidLayers(
                 type: 'symbol',
                 source: sourceId,
                 minzoom: 13,
-                filter: ['any', ['has', 'OBJNAM'], ['has', '_lightLabel']] as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(['any', ['has', 'OBJNAM'], ['has', '_lightLabel']]),
                 layout: {
                     'text-field': [
                         'format',
@@ -1245,7 +1235,7 @@ function mountContourLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.DEPCNT,
                 minzoom: 11,
-                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                filter: mapFilter(SCAMIN_CLAUSE),
                 layout: {
                     'symbol-placement': 'line',
                     'symbol-spacing': 350,
@@ -1609,7 +1599,10 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
  * LINES, coastline, markers and hazards are unaffected — they read fine
  * on top of imagery.
  */
-const SATELLITE_KEY = 'thalassa_satellite_base_v2';
+/** Exported (closing audit): MapHub WRITES this key raw while every ENC
+ *  visibility decision READS it here — an untested cross-file string
+ *  equality. One home, both sides import. */
+export const SATELLITE_KEY = 'thalassa_satellite_base_v2';
 // Land fills blanket the imagery; COALNE is CHART furniture that reads as
 // scribble over photos (Shane 2026-07-11: "the thick black line, the
 // straight brown lines… can we remove all of these" — the brown was the
@@ -1647,7 +1640,7 @@ function satelliteBaseOn(): boolean {
  * tap-the-water popup keeps answering everywhere).
  */
 const DEPARE_RANK = ['coalesce', ['to-number', ['get', '_scaleRank']], 32000];
-const DEPARE_COMPETENCE_FILTER = [
+const DEPARE_COMPETENCE_FILTER = mapFilter([
     'step',
     ['zoom'],
     true,
@@ -1659,15 +1652,11 @@ const DEPARE_COMPETENCE_FILTER = [
     ['>=', DEPARE_RANK, -40],
     16,
     ['>=', DEPARE_RANK, 40], // ~1° coastal cells bow out at street zoom
-] as unknown as mapboxgl.FilterSpecification;
+]);
 
 /** Harbour-grade fineness gate for the over-land repaint (rank from
  *  cellScaleRank: ~1-degree coastal cells are ~0; harbour cells 80+). */
-const DEPARE_FINE_RANK_FILTER = [
-    '>=',
-    ['coalesce', ['to-number', ['get', '_scaleRank']], -32768],
-    40,
-] as unknown as mapboxgl.FilterSpecification;
+const DEPARE_FINE_RANK_FILTER = mapFilter(['>=', ['coalesce', ['to-number', ['get', '_scaleRank']], -32768], 40]);
 
 /**
  * Re-point BOTH DEPARE fills at the current base: near-opaque paper on
@@ -1693,13 +1682,7 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         // competence ladder on top (harbour cells never retire anyway).
         map.setFilter(
             ENC_VEC_LAYERS.DEPARE_FINE,
-            satOn
-                ? ([
-                      'all',
-                      DEPARE_FINE_RANK_FILTER,
-                      DEPARE_COMPETENCE_FILTER,
-                  ] as unknown as mapboxgl.FilterSpecification)
-                : DEPARE_FINE_RANK_FILTER,
+            satOn ? mapFilter(['all', DEPARE_FINE_RANK_FILTER, DEPARE_COMPETENCE_FILTER]) : DEPARE_FINE_RANK_FILTER,
         );
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
