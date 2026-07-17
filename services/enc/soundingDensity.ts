@@ -63,7 +63,17 @@ const RUNG_ASSIGN_CAP = 80_000;
 export async function assignSoundingDensityMinZoom(
     features: Array<Feature<Point>>,
     yieldEvery?: () => Promise<void>,
+    /** Highest rung worth assigning for THIS merge window (z10-boot audit
+     *  #10): the caller's LOD cull discards `_minZoom > zoom + LOOKAHEAD`
+     *  anyway, and a zoom-bucket change re-merges (re-running the ladder), so
+     *  probing/claiming rungs above the cap is pure wasted Set churn — ~30-50%
+     *  of ladder traffic at z10. Omit for the full ladder (tests, unwindowed). */
+    maxUsefulZ?: number,
 ): Promise<void> {
+    // Effective ladder top for this window. Clamped to [MIN_Z, MAX_Z]; points
+    // that win no rung ≤ effMaxZ get effMaxZ+1 — culled this window, re-laddered
+    // on the next zoom-bucket merge exactly as before.
+    const effMaxZ = Math.max(MIN_Z, Math.min(MAX_Z, Math.round(maxUsefulZ ?? MAX_Z)));
     const pts: Array<{ f: Feature<Point>; lon: number; lat: number; d: number }> = [];
     for (const f of features) {
         const c = f.geometry?.coordinates;
@@ -104,11 +114,11 @@ export async function assignSoundingDensityMinZoom(
         // to past-the-ladder against a saturated grid anyway). Safety-neutral —
         // shallowest-first sort means this is never a shoal number.
         if (i >= RUNG_ASSIGN_CAP) {
-            ((p.f.properties ??= {}) as Record<string, unknown>)._minZoom = MAX_Z + 1;
+            ((p.f.properties ??= {}) as Record<string, unknown>)._minZoom = effMaxZ + 1;
             continue;
         }
-        let mz = MAX_Z + 1;
-        for (let z = MIN_Z; z <= MAX_Z; z++) {
+        let mz = effMaxZ + 1;
+        for (let z = MIN_Z; z <= effMaxZ; z++) {
             if (!occupied.has(key(z, p.lon, p.lat))) {
                 mz = z;
                 break;
@@ -116,7 +126,7 @@ export async function assignSoundingDensityMinZoom(
         }
         // Claim this point's cell at every zoom it will be visible at —
         // a sounding on screen consumes its patch of glass all the way in.
-        for (let z = mz; z <= MAX_Z; z++) {
+        for (let z = mz; z <= effMaxZ; z++) {
             occupied.add(key(z, p.lon, p.lat));
         }
         const props = (p.f.properties ??= {}) as Record<string, unknown>;

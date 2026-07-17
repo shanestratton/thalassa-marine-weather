@@ -220,9 +220,13 @@
 // v116: pins dropped (or dragged) within ~50 m of a charted lead/transit now
 // snap exactly ONTO the lead — "Snapped onto the lead 🎯". Deliberate
 // placement further away stays put.
-const CACHE_NAME = 'thalassa-v116-core';
-const TILE_CACHE = 'thalassa-v116-tiles';
-const DATA_CACHE = 'thalassa-v116-data';
+// v117: faster chart draw at the z10 boot — cell files read 3-ahead of the
+// parser (IO overlaps parse instead of strictly alternating), and the
+// sounding-density ladder stops assigning rungs the current window culls
+// anyway (~30-50% of ladder work at z10).
+const CACHE_NAME = 'thalassa-v117-core';
+const TILE_CACHE = 'thalassa-v117-tiles';
+const DATA_CACHE = 'thalassa-v117-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

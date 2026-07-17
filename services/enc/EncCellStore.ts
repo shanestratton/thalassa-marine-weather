@@ -170,6 +170,43 @@ export async function saveCellGeoJSON(
     return { path, sizeBytes: data.length };
 }
 
+/** Raw read for the merge's read-ahead pipeline (z10-boot audit #11): the
+ *  Capacitor bridge read is true async IO, so several can overlap while the
+ *  caller parses serially under its time-slicer. LRU hit → the parsed blob
+ *  directly (no read, no parse); miss → the file TEXT (caller parses via
+ *  parseAndCacheCellText); absent/unreadable → missing. NO remote fallback —
+ *  this is the paint-what's-local path. */
+export async function readCellRaw(
+    cellId: string,
+): Promise<{ kind: 'cached'; blob: EncConversionResult } | { kind: 'text'; text: string } | { kind: 'missing' }> {
+    const cached = touchBlob(cellId);
+    if (cached) return { kind: 'cached', blob: cached };
+    try {
+        const result = await Filesystem.readFile({ path: relPath(cellId), directory: DIRECTORY, encoding: Encoding.UTF8 });
+        const text = typeof result.data === 'string' ? result.data : await result.data.text();
+        return { kind: 'text', text };
+    } catch {
+        return { kind: 'missing' };
+    }
+}
+
+/** The serial half of the pipeline: parse + shape-gate + LRU-cache one cell's
+ *  text (exactly loadCellGeoJSON's semantics). Null on malformed. */
+export function parseAndCacheCellText(cellId: string, text: string): EncConversionResult | null {
+    try {
+        const parsed = JSON.parse(text) as EncConversionResult;
+        if (!parsed || typeof parsed !== 'object' || !parsed.cellId) {
+            log.warn(`parseAndCacheCellText ${cellId}: malformed JSON`);
+            return null;
+        }
+        cacheBlob(cellId, parsed, text.length);
+        return parsed;
+    } catch (err) {
+        log.warn(`parseAndCacheCellText ${cellId} failed`, err);
+        return null;
+    }
+}
+
 /**
  * Cheap existence probe: is this cell's blob on the device (or already in the
  * parse cache)? Filesystem.stat only — no read, no JSON.parse — so the
