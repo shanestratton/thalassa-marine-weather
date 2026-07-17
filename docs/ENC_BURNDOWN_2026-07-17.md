@@ -174,3 +174,13 @@ workflow `wf_d5a64621-927` journal.
 | Date       | Item                                                         | Pts  | Commit      | Running (vs 83.75) |
 | ---------- | ------------------------------------------------------------ | ---- | ----------- | ------------------ |
 | 2026-07-17 | Short-route ETAs un-pinned (cumulativeLegs, 3 sites + tests) | 0.75 | see git log | 84.5               |
+
+## Post-script — closing-audit fixes applied same evening
+
+- [x] **Berth exemption made PER-LOCALITY** (closing audit #2, the one
+      "degrades truth" finding, 0.75 in its scoring): the waiver now
+      covers only boundary crossings within `BERTH_EXEMPT_RADIUS_M`
+      (500 m) of the exempt terminal — a distant arm of the same
+      (Multi)Polygon flags again. The old pinning test (0.5-degree shoal,
+      55 km exit, waived) re-pinned to the new semantics + a distant-arm
+      regression test added.

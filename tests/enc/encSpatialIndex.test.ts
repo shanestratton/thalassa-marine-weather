@@ -223,10 +223,40 @@ describe('EncSpatialIndex.queryPoint', () => {
     });
 
     it('SEGMENT crossing: a berth-exempt TERMINAL does not flag the leg for sitting in its own shoal', () => {
-        const i = idx('A', [hz('DEPARE', square(0, 0, 0.5), 2)]); // shoal berth at origin
+        // PER-LOCALITY semantics (closing audit): the berth shoal is small —
+        // the leg exits its boundary within ~330 m of the exempt terminal,
+        // squarely inside BERTH_EXEMPT_RADIUS_M. (The OLD pinning used a
+        // 0.5-degree shoal whose exit lay 55 km out and still waived it —
+        // exactly the feature-wide skip the audit called fail-dangerous.)
+        const i = idx('A', [hz('DEPARE', square(0, 0, 0.003), 2)]); // shoal berth at origin
         // Leg starts INSIDE the berth and exits north.
         expect(i.segmentHazard(0, 0, 5, 0).hazard).toBe(true); // no exemption → flagged
-        expect(i.segmentHazard(0, 0, 5, 0, true, false).covered).toBe(false); // exemptStart → skipped
+        expect(i.segmentHazard(0, 0, 5, 0, true, false).covered).toBe(false); // exemptStart → local exit skipped
+    });
+
+    it('SEGMENT crossing: berth exemption is PER-LOCALITY — a distant arm of the SAME feature still flags (closing audit)', () => {
+        // One MultiPolygon "terminal" feature: the berth basin at the origin
+        // PLUS a distant arm ~22 km north. The old feature-wide waiver
+        // cleared the whole thing because the exempt terminal sat inside it.
+        const i = idx('A', [
+            hz(
+                'DEPARE',
+                {
+                    type: 'MultiPolygon',
+                    coordinates: [
+                        (square(0, 0, 0.02) as GeoJSON.Polygon).coordinates,
+                        (square(0, 0.2, 0.02) as GeoJSON.Polygon).coordinates,
+                    ],
+                },
+                2,
+            ),
+        ]);
+        // Leg from the berth (inside piece 1) north across the distant arm.
+        const r = i.segmentHazard(0, 0, 0.4, 0, true, false);
+        expect(r.hazard).toBe(true); // the distant arm is NOT the berth's water
+        // Control: a short hop that stays within the berth's own locality
+        // keeps the exemption (crossing its boundary within ~500 m).
+        expect(i.segmentHazard(0, 0, 0.004, 0, true, false).covered).toBe(false);
     });
 
     it('SEGMENT crossing: berth exemption STILL flags a separate islet the leg crosses', () => {
