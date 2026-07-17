@@ -127,6 +127,7 @@ import {
     deleteTrace,
     tracePinBlocked,
     snapTraceTapToWater,
+    snapTraceTapToLead,
     rdpTracePoints,
     capSegmentLength,
     reverseRouteName,
@@ -1218,9 +1219,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                 marker.on('dragend', () => {
                     const ll = marker.getLngLat();
                     triggerHaptic('light');
-                    setCapturedCoords((prev) =>
-                        prev.map((p, j) => (j === newRec.index ? { lat: ll.lat, lon: ll.lng } : p)),
-                    );
+                    // Dragging NEAR a lead lands ON the lead (same fat-finger
+                    // rule as placement; >50 m away stays where dropped).
+                    let p0 = { lat: ll.lat, lon: ll.lng };
+                    const ctx = tracerCtxRef.current;
+                    const onLead = ctx ? snapTraceTapToLead(ctx, p0) : null;
+                    if (onLead) {
+                        p0 = onLead;
+                        marker.setLngLat([p0.lon, p0.lat]);
+                        flashTraceFeedback('Snapped onto the lead 🎯');
+                    }
+                    setCapturedCoords((prev) => prev.map((p, j) => (j === newRec.index ? p0 : p)));
                 });
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -3626,10 +3635,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                 let pt = { lat, lon };
                 const ctx = tracerCtxRef.current;
                 if (ctx) {
-                    const snapped = snapTraceTapToWater(ctx, pt);
-                    if (snapped) {
-                        pt = snapped;
-                        flashTraceFeedback('Snapped to water');
+                    // Lead first (Shane 2026-07-17: "shove it directly on top
+                    // of the lead — very hard with fat fingers"): a pin within
+                    // ~50 m of a charted transit means "on the lead", and the
+                    // lead IS navigable water, so the water snap is moot.
+                    const onLead = snapTraceTapToLead(ctx, pt);
+                    if (onLead) {
+                        pt = onLead;
+                        flashTraceFeedback('Snapped onto the lead 🎯');
+                    } else {
+                        const snapped = snapTraceTapToWater(ctx, pt);
+                        if (snapped) {
+                            pt = snapped;
+                            flashTraceFeedback('Snapped to water');
+                        }
                     }
                 }
                 if (map.getZoom() < 13) {
