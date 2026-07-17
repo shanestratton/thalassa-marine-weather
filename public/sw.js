@@ -244,9 +244,11 @@
 // v123: charts page goes bare — the Full/Clean scrubber and the tracer
 // pill/card only appear while plotting (enter via the PLAN page); Done
 // hands back a clean chart.
-const CACHE_NAME = 'thalassa-v123-core';
-const TILE_CACHE = 'thalassa-v123-tiles';
-const DATA_CACHE = 'thalassa-v123-data';
+// v124: the minimised tracer card lifts 2rem clear of the Full/Clean
+// scrubber (it sat on top of it when folded).
+const CACHE_NAME = 'thalassa-v124-core';
+const TILE_CACHE = 'thalassa-v124-tiles';
+const DATA_CACHE = 'thalassa-v124-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
