@@ -1,0 +1,144 @@
+# ENC Layer Burn-down #3 — frozen scope, from the 2026-07-17 closing audit
+
+**Baseline: 84.25/100** (closing open adversarial audit `wf_f44069cf-1eb`,
+11 agents, zero refuted verdicts; transcript in
+ENC_AUDIT_2026-07-17_closing.md). Shane's call 2026-07-17 evening: option
+2 — keep marching cycles. Same protocol: burn to zero, score = 84.25 +
+banked ("vs the closing bar"), tsc + targeted tests + explicit-path
+commits + build/sync per item, ONE open adversarial audit at the end.
+Priced scope: **15.75 pts** (84.25 + 15.75 = 100).
+
+Chief's fix-first (berth exemption) was fixed the same evening — first
+ledger row below.
+
+## Safety (2.5)
+
+- [x] **0.75 — Berth exemption waives distant arms of the terminal's own
+      (Multi)Polygon** — DONE same evening (`5455543a`): per-locality
+      waiver (`BERTH_EXEMPT_RADIUS_M` 500 m), old pinning test re-pinned,
+      distant-arm MultiPolygon regression added.
+- [ ] **0.5 — Fixed 1.3 m MSL→LAT pessimism under-corrects big-tide QLD**
+      — scale `GEBCO_MSL_TO_LAT_PESSIMISM_M` by regional tidal range (Broad
+      Sound ~8 m data exists at landAvoidance ~751-755) or at minimum a
+      "Moreton-calibrated datum" advisory outside the calibration zone.
+- [ ] **0.5 — Proximity report drops/mis-places large/linear hazards** —
+      polygon/line OBSTRN-class get true geometry-to-route distance (like
+      COALNE at EncHazardReportService ~298-317) instead of bbox-centre +
+      silent `continue` (~211-226, ~410-412).
+- [ ] **0.25 — tideConstrained never propagates from segment-crossing
+      hits** — HazardQueryService ~439 return type omits it; ~456-457
+      computes then discards; buildRouteAdvisories counts only sampled
+      points. Thread it through querySegmentHazards.
+- [ ] **0.25 — explodeSoundings stamps feature-level VALSOU/DEPTH onto
+      every point** — encHazardParse ~239 fallback chain; drop the
+      feature-level fallback for unmatched points (depth unknown ≠
+      feature depth).
+- [ ] **0.25 — UWTROC VALSOU never enters the hazard model** —
+      encHazardParse ~83-85 reads VALSOU only for OBSTRN/WRECKS; include
+      UWTROC so rock depth/drying context reaches the report.
+
+## Rendering (3.25)
+
+- [ ] **0.5 — Depth-band palette abandons blue-shallow coding** — shallow
+      water is the least saturated thing on the chart; revisit ramp
+      (S-52/paper: shallow = blue). CAREFUL: Shane approved the white
+      ramp (`1dc014f0`) — confirm with him before touching.
+- [ ] **0.5 — Lights: near-all 'minor' (hidden < z10), ★ text glyph, fixed
+      900 m sector arcs** — tier by LITCHR/category not just VALNMR; real
+      light-flare glyph; scale sector arc radius (VALNMR when present).
+- [ ] **0.25 — Preferred-channel BEACONS drop junction banding** — extend
+      the banded treatment (buoys done in #2) to BCNLAT 3/4.
+- [ ] **0.25 — Wreck/obstruction taxonomy collapsed** — CATWRK 3/4/5 and
+      OBSTRN WATLEV variants all wear one glyph; differentiate per INT1.
+- [ ] **0.25 — IALA-B prefix set omits known Region-B HOs** — extend the
+      region table.
+- [ ] **0.25 — Line seam de-dup clips against the finer cell's WHOLE
+      DEPARE-extent rect** — presence-gate is per layer but the clip frame
+      is the full extent; clip against the finer cell's SAME-LAYER data
+      extent instead.
+- [ ] **0.25 — Caution popup accents drift from render colours** — one
+      shared class→colour table for encCautionMounts + encPopup.
+- [ ] **0.25 — Night dim ≠ S-52 palette (hue degradation)** — DEFER-WITH-
+      REASON candidate again; if deferred twice it stays unbanked.
+- [ ] **0.25 — Drying underline via U+0332 may not shape in Mapbox GL
+      (PLAUSIBLE)** — verify on device; fallback = italic or prefix
+      convention if the combining char doesn't render.
+- [ ] **0.25 — TOPMAR/DAYMAR + BOYSHP/BCNSHP not rendered** — glyphs are
+      fixed archetypes; extract + render shape variants (extractor batch).
+- [ ] **0.25 — Case-defensiveness broken on render label/sort
+      expressions** — lowercase (ogr2ogr) cells lose marks/lights in
+      data-driven expressions; coalesce both cases in expressions (the
+      readS57 sweep covered JS, not Mapbox expressions).
+
+## Performance (1.75)
+
+- [ ] **0.5 — Cold-path multi-MB JSON.parse indivisible** — parse on
+      encGeometryWorker or chunk (EncCellStore ~195-208).
+- [ ] **0.25 — glazeCellCache count-capped only** — add a byte-ish bound
+      (vertex/feature count) like the blob cache.
+- [ ] **0.25 — First-mount builds then discards POINTS/NAVAIDS merges** —
+      ensureSource eager args compute buildMergedPoints/Navaids twice on
+      first mount; make them lazy.
+- [ ] **0.25 — 2-entry merge memo + zoom-bucketed keys thrash on zoom
+      excursions** — grow MERGED_CACHE_MAX or drop the bucket from the key.
+- [ ] **0.25 — Worker payload/result clone sizes unbudgeted** — cap/log
+      payload bytes per job (acknowledged open risk in comments).
+- [ ] **0.25 — Routing-path getOrBuildIndex is an unsliced synchronous
+      gulp per cell** — slice hazard/index builds through a yielder.
+
+## Code quality (5.25)
+
+- [ ] **1.0 — Worker protocol lifecycle: zero test coverage** — lifecycle
+      tests for dispatchGeometryWork → reply handlers → applyGlazeUpgrade,
+      incl. overlapping jobs + eviction-abandon (geometryUpgrades.ts is
+      now import-mockable — carve made this feasible).
+- [ ] **0.75 — Hand-mirrored ensureSource/uploads lists** — one
+      declarative source-id→builder table drives both + mount smoke test
+      (EncVectorLayer ~1339-1352 vs ~1475-1493).
+- [ ] **0.75 — Residual god modules** — extract tagAndPush, the glaze
+      memo/queue block, and the slicer from the ~590-line merge fold;
+      next slab from EncVectorLayer.
+- [ ] **0.5 — Comment/doc drift** — stale source counts, contradicted
+      failed-load contract, wrong EncLayer doc block, HazardReportPanel
+      position comment.
+- [ ] **0.5 — glazeAssembly upgrade all-or-nothing vs 32-entry LRU with no
+      invariant** — applyGlazeUpgrade abandons if ANY cell evicted; tie
+      the LRU floor to the largest merge's cell count or re-queue on
+      abandon.
+- [ ] **0.5 — EncCellStore duplication** — parseAndCacheCellText/
+      readCellRaw re-implement loadCellGeoJSON; unify.
+- [ ] **0.5 — Dead export/param + duplicated localStorage keys across the
+      MapHub seam** — sweep.
+- [ ] **0.5 — Visibility state machine composes via BCNLAT probe +
+      last-writer-wins** — replace probe with explicit state; document
+      precedence.
+- [ ] **0.25 — readS57 stragglers + inconsistent expression casting** —
+      finish the sweep.
+
+## UX (3.0)
+
+- [ ] **0.5 — Chart key omits things that render** — sweep again (new
+      classes since the last key update: DWRTPT etc.).
+- [ ] **0.5 — Water-tap folds only ONE caution — stacked restrictions
+      drop** — pickAreaTap returns the first caution; fold ALL cautions
+      under the tap into the popup.
+- [ ] **0.5 — 'Plan ENC Route' demo row: hardcoded 1.9 m draft + raw error
+      internals** — read real vessel draft, humanise errors (MapHub
+      ~6236-6277).
+- [ ] **0.25 (missed) — successful Plan ENC Route unclearable — strips
+      DEPARE/glaze/land for the session** — wire setEncTestRoute(null)
+      into Clear All + dismiss affordance (useEncTestRouteLayer ~110).
+- [ ] **0.5 — Night usability: toggle buried behind a scroll** — surface
+      the ☾ toggle; palette part is the deferred rendering item.
+- [ ] **0.25 — Advisory prints raw 'CATZOC 5' while panel rows decode it**
+      — decode in the advisory text.
+- [ ] **0.25 — Hazard panel appears unannounced; list semantics off** —
+      aria-live region + list roles.
+- [ ] **0.25 — Fixed small type on flagship safety reads** — the remaining
+      fixed-px reads; add dynamic-type awareness.
+
+## Ledger
+
+| Date       | Item                                             | Pts  | Commit     | Running (vs 84.25) |
+| ---------- | ------------------------------------------------ | ---- | ---------- | ------------------ |
+| 2026-07-17 | Berth exemption per-locality (chief's fix-first) | 0.75 | `5455543a` | 85.0               |
