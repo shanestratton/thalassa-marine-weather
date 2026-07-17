@@ -15,9 +15,13 @@
  *     instead of blinking off.
  *
  * SAFETY FLOOR — never touched at ANY level: depth bands + glaze,
- * land + coastline, the bold safety contour, and every hazard layer
- * (OBSTRN / WRECKS / UWTROC). The scrubber removes furniture, never
- * danger.
+ * land + coastline, the bold safety contour, every hazard layer
+ * (OBSTRN / WRECKS / UWTROC), and the ISOLATED-DANGER marks
+ * (BOYISD / BCNISD) that point AT those hazards — a BRB danger pointer
+ * is danger indication, not furniture, so it outranks the laterals and
+ * must never be cut (closing audit 2026-07-18: it was dropped at d ≥ 3
+ * while laterals survived to d = 6, three notches too soon). The
+ * scrubber removes furniture, never danger.
  *
  * Writes are conditional (read → compare → write) so the styledata
  * re-assert loop stays dead at steady state, same discipline as the
@@ -47,14 +51,14 @@ const FURNITURE_CUTS: string[][] = [
     ],
     // d ≥ 2 — badges + minor labels
     [ENC_VEC_LAYERS.VHF_BADGE, ENC_VEC_LAYERS.VHF_BADGE_VTS, ENC_VEC_LAYERS.RECTRC_LABEL, ENC_VEC_LAYERS.POINTS_LABEL],
-    // d ≥ 3 — special-purpose / safe-water / isolated-danger minors + islet dots
+    // d ≥ 3 — special-purpose / safe-water minors + islet dots. Isolated-danger
+    // marks (BOYISD/BCNISD) are DELIBERATELY absent: they point at a charted
+    // hazard, so they belong to the safety floor, never a declutter tier.
     [
         ENC_VEC_LAYERS.BOYSPP,
         ENC_VEC_LAYERS.BCNSPP,
         ENC_VEC_LAYERS.BOYSAW,
         ENC_VEC_LAYERS.BCNSAW,
-        ENC_VEC_LAYERS.BOYISD,
-        ENC_VEC_LAYERS.BCNISD,
         ENC_VEC_LAYERS.LNDARE_ISLET,
     ],
     // d ≥ 4 — the written word: names, contour + navaid labels
