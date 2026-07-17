@@ -43,10 +43,23 @@ export function getGlazeCell(key: string): GlazeCellEntry | undefined {
 }
 
 /** Store (or refresh) a cell's glaze entry, evicting the oldest beyond MAX. */
+/** Feature-count budget across the whole cache (closing audit: the cache
+ *  was count-capped only — 32 harbour-cell glazes of 5k features each is
+ *  a very different heap than 32 corridor slivers). Evicts oldest-first
+ *  once the SUM of cached features exceeds this, alongside the entry cap.
+ *  ~120k features ≈ the working set of two big windows. */
+const GLAZE_FEATURE_BUDGET = 120_000;
+
+function totalFeatures(): number {
+    let n = 0;
+    for (const e of cache.values()) n += e.feats.length;
+    return n;
+}
+
 export function putGlazeCell(key: string, entry: GlazeCellEntry): void {
     cache.delete(key);
     cache.set(key, entry);
-    while (cache.size > maxEntries) {
+    while (cache.size > maxEntries || (cache.size > 1 && totalFeatures() > GLAZE_FEATURE_BUDGET)) {
         const oldest = cache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         cache.delete(oldest);

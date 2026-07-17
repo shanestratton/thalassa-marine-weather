@@ -18,7 +18,11 @@
 import type { EncMergedVectorData } from './EncHazardService';
 
 const cache = new Map<string, EncMergedVectorData>();
-const MAX_ENTRIES = 2;
+// 2 → 4 (closing audit): keys are zoom-BUCKETED, so a z11↔z13 excursion
+// holds three distinct keys for the same water — 2 slots evicted merges
+// that were about to be re-requested. 4 holds a realistic excursion;
+// entries are feature-collection references, not copies.
+const MAX_ENTRIES = 4;
 const inflight = new Map<string, Promise<EncMergedVectorData | null>>();
 
 /** The cached merge for a key, or undefined. Returns the LIVE object — the

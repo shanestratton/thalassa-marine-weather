@@ -31,13 +31,11 @@ describe('mergedDataCache', () => {
         expect(getMergedData('a')!.cellCount).toBe(7);
     });
 
-    it('holds only 2 slots (windowed + full merge), evicting the oldest', () => {
-        putMergedData('a', createEmptyMergedVectorData());
-        putMergedData('b', createEmptyMergedVectorData());
-        putMergedData('c', createEmptyMergedVectorData());
-        expect(mergedDataCacheSize()).toBe(2);
+    it('holds 4 slots (zoom-bucket excursions, closing audit), evicting the oldest', () => {
+        for (const k of ['a', 'b', 'c', 'd', 'e']) putMergedData(k, createEmptyMergedVectorData());
+        expect(mergedDataCacheSize()).toBe(4);
         expect(getMergedData('a')).toBeUndefined(); // oldest evicted
-        expect(getMergedData('c')).toBeDefined();
+        expect(getMergedData('e')).toBeDefined();
     });
 
     it('single-flight: set/get/delete an inflight build promise', async () => {

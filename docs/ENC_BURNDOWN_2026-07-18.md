@@ -69,20 +69,18 @@ ledger row below.
 
 - [ ] **0.5 — Cold-path multi-MB JSON.parse indivisible** — parse on
       encGeometryWorker or chunk (EncCellStore ~195-208).
-- [ ] **0.25 — glazeCellCache count-capped only** — add a byte-ish bound
-      (vertex/feature count) like the blob cache.
+- [x] **0.25 — glazeCellCache feature budget** — DONE (120k-feature
+      sum cap alongside the entry cap, oldest-first).
 - [x] **0.25 — First-mount double-compute** — DONE with the table:
       ensureSource takes a LAZY builder, so POINTS/NAVAIDS build once (in
       the staggered refresh), not twice.
-- [ ] **0.25 — 2-entry merge memo + zoom-bucketed keys thrash on zoom
-      excursions** — grow MERGED_CACHE_MAX or drop the bucket from the key.
-- [ ] **0.25 — Worker payload/result clone sizes unbudgeted** — cap/log
-      payload bytes per job (acknowledged open risk in comments).
-- [ ] **0.25 — Routing-path getOrBuildIndex is an unsliced synchronous
-      gulp per cell** — slice hazard/index builds through a yielder.
-
-## Code quality (5.25)
-
+- [x] **0.25 — Merge memo 2 → 4 slots** — DONE (holds a z11↔z13
+      excursion's bucketed keys; test re-pinned).
+- [x] **0.25 — Clone budget** — DONE (payload weight = features +
+      coverage verts; soft cap 60k logs, hard cap 200k drops the glaze
+      half and keeps the instant grade).
+- [x] **0.25 — getOrBuildIndex coarse-sliced** — DONE (macrotask
+      between the four builds + RBush construction).
 - [x] **1.0 — Worker protocol lifecycle tests** — DONE: 6 lifecycle tests
       over the REAL parking/cache modules with a fake Worker — round-trip
       reassembly (untouched stripped from the wire), overlapping jobs on
