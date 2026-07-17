@@ -253,9 +253,11 @@
 // drops itself on a draft change or a chart install (registry version).
 // v127: the night-dim moon FAB moves to the top-left cluster — same row as
 // the zoom pill, evenly seated between pill, compass rose and tracer card.
-const CACHE_NAME = 'thalassa-v127-core';
-const TILE_CACHE = 'thalassa-v127-tiles';
-const DATA_CACHE = 'thalassa-v127-data';
+// v128: night-dim moon crosses to the far side of the compass rose —
+// zoom pill left, rose centre, moon right, all on the 104px row.
+const CACHE_NAME = 'thalassa-v128-core';
+const TILE_CACHE = 'thalassa-v128-tiles';
+const DATA_CACHE = 'thalassa-v128-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
