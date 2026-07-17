@@ -887,25 +887,37 @@ function mountTrackAidLayers(
                     ['any', ['==', ['get', '_lightTier'], 'major'], ['>=', ['zoom'], 10]],
                 ]),
                 layout: {
-                    'text-field': '★',
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 11, 16, 15, 22],
+                    // Real light-FLARE glyph, colour-matched (closing audit:
+                    // the light was a ★ text character — a font glyph, not
+                    // chart symbology). The pre-registered lightSvg icons
+                    // carry the S-52 flare shape; the match keys are the
+                    // exact hexes lightColourHex bakes into _lightColor.
+                    'icon-image': mapExpr([
+                        'match',
+                        ['coalesce', ['get', '_lightColor'], ''],
+                        '#ef4444',
+                        'sm-light-red',
+                        '#22c55e',
+                        'sm-light-green',
+                        '#f0e030',
+                        'sm-light-white',
+                        ['case', ['==', ['get', '_lightTier'], 'major'], 'sm-light-major', 'sm-light-minor'],
+                    ]),
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 7, 0.28, 11, 0.42, 15, 0.6],
                     // Collision-cull minor lights instead of stamping
                     // them all from z7 — the sort key keeps the
                     // longest-range lights when space is tight.
-                    'text-allow-overlap': false,
-                    'text-anchor': 'center',
+                    'icon-allow-overlap': false,
+                    'icon-anchor': 'center',
                     // Flare OFFSET from the structure, S-52 style — stamped
-                    // dead-centre it painted an 11-22 px starburst directly
-                    // over the buoy/beacon symbol beneath, hiding the IALA
-                    // bands and topmark (2026-07-12 audit).
-                    'text-offset': [0.7, -0.7],
+                    // dead-centre it painted the flare directly over the
+                    // buoy/beacon symbol beneath, hiding the IALA bands and
+                    // topmark (2026-07-12 audit). Icon offset is in PIXELS.
+                    'icon-offset': [14, -14],
                     'symbol-sort-key': ['-', 0, ['coalesce', ['to-number', ['get', 'VALNMR']], 0]],
                 },
                 paint: {
-                    'text-color': ['coalesce', ['get', '_lightColor'], '#fde047'],
-                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
-                    'text-halo-width': 1.5,
-                    'text-opacity': opacity,
+                    'icon-opacity': opacity,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.LIGHTS),

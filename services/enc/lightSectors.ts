@@ -43,6 +43,16 @@ const M_PER_DEG_LAT = 111_320;
  *  layer to z11+ regardless. Legs run past the arc so the wedge reads
  *  as a wedge, S-52 style. */
 export const SECTOR_ARC_RADIUS_M = 900;
+
+/** Honest arc radius (closing audit: every sector drew at a fixed 900 m
+ *  regardless of the light's range). When VALNMR is charted, the arc
+ *  scales with it — clamped so a 25 NM landfall light doesn't paint
+ *  across the whole bay and a 1 NM jetty light stays visible. */
+export function sectorArcRadiusM(valnmr: unknown): number {
+    const nm = Number(valnmr);
+    if (!Number.isFinite(nm) || nm <= 0) return SECTOR_ARC_RADIUS_M;
+    return Math.min(3200, Math.max(500, nm * 185.2)); // 0.1 NM of arc per NM of range
+}
 export const SECTOR_LEG_RADIUS_M = 1300;
 
 /** One arc point every this many degrees of sweep — smooth enough at
@@ -52,6 +62,8 @@ const ARC_STEP_DEG = 3;
 export interface SectorInput {
     /** Light position [lon, lat]. */
     position: [number, number];
+    /** Charted nominal range (NM) — scales the arc radius honestly. */
+    valnmr?: unknown;
     /** SECTR1 — leftmost sector limit, true degrees. */
     sectr1: number;
     /** SECTR2 — rightmost sector limit, true degrees. */
@@ -88,7 +100,8 @@ export function clockwiseSweep(a: number, b: number): number {
  * Returns [] when the bearings aren't finite numbers.
  */
 export function buildSectorFeatures(input: SectorInput): Feature<LineString>[] {
-    const { position, sectr1, sectr2, colorHex, baseProps = {} } = input;
+    const { position, sectr1, sectr2, colorHex, baseProps = {}, valnmr } = input;
+    const arcRadiusM = sectorArcRadiusM(valnmr);
     const [lon, lat] = position;
     if (!Number.isFinite(lon) || !Number.isFinite(lat) || !Number.isFinite(sectr1) || !Number.isFinite(sectr2)) {
         return [];
@@ -104,7 +117,7 @@ export function buildSectorFeatures(input: SectorInput): Feature<LineString>[] {
     const arcCoords: [number, number][] = [];
     for (let i = 0; i <= steps; i++) {
         const bearing = disp1 + (sweep * i) / steps;
-        arcCoords.push(forward(lon, lat, bearing, SECTOR_ARC_RADIUS_M));
+        arcCoords.push(forward(lon, lat, bearing, arcRadiusM));
     }
 
     const mkLeg = (bearing: number): Feature<LineString> => ({

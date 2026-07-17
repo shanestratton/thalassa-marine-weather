@@ -1187,6 +1187,32 @@ async function buildMergedVectorData(
     // merge only.
     const cullDeg = zoom != null ? ((78271.484 / 2 ** Math.round(zoom)) * 2) / 111_320 : 0;
 
+    // Per-(cell, layer) LINE data extents for the seam de-dup (closing
+    // audit: the clip frame was the finer cell's whole DEPARE extent, so
+    // coarse contours vanished across water where the finer survey
+    // charts depth but carries NO contour lines there). Memoized per run.
+    const lineExtentMemo = new Map<string, [number, number, number, number] | null>();
+    const lineLayerExtent = (cellId: string, layer: 'DEPCNT' | 'COALNE'): [number, number, number, number] | null => {
+        const key = `${cellId}:${layer}`;
+        const hit = lineExtentMemo.get(key);
+        if (hit !== undefined) return hit;
+        let mx = Infinity,
+            my = Infinity,
+            Mx = -Infinity,
+            My = -Infinity;
+        for (const f of loadedBlobs.get(cellId)?.layers[layer]?.features ?? []) {
+            const bb = featureBboxCached(f);
+            if (!bb) continue;
+            if (bb[0] < mx) mx = bb[0];
+            if (bb[1] < my) my = bb[1];
+            if (bb[2] > Mx) Mx = bb[2];
+            if (bb[3] > My) My = bb[3];
+        }
+        const out: [number, number, number, number] | null = Number.isFinite(mx) ? [mx, my, Mx, My] : null;
+        lineExtentMemo.set(key, out);
+        return out;
+    };
+
     // Named sea areas — dedupe by name across cells; iterating
     // coarse→fine means the finest chart's label point wins (its
     // geometry traces the channel best).
@@ -1222,8 +1248,8 @@ async function buildMergedVectorData(
         // finer cells that actually CARRY the same line layer get to clip it.
         const lineDedupRects = (layer: 'DEPCNT' | 'COALNE'): [number, number, number, number][] =>
             shadows
-                .filter((s) => ((loadedBlobs.get(s.id)?.layers[layer]?.features?.length ?? 0) as number) > 0)
-                .map((s) => s.bbox);
+                .map((s) => lineLayerExtent(s.id, layer))
+                .filter((e): e is [number, number, number, number] => e !== null);
         const depcntDedupRects = shadows.length > 0 ? lineDedupRects('DEPCNT') : [];
         const coalneDedupRects = shadows.length > 0 ? lineDedupRects('COALNE') : [];
         // The GLAZE clips against every meaningfully-finer overlapping
@@ -1348,7 +1374,16 @@ async function buildMergedVectorData(
                 if (target === 'LIGHTS') {
                     const featProps = (feat.properties ?? {}) as Record<string, unknown>;
                     const valnmr = Number(readS57(featProps, 'VALNMR'));
-                    props._lightTier = Number.isFinite(valnmr) && valnmr >= 10 ? 'major' : 'minor';
+                    // TIERING beyond VALNMR (closing audit: only 26/400 live
+                    // lights carry VALNMR, so 'nearly every light hid below
+                    // z10'). Major = long range OR a light that is sectored /
+                    // carries a full character (real navigation lights);
+                    // bare minor deck lights stay minor.
+                    const sectored = readS57(featProps, 'SECTR1') != null;
+                    const hasCharacter = readS57(featProps, 'LITCHR') != null && readS57(featProps, 'SIGPER') != null;
+                    props._lightTier =
+                        (Number.isFinite(valnmr) && valnmr >= 10) || sectored || hasCharacter ? 'major' : 'minor';
+                    if (Number.isFinite(valnmr) && valnmr > 0) props._valnmr = valnmr;
                     const colHex = lightColourHex(readS57(featProps, 'COLOUR'));
                     if (colHex) props._lightColor = colHex;
                     const label = buildLightCharacterLabel(featProps);
@@ -1375,6 +1410,7 @@ async function buildMergedVectorData(
                         merged.LIGHTSEC.features.push(
                             ...buildSectorFeatures({
                                 position: feat.geometry.coordinates as [number, number],
+                                valnmr: readS57(featProps, 'VALNMR'),
                                 sectr1: bearings.sectr1,
                                 sectr2: bearings.sectr2,
                                 colorHex: colHex ?? '#f0e030',
