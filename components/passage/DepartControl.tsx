@@ -12,6 +12,7 @@
  */
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { TimePicker24, localDateStr } from './TimePicker24';
 
 const STORAGE_KEY = 'thalassa_trace_departure_ms';
 
@@ -48,6 +49,9 @@ export const DepartControl: React.FC = () => {
 
     const dateStr = departureMs !== null ? msToLocal(departureMs).slice(0, 10) : '';
     const timeStr = departureMs !== null ? msToLocal(departureMs).slice(11, 16) : '';
+    // Default the pickers to RIGHT NOW (Shane 2026-07-17) — display-only:
+    // the "leaving now" state stays null until the punter actually picks.
+    const todayStr = localDateStr();
     return (
         <div className="rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]">
             <div className="mb-2 flex items-baseline justify-between">
@@ -61,7 +65,8 @@ export const DepartControl: React.FC = () => {
             <div className="flex gap-2">
                 <input
                     type="date"
-                    value={dateStr}
+                    value={dateStr || todayStr}
+                    min={todayStr} // the past is greyed out — can't plan to leave yesterday
                     onChange={(e) => {
                         triggerHaptic('light');
                         if (!e.target.value) {
@@ -73,20 +78,23 @@ export const DepartControl: React.FC = () => {
                         if (Number.isFinite(t)) setDeparture(t);
                     }}
                     aria-label="Departure date"
-                    className="h-11 min-w-0 flex-[3] rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm font-medium text-white [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                    className="h-11 min-w-0 flex-[3] rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
                 />
-                <input
-                    type="time"
-                    value={timeStr}
-                    onChange={(e) => {
-                        if (!e.target.value) return;
+                {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
+                    clipped in the card) — wheels on iOS, dropdowns on desktop. */}
+                <TimePicker24
+                    value={
+                        timeStr ? { h: Number(timeStr.slice(0, 2)), m: Number(timeStr.slice(3, 5)) } : null
+                    }
+                    dateStr={dateStr}
+                    onChange={(h, m) => {
                         triggerHaptic('light');
-                        const date = dateStr || msToLocal(Date.now()).slice(0, 10);
-                        const t = new Date(`${date}T${e.target.value}`).getTime();
+                        const date = dateStr || todayStr;
+                        const p = (n: number) => String(n).padStart(2, '0');
+                        const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
                         if (Number.isFinite(t)) setDeparture(t);
                     }}
-                    aria-label="Departure time"
-                    className="h-11 min-w-0 flex-[2] rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm font-medium text-white [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                    selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
                 />
             </div>
             <div className="mt-2 flex gap-2">

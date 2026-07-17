@@ -171,6 +171,7 @@ import { LayerFABMenu } from './MapHubOverlays';
 import { RadialHelmMenu } from './RadialHelmMenu';
 import { StormPicker } from './StormPicker';
 import { MapActionFabs } from './MapActionFabs';
+import { TimePicker24 } from '../passage/TimePicker24';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { WindModelFieldSelector } from './WindModelFieldSelector';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
@@ -4937,13 +4938,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 🧭 Trace route{capturedCoords.length > 0 ? ` (${capturedCoords.length})` : ''}
                             </button>
                         ) : (
-                            // Height CLAMPED to ~44% of the screen (was
-                            // 100dvh-14rem ≈ 75%): a long route made the card
-                            // climb under the compass rose + zoom box (Shane
-                            // 2026-07-17: "if the tracer box did not grow…").
-                            // The leg list already scrolls internally, so past
-                            // ~8 rows it scrolls instead of growing.
-                            <div className="flex max-h-[44dvh] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
+                            // Height cap = the glass between the card's bottom
+                            // anchor (8.4rem, clear of the scrubber) and just
+                            // under the zoom pill (top 104px + 44px tall + 8px
+                            // gap = 156px). Shane 2026-07-17: "right up to just
+                            // under the zoom info pill — I hate unnecessary
+                            // scroll bars" (the earlier 44dvh clamp scrolled
+                            // routes that still had free screen above them).
+                            // The leg list scrolls only past THIS ceiling.
+                            <div className="flex max-h-[calc(100dvh_-_8.4rem_-_156px_-_env(safe-area-inset-bottom))] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
                                 {/* The WHOLE header folds/unfolds the card (Shane
                                     2026-07-15: "we need a bigger button to minimise
                                     and maximise the plotting card") — the old chevron
@@ -5555,8 +5558,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     value={
                                                         departureMs !== null
                                                             ? msToLocalInput(departureMs).slice(0, 10)
-                                                            : ''
+                                                            : msToLocalInput(Date.now()).slice(0, 10)
                                                     }
+                                                    // Past dates greyed out (Shane 2026-07-17) —
+                                                    // can't plan to leave yesterday.
+                                                    min={msToLocalInput(Date.now()).slice(0, 10)}
                                                     onChange={(e) => {
                                                         triggerHaptic('light');
                                                         if (!e.target.value) {
@@ -5573,25 +5579,33 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     aria-label="Departure date"
                                                     className="min-w-0 flex-[3] rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
                                                 />
-                                                <input
-                                                    type="time"
+                                                {/* 24-hour time (Shane 2026-07-17: the web time
+                                                    input's AM/PM clipped in the card). */}
+                                                <TimePicker24
                                                     value={
                                                         departureMs !== null
-                                                            ? msToLocalInput(departureMs).slice(11, 16)
+                                                            ? {
+                                                                  h: Number(msToLocalInput(departureMs).slice(11, 13)),
+                                                                  m: Number(msToLocalInput(departureMs).slice(14, 16)),
+                                                              }
+                                                            : null
+                                                    }
+                                                    dateStr={
+                                                        departureMs !== null
+                                                            ? msToLocalInput(departureMs).slice(0, 10)
                                                             : ''
                                                     }
-                                                    onChange={(e) => {
-                                                        if (!e.target.value) return;
+                                                    onChange={(h, m) => {
                                                         triggerHaptic('light');
                                                         const date =
                                                             departureMs !== null
                                                                 ? msToLocalInput(departureMs).slice(0, 10)
                                                                 : msToLocalInput(Date.now()).slice(0, 10);
-                                                        const t = new Date(`${date}T${e.target.value}`).getTime();
+                                                        const p = (n: number) => String(n).padStart(2, '0');
+                                                        const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
                                                         if (Number.isFinite(t)) setDepartureMs(t);
                                                     }}
-                                                    aria-label="Departure time"
-                                                    className="min-w-0 flex-[2] rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                                                    selectClassName="min-w-0 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
                                                 />
                                             </div>
                                             <div className="flex gap-1.5">

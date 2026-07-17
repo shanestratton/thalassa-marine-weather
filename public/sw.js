@@ -234,9 +234,12 @@
 // Share-with-a-mate + share-with-all-skippers stay.
 // v120: recenter-on-weather-location FAB parked — GPS Locate Me now owns the
 // bottom-right corner (it was hidden behind the detail scrubber).
-const CACHE_NAME = 'thalassa-v120-core';
-const TILE_CACHE = 'thalassa-v120-tiles';
-const DATA_CACHE = 'thalassa-v120-data';
+// v121: depart pickers are 24-hour (the web time input's AM/PM clipped),
+// default to right now, and grey out past dates/times; the tracer card can
+// now grow to just under the zoom pill before its leg list scrolls.
+const CACHE_NAME = 'thalassa-v121-core';
+const TILE_CACHE = 'thalassa-v121-tiles';
+const DATA_CACHE = 'thalassa-v121-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
