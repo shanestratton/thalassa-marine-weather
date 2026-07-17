@@ -662,6 +662,10 @@ export interface EncConversionResult {
         ACHARE?: GeoJSON.FeatureCollection;
         /** Marine farm / aquaculture — nets and lines, keep clear. */
         MARCUL?: GeoJSON.FeatureCollection;
+        TSELNE?: GeoJSON.FeatureCollection;
+        TSSBND?: GeoJSON.FeatureCollection;
+        PRCARE?: GeoJSON.FeatureCollection;
+        DWRTPT?: GeoJSON.FeatureCollection;
     };
 }
 
@@ -678,6 +682,10 @@ export const CAUTION_AREA_CLASSES = [
     'TSEZNE',
     'ACHARE',
     'MARCUL',
+    'TSELNE',
+    'TSSBND',
+    'PRCARE',
+    'DWRTPT',
 ] as const;
 export type CautionAreaClass = (typeof CAUTION_AREA_CLASSES)[number];
 

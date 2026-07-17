@@ -192,6 +192,10 @@ const ENC_LAYERS = [
     'TSEZNE',
     'ACHARE',
     'MARCUL',
+    'TSELNE',
+    'TSSBND',
+    'PRCARE',
+    'DWRTPT',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');

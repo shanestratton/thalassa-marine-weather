@@ -152,6 +152,10 @@ const CAUTION_LABELS: Record<string, string> = {
     TSEZNE: 'Separation zone',
     ACHARE: 'Anchorage area',
     MARCUL: 'Marine farm',
+    TSELNE: 'Traffic separation line',
+    TSSBND: 'Traffic scheme boundary',
+    PRCARE: 'Precautionary area',
+    DWRTPT: 'Deep-water route',
 };
 
 /** Class-specific plain-language note when the chart carries no RESTRN. */
@@ -162,6 +166,10 @@ const CAUTION_NOTES: Record<string, string> = {
     ACHARE: 'Designated anchorage',
     MARCUL: 'Aquaculture — nets and lines, keep clear',
     CTNARE: 'See chart notes / sailing directions',
+    PRCARE: 'Navigate with particular caution — see sailing directions',
+    DWRTPT: 'Deep-draught route — through traffic has priority',
+    TSELNE: 'Cross only at right angles if you must',
+    TSSBND: 'Edge of the traffic scheme',
 };
 
 /** S-57 RESTRN (restriction) codes — the values a skipper actually meets. */
