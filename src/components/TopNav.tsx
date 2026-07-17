@@ -32,15 +32,18 @@ export default function TopNav({ vessel, telemetry, entryCount }: TopNavProps) {
 
             {/* Status */}
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-                {/* Skipper door — the public log page's only outbound
-                    link. /plan lands on the apex SPA (same origin as
-                    this path-form page; the subdomain form is a
-                    DIFFERENT origin, which is exactly why login happens
-                    over there, not here), prompts sign-in, and opens
-                    the desktop passage builder. This bundle stays
-                    supabase-free — it's a plain <a>, not an auth flow. */}
+                {/* Skipper door — the public log page's only outbound link.
+                    RELATIVE /plan (Shane 2026-07-17: "it defaults back to
+                    www.thalassawx.app/plan rather than boat-name.thalassawx.app
+                    /plan"). This tracking page is served on the vessel
+                    subdomain, so a relative link keeps the punter on THEIR
+                    boat's planner (serene-summer.thalassawx.app/plan) — the
+                    old absolute apex link 308-redirected to www and dropped
+                    the handle. Sign-in happens on the subdomain now (its own
+                    per-origin session), which is the intended per-vessel model.
+                    Still supabase-free here — a plain <a>, not an auth flow. */}
                 <a
-                    href="https://thalassawx.app/plan"
+                    href="/plan"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
                     title="Skipper? Sign in and build a passage on the big screen"
                 >

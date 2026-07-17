@@ -311,9 +311,12 @@
 // charts page (still reachable from the chart-modes menu there).
 // v149: compass rose LESS opaque (0.85 → 0.40) — reverting the "more opaque"
 // tweak; the chart shows through it now.
-const CACHE_NAME = 'thalassa-v149-core';
-const TILE_CACHE = 'thalassa-v149-tiles';
-const DATA_CACHE = 'thalassa-v149-data';
+// v150: the tracking page's "Skipper" link is RELATIVE /plan now — keeps the
+// punter on THEIR boat subdomain (boat-name.thalassawx.app/plan) instead of
+// the old absolute apex link that 308-redirected to www and dropped the handle.
+const CACHE_NAME = 'thalassa-v150-core';
+const TILE_CACHE = 'thalassa-v150-tiles';
+const DATA_CACHE = 'thalassa-v150-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
