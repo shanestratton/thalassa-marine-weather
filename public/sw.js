@@ -246,9 +246,11 @@
 // hands back a clean chart.
 // v124: the minimised tracer card lifts 2rem clear of the Full/Clean
 // scrubber (it sat on top of it when folded).
-const CACHE_NAME = 'thalassa-v124-core';
-const TILE_CACHE = 'thalassa-v124-tiles';
-const DATA_CACHE = 'thalassa-v124-data';
+// v125: tracer-card Depart loses its OK button — the 24-hour selects
+// dismiss themselves; the full-width Now button (back to leave-now) stays.
+const CACHE_NAME = 'thalassa-v125-core';
+const TILE_CACHE = 'thalassa-v125-tiles';
+const DATA_CACHE = 'thalassa-v125-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
