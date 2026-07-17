@@ -284,9 +284,12 @@
 // clear of every word, still a comfy fat-finger tap.
 // v139: the TRACER title is a proper boxed button now, matching the compass
 // and DONE buttons beside it.
-const CACHE_NAME = 'thalassa-v139-core';
-const TILE_CACHE = 'thalassa-v139-tiles';
-const DATA_CACHE = 'thalassa-v139-data';
+// v140: sign-in screen cleaned up — the blocky baked-in wordmark is now
+// crisp live "THALASSA" text (compass mark kept), and the footer no longer
+// overlaps the CTA button (it had conflicting relative+absolute classes).
+const CACHE_NAME = 'thalassa-v140-core';
+const TILE_CACHE = 'thalassa-v140-tiles';
+const DATA_CACHE = 'thalassa-v140-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
