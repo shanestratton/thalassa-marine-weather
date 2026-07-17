@@ -6325,8 +6325,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     side of the rose, not the far side of the screen). The
                     rose is fixed left 98px, 116px wide → right edge 214px;
                     the moon sits at 224px with a ~10px gap. Zoom pill left,
-                    rose centre, moon just past it. */}
-                {encVisible && !embedded && !pickerMode && !isPinView && (
+                    rose centre, moon just past it.
+                    PLANNING-ONLY (Shane 2026-07-17: "remove the half moon from
+                    the charts page — it is for the planning page only"): gated
+                    on coordCaptureMode so the bare browsing chart stays clean.
+                    The ☾ row inside the chart-modes menu still covers it there. */}
+                {encVisible && coordCaptureMode && !embedded && !pickerMode && !isPinView && (
                     <button
                         onClick={() => setNightDim(!nightDim)}
                         aria-label="Toggle night dim"

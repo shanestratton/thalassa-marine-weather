@@ -307,9 +307,11 @@
 // toggle removed; compass rose always shows + more opaque). Fixed the web
 // "no signal" false-offline bug (probe used a CORS-blocked fetch on web) and
 // dropped the redundant "Online" connectivity chip.
-const CACHE_NAME = 'thalassa-v147-core';
-const TILE_CACHE = 'thalassa-v147-tiles';
-const DATA_CACHE = 'thalassa-v147-data';
+// v148: the night-dim ☾ pill is planning-only now — hidden on the bare
+// charts page (still reachable from the chart-modes menu there).
+const CACHE_NAME = 'thalassa-v148-core';
+const TILE_CACHE = 'thalassa-v148-tiles';
+const DATA_CACHE = 'thalassa-v148-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
