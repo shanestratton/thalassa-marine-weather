@@ -44,10 +44,10 @@ ledger row below.
 - [ ] **0.5 — Lights: near-all 'minor' (hidden < z10), ★ text glyph, fixed
       900 m sector arcs** — tier by LITCHR/category not just VALNMR; real
       light-flare glyph; scale sector arc radius (VALNMR when present).
-- [ ] **0.25 — Preferred-channel BEACONS drop junction banding** — extend
-      the banded treatment (buoys done in #2) to BCNLAT 3/4.
-- [ ] **0.25 — Wreck/obstruction taxonomy collapsed** — CATWRK 3/4/5 and
-      OBSTRN WATLEV variants all wear one glyph; differentiate per INT1.
+- [x] **0.25 — Preferred-channel BEACONS banded** — DONE (region-aware
+      banded posts; buoys got theirs in cycle 2).
+- [x] **0.25 — Wreck taxonomy** — DONE (CATWRK 4 mast-showing / 5
+      hull-showing get their own INT1 glyphs; 2/3/unknown stay dangerous).
 - [x] **0.25 — IALA-B prefix set** — DONE (+15 HOs: Taiwan, Central
       America, Caribbean chain, PR/USVI).
 - [ ] **0.25 — Line seam de-dup clips against the finer cell's WHOLE
@@ -170,3 +170,4 @@ ledger row below.
 | 2026-07-18 | Night ☾ surfaced + Dynamic Type (UX COMPLETE)            | 0.75 | `0ac34b01`  | **95.5**               |
 | 2026-07-18 | Cell parse off-thread (encParseWorker)                   | 0.5  | see git log | **96.0 — BAR CROSSED** |
 | 2026-07-18 | Visibility state machine (explicit state + composer)     | 0.5  | see git log | 96.5                   |
+| 2026-07-18 | Banded pref-channel beacons + wreck CATWRK taxonomy      | 0.5  | see git log | 97.0                   |

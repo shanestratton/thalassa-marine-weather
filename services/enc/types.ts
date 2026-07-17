@@ -251,8 +251,14 @@ export function encNavaidIconId(
         // Preferred-channel marks (3/4) get their BANDED hull on buoys —
         // the band is the "junction here" read (audit). Beacons fall back
         // to the hand-shape treatment below (band SVG is buoy-hulled).
-        if (!isBeacon && c === 3) return region === 'A' ? 'sm-buoy-prefchan-stbd' : 'sm-buoy-prefchan-stbd-b';
-        if (!isBeacon && c === 4) return region === 'A' ? 'sm-buoy-prefchan-port' : 'sm-buoy-prefchan-port-b';
+        if (c === 3) {
+            if (isBeacon) return region === 'A' ? 'sm-beacon-prefchan-stbd' : 'sm-beacon-prefchan-stbd-b';
+            return region === 'A' ? 'sm-buoy-prefchan-stbd' : 'sm-buoy-prefchan-stbd-b';
+        }
+        if (c === 4) {
+            if (isBeacon) return region === 'A' ? 'sm-beacon-prefchan-port' : 'sm-beacon-prefchan-port-b';
+            return region === 'A' ? 'sm-buoy-prefchan-port' : 'sm-buoy-prefchan-port-b';
+        }
         const isPortHand = c === 1 || c === 3;
         const isStbdHand = c === 2 || c === 4;
         if (isPortHand) {
