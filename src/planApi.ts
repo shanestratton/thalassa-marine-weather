@@ -79,7 +79,10 @@ export function parsePlanParams(): { handle: string } {
     if (hostParts.length >= 3 && hostParts[0] !== 'www' && host !== 'thalassawx.app') {
         return { handle: hostParts[0] };
     }
-    const m = window.location.pathname.replace(/\/+$/, '').match(/\/plan\/([^/]+)/);
+    // /float/<handle> is the float plan's home since /plan went to the
+    // interactive planner (2026-07-17); /plan/<handle> stays as a legacy
+    // path so old shared links keep working.
+    const m = window.location.pathname.replace(/\/+$/, '').match(/\/(?:plan|float)\/([^/]+)/);
     if (m) return { handle: decodeURIComponent(m[1]) };
     const q = new URLSearchParams(window.location.search).get('handle');
     return { handle: q ?? '' };
