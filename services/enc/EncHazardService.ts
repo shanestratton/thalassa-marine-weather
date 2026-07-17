@@ -943,7 +943,7 @@ async function loadCellBlobsAndExtents(
             if (raw0.kind === 'cached') {
                 blob = raw0.blob;
             } else if (raw0.kind === 'text') {
-                blob = cellStore.parseAndCacheCellText(cell.id, raw0.text);
+                blob = await cellStore.parseAndCacheCellTextAsync(cell.id, raw0.text);
                 await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
             } else {
                 blob = null;
