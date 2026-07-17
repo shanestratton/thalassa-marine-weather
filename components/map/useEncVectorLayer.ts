@@ -196,13 +196,16 @@ export function useEncVectorLayer(
     // Geometry-upgrade watch: encGeometryWorker finished the hole-free
     // glaze / derived contours for the CACHED merge object — the same
     // object we last pushed (its collections were swapped in place), so
-    // re-push just those two sources. If the view has since moved to a
-    // different merge, this re-sends unchanged data — a cheap no-op.
+    // re-push just the source(s) whose features array actually changed
+    // (refreshEncAsyncLayers skips the rest), and only once the camera has
+    // settled — never mid-gesture.
     useEffect(() => {
         if (!mapReady) return;
         const map = mapRef.current;
         if (!map) return;
-        const unsub = subscribeGeometryUpgrades(() => {
+        let deferred = false;
+        const apply = () => {
+            deferred = false;
             const data = lastAppliedRef.current as EncMergedVectorData | null;
             if (!data || !mountedRef.current) return;
             try {
@@ -210,8 +213,26 @@ export function useEncVectorLayer(
             } catch {
                 /* style mid-swap — the next full refresh re-applies */
             }
+        };
+        const unsub = subscribeGeometryUpgrades(() => {
+            // Defer the heavy DEPARE_GLAZE re-serialize past an active gesture —
+            // the merge time-slicer already parks on isMoving (setMergeInteraction
+            // Probe below), but this worker-upgrade re-push did NOT, landing
+            // mid-pan/zoom and dropping frames (cycle-4 audit #5). One coalesced
+            // moveend apply, not one per straggling upgrade.
+            if (map.isMoving()) {
+                if (!deferred) {
+                    deferred = true;
+                    map.once('moveend', apply);
+                }
+            } else {
+                apply();
+            }
         });
-        return unsub;
+        return () => {
+            unsub();
+            map.off('moveend', apply);
+        };
     }, [mapRef, mapReady]);
 
     // Gesture probe for the merge's time-slicer: while the camera is
