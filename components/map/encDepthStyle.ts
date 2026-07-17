@@ -24,6 +24,7 @@
  *     computeSafetyValdco returns null instead (see its docstring).
  */
 
+import type mapboxgl from 'mapbox-gl';
 import type { ExpressionSpecification, FilterSpecification } from 'mapbox-gl';
 import { readS57 } from '../../services/enc/types';
 
@@ -41,6 +42,11 @@ import { readS57 } from '../../services/enc/types';
  *  place to tighten if the types ever catch up. */
 export function mapExpr(expr: unknown): ExpressionSpecification {
     return expr as ExpressionSpecification;
+}
+
+/** Same laundering, filter flavour — see mapExpr. */
+export function mapFilter(filter: unknown): mapboxgl.FilterSpecification {
+    return filter as mapboxgl.FilterSpecification;
 }
 
 export const ATTR_UNKNOWN = -9999;

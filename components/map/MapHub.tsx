@@ -77,6 +77,8 @@ import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 // Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
 import {
+    ENC_NIGHT_DIM_KEY,
+    SATELLITE_KEY,
     setEncVectorVisibility as encApplyLayerVisibility,
     setEncChartDetail as encApplyChartDetailLayers,
     syncDepareBaseTreatment as encSyncDepareBaseTreatment,
@@ -136,6 +138,13 @@ import {
     curatedLanesNear,
     fixLegOnGrid,
     commonDepartureWindowLabel,
+    nextLegSeed,
+    ordinalLegLabel,
+    withLegBadge,
+    destNameFromRouteName,
+    retroBadgeFirstLeg,
+    healTripChain,
+    type NextLegSeed,
     type GhostLane,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
@@ -617,6 +626,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     // saved route the next Save tap will replace (two-tap arm, like the
     // saved-route delete). Disarmed by editing the name.
     const [overwriteArm, setOverwriteArm] = useState<string | null>(null);
+    // ── Multi-leg trips (Shane 2026-07-17: "get our LEGS functioning") ──
+    // Set when the tracer opened via "plot the next leg": pin 1 is pre-
+    // dropped at the previous leg's EXACT final coordinates and LOCKED
+    // (no drag, no delete; Clear resets TO it — legs chain by position,
+    // not by name). Save badges the name "(2nd Leg)", stamps the chain
+    // fields, and retro-badges leg 1. Loading anything else drops it.
+    const [legAnchor, setLegAnchor] = useState<NextLegSeed | null>(null);
+    const legAnchorRef = useRef<NextLegSeed | null>(null);
+    useEffect(() => {
+        legAnchorRef.current = legAnchor;
+    }, [legAnchor]);
     // Focused by the no-name Save guard so the keyboard pops ready to type.
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
@@ -794,22 +814,53 @@ export const MapHub: React.FC<MapHubProps> = ({
             // the dispatching click so the clipboard read keeps its iOS
             // user-activation.
             const action = consumeTracerAction();
-            if (action?.kind === 'paste') void pasteTrace();
-            else if (action?.kind === 'load-voyage') void loadVoyageAsTrace(action.choice);
-            else if (action?.kind === 'load-saved') {
+            if (action?.kind === 'paste') {
+                setLegAnchor(null);
+                void pasteTrace();
+            } else if (action?.kind === 'load-voyage') {
+                setLegAnchor(null);
+                void loadVoyageAsTrace(action.choice);
+            } else if (action?.kind === 'load-saved') {
                 const t = loadSavedTraces().find((x) => x.id === action.id);
                 if (t && t.points.length >= 2) {
+                    setLegAnchor(null); // an opened route is edited standalone
                     rebaseHistoryRef.current = true; // opened a saved route → Undo floor
                     setCapturedCoords(t.points);
                     setTraceName(t.name);
                     setSavedTraces(loadSavedTraces());
                     const mid = t.points[Math.floor(t.points.length / 2)];
-                    const fly = () =>
-                        mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
+                    const fly = () => mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
                     // Cold PLAN→map mount: the map object may trail this event
                     // by a beat — one delayed retry covers it.
                     if (mapRef.current) fly();
                     else setTimeout(fly, 1_200);
+                }
+            } else if (action?.kind === 'new-leg') {
+                // Plot the NEXT leg of a trip (Shane 2026-07-17): the first
+                // pin IS the previous leg's arrival — exact coordinates,
+                // locked. The name box is prefilled "Woorim - " so the save
+                // reads "woorim - timbuktu (2nd Leg)".
+                const t = loadSavedTraces().find((x) => x.id === action.fromId);
+                const seed = t ? nextLegSeed(t) : null;
+                if (seed) {
+                    rebaseHistoryRef.current = true; // fresh leg → Undo floor
+                    setCapturedCoords([seed.anchor]);
+                    setTraceName(`${seed.fromName} - `);
+                    lastAutoNameRef.current = ''; // the prefill is the punter's, not auto
+                    setLegAnchor(seed);
+                    setSelectedPin(null);
+                    setOverwriteArm(null);
+                    const fly = () =>
+                        mapRef.current?.flyTo({
+                            center: [seed.anchor.lon, seed.anchor.lat],
+                            zoom: 13.5,
+                            duration: 900,
+                        });
+                    if (mapRef.current) fly();
+                    else setTimeout(fly, 1_200);
+                    flashTraceFeedback(
+                        `${ordinalLegLabel(seed.ordinal)} departs ${seed.fromName} — first pin locked 🔒`,
+                    );
                 }
             }
         };
@@ -1201,9 +1252,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             // the old tail back to its number via the sig diff below.
             const isStart = i === 0;
             const isEnd = !isStart && i === capturedCoords.length - 1;
+            // Chained-leg lock (Shane 2026-07-17): pin 1 of a "next leg" IS
+            // the previous leg's arrival — exact coords, not draggable.
+            const locked = isStart && legAnchor !== null;
             const label = isStart ? '1' : isEnd ? String(capturedCoords.length) : String(i + 1);
             const smallFont = capturedCoords.length > 9 && isEnd;
-            const sig = `${isStart ? 's' : isEnd ? 'e' : 'm'}|${label}|${i === selectedPin ? 1 : 0}|${smallFont ? 1 : 0}`;
+            const sig = `${isStart ? 's' : isEnd ? 'e' : 'm'}|${label}|${i === selectedPin ? 1 : 0}|${smallFont ? 1 : 0}|${locked ? 'L' : ''}`;
             let rec = recs[i];
             if (!rec) {
                 const el = document.createElement('div');
@@ -1272,6 +1326,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             }
             if (rec.sig === sig) return; // style already right — zero writes
             rec.sig = sig;
+            // Idempotent per style pass (the sig carries the lock flag).
+            rec.marker.setDraggable(!locked);
             const ring =
                 i === selectedPin
                     ? 'box-shadow:0 0 0 3px #38bdf8,0 1px 4px rgba(0,0,0,.5);'
@@ -1294,16 +1350,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // grab point — stays exactly on the coordinate.
                 const tag = document.createElement('div');
                 tag.style.cssText =
-                    'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;';
-                tag.textContent = 'START';
+                    'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;white-space:nowrap;';
                 rec.el.appendChild(tag);
                 rec.tag = tag;
             } else if (!isStart && rec.tag) {
                 rec.tag.remove();
                 rec.tag = null;
             }
+            // Chained legs read "🔒 START" — the padlock says why this one
+            // won't drag (its spot IS the previous leg's arrival).
+            if (rec.tag) rec.tag.textContent = locked ? '🔒 START' : 'START';
         });
-    }, [capturedCoords, coordCaptureMode, selectedPin]);
+    }, [capturedCoords, coordCaptureMode, selectedPin, legAnchor]);
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
@@ -2630,7 +2688,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         try {
             // Hybrid counts as satellite for every ENC treatment consumer
             // (glaze opacity, hide-lists) — it IS imagery underneath.
-            localStorage.setItem('thalassa_satellite_base_v2', imageryOn ? 'true' : 'false');
+            localStorage.setItem(SATELLITE_KEY, imageryOn ? 'true' : 'false');
         } catch {
             /* storage unavailable — writers fall back to their default */
         }
@@ -2803,7 +2861,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [tideDepthMode, setTideDepthMode] = usePersistedState('thalassa_tide_depth_mode', false);
     // Night dim — chartplotter-style red-tinted uniform dim (burn-down:
     // the white DEPARE ramp killed night vision at the helm).
-    const [nightDim, setNightDim] = usePersistedState('thalassa_enc_night_dim', false);
+    const [nightDim, setNightDim] = usePersistedState(ENC_NIGHT_DIM_KEY, false);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -6070,14 +6128,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
                 {/* No-coverage chip — uncharted water at nav zoom must never
                     read like the chart layer is merely off (2026-07-17 audit). */}
-                {encNoCoverage && encHydration.remaining === 0 && encVisible && !embedded && !pickerMode && !isPinView && (
-                    <div
-                        className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-500/30 bg-slate-900/85 px-3 py-1 text-[11px] font-bold text-amber-300 shadow-lg"
-                        aria-live="polite"
-                    >
-                        No chart coverage here — depths unverified
-                    </div>
-                )}
+                {encNoCoverage &&
+                    encHydration.remaining === 0 &&
+                    encVisible &&
+                    !embedded &&
+                    !pickerMode &&
+                    !isPinView && (
+                        <div
+                            className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-500/30 bg-slate-900/85 px-3 py-1 text-[11px] font-bold text-amber-300 shadow-lg"
+                            aria-live="polite"
+                        >
+                            No chart coverage here — depths unverified
+                        </div>
+                    )}
                 {/* Chart key — the legend for mere mortals (2026-07-11 #2).
                     Auto-opens once on first charted render; afterwards via
                     the ChartModes row. */}

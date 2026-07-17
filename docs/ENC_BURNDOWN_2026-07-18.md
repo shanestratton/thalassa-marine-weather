@@ -107,8 +107,13 @@ ledger row below.
       COMPOSED from readCellRaw + parseAndCacheCellText (was a third
       hand-written parse/shape-gate/cache copy); readCellRaw reports
       notFound so the remote ladder still only runs on ENOENT.
-- [ ] **0.5 — Dead export/param + duplicated localStorage keys across the
-      MapHub seam** — sweep.
+- [x] **0.5 — Dead exports + duplicated localStorage keys** — DONE:
+      MapHub imports ENC_NIGHT_DIM_KEY + SATELLITE_KEY from their one home
+      (the raw-string writes were an untested cross-file equality); carve
+      leftovers (6 dead imports) swept; PLUS the 15 FilterSpecification
+      casts the earlier "casting" bank missed now route through mapFilter
+      (honesty catch — the earlier claim covered ExpressionSpecification
+      only).
 - [ ] **0.5 — Visibility state machine composes via BCNLAT probe +
       last-writer-wins** — replace probe with explicit state; document
       precedence.

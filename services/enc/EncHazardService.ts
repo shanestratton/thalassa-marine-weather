@@ -31,7 +31,6 @@
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { reduceNamedAreas } from './seaareLabels';
-import { getDerivedContours, putDerivedContours } from './derivedContourCache';
 import {
     dispatchGeometryWork,
     GLAZE_WORKER_ENABLED,
@@ -41,16 +40,7 @@ import {
 // Consumers (render hook, tests) reach the worker plumbing through this
 // module's established surface — re-export the carved-out subsystem.
 export { subscribeGeometryUpgrades, buildContourPayload } from './geometryUpgrades';
-import {
-    ensureGlazeCapacity,
-    getGlazeCell,
-    putGlazeCell,
-    parkGlazeAssembly,
-    takeGlazeAssembly,
-    isGlazeInFlight,
-    releaseGlazeAssemblies,
-    clearAllGlazeAssemblies,
-} from './glazeCellCache';
+import { ensureGlazeCapacity, getGlazeCell, putGlazeCell, isGlazeInFlight } from './glazeCellCache';
 import { touchIndex, cacheIndex, isIndexFailed, markIndexFailed, dropIndex, clearIndexCache } from './encIndexCache';
 import {
     getMergedData,
@@ -80,7 +70,7 @@ import {
     type CoverageGeom,
     type FineCoverage,
 } from './clipDepareOverlap';
-import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
+import { EncSpatialIndex } from './EncSpatialIndex';
 import {
     buildCatzocZones,
     buildCautionAreas,
@@ -93,7 +83,7 @@ import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults } from './hazardSeverity';
 import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES } from './types';
 import { readS57 } from './types';
-import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
+import type { EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import {
     buildLightCharacterLabel,
     encNavaidIconId,
