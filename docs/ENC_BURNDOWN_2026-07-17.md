@@ -108,9 +108,9 @@ route. Fix the silent failures first.
 - [x] **0.5 — Spatial-index LRU cap** — DONE (24→32, holds the route candidate set). —
       sequential-scan thrash rebuilds every index on long-route validation;
       resize + comment.
-- [ ] **0.25 — Superseded merges never aborted** — fast panning stacks
+- [x] **0.25 — Superseded merges never aborted** — DONE (windowed merges bail at the next slice boundary when a newer one starts; null = the callers' cancelled contract). — fast panning stacks
       concurrent full merges; cooperative abort at slice boundaries.
-- [ ] **0.25 — First mount uploads all 14 sources in one tick** — stagger
+- [x] **0.25 — First mount uploads all 14 sources in one tick** — DONE (sources create EMPTY; one staggered refresh uploads frame-at-a-time; style swaps keep warm-tile immediate setData). — stagger
       the initial setData like the refresh path.
 
 ### Code quality (4.0)

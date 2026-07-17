@@ -1473,15 +1473,26 @@ export function mountEncVectorLayer(
     // 4-16× less overlap geometry for the heaviest sources (DEPARE and
     // the glaze), which is real pan/zoom smoothness on a 47-cell view.
     // DEPCNT keeps the default: its valdco labels ride the lines.
+    // FIRST-MOUNT STAGGER (2026-07-17 audit): creating every source with
+    // its full payload pushed all 14 serialisations into ONE synchronous
+    // tick — the boot-path analogue of the re-merge hitch the staggered
+    // refresh already cures. New sources are created EMPTY; one deferred
+    // refreshEncVectorData call at the end of the mount uploads the real
+    // payloads a-frame-at-a-time. Existing sources (style swap) keep the
+    // immediate setData — their GPU tiles are warm and a stagger would
+    // flash stale layers.
+    let createdAnySource = false;
+    const EMPTY_FC: FeatureCollection = { type: 'FeatureCollection', features: [] };
     const ensureSource = (id: string, fc: FeatureCollection, buffer?: number) => {
         const existing = map.getSource(id);
         if (existing && 'setData' in existing) {
             (existing as mapboxgl.GeoJSONSource).setData(fc);
             return;
         }
+        createdAnySource = true;
         map.addSource(id, {
             type: 'geojson',
-            data: fc,
+            data: EMPTY_FC,
             generateId: true,
             ...(buffer != null ? { buffer } : {}),
         });
@@ -1544,6 +1555,10 @@ export function mountEncVectorLayer(
     mountSoundingLabelLayers(map, opacity, beforeIdFor);
 
     mountTrackAidLayers(map, data, minZoom, opacity, safetyByCell, safetyDepthM, anchor, beforeIdFor);
+
+    // First mount created empty sources — hand the real payloads to the
+    // staggered uploader (one source per frame, biggest first).
+    if (createdAnySource) refreshEncVectorData(map, data);
 }
 
 /**
