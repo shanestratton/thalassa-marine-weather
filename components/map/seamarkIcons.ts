@@ -74,6 +74,25 @@ function preferredChannelBuoySvg(main: string, band: string, shape: 'can' | 'con
     </svg>`;
 }
 
+/** Preferred-channel BEACON (CATLAM 3/4): banded post + topmark (audit:
+ *  the buoys got banding, beacons silently kept the plain hand glyph). */
+function preferredChannelBeaconSvg(main: string, band: string, shape: 'can' | 'cone'): string {
+    const top =
+        shape === 'can'
+            ? `<rect x="16" y="6" width="16" height="5" rx="1" fill="${main}"/>`
+            : `<polygon points="24,4 16,11 32,11" fill="${main}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+        <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
+        <g filter="url(#s)" stroke="${COLOURS.white}" stroke-width="1.5">
+            ${top}
+            <rect x="20" y="12" width="8" height="26" rx="1.5" fill="${main}"/>
+            <rect x="20" y="20" width="8" height="9" fill="${band}" stroke="none"/>
+            <rect x="20" y="12" width="8" height="26" rx="1.5" fill="none"/>
+            <rect x="14" y="38" width="20" height="4" rx="1" fill="${main}"/>
+        </g>
+    </svg>`;
+}
+
 /** Cardinal buoy — Yellow/Black horizontal bands with cone topmarks */
 function cardinalBuoySvg(direction: 'north' | 'south' | 'east' | 'west'): string {
     // Band patterns: N=BY, S=YB, E=BYB, W=YBY (top to bottom)
@@ -217,6 +236,20 @@ function anchorageSvg(): string {
 }
 
 /** Generic/unknown seamark — Simple circle marker */
+/** CATWRK 4 — wreck showing mast/funnel: dangerous hull + mast stroke. */
+function wreckMastSvg(): string {
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="2.5" stroke-linecap="round">
+        <path d="M14 30 L34 30 L31 24 L17 24 Z" fill="${COLOURS.magenta}"/>
+        <line x1="24" y1="24" x2="24" y2="13"/><line x1="21" y1="16" x2="27" y2="16"/></g>`);
+}
+
+/** CATWRK 5 — wreck showing hull: hull outline awash. */
+function wreckHullSvg(): string {
+    return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="2.5" stroke-linecap="round" fill="none">
+        <path d="M13 28 L35 28 L31 21 L17 21 Z"/>
+        <line x1="11" y1="31" x2="37" y2="31" stroke-dasharray="3 2.5"/></g>`);
+}
+
 /** Unknown-attribute mark (audit #8): a mark whose CATLAM/CATCAM is
  *  missing must assert PRESENCE, never a specific passing rule — the old
  *  fallbacks painted a north cardinal ("pass north" the data never said)
@@ -326,6 +359,18 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-buoy-prefchan-port', svg: preferredChannelBuoySvg(COLOURS.green, COLOURS.red, 'cone'), size: 48 },
         { id: 'sm-buoy-prefchan-stbd-b', svg: preferredChannelBuoySvg(COLOURS.green, COLOURS.red, 'can'), size: 48 },
         { id: 'sm-buoy-prefchan-port-b', svg: preferredChannelBuoySvg(COLOURS.red, COLOURS.green, 'cone'), size: 48 },
+        { id: 'sm-beacon-prefchan-stbd', svg: preferredChannelBeaconSvg(COLOURS.red, COLOURS.green, 'can'), size: 48 },
+        { id: 'sm-beacon-prefchan-port', svg: preferredChannelBeaconSvg(COLOURS.green, COLOURS.red, 'cone'), size: 48 },
+        {
+            id: 'sm-beacon-prefchan-stbd-b',
+            svg: preferredChannelBeaconSvg(COLOURS.green, COLOURS.red, 'can'),
+            size: 48,
+        },
+        {
+            id: 'sm-beacon-prefchan-port-b',
+            svg: preferredChannelBeaconSvg(COLOURS.red, COLOURS.green, 'cone'),
+            size: 48,
+        },
 
         // Cardinal buoys
         { id: 'sm-cardinal-north', svg: cardinalBuoySvg('north'), size: 48 },
@@ -345,6 +390,8 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-hazard-foul', svg: foulGroundSvg(), size: 48 },
         { id: 'sm-hazard-wreck-dangerous', svg: wreckSvg(true), size: 48 },
         { id: 'sm-hazard-wreck', svg: wreckSvg(false), size: 48 },
+        { id: 'sm-hazard-wreck-mast', svg: wreckMastSvg(), size: 48 },
+        { id: 'sm-hazard-wreck-hull', svg: wreckHullSvg(), size: 48 },
         { id: 'sm-hazard-obstruction', svg: obstructionSvg(), size: 48 },
 
         // Lights
