@@ -1054,6 +1054,24 @@ export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'be
 }
 
 /**
+ * Snap a pin dropped NEAR a lead (RECTRC/NAVLNE transit) exactly ONTO it
+ * (Shane 2026-07-17: "very hard to get it on top of the lead with my fat
+ * fingers"). A lead IS the intended line — a pin within thumb-slop of one
+ * almost certainly means "on the lead". Returns the projection onto the
+ * nearest lead within `maxM`, or null (deliberate off-lead placement more
+ * than maxM away stays exactly where the skipper put it).
+ */
+export function snapTraceTapToLead(ctx: TracerContext, p: TracePoint, maxM = 50): TracePoint | null {
+    let best: { point: TracePoint; dist: number } | null = null;
+    for (const lead of ctx.leads) {
+        if (lead.pts.length < 2) continue;
+        const proj = projectToLine(p, lead.pts);
+        if (proj.dist <= maxM && (!best || proj.dist < best.dist)) best = proj;
+    }
+    return best ? { lat: best.point.lat, lon: best.point.lon } : null;
+}
+
+/**
  * Snap a fat-fingered tap on the breakwater/bank to the nearest navigable
  * cell (spiral search, ≤ maxM). Returns null when the spot is fine as-is or
  * nothing navigable is close — the tap then lands verbatim and the pin-level

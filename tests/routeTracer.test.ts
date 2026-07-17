@@ -27,6 +27,7 @@ import {
     reverseRouteName,
     saveTrace,
     deleteTrace,
+    snapTraceTapToLead,
     type TracerContext,
 } from '../services/routeTracer';
 
@@ -690,5 +691,42 @@ describe('routeTracer — guided builder (Phase 2/3)', () => {
         expect(
             fixLegOnGrid({ ...baseCtx, grid: null }, { lat: -27.01, lon: 153.018 }, { lat: -27.01, lon: 153.024 }),
         ).toBeNull();
+    });
+});
+
+describe('snapTraceTapToLead — fat-finger pin onto the transit', () => {
+    // A straight N–S lead at lon 153.010. 0.0001° lon ≈ 9.9 m here.
+    const leadCtx = {
+        leads: [
+            {
+                pts: [
+                    { lat: -27.0, lon: 153.01 },
+                    { lat: -27.02, lon: 153.01 },
+                ],
+            },
+        ],
+    } as unknown as TracerContext;
+
+    it('a pin ~30 m off the lead lands ON the lead', () => {
+        const p = snapTraceTapToLead(leadCtx, { lat: -27.01, lon: 153.0103 });
+        expect(p).not.toBeNull();
+        expect(p!.lon).toBeCloseTo(153.01, 6); // projected onto the line
+        expect(p!.lat).toBeCloseTo(-27.01, 6); // at the perpendicular foot
+    });
+
+    it('a pin ~100 m away stays where the skipper put it (null)', () => {
+        expect(snapTraceTapToLead(leadCtx, { lat: -27.01, lon: 153.011 })).toBeNull();
+    });
+
+    it('no leads in the context → null; nearest of several leads wins', () => {
+        expect(snapTraceTapToLead({ leads: [] } as unknown as TracerContext, { lat: -27.01, lon: 153.01 })).toBeNull();
+        const two = {
+            leads: [
+                { pts: [{ lat: -27.0, lon: 153.01 }, { lat: -27.02, lon: 153.01 }] },
+                { pts: [{ lat: -27.0, lon: 153.0104 }, { lat: -27.02, lon: 153.0104 }] },
+            ],
+        } as unknown as TracerContext;
+        const p = snapTraceTapToLead(two, { lat: -27.01, lon: 153.0103 });
+        expect(p!.lon).toBeCloseTo(153.0104, 6); // the CLOSER lead wins
     });
 });

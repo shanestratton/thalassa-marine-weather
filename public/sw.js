@@ -217,9 +217,12 @@
 // thread; duplicate context builds coalesce; recent chart windows are kept
 // (LRU of 3) so ping-pong edits stop rebuilding; corridor prefetch waits
 // until grading settles; one needless full-page render per pin edit removed.
-const CACHE_NAME = 'thalassa-v115-core';
-const TILE_CACHE = 'thalassa-v115-tiles';
-const DATA_CACHE = 'thalassa-v115-data';
+// v116: pins dropped (or dragged) within ~50 m of a charted lead/transit now
+// snap exactly ONTO the lead — "Snapped onto the lead 🎯". Deliberate
+// placement further away stays put.
+const CACHE_NAME = 'thalassa-v116-core';
+const TILE_CACHE = 'thalassa-v116-tiles';
+const DATA_CACHE = 'thalassa-v116-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
