@@ -126,18 +126,17 @@ ledger row below.
 - [ ] **0.5 — Water-tap folds only ONE caution — stacked restrictions
       drop** — pickAreaTap returns the first caution; fold ALL cautions
       under the tap into the popup.
-- [ ] **0.5 — 'Plan ENC Route' demo row: hardcoded 1.9 m draft + raw error
-      internals** — read real vessel draft, humanise errors (MapHub
-      ~6236-6277).
-- [ ] **0.25 (missed) — successful Plan ENC Route unclearable — strips
-      DEPARE/glaze/land for the session** — wire setEncTestRoute(null)
-      into Clear All + dismiss affordance (useEncTestRouteLayer ~110).
+- [x] **0.5 — 'Plan ENC Route' demo row** — DONE: reads the real vessel
+      draft (fallback 2.5 m); errors humanised (no engine internals).
+- [x] **0.25 — Plan ENC Route clearable** — DONE: Clear All now also
+      clears the test route (its route-focus mode stripped core safety
+      layers for the session).
 - [ ] **0.5 — Night usability: toggle buried behind a scroll** — surface
       the ☾ toggle; palette part is the deferred rendering item.
-- [ ] **0.25 — Advisory prints raw 'CATZOC 5' while panel rows decode it**
-      — decode in the advisory text.
-- [ ] **0.25 — Hazard panel appears unannounced; list semantics off** —
-      aria-live region + list roles.
+- [x] **0.25 — Advisory decodes CATZOC** — DONE ('ZOC D' wording; test
+      re-pinned).
+- [x] **0.25 — Hazard panel a11y** — DONE: aria-live=polite on the
+      region (list roles were already in place).
 - [ ] **0.25 — Fixed small type on flagship safety reads** — the remaining
       fixed-px reads; add dynamic-type awareness.
 

@@ -1407,12 +1407,18 @@ export const MapHub: React.FC<MapHubProps> = ({
             traceNameInputRef.current?.focus();
             return;
         }
+        // Chained leg (Shane 2026-07-17): the stored name carries the ordinal
+        // badge — "woorim - timbuktu" saves as "woorim - timbuktu (2nd Leg)".
+        // withLegBadge strips any existing badge first, so re-saves never
+        // stack "(2nd Leg) (2nd Leg)".
+        const anchor = legAnchor;
+        const finalName = anchor ? withLegBadge(traceName.trim(), anchor.ordinal) : traceName.trim();
         // Saving under an EXISTING route's name updates that route in place
         // — same id locally and on the account, so "Bay run" never breeds
         // "Bay run", "Bay run"… twins. Never silently though (Shane
         // 2026-07-15: "of course it needs to ask me first"): the first tap
         // arms the button as "Overwrite?", the second replaces.
-        const wantedName = traceName.trim().toLowerCase();
+        const wantedName = finalName.toLowerCase();
         const existing = wantedName ? savedTraces.find((t) => t.name.trim().toLowerCase() === wantedName) : undefined;
         if (existing && overwriteArm !== existing.id) {
             triggerHaptic('medium');
@@ -1422,15 +1428,42 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         setOverwriteArm(null);
         triggerHaptic('medium');
-        const { persisted, cloud } = saveTrace(traceName, capturedCoords, existing ? { overwriteId: existing.id } : {});
+        const { trace, persisted, cloud } = saveTrace(finalName, capturedCoords, {
+            ...(existing ? { overwriteId: existing.id } : {}),
+            ...(anchor
+                ? {
+                      tripId: anchor.tripId,
+                      legOrdinal: anchor.ordinal,
+                      destName: destNameFromRouteName(finalName) ?? undefined,
+                  }
+                : {}),
+        });
+        // The trip becomes REAL at leg 2's save: leg 1 retro-earns its
+        // "(1st Leg)" badge + chain fields (Shane's call: retro, not
+        // upfront — day-sail routes never carry trip baggage).
+        const retro = persisted && anchor ? retroBadgeFirstLeg(anchor.tripId) : null;
+        // AUTO-HEAL (Shane's call): if this save moved a leg's arrival and a
+        // later leg departs from it, that leg's locked start follows.
+        const healed = persisted ? healTripChain(trace) : null;
         setSavedTraces(loadSavedTraces());
+        if (anchor) setTraceName(finalName); // show the badged name; re-save arms overwrite
         if (persisted) {
             // Name STAYS after save (Shane 2026-07-15: "name is not
             // flipping" — his flow is save → ⇄ reverse → save the return
             // trip, and the old setTraceName('') here handed ⇄ an empty
             // box to flip). Keeping it also makes re-save-as-overwrite
             // natural: tap Save again and the "Overwrite?" arm appears.
-            flashTraceFeedback(existing ? 'Updated ✓' : 'Saved ✓');
+            // One flash slot — chain news rides along with the save ack.
+            const ack = existing ? 'Updated ✓' : 'Saved ✓';
+            flashTraceFeedback(
+                healed
+                    ? `${ack} — ${healed}`
+                    : retro
+                      ? `${ack} — trip chained, leg 1 is now "${retro.name}"`
+                      : anchor
+                        ? `${ack} — ${ordinalLegLabel(anchor.ordinal)} of the trip`
+                        : ack,
+            );
             // This saved state is the new Undo FLOOR (Shane 2026-07-16: undo
             // "right up to when it was last saved"). Save doesn't touch
             // capturedCoords, so clear both stacks directly.
@@ -1461,7 +1494,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         import('../../utils/deadline'),
                     ]);
                     const plan = traceAsVoyagePlan(
-                        traceName,
+                        finalName,
                         capturedCoords,
                         legVerdicts.length === capturedCoords.length - 1 && legVerdicts.every((v) => v !== null)
                             ? legVerdicts.map((v) => v!.grade)
@@ -1482,7 +1515,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // won't exist next session is exactly the lie we don't tell.
             flashTraceFeedback('Could not save — storage full');
         }
-    }, [capturedCoords, traceName, savedTraces, overwriteArm, legVerdicts, flashTraceFeedback]);
+    }, [capturedCoords, traceName, legAnchor, savedTraces, overwriteArm, legVerdicts, flashTraceFeedback]);
     // Return-trip flip (Shane 2026-07-15: "when we are returning, we can
     // flip the trip the other way"): reverse the pins and let the grader
     // re-run. Leg cache keys are DIRECTION-SENSITIVE (a↔b swap, the
@@ -1491,6 +1524,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // outbound verdicts — the water is the same but the reads aren't.
     const reverseTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
+        // A chained leg can't flip — its start is bolted to the previous
+        // leg's arrival. (Reverse the whole TRIP leg-by-leg later instead.)
+        if (legAnchorRef.current) {
+            flashTraceFeedback(`Chained leg — the start is locked to ${legAnchorRef.current.fromName}`);
+            return;
+        }
         triggerHaptic('medium');
         setSelectedPin(null);
         setInsertAfter(null);
@@ -5316,7 +5355,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <div className="flex items-center gap-1.5 border-b border-sky-500/30 bg-sky-500/10 px-3 py-1.5">
                                                 <span className="flex-1 text-[11px] font-bold text-sky-300">
                                                     {selectedPin === 0
-                                                        ? 'Start'
+                                                        ? legAnchor
+                                                            ? `Start — locked to ${legAnchor.fromName} 🔒`
+                                                            : 'Start'
                                                         : selectedPin === capturedCoords.length - 1
                                                           ? 'Finish'
                                                           : `Pin ${selectedPin + 1}`}
@@ -5338,6 +5379,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 )}
                                                 <button
                                                     onClick={() => {
+                                                        // The chained-leg start can't be deleted —
+                                                        // it IS the previous leg's arrival.
+                                                        if (selectedPin === 0 && legAnchor) {
+                                                            flashTraceFeedback(
+                                                                `First pin is locked to ${legAnchor.fromName} — edit the previous leg to move it`,
+                                                            );
+                                                            return;
+                                                        }
                                                         triggerHaptic('medium');
                                                         const idx = selectedPin;
                                                         setSelectedPin(null);
@@ -5543,6 +5592,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setSelectedPin(null);
                                                     setInsertAfter(null);
                                                     insertAfterRef.current = null;
+                                                    // Chained leg: first Clear resets TO the locked
+                                                    // pin; clearing again abandons the leg entirely
+                                                    // (drops the lock, empty sheet).
+                                                    const anchor = legAnchorRef.current;
+                                                    if (anchor && capturedCoords.length > 1) {
+                                                        setCapturedCoords([anchor.anchor]);
+                                                        flashTraceFeedback(
+                                                            `Back to the ${anchor.fromName} start — Clear again to abandon the leg`,
+                                                        );
+                                                        return;
+                                                    }
+                                                    if (anchor) setLegAnchor(null);
                                                     setCapturedCoords([]);
                                                     // An AUTO name belongs to the cleared route —
                                                     // wipe it with the pins. A typed name survives.
@@ -6367,14 +6428,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                         setActiveChartRoute(null);
                         setActiveChartTrack(null);
                         setSeawayDebugVisible(false);
+                        // Closing audit: the ENC test route was UNCLEARABLE —
+                        // its route-focus mode stripped DEPARE/glaze/land for
+                        // the whole session once planned.
+                        setEncTestRoute(null);
                     }}
                     onPlanEncRoute={async () => {
                         // Demo waypoints — hardcoded Newport → Rivergate
-                        // until the full two-tap workflow lands. Tayana 55
-                        // draft for the safety margin.
+                        // until the full two-tap workflow lands. Draft comes
+                        // from the REAL vessel settings (closing audit: a
+                        // hardcoded 1.9 m planned routes a 2.4 m keel can't
+                        // sail), defaulting like the rest of the app.
                         const FROM = { lat: -27.157, lon: 153.103 };
                         const TO = { lat: -27.435, lon: 153.105 };
-                        const DRAFT_M = 1.9;
+                        const DRAFT_M = vesselDraftMetres(settings.vessel) || 2.5;
                         try {
                             const res = await tryInshoreRoute(FROM, TO, DRAFT_M);
                             if (res && 'polyline' in res) {
@@ -6387,15 +6454,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                             }
                             if (res && 'error' in res) {
                                 setEncTestRoute(null);
-                                return { ok: false, summary: `failed: ${res.error}` };
+                                // Humanised (closing audit: raw engine
+                                // internals leaked to the row).
+                                return { ok: false, summary: 'No safe water route found between these points' };
                             }
-                            setEncTestRoute(null);
-                            return { ok: false, summary: 'no route (gated)' };
-                        } catch (err) {
                             setEncTestRoute(null);
                             return {
                                 ok: false,
-                                summary: `crash: ${err instanceof Error ? err.message : String(err)}`,
+                                summary: 'Charts for this area are still downloading — try again shortly',
+                            };
+                        } catch {
+                            setEncTestRoute(null);
+                            return {
+                                ok: false,
+                                summary: 'Route planning hit a problem — try again in a moment',
                             };
                         }
                     }}

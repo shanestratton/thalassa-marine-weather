@@ -387,7 +387,7 @@ describe('buildRouteAdvisories', () => {
         const out = buildRouteAdvisories([r({ catzoc: 2 }), r({ catzoc: 5 })]);
         expect(out).toHaveLength(1);
         expect(out[0].severity).toBe('note');
-        expect(out[0].text).toContain('CATZOC 5');
+        expect(out[0].text).toContain('ZOC D'); // decoded, not the raw code (closing audit)
     });
 
     it('flags no-depth-data (source none) as a CAUTION with an N/total count', () => {

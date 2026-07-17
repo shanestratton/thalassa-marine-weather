@@ -150,6 +150,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
             }}
             role="region"
             aria-label="ENC hazards near route"
+            aria-live="polite"
         >
             <button
                 onClick={() => setExpanded((x) => !x)}

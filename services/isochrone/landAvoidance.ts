@@ -15,6 +15,7 @@ import type { RouteAdvisory } from '../enc/EncHazardReportService';
 import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { failedCellIds } from '../enc/encIndexCache';
 import { GEBCO_MSL_TO_LAT_PESSIMISM_M } from '../HazardQueryService';
+import { CATZOC_LABELS, type EncCatzoc } from '../enc/types';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -610,7 +611,9 @@ export function buildRouteAdvisories(
         advisories.push({
             severity: 'note',
             kind: 'catzoc',
-            text: `Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`,
+            // Decoded (closing audit: the advisory printed raw 'CATZOC 5'
+            // while the panel rows decode it).
+            text: `Low-confidence chart survey along route (ZOC ${CATZOC_LABELS[worstCatzoc as EncCatzoc] ?? worstCatzoc}) — verify depths visually`,
         });
     } else if (worstCatzoc === null && results.some((r) => r.source === 'enc')) {
         // ENC-verified but ZERO M_QUAL data anywhere along the route
