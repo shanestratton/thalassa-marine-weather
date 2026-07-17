@@ -137,6 +137,12 @@ export interface VoyageLogData {
     waypoints?: VoyageLogWaypoint[];
     telemetry: VoyageLogTelemetry | null;
     nearby_vessels: NearbyVessel[];
+    /** The route the boat is CURRENTLY following — the linked passage plan for
+     *  the fresh voyage, decimated to ≤200 [lon,lat] points server-side. null
+     *  when no active passage. This is the one route the public map draws;
+     *  every other saved/planned route is filtered out (Shane 2026-07-17:
+     *  "show just the route we are currently following"). */
+    passage?: { plan_line: [number, number][] } | null;
     generated_at: string;
 }
 

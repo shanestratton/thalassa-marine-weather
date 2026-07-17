@@ -219,6 +219,14 @@ Deno.serve(async (req: Request) => {
             // (0,0)-ish fixes never render.
             const trackworthy = rows.filter((p) => {
                 if (hiddenVoyageIds.has((p.voyage_id as string | null) ?? '')) return false;
+                // SAVED/PLANNED routes leak in as ship_logs rows keyed
+                // 'planned_…' (savePassagePlanToLogbook) — they used to draw
+                // as a separate line + amber pins for EVERY route the boat
+                // ever saved (Shane 2026-07-17: "shows all of our saved
+                // routes… clean it up"). The ONE route being followed is
+                // surfaced separately as `passage.plan_line`; drop the planned
+                // rows from both the track AND the derived waypoint pins here.
+                if (String((p.voyage_id as string | null) ?? '').startsWith('planned_')) return false;
                 const lat = p.latitude as number | null;
                 const lon = p.longitude as number | null;
                 if (typeof lat !== 'number' || typeof lon !== 'number') return false;
