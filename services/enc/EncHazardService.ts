@@ -918,24 +918,43 @@ async function loadCellBlobsAndExtents(
     missingBlobs: string[],
     yieldIfNeeded: () => Promise<void>,
 ): Promise<void> {
+    // READ-AHEAD PIPELINE (z10-boot audit #11): the Capacitor bridge read is
+    // true async IO, so up to 3 cell reads run ahead of the SERIAL parse +
+    // extent tail below — phase-1 wall drops from Σ(read+parse) toward
+    // max(reads, parses). Parsing stays one-at-a-time under the time-slicer,
+    // so main-thread chunking is unchanged. LOCAL blobs only (no remote
+    // fallback): paint what's on hand NOW — the background hydrator fetches
+    // the rest and each arrival re-notifies into the debounced merge (the
+    // "fresh Vercel browser stared at a bare map" fix, 2026-07-12).
+    const READ_AHEAD = 3;
+    const reads = new Map<string, ReturnType<typeof cellStore.readCellRaw>>();
+    let nextRead = 0;
+    const pump = (): void => {
+        while (nextRead < cellsCoarseToFine.length && reads.size < READ_AHEAD + 1) {
+            const id = cellsCoarseToFine[nextRead++].id;
+            reads.set(id, cellStore.readCellRaw(id));
+        }
+    };
+    pump();
     for (const cell of cellsCoarseToFine) {
         try {
-            // LOCAL blobs only (cloudFallback=false): a registry full of
-            // cloud placeholders used to make this loop download the
-            // ENTIRE chart library sequentially before painting ANYTHING
-            // — a fresh Vercel browser stared at a bare map for tens of
-            // minutes (Shane 2026-07-12: "waited a good 5 minutes...
-            // not working"). Paint what's on hand NOW; the background
-            // hydrator below fetches the rest, and each arrival
-            // re-notifies into the debounced merge — the chart fills in
-            // cell by cell.
-            const blob = await cellStore.loadCellGeoJSON(cell.id, false);
+            const raw0 = await (reads.get(cell.id) ?? cellStore.readCellRaw(cell.id));
+            reads.delete(cell.id);
+            pump();
+            let blob: EncConversionResult | null;
+            if (raw0.kind === 'cached') {
+                blob = raw0.blob;
+            } else if (raw0.kind === 'text') {
+                blob = cellStore.parseAndCacheCellText(cell.id, raw0.text);
+                await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
+            } else {
+                blob = null;
+            }
             if (!blob) {
                 missingBlobs.push(cell.id);
                 continue;
             }
             loadedBlobs.set(cell.id, blob);
-            await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
             let raw = depareExtentCache.get(blob);
             if (raw === undefined) {
                 let minLon = Infinity,
@@ -1589,8 +1608,15 @@ async function buildMergedVectorData(
     // MERGED set, not per cell — per-cell passes double density at
     // every cell seam.
     // The ladder now slices itself through the merge's cooperative yielder
-    // every 1024 points (was one indivisible hot pass — burn-down).
-    await assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>, yieldIfNeeded);
+    // every 1024 points (was one indivisible hot pass — burn-down), and is
+    // CAPPED to the rungs this window can actually render (the LOD cull below
+    // discards _minZoom > zoom + LOOKAHEAD; a zoom-bucket change re-merges and
+    // re-ladders) — z10-boot audit #10.
+    await assignSoundingDensityMinZoom(
+        merged.SOUNDG.features as Array<Feature<Point>>,
+        yieldIfNeeded,
+        zoom != null ? Math.round(zoom) + SOUNDING_LOD_LOOKAHEAD : undefined,
+    );
 
     // Sounding LOD cull (2026-07-13, the z7-8 OOM): the ladder just stamped
     // every sounding with the min-zoom it becomes visible at. A wide-window

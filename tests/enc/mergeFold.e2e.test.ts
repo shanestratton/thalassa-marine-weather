@@ -139,6 +139,11 @@ vi.mock('../../services/enc/EncCellMetadata', () => ({
 
 vi.mock('../../services/enc/EncCellStore', () => ({
     loadCellGeoJSON: async (id: string) => blobs[id] ?? null,
+    // The merge's read-ahead pipeline (audit #11): serve the fixture blob as
+    // a "cached" hit so no parse path is exercised.
+    readCellRaw: async (id: string) =>
+        blobs[id] ? { kind: 'cached' as const, blob: blobs[id] } : { kind: 'missing' as const },
+    parseAndCacheCellText: (_id: string, text: string) => JSON.parse(text),
     saveCellGeoJSON: async () => undefined,
     deleteCellGeoJSON: async () => undefined,
 }));
