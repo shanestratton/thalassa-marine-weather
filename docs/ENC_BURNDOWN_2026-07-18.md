@@ -45,14 +45,15 @@ ledger row below.
       the banded treatment (buoys done in #2) to BCNLAT 3/4.
 - [ ] **0.25 — Wreck/obstruction taxonomy collapsed** — CATWRK 3/4/5 and
       OBSTRN WATLEV variants all wear one glyph; differentiate per INT1.
-- [ ] **0.25 — IALA-B prefix set omits known Region-B HOs** — extend the
-      region table.
+- [x] **0.25 — IALA-B prefix set** — DONE (+15 HOs: Taiwan, Central
+      America, Caribbean chain, PR/USVI).
 - [ ] **0.25 — Line seam de-dup clips against the finer cell's WHOLE
       DEPARE-extent rect** — presence-gate is per layer but the clip frame
       is the full extent; clip against the finer cell's SAME-LAYER data
       extent instead.
-- [ ] **0.25 — Caution popup accents drift from render colours** — one
-      shared class→colour table for encCautionMounts + encPopup.
+- [x] **0.25 — Caution colour table** — DONE: CAUTION_CLASS_COLOURS is
+      the ONE vocabulary — the mount's match-expression and the popup
+      accents both read it (six classes had drifted).
 - [ ] **0.25 — Night dim ≠ S-52 palette (hue degradation)** — DEFER-WITH-
       REASON candidate again; if deferred twice it stays unbanked.
 - [ ] **0.25 — Drying underline via U+0332 may not shape in Mapbox GL

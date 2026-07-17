@@ -159,6 +159,22 @@ const IALA_B_PREFIXES: ReadonlySet<string> = new Set([
     'TT', // Trinidad & Tobago
     'BS', // Bahamas
     'BB', // Barbados
+    // Closing audit: known Region-B HOs the set omitted.
+    'TW', // Taiwan
+    'GT', // Guatemala
+    'HN', // Honduras
+    'SV', // El Salvador
+    'BZ', // Belize
+    'GY', // Guyana
+    'SR', // Suriname
+    'AG', // Antigua & Barbuda
+    'DM', // Dominica
+    'GD', // Grenada
+    'KN', // St Kitts & Nevis
+    'LC', // St Lucia
+    'VC', // St Vincent & the Grenadines
+    'PR', // Puerto Rico (NOAA-charted, US scheme)
+    'VI', // US Virgin Islands
 ]);
 
 export function ialaRegionForSourceHO(sourceHO: string | undefined): IalaRegion {

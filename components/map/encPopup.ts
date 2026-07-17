@@ -158,6 +158,24 @@ const CAUTION_LABELS: Record<string, string> = {
     DWRTPT: 'Deep-water route',
 };
 
+/** THE caution-class colour vocabulary — render washes AND popup accents
+ *  read this one table (closing audit: the two hand-matched hex sets had
+ *  drifted on six classes despite the 'accents match' comment). */
+export const CAUTION_CLASS_COLOURS: Record<string, string> = {
+    SBDARE: '#8a8a5a', // seabed nature — olive (anchoring aid)
+    CBLARE: '#7c3aed', // submarine cable — violet
+    PIPARE: '#5b21b6', // pipeline — deep violet
+    TSSLPT: '#d97706', // TSS lane — amber
+    TSEZNE: '#c2410c', // TSS separation zone — burnt orange (keep OUT)
+    ACHARE: '#2f6fd0', // designated anchorage — marine blue
+    MARCUL: '#5f7a3a', // marine farm — kelp green
+    PRCARE: '#d97706', // precautionary area — TSS amber family
+    DWRTPT: '#0e7490', // deep-water route — deep teal
+    TSELNE: '#d97706',
+    TSSBND: '#d97706',
+};
+export const CAUTION_DEFAULT_COLOUR = '#c0209a'; // RESARE + CTNARE + default
+
 /** Class-specific plain-language note when the chart carries no RESTRN. */
 const CAUTION_NOTES: Record<string, string> = {
     CBLARE: 'No anchoring',
@@ -624,22 +642,8 @@ export function buildFeaturePopupHtml(
         // the caution folds into the DEPARE popup instead (extras.caution).
         const cls = String(props._caution ?? '');
         title = CAUTION_LABELS[cls] ?? 'Charted area';
-        // Accent matches the per-class render colours (restricted magenta,
-        // cable/pipeline violet, TSS amber, seabed olive).
-        accent =
-            cls === 'SBDARE'
-                ? '#8a8a5a'
-                : cls === 'CBLARE'
-                  ? '#8b5cf6'
-                  : cls === 'PIPARE'
-                    ? '#7c3aed'
-                    : cls === 'TSSLPT' || cls === 'TSEZNE'
-                      ? '#f59e0b'
-                      : cls === 'ACHARE'
-                        ? '#5b9bd5'
-                        : cls === 'MARCUL'
-                          ? '#84a95e'
-                          : '#d43fc0';
+        // Accent = the RENDER colour, from the one shared table.
+        accent = CAUTION_CLASS_COLOURS[cls] ?? CAUTION_DEFAULT_COLOUR;
         // RESTRN (restriction) — the values a skipper meets most.
         const restrn = restrnNames(readS57(props, 'RESTRN'));
         if (restrn) body += `<div class="enc-popup-row"><span>Restriction</span><b>${esc(restrn)}</b></div>`;
