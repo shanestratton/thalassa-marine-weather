@@ -808,7 +808,7 @@ function mountTrackAidLayers(
                 layout: {
                     'symbol-placement': 'line',
                     'symbol-spacing': 400,
-                    'text-field': ['coalesce', ['get', 'OBJNAM'], 'LEAD'],
+                    'text-field': ['coalesce', ['get', 'OBJNAM'], ['get', 'objnam'], 'LEAD'],
                     'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
                     'text-size': 10,
                     'text-allow-overlap': false,
@@ -914,7 +914,11 @@ function mountTrackAidLayers(
                     // buoy/beacon symbol beneath, hiding the IALA bands and
                     // topmark (2026-07-12 audit). Icon offset is in PIXELS.
                     'icon-offset': [14, -14],
-                    'symbol-sort-key': ['-', 0, ['coalesce', ['to-number', ['get', 'VALNMR']], 0]],
+                    'symbol-sort-key': [
+                        '-',
+                        0,
+                        ['coalesce', ['to-number', ['get', 'VALNMR']], ['to-number', ['get', 'valnmr']], 0],
+                    ],
                 },
                 paint: {
                     'icon-opacity': opacity,
@@ -941,7 +945,7 @@ function mountTrackAidLayers(
                 layout: {
                     'text-field': [
                         'format',
-                        ['coalesce', ['get', 'OBJNAM'], ''],
+                        ['coalesce', ['get', 'OBJNAM'], ['get', 'objnam'], ''],
                         {},
                         '\n',
                         {},
