@@ -120,8 +120,10 @@ ledger row below.
       casts the earlier "casting" bank missed now route through mapFilter
       (honesty catch — the earlier claim covered ExpressionSpecification
       only).
-- [ ] **0.5 — Visibility state machine composes via BCNLAT probe +
-      last-writer-wins** — replace probe with explicit state; document
+- [x] **0.5 — Visibility state machine** — DONE: explicit per-map state
+      (master/routeFocused/detailed) + ONE composer with documented
+      precedence; the BCNLAT probe is gone; 5 precedence tests incl.
+      the master-stomps-focus regression.
       precedence.
 - [x] **0.25 — readS57 stragglers + expression casting** — DONE: last 4
       case-defensive pairs swept (extras.seabed/caution, InshoreRouter
@@ -167,3 +169,4 @@ ledger row below.
 | 2026-07-18 | IALA-B prefixes + shared caution colour table            | 0.5  | `0700836f`  | 94.75                  |
 | 2026-07-18 | Night ☾ surfaced + Dynamic Type (UX COMPLETE)            | 0.75 | `0ac34b01`  | **95.5**               |
 | 2026-07-18 | Cell parse off-thread (encParseWorker)                   | 0.5  | see git log | **96.0 — BAR CROSSED** |
+| 2026-07-18 | Visibility state machine (explicit state + composer)     | 0.5  | see git log | 96.5                   |
