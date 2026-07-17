@@ -1,0 +1,76 @@
+# ENC Layer Burn-down #4 — frozen scope, from the 2026-07-18 closing audit
+
+**Baseline: 86.15/100** (closing open adversarial audit `wf_2d67d3fc-d85`,
+11 agents, zero refuted verdicts, one UX verdict adjusted DOWN; transcript
+in ENC_AUDIT_2026-07-18_closing.md). Arc so far: 79.6 → 83.75 → 84.25 →
+**86.15**, safety **28.25/30**. Same protocol as cycles 1–3: burn the frozen
+top-8 to zero, score = 86.15 + banked ("vs the closing bar"), tsc + targeted
+tests + explicit-path commits + build/sync per item, ONE open adversarial
+audit at the end. Priced scope of the frozen seed: **4.75 pts** (the top-8 +
+the free silent-catch missed finding).
+
+Handover Fable 5 → Opus 4.8 mid-cycle (docs/HANDOVER_2026-07-18_fable-to-opus.md).
+Chief's fix-first (finding #1, the ZOC-aware lateral clearance margin) + the
+free silent-catch advisory shipped in the same commit — first ledger row.
+
+## Frozen top-8 (from the cycle-3 closing-audit seed) + the free missed finding
+
+### Safety (1.5 of the seed)
+
+- [x] **0.75 — Zero lateral clearance around AREA hazards** — DONE
+      (`4645e4e2`): `EncSpatialIndex.segmentAreaGraze` finds the closest
+      NON-crossing AREA hazard (land / shoal DEPARE-DRGARE / polygon OBSTRN)
+      within a ZOC-scaled positional-error margin (IHO CATZOC: A1 ±5, A2 ±20,
+      B ±50; C/D/U capped at 100). Folds on its OWN channel (not
+      mergeHazardResults) through querySegmentHazards → HazardQueryService →
+      `describeAreaGraze` on the clean pass; land grazes are a caution,
+      shoal/obstruction a note. PLUS the CATZOC advisory gate lowered ≥4 → ≥3
+      so ZOC-B (±50 m) now warrants "verify depths visually". 8 geometry
+      regression tests + describeAreaGraze + ZOC-B gate tests.
+- [x] **0.25 — Silent segment-vs-polygon catch (the free one-liner, a
+      missed finding)** — DONE (`4645e4e2`, same commit): the thin-islet
+      crossing check's catch now raises a `segment-check-failed` caution on
+      the clean pass instead of a dev-log-only warn — a clean report can no
+      longer hide an unrun sub-231 m crossing test.
+- [ ] **0.5 — GEBCO response trusted positionally** — OPEN: match
+      `depths[j].lat/lon` against `points[j]` at cache-key precision in
+      GebcoDepthService; reject mismatches to the loud no-data path.
+- [ ] **0.25 — Chart-edition staleness never reaches route advisories**
+      (from cycle-3 safety verdict #3; not in the top-8 but same seed) —
+      OPEN: plumb `EncCell.issued` age into a currency advisory kind.
+
+### Rendering (1.25 of the seed)
+
+- [ ] **0.75 — White lights render near-white on the white chart** — OPEN
+      (handover next-action #2): map the `#f0e030` `_lightColor` key to a
+      YELLOW flare glyph in seamarkIcons.ts (per the codebase's own comment).
+- [ ] **0.5 — Detail scrubber hides isolated-danger marks at d≥3** — OPEN:
+      move BOYISD/BCNISD out of the d≥3 minors cut to the d=6 tier (or
+      never-cut) in encDetailScrubber.ts; contradicts its own "never danger".
+
+### Performance (0.5 of the seed)
+
+- [ ] **0.5 — Cloud hydration multi-MB main-thread JSON.parse, 3-wide** —
+      OPEN: route cloudCellSync downloadCloudCell through encParseWorker (or
+      gate/patch without a full parse), matching the load path.
+
+### Code quality (1.5 of the seed)
+
+- [ ] **0.75 — Residual god-modules** — OPEN: move the five `mount*`
+      families + `tagAndPush` into their own modules; lock with the e2e.
+- [ ] **0.75 — glazeBuild branches + staggered-refresh scheduler untested**
+      — OPEN: unit-test buildCellGlaze cached/uncached/needQueue paths and
+      refreshEncVectorData/beforeIdFor ordering (incl. the frozen-queue bug).
+
+### UX (0.5 of the seed)
+
+- [ ] **0.5 — "Depths verified on ocean bathymetry" headline on a
+      caution-grade advisory** — OPEN: severity-conditional headline in
+      HazardReportPanel ("Depths from LOW-RES ocean bathymetry — not
+      chart-verified") when cells failed.
+
+## Ledger
+
+| Date       | Item                                                            | Pts | Commit     | Running (vs 86.15) |
+| ---------- | --------------------------------------------------------------- | --- | ---------- | ------------------ |
+| 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory | 1.0 | `4645e4e2` | 87.15              |
