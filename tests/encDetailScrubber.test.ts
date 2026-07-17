@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { applyChartDetailLevel, isScrubHidden } from '../components/map/encDetailScrubber';
+import { applyChartDetailLevel, isScrubHidden, DETAIL_SCRUB_MAX } from '../components/map/encDetailScrubber';
 import { ENC_VEC_LAYERS } from '../components/map/encLayerIds';
 
 /**
@@ -87,5 +87,35 @@ describe('applyChartDetailLevel — ownership-aware restore side', () => {
         applyChartDetailLevel(makeMap(), 3, {});
         expect(isScrubHidden(ENC_VEC_LAYERS.LNDARE_ISLET)).toBe(true); // group 3 (d≥3)
         expect(isScrubHidden(ENC_VEC_LAYERS.LIGHTS)).toBe(false); // group 6 (d≥6)
+    });
+});
+
+describe('applyChartDetailLevel — isolated-danger marks are never cut (closing audit 2026-07-18)', () => {
+    beforeEach(() => {
+        applyChartDetailLevel(makeMap(), 0);
+    });
+
+    it('BOYISD/BCNISD stay visible even at MAX declutter, unlike the laterals they outrank', () => {
+        const map = makeMap();
+        applyChartDetailLevel(map, DETAIL_SCRUB_MAX, {});
+        // Isolated-danger marks point AT a charted hazard — safety floor, never cut.
+        expect(map._vis(ENC_VEC_LAYERS.BOYISD)).toBe('visible');
+        expect(map._vis(ENC_VEC_LAYERS.BCNISD)).toBe('visible');
+        // The laterals/cardinals they outrank ARE cut at the bare level.
+        expect(map._vis(ENC_VEC_LAYERS.BOYLAT)).toBe('none');
+        expect(map._vis(ENC_VEC_LAYERS.BOYCAR)).toBe('none');
+    });
+
+    it('isScrubHidden never reports BOYISD/BCNISD hidden at any declutter level', () => {
+        for (const d of [3, 4, 5, DETAIL_SCRUB_MAX]) {
+            applyChartDetailLevel(makeMap(), d, {});
+            expect(isScrubHidden(ENC_VEC_LAYERS.BOYISD)).toBe(false);
+            expect(isScrubHidden(ENC_VEC_LAYERS.BCNISD)).toBe(false);
+        }
+        // Control: the special-purpose minors they were wrongly grouped with
+        // are STILL cut at d ≥ 3 (the fix is scoped to isolated-danger).
+        applyChartDetailLevel(makeMap(), 3, {});
+        expect(isScrubHidden(ENC_VEC_LAYERS.BOYSPP)).toBe(true);
+        expect(isScrubHidden(ENC_VEC_LAYERS.BCNSPP)).toBe(true);
     });
 });
