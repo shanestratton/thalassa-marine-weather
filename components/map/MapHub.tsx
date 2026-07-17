@@ -5131,22 +5131,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             the (3) — it just buggers up the layout"). */}
                                         ● Tracer
                                     </button>
-                                    {(() => {
-                                        const h = traceHealth(legVerdicts);
-                                        const tone =
-                                            h.tone === 'danger'
-                                                ? 'text-red-400'
-                                                : h.tone === 'caution'
-                                                  ? 'text-amber-300'
-                                                  : 'text-emerald-300';
-                                        return (
-                                            <span
-                                                className={`shrink-0 text-[10px] font-black uppercase tracking-wide ${tone}`}
-                                            >
-                                                {capturedCoords.length >= 2 ? h.label : ''}
-                                            </span>
-                                        );
-                                    })()}
+                                    {/* Header health label ("1 NO-GO LEG" / "ALL
+                                        CLEAR") REMOVED (Shane 2026-07-17: "get rid of
+                                        it — the punter can find it elsewhere, and it's
+                                        fucking up my card"). The per-leg rows already
+                                        carry the verdict; the header is just the three
+                                        buttons now. */}
                                     <button
                                         onClick={() => {
                                             triggerHaptic('light');
