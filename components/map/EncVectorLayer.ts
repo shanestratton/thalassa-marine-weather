@@ -1273,6 +1273,36 @@ function mountContourLayers(
     }
 }
 
+/**
+ * THE source table (closing audit: the mount's ensureSource calls and the
+ * refresh's staggered upload list were hand-mirrored — a source added to
+ * one but not the other shipped a permanently blank layer). One row per
+ * GeoJSON source, in STAGGERED-UPLOAD PRIORITY order (glaze first: on
+ * satellite it IS the chart); `buffer` tunes the tile-buffer per geometry
+ * kind (symbols need the default 128 for cross-tile collision, fills clip
+ * clean at seams). Mount + refresh both iterate THIS.
+ */
+export const ENC_SOURCE_TABLE: ReadonlyArray<{
+    id: string;
+    build: (data: EncMergedVectorData) => FeatureCollection;
+    buffer?: number;
+}> = [
+    { id: ENC_VEC_SRC.DEPARE_GLAZE, build: (d) => d.DEPARE_GLAZE, buffer: 8 },
+    { id: ENC_VEC_SRC.DEPARE, build: (d) => d.DEPARE, buffer: 8 },
+    { id: ENC_VEC_SRC.LNDARE, build: (d) => d.LNDARE, buffer: 16 },
+    { id: ENC_VEC_SRC.DEPCNT, build: (d) => d.DEPCNT },
+    { id: ENC_VEC_SRC.SOUNDG, build: (d) => d.SOUNDG },
+    { id: ENC_VEC_SRC.COALNE, build: (d) => d.COALNE, buffer: 32 },
+    { id: ENC_VEC_SRC.POINTS, build: (d) => buildMergedPoints(d) },
+    { id: ENC_VEC_SRC.NAVAIDS, build: (d) => buildMergedNavaids(d) },
+    { id: ENC_VEC_SRC.RECTRC, build: (d) => d.RECTRC },
+    { id: ENC_VEC_SRC.LIGHTSEC, build: (d) => d.LIGHTSEC, buffer: 32 },
+    { id: ENC_VEC_SRC.DEPCNT_DERIVED, build: (d) => d.DEPCNT_DERIVED },
+    { id: ENC_VEC_SRC.SEAARE_LABELS, build: (d) => d.SEAARE_LABELS },
+    { id: ENC_VEC_SRC.CAUTION_AREAS, build: (d) => d.CAUTION_AREAS, buffer: 8 },
+    { id: ENC_VEC_SRC.FAIRWY, build: (d) => d.FAIRWY, buffer: 8 },
+];
+
 export function mountEncVectorLayer(
     map: mapboxgl.Map,
     data: EncMergedVectorData,
@@ -1321,10 +1351,10 @@ export function mountEncVectorLayer(
     // flash stale layers.
     let createdAnySource = false;
     const EMPTY_FC: FeatureCollection = { type: 'FeatureCollection', features: [] };
-    const ensureSource = (id: string, fc: FeatureCollection, buffer?: number) => {
+    const ensureSource = (id: string, buildFc: () => FeatureCollection, buffer?: number) => {
         const existing = map.getSource(id);
         if (existing && 'setData' in existing) {
-            (existing as mapboxgl.GeoJSONSource).setData(fc);
+            (existing as mapboxgl.GeoJSONSource).setData(buildFc());
             return;
         }
         createdAnySource = true;
@@ -1336,20 +1366,7 @@ export function mountEncVectorLayer(
         });
     };
 
-    ensureSource(ENC_VEC_SRC.LNDARE, data.LNDARE, 16); // fill + islet circles (r ≤ 3.5 px)
-    ensureSource(ENC_VEC_SRC.DEPARE, data.DEPARE, 8); // fills only
-    ensureSource(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE, 8); // fills only
-    ensureSource(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
-    ensureSource(ENC_VEC_SRC.COALNE, data.COALNE, 32); // lines, round joins
-    ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
-    ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
-    ensureSource(ENC_VEC_SRC.RECTRC, data.RECTRC);
-    ensureSource(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
-    ensureSource(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC, 32); // sector arcs/legs
-    ensureSource(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
-    ensureSource(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
-    ensureSource(ENC_VEC_SRC.CAUTION_AREAS, data.CAUTION_AREAS, 8); // caution/info area polygons
-    ensureSource(ENC_VEC_SRC.FAIRWY, data.FAIRWY, 8); // fairway boundary polygons
+    for (const row of ENC_SOURCE_TABLE) ensureSource(row.id, () => row.build(data), row.buffer);
 
     const anchor = findInsertionAnchor(map);
 
@@ -1472,25 +1489,12 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     // refresh simply abandons the tail of a superseded one (adjacent
     // windows share most content — a stale side layer survives a frame
     // or two at worst).
-    const uploads: Array<() => void> = [
-        // Glaze first: on satellite it IS the chart — the white wash
-        // "popping" at z10 is the thing the punter is waiting on
-        // (2026-07-14). On the white chart it's an invisible no-op.
-        () => setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE),
-        () => setData(ENC_VEC_SRC.DEPARE, data.DEPARE),
-        () => setData(ENC_VEC_SRC.LNDARE, data.LNDARE),
-        () => setData(ENC_VEC_SRC.DEPCNT, data.DEPCNT),
-        () => setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG),
-        () => setData(ENC_VEC_SRC.COALNE, data.COALNE),
-        () => setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data)),
-        () => setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data)),
-        () => setData(ENC_VEC_SRC.RECTRC, data.RECTRC),
-        () => setData(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC),
-        () => setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED),
-        () => setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS),
-        () => setData(ENC_VEC_SRC.CAUTION_AREAS, data.CAUTION_AREAS),
-        () => setData(ENC_VEC_SRC.FAIRWY, data.FAIRWY),
-    ];
+    // Derived from THE source table (closing audit: this list and the
+    // mount's ensureSource calls were hand-mirrored). Table order IS the
+    // upload priority — glaze first: on satellite it IS the chart, the
+    // white wash "popping" at z10 is the thing the punter waits on
+    // (2026-07-14); on the white chart it's an invisible no-op.
+    const uploads: Array<() => void> = ENC_SOURCE_TABLE.map((row) => () => setData(row.id, row.build(data)));
     // rAF with a WATCHDOG (2026-07-15, "your white layer is not showing…
     // just the old enc layer"): rAF only fires while the browser is
     // painting — an occluded/throttled tab (browser pane, PWA behind the

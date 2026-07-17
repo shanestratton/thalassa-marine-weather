@@ -71,9 +71,9 @@ ledger row below.
       encGeometryWorker or chunk (EncCellStore ~195-208).
 - [ ] **0.25 — glazeCellCache count-capped only** — add a byte-ish bound
       (vertex/feature count) like the blob cache.
-- [ ] **0.25 — First-mount builds then discards POINTS/NAVAIDS merges** —
-      ensureSource eager args compute buildMergedPoints/Navaids twice on
-      first mount; make them lazy.
+- [x] **0.25 — First-mount double-compute** — DONE with the table:
+      ensureSource takes a LAZY builder, so POINTS/NAVAIDS build once (in
+      the staggered refresh), not twice.
 - [ ] **0.25 — 2-entry merge memo + zoom-bucketed keys thrash on zoom
       excursions** — grow MERGED_CACHE_MAX or drop the bucket from the key.
 - [ ] **0.25 — Worker payload/result clone sizes unbudgeted** — cap/log
@@ -89,9 +89,10 @@ ledger row below.
       one glaze key, eviction-abandon on 'done', error cleanup scoped to
       its own job, symmetric postMessage-failure release, coverage-lib
       subsetting.
-- [ ] **0.75 — Hand-mirrored ensureSource/uploads lists** — one
-      declarative source-id→builder table drives both + mount smoke test
-      (EncVectorLayer ~1339-1352 vs ~1475-1493).
+- [x] **0.75 — Hand-mirrored ensureSource/uploads lists** — DONE:
+      `ENC_SOURCE_TABLE` (id + builder + buffer, upload-priority order)
+      drives BOTH the mount and the staggered refresh; completeness smoke
+      test locks table ↔ ENC_VEC_SRC 1:1.
 - [ ] **0.75 — Residual god modules** — extract tagAndPush, the glaze
       memo/queue block, and the slicer from the ~590-line merge fold;
       next slab from EncVectorLayer.
