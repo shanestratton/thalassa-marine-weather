@@ -316,9 +316,13 @@
 // the old absolute apex link that 308-redirected to www and dropped the handle.
 // v151: routes export to GPX for chartplotters (OpenCPN/Garmin/B&G) — a ⬇ GPX
 // button beside ⬇ PDF in the route report; shared/downloaded like the PDF.
-const CACHE_NAME = 'thalassa-v151-core';
-const TILE_CACHE = 'thalassa-v151-tiles';
-const DATA_CACHE = 'thalassa-v151-data';
+// v152: public tracking page shows ONLY the route the boat is currently
+// following (dashed violet passage line) — saved/planned routes no longer
+// leak in as clutter (client filters planned track lines; edge fn drops
+// planned rows from the track + waypoint pins at source).
+const CACHE_NAME = 'thalassa-v152-core';
+const TILE_CACHE = 'thalassa-v152-tiles';
+const DATA_CACHE = 'thalassa-v152-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

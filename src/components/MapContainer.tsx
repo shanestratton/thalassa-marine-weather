@@ -18,6 +18,10 @@ import { fetchWindGrid, type WindSample } from '../windField';
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
     entries: VoyageLogEntry[];
+    /** The one route the boat is currently following (linked passage plan),
+     *  [lon,lat] points. Drawn as a distinct dashed line; every other
+     *  saved/planned route is filtered out of the track. */
+    passageLine?: [number, number][] | null;
     /** Named waypoints dropped under way — labelled pins on the track. */
     waypoints: VoyageLogWaypoint[];
     /** Nearby AIS contacts to plot. */
@@ -107,6 +111,7 @@ function simplifyTrack(coords: [number, number][]): [number, number][] {
 export default function MapContainer({
     track,
     entries,
+    passageLine,
     waypoints,
     nearbyVessels,
     onEntryClick,
@@ -160,6 +165,12 @@ export default function MapContainer({
         let curVoyage: string | null | undefined = undefined;
         for (const p of track) {
             const vid = p.voyage_id ?? null;
+            // PLANNED routes (voyage_id 'planned_…') are saved passage plans
+            // that leak into the track — they used to each draw as their own
+            // line, cluttering the map with every route the boat ever saved
+            // (Shane 2026-07-17). The ONE route being followed is drawn from
+            // `passageLine` instead, so drop every planned_ fix here.
+            if (typeof vid === 'string' && vid.startsWith('planned_')) continue;
             if (vid !== curVoyage) {
                 if (cur.length) segs.push(cur);
                 cur = [];
@@ -171,11 +182,31 @@ export default function MapContainer({
         return segs.map(simplifyTrack).filter((s) => s.length >= 2);
     }, [track]);
 
+    // The one followed route as a GeoJSON line (Shane 2026-07-17). Distinct
+    // from the cyan live track — dashed violet, matching the in-app planned style.
+    const passageGeojson = useMemo<FeatureCollection<LineString> | null>(() => {
+        if (!passageLine || passageLine.length < 2) return null;
+        return {
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: { type: 'LineString', coordinates: passageLine },
+                } satisfies Feature<LineString>,
+            ],
+        };
+    }, [passageLine]);
+
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
     const pinnedEntries = useMemo(() => entries.filter(hasCoords), [entries]);
     const allCoords = useMemo<[number, number][]>(
-        () => [...trackCoords, ...pinnedEntries.map((e) => [e.longitude, e.latitude] as [number, number])],
-        [trackCoords, pinnedEntries],
+        () => [
+            ...trackCoords,
+            ...(passageLine ?? []), // frame the followed route too, even with no live track yet
+            ...pinnedEntries.map((e) => [e.longitude, e.latitude] as [number, number]),
+        ],
+        [trackCoords, passageLine, pinnedEntries],
     );
 
     // One LineString feature per voyage segment.
@@ -298,6 +329,25 @@ export default function MapContainer({
                 <Source id="night-side" type="geojson" data={nightGeojson}>
                     <Layer id="night-fill" type="fill" paint={{ 'fill-color': '#000814', 'fill-opacity': 0.32 }} />
                 </Source>
+
+                {/* The followed route — dashed violet, drawn UNDER the live
+                    track so the boat's actual path reads on top. The one route
+                    the boat is currently following (Shane 2026-07-17). */}
+                {passageGeojson && (
+                    <Source id="passage-route" type="geojson" data={passageGeojson}>
+                        <Layer
+                            id="passage-line"
+                            type="line"
+                            layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                            paint={{
+                                'line-color': '#a78bfa',
+                                'line-width': 2.5,
+                                'line-opacity': 0.9,
+                                'line-dasharray': [2, 2],
+                            }}
+                        />
+                    </Source>
+                )}
 
                 {/* Voyage track — glow underlay + crisp line */}
                 <Source id="voyage-track" type="geojson" data={trackGeojson}>
