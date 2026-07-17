@@ -295,6 +295,12 @@ const AUTO_ROUTE_BUTTON_VISIBLE = false;
 // future rework — flip to true to re-expose.
 const COURSE_FRAME_VISIBLE = false;
 
+// The tracer card's route-library rows (📥 paste / 🛥 past voyage / 💾 saved
+// routes) are PARKED (Shane 2026-07-17: "remove from the bottom of the tracer
+// card") — the PLAN page's front door + picker modals own those flows now.
+// Wiring (pasteTrace, openVoyagePicker, the saved list) stays intact.
+const TRACER_CARD_LIBRARY_VISIBLE = false;
+
 /** Equirectangular distance in metres between two lat/lon points. */
 const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
     const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
@@ -5714,12 +5720,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     );
                                                 })()}
                                             </div>
-                                            <button
-                                                onClick={() => void pasteTrace()}
-                                                className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
-                                            >
-                                                📥 Paste coords from a mate
-                                            </button>
+                                            {TRACER_CARD_LIBRARY_VISIBLE && (
+                                                <button
+                                                    onClick={() => void pasteTrace()}
+                                                    className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
+                                                >
+                                                    📥 Paste coords from a mate
+                                                </button>
+                                            )}
                                             {capturedCoords.length >= 2 && (
                                                 <button
                                                     onClick={() => void shareTrace()}
@@ -5745,34 +5753,38 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         : '🌐 Share with all skippers'}
                                                 </button>
                                             )}
-                                            <button
-                                                onClick={() => void openVoyagePicker()}
-                                                className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
-                                            >
-                                                {showVoyagePicker ? '▾' : '▸'} 🛥 From a past voyage
-                                            </button>
-                                            {showVoyagePicker &&
-                                                (voyageTracks.length === 0 ? (
-                                                    <div className="pl-4 text-[10px] text-gray-500">
-                                                        No sailed sea voyages yet — finish one first.
-                                                    </div>
-                                                ) : (
-                                                    voyageTracks.map((t) => (
-                                                        <button
-                                                            key={t.voyageId}
-                                                            onClick={() => void loadVoyageAsTrace(t)}
-                                                            className="block w-full truncate pl-4 text-left text-[11px] text-gray-200 active:opacity-70"
-                                                        >
-                                                            {t.label}{' '}
-                                                            <span className="text-gray-500">{t.sublabel}</span>
-                                                            {t.isLocal && (
-                                                                <span className="ml-1 rounded bg-white/10 px-1 text-[9px] font-bold text-gray-400">
-                                                                    LOCAL
-                                                                </span>
-                                                            )}
-                                                        </button>
-                                                    ))
-                                                ))}
+                                            {TRACER_CARD_LIBRARY_VISIBLE && (
+                                                <>
+                                                    <button
+                                                        onClick={() => void openVoyagePicker()}
+                                                        className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
+                                                    >
+                                                        {showVoyagePicker ? '▾' : '▸'} 🛥 From a past voyage
+                                                    </button>
+                                                    {showVoyagePicker &&
+                                                        (voyageTracks.length === 0 ? (
+                                                            <div className="pl-4 text-[10px] text-gray-500">
+                                                                No sailed sea voyages yet — finish one first.
+                                                            </div>
+                                                        ) : (
+                                                            voyageTracks.map((t) => (
+                                                                <button
+                                                                    key={t.voyageId}
+                                                                    onClick={() => void loadVoyageAsTrace(t)}
+                                                                    className="block w-full truncate pl-4 text-left text-[11px] text-gray-200 active:opacity-70"
+                                                                >
+                                                                    {t.label}{' '}
+                                                                    <span className="text-gray-500">{t.sublabel}</span>
+                                                                    {t.isLocal && (
+                                                                        <span className="ml-1 rounded bg-white/10 px-1 text-[9px] font-bold text-gray-400">
+                                                                            LOCAL
+                                                                        </span>
+                                                                    )}
+                                                                </button>
+                                                            ))
+                                                        ))}
+                                                </>
+                                            )}
                                             {seawayDebugVisible && (
                                                 <button
                                                     onClick={() => {
@@ -5831,7 +5843,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         </div>
                                                     ))
                                                 ))}
-                                            {savedTraces.length > 0 && (
+                                            {TRACER_CARD_LIBRARY_VISIBLE && savedTraces.length > 0 && (
                                                 <button
                                                     onClick={() => setShowSavedTraces((s) => !s)}
                                                     className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400"
@@ -5839,7 +5851,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     {showSavedTraces ? '▾' : '▸'} Saved routes ({savedTraces.length})
                                                 </button>
                                             )}
-                                            {showSavedTraces &&
+                                            {TRACER_CARD_LIBRARY_VISIBLE &&
+                                                showSavedTraces &&
                                                 savedTraces.map((t) => (
                                                     <div key={t.id} className="flex items-center gap-1.5 text-[11px]">
                                                         <button

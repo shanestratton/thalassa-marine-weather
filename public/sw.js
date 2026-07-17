@@ -229,9 +229,12 @@
 // them back); the tracer card is height-clamped (~44% of screen, legs scroll
 // inside) so it never climbs under the compass/zoom box, and it sits clear
 // above the detail scrubber.
-const CACHE_NAME = 'thalassa-v118-core';
-const TILE_CACHE = 'thalassa-v118-tiles';
-const DATA_CACHE = 'thalassa-v118-data';
+// v119: tracer card slimmed — paste-from-a-mate / past-voyage / saved-routes
+// rows removed from the card's bottom (the PLAN page owns those flows now).
+// Share-with-a-mate + share-with-all-skippers stay.
+const CACHE_NAME = 'thalassa-v119-core';
+const TILE_CACHE = 'thalassa-v119-tiles';
+const DATA_CACHE = 'thalassa-v119-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
