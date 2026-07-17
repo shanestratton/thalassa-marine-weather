@@ -4957,8 +4957,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     detents — encDetailScrubber maps each step to furniture
                     cuts + a sounding-density bias; hazards and the safety
                     contour are untouchable. Same surface gates as the
-                    tracer so embedded/pin/picker views stay clean. */}
-                {!embedded && !isPinView && !pickerMode && !hideTracer && encCellCount > 0 && (
+                    tracer so embedded/pin/picker views stay clean.
+                    TRACING-ONLY since 2026-07-17 (Shane: "on the charts
+                    page, remove the scrubber") — the browsing chart stays
+                    bare; the slider appears with the plotting card. */}
+                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && encCellCount > 0 && (
                     <div
                         className="absolute left-1/2 z-[9994] -translate-x-1/2"
                         style={{ bottom: 'calc(5.4rem + env(safe-area-inset-bottom))' }}
@@ -4995,7 +4998,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     a curated-fairway candidate (Shane 2026-07-08). Gated out
                     of embedded/pin/picker surfaces like its neighbours —
                     ungated it swallowed picker taps (audit minor). */}
-                {!embedded && !isPinView && !pickerMode && !hideTracer && (
+                {/* TRACING-ONLY since 2026-07-17 (Shane: "remove the tracer
+                    card" from the charts page): the browsing chart carries no
+                    tracer furniture at all — the PLAN page is the only door
+                    in ("Slide to Start Plotting" / Trip box / saved routes),
+                    and Done hands the bare chart back. The closed-🧭-pill
+                    branch below is parked, not deleted. */}
+                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
                     <div
                         className="absolute left-3 z-[9995]"
                         // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
