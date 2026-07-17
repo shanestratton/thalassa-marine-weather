@@ -540,6 +540,7 @@ export function buildRouteAdvisories(
     if (typeof vesselDraftM === 'number' && vesselDraftM > 5) {
         advisories.push({
             severity: 'caution',
+            kind: 'draft-clamp',
             text:
                 `Depth checks model a 5 m maximum draft — your ${vesselDraftM.toFixed(1)} m draft ` +
                 `exceeds it, so clearances are TIGHTER than shown. Verify depths manually.`,
@@ -551,6 +552,7 @@ export function buildRouteAdvisories(
     if (noDataHits > 0) {
         advisories.push({
             severity: 'caution',
+            kind: 'no-data',
             text:
                 `${noDataHits}/${results.length} route point(s) have NO depth data ` +
                 `(uncharted + GEBCO unavailable) — routed but NOT confirmed safe, verify visually`,
@@ -575,6 +577,7 @@ export function buildRouteAdvisories(
                 : '';
         advisories.push({
             severity: failed.length > 0 || pct >= 30 ? 'caution' : 'note',
+            kind: 'gebco-share',
             text:
                 `${gebcoHits}/${results.length} depth check(s) (${pct}%) used ~460 m GEBCO ocean ` +
                 `bathymetry, not charted ENC data — shoals smaller than the grid spacing are ` +
@@ -589,6 +592,7 @@ export function buildRouteAdvisories(
     if (tideGated > 0) {
         advisories.push({
             severity: 'caution',
+            kind: 'tide-constrained',
             text:
                 `${tideGated} depth check(s) clear ONLY with the predicted tide — at chart ` +
                 `datum that water is too shallow for your draft. This leg is tide-constrained: ` +
@@ -603,6 +607,7 @@ export function buildRouteAdvisories(
     if (worstCatzoc !== null && worstCatzoc >= 4) {
         advisories.push({
             severity: 'note',
+            kind: 'catzoc',
             text: `Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`,
         });
     } else if (worstCatzoc === null && results.some((r) => r.source === 'enc')) {
@@ -610,6 +615,7 @@ export function buildRouteAdvisories(
         // (audit: quality-unknown coverage read exactly like a good survey).
         advisories.push({
             severity: 'note',
+            kind: 'quality-unknown',
             text: 'Chart survey quality is UNASSESSED along this route (no CATZOC data) — treat charted depths with a margin',
         });
     }
@@ -667,6 +673,7 @@ export function describeCautionCrossings(areas: EncCautionArea[]): RouteAdvisory
     }
     return {
         severity: entryProhibited ? 'caution' : 'note',
+        kind: 'caution-crossing',
         text: `Route crosses ${parts.join(' · ')} — check restrictions`,
     };
 }
@@ -753,6 +760,7 @@ export async function validateRouteSegments(
                 if (routeNm > 40) {
                     singleStationTideNote = {
                         severity: 'note',
+                        kind: 'single-station-tide',
                         text:
                             `Tide corrections use ONE station near the route midpoint` +
                             `${curve.stationName ? ` (${curve.stationName})` : ''} — over ` +
@@ -1008,6 +1016,7 @@ export async function validateRouteSegments(
         routeAdvisories = [
             {
                 severity: 'caution',
+                kind: 'exhaustion',
                 text:
                     `Route validation hit its ${MAX_VALIDATION_PASSES}-pass limit with ` +
                     `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
