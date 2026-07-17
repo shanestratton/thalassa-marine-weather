@@ -298,6 +298,9 @@ const TIDE_ADOPT_FACTOR = 0.7;
 // the tideDirect profile) stays wired and tested; flip this back to true to
 // re-expose the button.
 const AUTO_ROUTE_BUTTON_VISIBLE = false;
+// Copy-coords button PARKED (Shane 2026-07-17) — thinned the 6-button
+// controls row to 5 so the survivors get a fatter tap target on a phone.
+const TRACER_COPY_BUTTON_VISIBLE = false;
 
 // The guided course-frame (From/To boxes + 🧭 Set course) and its ⚡
 // Auto-to-destination button are PARKED with it (Shane 2026-07-16: "remove
@@ -5718,13 +5721,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             >
                                                 Redo
                                             </button>
-                                            <button
-                                                onClick={() => void copyCapturedCoords()}
-                                                disabled={capturedCoords.length === 0}
-                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
-                                            >
-                                                {coordsCopied ? 'Copied ✓' : 'Copy'}
-                                            </button>
+                                            {/* Copy PARKED (Shane 2026-07-17: rarely used
+                                                mid-plot, and it made the controls row a
+                                                6-button fat-finger squeeze). Folded away so
+                                                Plot/Undo/Redo/Clear/⇄ get the width;
+                                                copyCapturedCoords stays wired. */}
+                                            {TRACER_COPY_BUTTON_VISIBLE && (
+                                                <button
+                                                    onClick={() => void copyCapturedCoords()}
+                                                    disabled={capturedCoords.length === 0}
+                                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                                >
+                                                    {coordsCopied ? 'Copied ✓' : 'Copy'}
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => {
                                                     triggerHaptic('light');
