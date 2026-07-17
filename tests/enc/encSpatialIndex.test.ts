@@ -359,4 +359,15 @@ describe('EncSpatialIndex.segmentAreaGraze (ZOC lateral clearance, burn-down 202
         const g = zocIdx([hz('DEPARE', square(deg(30) + deg(500), 0, deg(500)), 2)], 3).segmentAreaGraze(...vseg(0));
         expect(g?.catzoc).toBe(3);
     });
+
+    it('is DRAFT-AWARE — a 10 m DEPARE edge over-warns at the static ceiling but NOT a 2.4 m keel (cycle-4 audit #8)', () => {
+        // A depth area 30 m away whose bed is 10 m down — deep for a 2.4 m keel
+        // (threshold ≈4.1 m), shallow only under the old static 15 m ceiling.
+        const i = idx('A', [hz('DEPARE', square(deg(30) + deg(500), 0, deg(500)), 10)]);
+        expect(i.segmentAreaGraze(...vseg(0))).not.toBeNull(); // default 15 m ceiling → over-warns
+        expect(i.segmentAreaGraze(...vseg(0), 4.1)).toBeNull(); // draft-aware keel threshold → clear
+        // Land is unconditional — the draft threshold never suppresses it.
+        const land = idx('A', [hz('LNDARE', square(deg(30) + deg(500), 0, deg(500)))]);
+        expect(land.segmentAreaGraze(...vseg(0), 4.1)?.type).toBe('land');
+    });
 });
