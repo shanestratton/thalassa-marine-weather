@@ -5046,15 +5046,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // usual bottom-rail home at 6rem (parked branch).
                         style={{
                             // OPEN: bind BOTH edges so the card is a fixed band in
-                            // CONTAINER coords (Shane 2026-07-17: "the card is too
-                            // high — covering the zoom pill and half moon, halfway
-                            // up the compass rose"). The old fixed h-[100dvh…]
-                            // measured the VIEWPORT, but the map container is ~a tab
-                            // bar shorter, so the card overshot the top by that much.
-                            // top clears the compass rose (fixed at 0.5rem+safe-top,
-                            // 116px tall) + an 8px gap. FOLDED: no top — the card
-                            // shrinks to its header strip (so Done visibly minimises).
-                            top: panelFolded ? undefined : 'calc(env(safe-area-inset-top) + 0.5rem + 124px)',
+                            // CONTAINER coords (Shane 2026-07-17: the old fixed
+                            // h-[100dvh…] measured the VIEWPORT, but the card lives
+                            // in the shorter map container, so it overshot the top).
+                            // top clears whichever top-furniture sits LOWEST + 8px:
+                            //   • compass rose bottom = env(safe-top)+0.5rem+116px
+                            //   • zoom pill / moon bottom = 148px (LITERAL top-104
+                            //     + h-11; NOT safe-area-adjusted)
+                            // On the web (no safe-top) the rose rides up but the pills
+                            // stay at 148px, so tying top to the rose alone let the
+                            // card cover the pills — max() takes the lower of the two.
+                            // FOLDED: no top — the card shrinks to its header strip
+                            // (so Done visibly minimises).
+                            top: panelFolded
+                                ? undefined
+                                : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
                             bottom: coordCaptureMode
                                 ? `calc(${panelFolded ? '10.4rem' : '8.4rem'} + env(safe-area-inset-bottom))`
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
