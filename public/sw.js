@@ -212,9 +212,14 @@
 // saved-routes cards open a picker MODAL right on the page (tap a route →
 // taken straight to it on the chart); the hint card crowding the slide CTA
 // removed.
-const CACHE_NAME = 'thalassa-v114-core';
-const TILE_CACHE = 'thalassa-v114-tiles';
-const DATA_CACHE = 'thalassa-v114-data';
+// v115: "checking a leg" no longer drags the page — the nav-grid worker
+// respawns after a crash instead of latching every later build onto the main
+// thread; duplicate context builds coalesce; recent chart windows are kept
+// (LRU of 3) so ping-pong edits stop rebuilding; corridor prefetch waits
+// until grading settles; one needless full-page render per pin edit removed.
+const CACHE_NAME = 'thalassa-v115-core';
+const TILE_CACHE = 'thalassa-v115-tiles';
+const DATA_CACHE = 'thalassa-v115-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

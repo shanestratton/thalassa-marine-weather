@@ -371,7 +371,29 @@ export function parseMarkHazards(features: readonly unknown[]): MarkHazard[] {
  * skipped (marks-only, every leg carries "depth unchecked"); beyond ~80 km
  * we refuse outright — split the trace.
  */
+// In-flight build coalescing (jank audit #2): rapid pin taps used to stack
+// 2–4 FULL context builds — the callers' seq guards run only AFTER the await,
+// so superseded builds ran to completion on the main thread. Identical
+// (bbox, draft) requests now share one promise. Chart data is static within a
+// session, so identical inputs ⇒ identical context; entries clear on settle.
+const inflightBuilds = new Map<string, Promise<TracerBuildResult>>();
+
 export async function buildTracerContext(
+    bbox: [number, number, number, number],
+    draftM: number,
+    opts: { draftAssumed?: boolean } = {},
+): Promise<TracerBuildResult> {
+    const key = `${bbox.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}`;
+    const existing = inflightBuilds.get(key);
+    if (existing) return existing;
+    const p = buildTracerContextInner(bbox, draftM, opts).finally(() => {
+        inflightBuilds.delete(key);
+    });
+    inflightBuilds.set(key, p);
+    return p;
+}
+
+async function buildTracerContextInner(
     bbox: [number, number, number, number],
     draftM: number,
     opts: { draftAssumed?: boolean } = {},

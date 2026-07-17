@@ -465,16 +465,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the padded corridor in the background (device → Pi → cloud ladder) while
     // the skipper keeps tracing. Debounced so a burst of pin edits costs one
     // run; the service is single-flight + per-run capped, so this stays cheap.
-    useEffect(() => {
-        if (!coordCaptureMode || capturedCoords.length < 2) return;
-        const t = window.setTimeout(() => {
-            void import('../../services/enc/corridorPrefetch').then(({ prefetchCorridorCells }) =>
-                prefetchCorridorCells(capturedCoords),
-            );
-        }, 1500);
-        return () => window.clearTimeout(t);
-    }, [capturedCoords, coordCaptureMode]);
-
     const [coordsCopied, setCoordsCopied] = useState(false);
     const coordCaptureRef = useRef(false);
     /** The PEN switch (Shane 2026-07-11: stray taps while the tracer is
@@ -516,11 +506,49 @@ export const MapHub: React.FC<MapHubProps> = ({
     // null slot = leg not graded yet (its window is still building) — the
     // panel row shows grey "checking…" and the chart leg draws 'pending'.
     const [legVerdicts, setLegVerdicts] = useState<Array<TraceLegVerdict | null>>([]);
+
+    // Corridor chart prefetch (Shane 2026-07-16): pull the cells covering the
+    // route's padded bbox in the background (device → Pi → cloud ladder) while
+    // the skipper keeps tracing. Held off while legs are still grading (null
+    // slots pending): the prefetch's multi-MB JSON.parse used to land INSIDE
+    // the exact window where "checking…" jank is felt (jank audit #5).
+    // legVerdicts in the deps re-arms the timer per grading publish, so it
+    // fires ~4 s after the route settles — long before that water matters.
+    useEffect(() => {
+        if (!coordCaptureMode || capturedCoords.length < 2) return;
+        if (legVerdicts.some((v) => v === null)) return;
+        const t = window.setTimeout(() => {
+            void import('../../services/enc/corridorPrefetch').then(({ prefetchCorridorCells }) =>
+                prefetchCorridorCells(capturedCoords),
+            );
+        }, 4000);
+        return () => window.clearTimeout(t);
+    }, [capturedCoords, coordCaptureMode, legVerdicts]);
     const [tideLabels, setTideLabels] = useState<Record<number, string>>({});
     const [tracerStatus, setTracerStatus] = useState<
         'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart'
     >('idle');
     const tracerCtxRef = useRef<TracerContext | null>(null);
+    /** Small LRU of recent GRID-BEARING contexts (jank audit #6): the single
+     *  slot rebuilt the whole window on every ping-pong edit (nudge pin 3,
+     *  then pin 30 — the fix-leg → re-grade → nudge flow). Three entries
+     *  (~5–13 MB of typed arrays each at the 1M-cell cap) covers a working
+     *  route without flirting with iOS jetsam. Same reuse rule as the single
+     *  slot: grid required, 0.008° interior margin, marks-only NEVER held.
+     *  Cleared with the ctx on draft change and Done. */
+    const tracerCtxLruRef = useRef<TracerContext[]>([]);
+    const tracerCtxFromLru = useCallback((pts: ReadonlyArray<{ lat: number; lon: number }>): TracerContext | null => {
+        for (const c of tracerCtxLruRef.current) {
+            if (c.grid && pts.every((p) => pointInBbox(p, c.bbox, 0.008))) return c;
+        }
+        return null;
+    }, []);
+    const tracerCtxHold = useCallback((ctx: TracerContext) => {
+        tracerCtxRef.current = ctx;
+        const lru = tracerCtxLruRef.current.filter((c) => c !== ctx);
+        lru.unshift(ctx);
+        tracerCtxLruRef.current = lru.slice(0, 3);
+    }, []);
     const tracerSeqRef = useRef(0);
     const tideReqRef = useRef<Set<string>>(new Set());
     /** Incremental grading (Shane 2026-07-09: "each new waypoint rechecks
@@ -1481,19 +1509,15 @@ export const MapHub: React.FC<MapHubProps> = ({
             let fixed = 0;
             for (const i of [...legIdxs].sort((x, y) => y - x)) {
                 if (i < 0 || i + 1 >= pins.length) continue;
-                let ctx = tracerCtxRef.current;
-                if (
-                    !ctx?.grid ||
-                    !pointInBbox(pins[i], ctx.bbox, 0.008) ||
-                    !pointInBbox(pins[i + 1], ctx.bbox, 0.008)
-                ) {
+                let ctx = tracerCtxFromLru([pins[i], pins[i + 1]]);
+                if (!ctx) {
                     try {
                         const built = await buildTracerContext(traceBboxPadded([pins[i], pins[i + 1]]), draft.d, {
                             draftAssumed: draft.assumed,
                         });
                         if (built.status === 'ready') {
                             ctx = built.ctx;
-                            tracerCtxRef.current = built.ctx;
+                            tracerCtxHold(built.ctx);
                         } else {
                             continue; // marks-only/no chart — nothing to A* on
                         }
@@ -1978,7 +2002,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // crossing stayed green).
     useEffect(() => {
         setSailArmed(false); // a changed line always re-earns its "Sail anyway"
-        setAckedLegs(new Set()); // ack indices die with the old leg list
+        // Ack indices die with the old leg list — but IDENTITY-PRESERVING:
+        // an unconditional new Set() forced a full 7k-line MapHub render on
+        // EVERY pin edit even when no acks existed (jank audit #4).
+        setAckedLegs((s) => (s.size === 0 ? s : new Set()));
         setShareArmed(false); // consent never outlives the line it was given for
         if (!coordCaptureMode || capturedCoords.length === 0) {
             // Kill any in-flight grading pass — un-superseded, it would
@@ -2004,6 +2031,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         const prevDraft = gradedDraftRef.current;
         if (prevDraft && (prevDraft.d !== draftNow || prevDraft.assumed !== draftAssumed)) {
             tracerCtxRef.current = null;
+            tracerCtxLruRef.current = []; // grids were built FOR the old keel
             legCacheRef.current.clear();
             tideSpotCacheRef.current.clear();
             setTideLabels({});
@@ -2093,15 +2121,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // and downgraded a wrong-side DANGER to a solo caution). A
                 // grid-less (marks-only) ctx is NEVER reused: its huge bbox
                 // would stamp every short leg inside it "depth unchecked".
-                let ctx = tracerCtxRef.current;
-                if (!ctx || !ctx.grid || !pts.every((p) => pointInBbox(p, ctx!.bbox, 0.008))) {
+                let ctx = tracerCtxFromLru(pts);
+                if (!ctx) {
                     setTracerStatus('loading');
                     try {
                         const built = await buildTracerContext(traceBboxPadded(pts), draftNow, { draftAssumed });
                         if (seq !== tracerSeqRef.current) return;
                         if (built.status === 'ready') {
                             ctx = built.ctx;
-                            tracerCtxRef.current = built.ctx;
+                            tracerCtxHold(built.ctx);
                         } else if (built.status === 'marksonly') {
                             // One genuinely long leg — grade marks with this
                             // ctx but DON'T hold it: a grid-less window must
@@ -4929,6 +4957,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             // rebuild on reopen — a ctx held across
                                             // sessions is how stale-draft grading lived.
                                             tracerCtxRef.current = null;
+                                            tracerCtxLruRef.current = []; // free the held grids with it
                                             setTracerStatus('idle');
                                             setLegVerdicts([]);
                                         }}
