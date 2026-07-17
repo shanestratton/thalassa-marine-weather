@@ -71,6 +71,38 @@ describe('ensureGlazeCapacity — the LRU holds a whole merge (closing audit)', 
         for (let i = 0; i < 48; i++) putGlazeCell(`k${i}`, entry());
         expect(glazeCellCacheSize()).toBe(48);
     });
+
+    it('the FEATURE budget never evicts the ACTIVE merge’s own cells mid-fold (cycle-4 audit #3)', () => {
+        const pt = (): Feature => ({
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Point', coordinates: [0, 0] },
+        });
+        const big = (n: number): GlazeCellEntry => ({ upgraded: false, feats: new Array(n).fill(pt()) });
+        ensureGlazeCapacity(4); // a 4-cell glaze merge declares itself
+        // 3 cells × 50k = 150k features — over the 120k budget — but every key
+        // belongs to the active fold, so none may be dropped before dispatch.
+        putGlazeCell('m0', big(50_000));
+        putGlazeCell('m1', big(50_000));
+        putGlazeCell('m2', big(50_000));
+        expect(glazeCellCacheSize()).toBe(3);
+        expect(getGlazeCell('m0')).toBeDefined(); // the fold's first cell survives
+    });
+
+    it('a PRIOR merge’s cells become evictable once a new merge starts', () => {
+        const pt = (): Feature => ({
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'Point', coordinates: [0, 0] },
+        });
+        const big = (n: number): GlazeCellEntry => ({ upgraded: false, feats: new Array(n).fill(pt()) });
+        ensureGlazeCapacity(4);
+        putGlazeCell('old0', big(80_000)); // pinned to merge 1
+        ensureGlazeCapacity(4); // merge 2 begins → old0 unpinned
+        putGlazeCell('new0', big(80_000)); // 160k > 120k → the now-unpinned old0 evicts
+        expect(getGlazeCell('old0')).toBeUndefined();
+        expect(getGlazeCell('new0')).toBeDefined();
+    });
 });
 
 describe('worker-assembly parking — job-scoped, owner-checked (audit #5)', () => {

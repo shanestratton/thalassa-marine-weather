@@ -1436,13 +1436,27 @@ export function mountEncVectorLayer(
  * when encGeometryWorker's answer lands in the cached merge — a focused
  * two-source refresh, not the full 14-source re-upload.
  */
+let lastPushedGlazeFeats: unknown = null;
+let lastPushedContourFeats: unknown = null;
+
 export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorData): void {
     const setData = (id: string, fc: FeatureCollection) => {
         const src = map.getSource(id);
         if (src && 'setData' in src) (src as mapboxgl.GeoJSONSource).setData(fc);
     };
-    setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
-    setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
+    // Push ONLY the source whose features array actually changed. Both upgrade
+    // paths assign a FRESH `.features` array (applyGlazeUpgrade / the contours
+    // reply), so reference inequality reliably means "changed" — a
+    // contours-only upgrade must not re-serialize the multi-thousand-feature
+    // DEPARE_GLAZE, the heaviest ENC source (cycle-4 audit, red-team missed).
+    if (data.DEPARE_GLAZE.features !== lastPushedGlazeFeats) {
+        setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
+        lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
+    }
+    if (data.DEPCNT_DERIVED.features !== lastPushedContourFeats) {
+        setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
+        lastPushedContourFeats = data.DEPCNT_DERIVED.features;
+    }
 }
 
 /** Monotonic token — a newer refresh supersedes the staggered tail of an
