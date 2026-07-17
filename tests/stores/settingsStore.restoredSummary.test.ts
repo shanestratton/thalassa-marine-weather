@@ -292,4 +292,20 @@ describe('mergeCloudSettings — partial-cloud defence', () => {
         expect(merged.subscriptionTier).toBe('owner');
         expect(merged.isPro).toBe(true);
     });
+
+    // Cross-device vessel transfer (Shane 2026-07-17): the pre-merged vessel
+    // the caller passes IS what lands in `merged.vessel` — a locally-onboarded
+    // keel that the cloud row never carried survives the merge, which is what
+    // pullFromCloud then pushes back up so the next device (web) sees the draft.
+    it('carries the pre-merged vessel through verbatim (local draft survives a draftless cloud)', () => {
+        const local: UserSettings = {
+            ...DEFAULT_SETTINGS,
+            vessel: { name: 'Serene Summer', type: 'sail', draft: 7.9 } as UserSettings['vessel'],
+        };
+        // Cloud settings has NO vessel at all (the onboarded-while-signed-out case).
+        const merged = mergeCloudSettings(local, { defaultLocation: 'Newport' }, local.vessel);
+        expect(merged.vessel?.draft).toBe(7.9);
+        expect(merged.vessel?.name).toBe('Serene Summer');
+        expect(merged.defaultLocation).toBe('Newport'); // cloud key still wins where it has one
+    });
 });

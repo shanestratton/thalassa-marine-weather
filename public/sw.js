@@ -297,9 +297,12 @@
 // v144: the card's "open a saved route" list now GROUPS by trip (multi-leg
 // trips show a header + indented legs), sharing one grouping helper with the
 // PLAN Trip box so the two can't drift.
-const CACHE_NAME = 'thalassa-v144-core';
-const TILE_CACHE = 'thalassa-v144-tiles';
-const DATA_CACHE = 'thalassa-v144-data';
+// v145: cross-device vessel sync — sign-in is a TWO-WAY reconcile now. A
+// vessel onboarded locally while signed out (draft/beam/etc.) uploads to the
+// cloud on the next sign-in, so a second device (incl. the web) gets the keel.
+const CACHE_NAME = 'thalassa-v145-core';
+const TILE_CACHE = 'thalassa-v145-tiles';
+const DATA_CACHE = 'thalassa-v145-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

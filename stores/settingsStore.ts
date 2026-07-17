@@ -355,6 +355,30 @@ async function pullFromCloud(userId: string): Promise<void> {
         _addDebugLog('CLOUD PULL OK: settings merged from profiles + vessel_identity');
         manageScreenEffects(merged);
 
+        // ── TWO-WAY reconcile (Shane 2026-07-17: "ensure that when I log in on
+        // another device, ALL of the vessel profile info transfers across") ──
+        // The pull was ONE-WAY. A vessel onboarded locally while signed OUT —
+        // the first-launch default, since onboarding runs before sign-in — went
+        // to Capacitor Preferences + vessel_identity (name/type/model) but its
+        // wider dimensions (draft, beam, displacement…) live in
+        // profiles.settings.vessel, which is only written by syncToCloud on an
+        // updateSettings WHILE SIGNED IN. So they never reached the cloud, and a
+        // second device (or the web) pulled a draftless profile → routing fell
+        // back to the default 2.5 m keel. Now: when the merge ENRICHED the cloud
+        // — local carried a keel the cloud row lacked — push the merged settings
+        // (which carry the FULL vessel + every other local-only key) back up, so
+        // this device and every future one converge on the union. mergeCloudSettings
+        // keeps cloud-set values winning, so the push-back can only ADD, never
+        // regress a value the cloud already had.
+        const cloudHadDraft = Number(cloudSettings?.vessel?.draft) > 0;
+        const mergedHasDraft = Number(merged.vessel?.draft) > 0;
+        if (mergedHasDraft && !cloudHadDraft) {
+            _addDebugLog(
+                `CLOUD PUSH-BACK: local vessel (draft ${merged.vessel?.draft}) was missing from the cloud — uploading`,
+            );
+            void syncToCloud(userId, merged);
+        }
+
         // ── Welcome-back modal ─────────────────────────────────────
         // Fire ONCE per user per device, ONLY on a fresh-device
         // restore (local Preferences was empty at boot). Otherwise
