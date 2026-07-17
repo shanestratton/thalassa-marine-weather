@@ -5127,7 +5127,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         <span className="text-lg leading-none text-gray-400">
                                             {panelFolded ? '▸' : '▾'}
                                         </span>
-                                        ● Tracer ({capturedCoords.length})
+                                        {/* No pin count (Shane 2026-07-17: "remove
+                                            the (3) — it just buggers up the layout"). */}
+                                        ● Tracer
                                     </button>
                                     {(() => {
                                         const h = traceHealth(legVerdicts);
