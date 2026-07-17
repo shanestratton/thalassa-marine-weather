@@ -119,6 +119,16 @@ const App: React.FC = () => {
     // ElevenLabs TTS, Cloudflare Worker proxy + Deepgram).
     const canUseBosunVoice = canAccess(settings.subscriptionTier, 'bosunVoice');
 
+    // Routing-page declutter (Shane 2026-07-17): MapHub broadcasts when the
+    // Route Tracer is active; the floating mic orb over the map steps aside
+    // for the tracer card and comes back on Done.
+    const [tracerActive, setTracerActive] = useState(false);
+    useEffect(() => {
+        const onTracer = (e: Event) => setTracerActive(Boolean((e as CustomEvent).detail?.active));
+        window.addEventListener('thalassa:tracer-active', onTracer);
+        return () => window.removeEventListener('thalassa:tracer-active', onTracer);
+    }, []);
+
     // ── Bootstrap: chat badge, push notifications, keyboard, DB sync, etc. ──
     const { chatUnread } = useAppBootstrap();
 
@@ -931,7 +941,8 @@ const App: React.FC = () => {
                                 </svg>
                             </div>
                         )}
-                        {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right on map view */}
+                        {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right on map view.
+                            The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
                         <div
                             className="absolute z-[601] pointer-events-auto flex items-center gap-2"
                             style={{
@@ -939,7 +950,7 @@ const App: React.FC = () => {
                                 right: '16px',
                             }}
                         >
-                            {canUseBosunVoice && (
+                            {canUseBosunVoice && !tracerActive && (
                                 <button
                                     onClick={() => setPage('voice')}
                                     className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
