@@ -1995,7 +1995,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         let colocatedLight: Record<string, unknown> | undefined;
         // Caution-area props riding under a water tap — folded into the
         // DEPARE popup (see the areaHits branch below).
-        let cautionUnder: Record<string, unknown> | null = null;
+        let cautionsUnder: Record<string, unknown>[] = [];
         if (pointHits.length > 0) {
             const distSqTo = (f: mapboxgl.GeoJSONFeature, to: { x: number; y: number }): number => {
                 if (f.geometry?.type !== 'Point') return Infinity;
@@ -2058,7 +2058,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             );
             if (!pick) return;
             feat = areaHits[pick.index];
-            cautionUnder = pick.cautionUnder;
+            cautionsUnder = pick.cautionsUnder;
         }
         // pointHits non-empty guarantees a pick, but TS can't see through
         // the filter/nearest split — and a paranoid bail beats a throw.
@@ -2088,7 +2088,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             draftAssumed: dstate?.draftAssumed ?? false,
             ...(colocatedLight ? { light: colocatedLight } : {}),
             ...(seabed ? { seabed } : {}),
-            ...(cautionUnder ? { caution: cautionUnder } : {}),
+            ...(cautionsUnder.length > 0 ? { cautions: cautionsUnder } : {}),
         };
 
         const popup = new mapboxgl.Popup({
