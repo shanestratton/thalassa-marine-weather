@@ -705,35 +705,41 @@ export function buildFeaturePopupHtml(
             }
             .enc-popup-close {
                 position: absolute;
-                top: 2px;
-                right: 2px;
-                background: rgba(15, 23, 42, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                /* FLOATS on the top-right CORNER, mostly outside the box
+                   (Shane 2026-07-17: the 44px in-box disc "was covering
+                   words — amateur hour… make the cross smaller, maybe above
+                   the box"). Straddling the corner clears every data row; a
+                   32px disc is a comfy fat-finger target when it's floating
+                   free with nothing to mis-hit around it. */
+                top: -12px;
+                right: -12px;
+                background: rgba(15, 23, 42, 0.96);
+                border: 1px solid rgba(255, 255, 255, 0.22);
                 color: rgb(209, 213, 219);
                 border-radius: 999px;
-                /* 44 px box — Apple's HIG floor, finally met (2026-07-17
-                   audit: 32 was still under it). The VISUAL disc stays
-                   compact via the inner glyph; the hit target is full. */
-                width: 44px;
-                height: 44px;
+                width: 32px;
+                height: 32px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 cursor: pointer;
-                font-size: 18px;
+                font-size: 17px;
                 line-height: 1;
                 font-weight: bold;
                 padding: 0;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
             }
             .enc-popup-close:hover {
-                background: rgba(220, 38, 38, 0.85);
+                background: rgba(220, 38, 38, 0.9);
                 color: white;
             }
             .enc-popup-title {
                 font-size: 13px;
                 font-weight: 700;
                 margin-bottom: 6px;
-                padding-right: 44px;
+                /* The close disc now hangs off the corner, so the title only
+                   needs a whisker of clearance, not the old 44px. */
+                padding-right: 14px;
             }
             .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
             .enc-popup-sub {
