@@ -30,10 +30,11 @@ first — first ledger row.
 
 ### Rendering (0.5)
 
-- [ ] **0.5 — S-52 safety contour a near-invisible slate hairline on white** —
-      HELD FOR SHANE'S CALL: the fix makes the contour bold/amber by DEFAULT on
-      the white chart, which reverses Shane's deliberate mute. Needs his word on
-      default-bold vs mute-with-opt-in before touching.
+- [x] **0.5 — S-52 safety contour a near-invisible slate hairline on white** —
+      DONE (`1498893e`, Shane's call 2026-07-20: default-bold): the chart-mode
+      contour now uses the same deliberate amber (#f97316, 1.0-2.2px) as
+      satellite — prominent, but NOT the black ECDIS-bold Shane rejected. Mount
+      paint + syncDepareBaseTreatment both bold; per-base branch collapsed.
 
 ### Performance (1.0)
 
@@ -58,9 +59,12 @@ first — first ledger row.
 
 ### UX (0.5)
 
-- [ ] **0.5 — Tap-the-water on uncharted GEBCO-fallback water is silent** — on
-      `!pick`, fall through to `GebcoDepthService` and surface the coarse depth,
-      gesture-tied.
+- [x] **0.5 — Tap-the-water on uncharted GEBCO-fallback water is silent** — DONE
+      (`d3466fdd`): a tap on uncharted water now shows a popup ("checking…") and
+      fills in the coarse ~460 m GEBCO depth — keel read vs the safety depth,
+      land for a positive reading, a loud "NOT chart-verified" caveat. Gesture-
+      tied + race-safe (async update applies only if still the current popup).
+      New pure `buildGebcoDepthPopupHtml`, 6 tests.
 
 ## Ledger
 
@@ -70,3 +74,5 @@ first — first ledger row.
 | 2026-07-20 | Lateral-graze advisory made draft-aware (no over-warn)        | 0.25 | `f2a33fda` | 92.95              |
 | 2026-07-20 | Glaze cache pins active merge + gesture-defer upgrade re-push | 1.45 | `7e2949f1` | 94.40              |
 | 2026-07-20 | Clone HARD-cap glaze-drop degradation coverage                | 0.5  | `8a334139` | 94.90              |
+| 2026-07-20 | Safety contour bold amber by default on the white chart       | 0.5  | `1498893e` | 95.40              |
+| 2026-07-20 | Tap on uncharted water answers with coarse GEBCO depth        | 0.5  | `d3466fdd` | 95.90              |
