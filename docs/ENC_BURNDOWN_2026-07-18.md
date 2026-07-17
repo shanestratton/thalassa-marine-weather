@@ -25,20 +25,15 @@ ledger row below.
       polygon/line OBSTRN-class get true geometry-to-route distance (like
       COALNE at EncHazardReportService ~298-317) instead of bbox-centre +
       silent `continue` (~211-226, ~410-412).
-- [ ] **0.25 — tideConstrained never propagates from segment-crossing
-      hits** — HazardQueryService ~439 return type omits it; ~456-457
-      computes then discards; buildRouteAdvisories counts only sampled
-      points. Thread it through querySegmentHazards.
-- [ ] **0.25 — explodeSoundings stamps feature-level VALSOU/DEPTH onto
-      every point** — encHazardParse ~239 fallback chain; drop the
-      feature-level fallback for unmatched points (depth unknown ≠
-      feature depth).
-- [ ] **0.25 — UWTROC VALSOU never enters the hazard model** —
-      encHazardParse ~83-85 reads VALSOU only for OBSTRN/WRECKS; include
-      UWTROC so rock depth/drying context reaches the report.
-
-## Rendering (3.25)
-
+- [x] **0.25 — tideConstrained propagates from segment-crossing hits** —
+      DONE: threaded through querySegmentHazards' return, counted per pass
+      in the validator, buildRouteAdvisories takes the segment count.
+- [x] **0.25 — explodeSoundings per-point depth only** — DONE: the
+      feature-level fallback now applies ONLY to single-Point features;
+      unmatched MultiPoint members are skipped as unknown.
+- [x] **0.25 — UWTROC VALSOU enters the hazard model** — DONE: rocks
+      carry depth/drying context into severity + the report; old test that
+      pinned the drop re-pinned (incl. drying negative VALSOU).
 - [ ] **0.5 — Depth-band palette abandons blue-shallow coding** — shallow
       water is the least saturated thing on the chart; revisit ramp
       (S-52/paper: shallow = blue). CAREFUL: Shane approved the white

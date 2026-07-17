@@ -84,9 +84,15 @@ describe('featuresToHazards — depth sourcing + descriptor', () => {
         expect(featuresToHazards('OBSTRN', fc([pt({ VALSOU: 2.0 })]))[0].minDepthM).toBe(2.0);
         expect(featuresToHazards('WRECKS', fc([pt({ valsou: 8.5 })]))[0].minDepthM).toBe(8.5);
     });
-    it('LNDARE / UWTROC carry NO depth → null (always a hazard, any draft)', () => {
+    it('LNDARE carries NO depth → null (always a hazard, any draft)', () => {
         expect(featuresToHazards('LNDARE', fc([pt({ DRVAL1: 99 })]))[0].minDepthM).toBeNull();
-        expect(featuresToHazards('UWTROC', fc([pt({ VALSOU: 99 })]))[0].minDepthM).toBeNull();
+    });
+    it('UWTROC carries VALSOU (closing audit: rock depth/drying context was dropped)', () => {
+        expect(featuresToHazards('UWTROC', fc([pt({ VALSOU: 1.5 })]))[0].minDepthM).toBe(1.5);
+        // Drying rock: negative VALSOU rides through for the severity fold.
+        expect(featuresToHazards('UWTROC', fc([pt({ valsou: -0.4 })]))[0].minDepthM).toBe(-0.4);
+        // No VALSOU → null (still a hazard — rocks always are).
+        expect(featuresToHazards('UWTROC', fc([pt({})]))[0].minDepthM).toBeNull();
     });
     it('unknown/garbage DRVAL1 → minDepthM null (fail-safe: caller must treat as hazard)', () => {
         expect(featuresToHazards('DEPARE', fc([pt({ DRVAL1: 'x' })]))[0].minDepthM).toBeNull();

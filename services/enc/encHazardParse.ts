@@ -80,7 +80,12 @@ export function featuresToHazards(layer: EncLayer, fc: FeatureCollection): EncHa
         let minDepthM: number | null = null;
         if (layer === 'DEPARE' || layer === 'DRGARE') {
             minDepthM = readNumber(feat, 'DRVAL1');
-        } else if (layer === 'OBSTRN' || layer === 'WRECKS') {
+        } else if (layer === 'OBSTRN' || layer === 'WRECKS' || layer === 'UWTROC') {
+            // UWTROC included (closing audit 2026-07-17): rocks carry VALSOU
+            // too — dropping it lost the depth/drying context in severity
+            // ordering and the proximity report (a rock was hazard=true
+            // either way, but "awash rock" vs "8 m rock" matters to the
+            // skipper briefing).
             minDepthM = readNumber(feat, 'VALSOU');
         }
         // Case-defensive (was OBJNAM-uppercase-only): an ogr2ogr lowercased
@@ -236,7 +241,16 @@ export function explodeSoundings(fc: FeatureCollection | undefined): Feature[] {
         for (let i = 0; i < coords.length; i++) {
             const c = coords[i];
             if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
-            const raw = depthsArr?.[i] ?? c[2] ?? featProps.VALSOU ?? featProps.DEPTH;
+            // Per-point depth ONLY (closing audit 2026-07-17): the old
+            // feature-level VALSOU/DEPTH fallback stamped ONE depth onto
+            // every unmatched point of a MultiPoint cloud — a schema-drifted
+            // cell could mass-relabel shoal points with a deep feature value
+            // (and the ≥15 m hazard filter would then drop them). A point
+            // whose own depth is missing is UNKNOWN, not feature-depth;
+            // skip it. Single-Point features keep the feature-level read —
+            // there the feature IS the point.
+            const raw =
+                depthsArr?.[i] ?? c[2] ?? (coords.length === 1 ? (featProps.VALSOU ?? featProps.DEPTH) : undefined);
             const d = typeof raw === 'number' ? raw : Number(raw);
             if (!Number.isFinite(d)) continue;
             const props: Record<string, unknown> = { _d: Math.round(d * 10) / 10 };

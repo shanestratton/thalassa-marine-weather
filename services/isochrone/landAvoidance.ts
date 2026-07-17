@@ -533,6 +533,7 @@ export function buildRouteAdvisories(
     results: HazardResult[],
     vesselDraftM?: number,
     failedCellIds?: readonly string[],
+    segmentTideConstrained = 0,
 ): RouteAdvisory[] {
     const advisories: RouteAdvisory[] = [];
     // The depth-threshold model clamps draft to 5 m (hazardDepthForDraft) — a
@@ -588,7 +589,7 @@ export function buildRouteAdvisories(
     // check ONLY because of the predicted tide credit. At chart datum
     // that water is too shallow — a leg passable at HW only must not
     // read the same as unconditionally clear water.
-    const tideGated = results.filter((r) => r.tideConstrained).length;
+    const tideGated = results.filter((r) => r.tideConstrained).length + segmentTideConstrained;
     if (tideGated > 0) {
         advisories.push({
             severity: 'caution',
@@ -785,6 +786,10 @@ export async function validateRouteSegments(
     // the FINAL route revision was never re-verified (mission audit: this
     // exhaustion path used to fall through silently as if clean).
     let unresolvedAfterPasses = 0;
+    // Tide-credit-cleared SEGMENT crossings from the latest pass (the
+    // sampled-point results carry their own flags; these are the sub-231 m
+    // polygon crossings the samples can't see).
+    let segTideConstrained = 0;
     // Last pass's sample results — kept so the EXHAUSTION path can still
     // build the no-data / CATZOC advisories (audit: they ran only in the
     // clean branch, dropping them from exactly the least-verified routes).
@@ -951,10 +956,15 @@ export async function validateRouteSegments(
             }
             try {
                 const segResults = await HazardQueryService.querySegmentHazards(polySegs, queryOpts);
+                segTideConstrained = 0;
                 for (let k = 0; k < polySegs.length; k++) {
                     if (segResults[k]?.isHazard && !landSegments.includes(polySegs[k].idx)) {
                         landSegments.push(polySegs[k].idx);
                     }
+                    // Closing audit: a crossing cleared ONLY by tide credit
+                    // was computed then discarded — count it so the
+                    // tide-constrained advisory covers segment hits too.
+                    if (segResults[k]?.tideConstrained) segTideConstrained++;
                 }
             } catch (err) {
                 landLog.warn('[ValidateRoute] segment-polygon check failed (continuing with sample scan):', err);
@@ -968,7 +978,12 @@ export async function validateRouteSegments(
             // but carries caveats. ATTACHED to the hazard report below so the
             // skipper sees them, and logged at warn() — createLogger silences
             // info() in prod, which is why the old no-data note reached no one.
-            routeAdvisories = buildRouteAdvisories(allResults, options.vesselDraftM, failedCellIds());
+            routeAdvisories = buildRouteAdvisories(
+                allResults,
+                options.vesselDraftM,
+                failedCellIds(),
+                segTideConstrained,
+            );
             if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
             await appendCautionCrossings();
             const clearMsg =
@@ -1022,7 +1037,7 @@ export async function validateRouteSegments(
                     `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
                     `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
             },
-            ...buildRouteAdvisories(lastAllResults, options.vesselDraftM, failedCellIds()),
+            ...buildRouteAdvisories(lastAllResults, options.vesselDraftM, failedCellIds(), segTideConstrained),
         ];
         if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
         await appendCautionCrossings();

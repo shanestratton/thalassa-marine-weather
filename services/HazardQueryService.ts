@@ -436,7 +436,7 @@ export async function querySegmentHazards(
         timeMs?: number;
     }[],
     options: HazardQueryOptions = {},
-): Promise<{ isHazard: boolean; hazardType?: EncHazardType; source: 'enc' | 'none' }[]> {
+): Promise<{ isHazard: boolean; hazardType?: EncHazardType; source: 'enc' | 'none'; tideConstrained?: boolean }[]> {
     if (segments.length === 0) return [];
     const encResults = await EncHazardService.querySegmentHazards(segments);
     const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
@@ -454,7 +454,15 @@ export async function querySegmentHazards(
             ? (options.tideAt({ lat: midLat, lon: midLon, timeMs: segments[i].timeMs }) ?? fallbackTideM)
             : fallbackTideM;
         const r = encToHazardResult({ lat: midLat, lon: midLon }, enc, hazardThresholdM, tideM);
-        return { isHazard: r.isHazard, hazardType: enc.hazardType, source: 'enc' as const };
+        // tideConstrained rides through (closing audit: it was computed
+        // here then DISCARDED, so a tide-credit-cleared sub-231 m crossing
+        // never produced the tide-constrained advisory).
+        return {
+            isHazard: r.isHazard,
+            hazardType: enc.hazardType,
+            source: 'enc' as const,
+            ...(r.tideConstrained ? { tideConstrained: true } : {}),
+        };
     });
 }
 
