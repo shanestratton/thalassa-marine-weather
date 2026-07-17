@@ -121,11 +121,11 @@ ledger row below.
       case-defensive pairs swept (extras.seabed/caution, InshoreRouter
       CATCAM, merge CATLAM); zero `as unknown as ExpressionSpecification`
       remain outside mapExpr's own doc.
-- [ ] **0.5 — Chart key omits things that render** — sweep again (new
-      classes since the last key update: DWRTPT etc.).
-- [ ] **0.5 — Water-tap folds only ONE caution — stacked restrictions
-      drop** — pickAreaTap returns the first caution; fold ALL cautions
-      under the tap into the popup.
+- [x] **0.5 — Chart key sweep** — DONE: Deep-water route +
+      Precautionary area keyed (the TSS-family additions).
+- [x] **0.5 — Stacked cautions ALL fold in** — DONE: pickAreaTap
+      collects every caution wash above the water; the popup renders one
+      ⚠ row per restriction; regression test.
 - [x] **0.5 — 'Plan ENC Route' demo row** — DONE: reads the real vessel
       draft (fallback 2.5 m); errors humanised (no engine internals).
 - [x] **0.25 — Plan ENC Route clearable** — DONE: Clear All now also

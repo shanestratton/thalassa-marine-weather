@@ -18,7 +18,7 @@ describe('pickAreaTap — area-tap precedence', () => {
 
     it('topmost hit answers by default', () => {
         const pick = pickAreaTap([hit(ENC_VEC_LAYERS.DEPARE, { DRVAL1: 2 }), hit(ENC_VEC_LAYERS.LNDARE)]);
-        expect(pick).toEqual({ index: 0, cautionUnder: null });
+        expect(pick).toEqual({ index: 0, cautionsUnder: [] });
     });
 
     it('caution wash over charted water: the WATER answers, caution rides along', () => {
@@ -28,7 +28,19 @@ describe('pickAreaTap — area-tap precedence', () => {
             hit(ENC_VEC_LAYERS.DEPARE, { DRVAL1: 5 }),
         ]);
         expect(pick?.index).toBe(1);
-        expect(pick?.cautionUnder).toEqual(caution);
+        expect(pick?.cautionsUnder).toEqual([caution]);
+    });
+
+    it('STACKED caution washes ALL fold in (closing audit: only the first rode along)', () => {
+        const resare = { _caution: 'RESARE', RESTRN: '7' };
+        const cblare = { _caution: 'CBLARE' };
+        const pick = pickAreaTap([
+            hit(ENC_VEC_LAYERS.CAUTION_AREA_FILL, resare),
+            hit(ENC_VEC_LAYERS.CAUTION_AREA_FILL, cblare),
+            hit(ENC_VEC_LAYERS.DEPARE, { DRVAL1: 5 }),
+        ]);
+        expect(pick?.index).toBe(2);
+        expect(pick?.cautionsUnder).toEqual([resare, cblare]);
     });
 
     it('caution wash with water deeper in the stack still finds it', () => {
@@ -38,12 +50,12 @@ describe('pickAreaTap — area-tap precedence', () => {
             hit(ENC_VEC_LAYERS.DEPARE, { DRVAL1: 3 }),
         ]);
         expect(pick?.index).toBe(2);
-        expect(pick?.cautionUnder).toEqual({ cls: 'ACHARE' });
+        expect(pick?.cautionsUnder).toEqual([{ cls: 'ACHARE' }]);
     });
 
     it('caution wash with NO water beneath answers as the caution itself', () => {
         const pick = pickAreaTap([hit(ENC_VEC_LAYERS.CAUTION_AREA_FILL, { cls: 'CTNARE' })]);
-        expect(pick).toEqual({ index: 0, cautionUnder: null });
+        expect(pick).toEqual({ index: 0, cautionsUnder: [] });
     });
 
     it('water on TOP of a caution needs no fold — topmost already answers', () => {
@@ -54,7 +66,7 @@ describe('pickAreaTap — area-tap precedence', () => {
             hit(ENC_VEC_LAYERS.DEPARE, { DRVAL1: 8 }),
             hit(ENC_VEC_LAYERS.CAUTION_AREA_FILL, { cls: 'RESARE' }),
         ]);
-        expect(pick).toEqual({ index: 0, cautionUnder: null });
+        expect(pick).toEqual({ index: 0, cautionsUnder: [] });
     });
 });
 

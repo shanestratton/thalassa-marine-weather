@@ -141,7 +141,7 @@ function natsurNames(natsur: unknown): string {
 }
 
 /** Caution-area class → plain-language label. Shared by the standalone
- *  caution popup and the DEPARE popup's caution fold-in (extras.caution). */
+ *  caution popup and the DEPARE popup's caution fold-in (extras.cautions). */
 const CAUTION_LABELS: Record<string, string> = {
     RESARE: 'Restricted area',
     CBLARE: 'Submarine cable area',
@@ -230,15 +230,22 @@ export interface AreaTapHit {
  * and the caution rides along to be folded into the depth popup
  * (extras.caution). Null when there are no hits.
  */
-export function pickAreaTap(
-    hits: AreaTapHit[],
-): { index: number; cautionUnder: Record<string, unknown> | null } | null {
+export function pickAreaTap(hits: AreaTapHit[]): { index: number; cautionsUnder: Record<string, unknown>[] } | null {
     if (hits.length === 0) return null;
     if (hits[0].layerId === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
         const water = hits.findIndex((h) => h.layerId === ENC_VEC_LAYERS.DEPARE);
-        if (water >= 0) return { index: water, cautionUnder: hits[0].properties };
+        if (water >= 0) {
+            // ALL caution washes above the water fold in (closing audit:
+            // only the FIRST rode along — a spot inside a restricted area
+            // AND a cable area silently dropped the second restriction).
+            const cautions = hits
+                .slice(0, water)
+                .filter((h) => h.layerId === ENC_VEC_LAYERS.CAUTION_AREA_FILL)
+                .map((h) => h.properties);
+            return { index: water, cautionsUnder: cautions };
+        }
     }
-    return { index: 0, cautionUnder: null };
+    return { index: 0, cautionsUnder: [] };
 }
 
 /** The light attribute rows (character / period / height / range /
@@ -303,7 +310,7 @@ export interface PopupExtras {
     /** Props of a caution AREA (restricted/cable/pipeline/TSS) under a water
      *  tap — folded into the depth popup as a "⚠ Restricted area…" row, so
      *  the caution wash never REPLACES the depth/keel read (audit). */
-    caution?: Record<string, unknown>;
+    cautions?: Record<string, unknown>[];
 }
 
 const fmtHm = (ms: number): string =>
@@ -392,12 +399,13 @@ export function buildFeaturePopupHtml(
             const sb = natsurNames(readS57(extras.seabed, 'NATSUR'));
             if (sb) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(sb)}</b></div>`;
         }
-        // Caution area under the tap — the depth/keel read stays the star,
-        // the restriction rides along ("⚠ Restricted area — entry prohibited").
-        if (extras.caution) {
-            const cls = String(extras.caution._caution ?? '');
+        // Caution areas under the tap — the depth/keel read stays the star,
+        // EVERY stacked restriction rides along (closing audit: only the
+        // first surfaced; overlapping restricted + cable areas dropped one).
+        for (const caution of extras.cautions ?? []) {
+            const cls = String(caution._caution ?? '');
             const label = CAUTION_LABELS[cls] ?? 'Charted area';
-            const restrn = restrnNames(readS57(extras.caution, 'RESTRN'));
+            const restrn = restrnNames(readS57(caution, 'RESTRN'));
             const detail = restrn || (cls === 'CBLARE' || cls === 'PIPARE' ? 'No anchoring' : '');
             body += `<div class="enc-popup-row"><span>⚠</span><b style="color:#e879f9">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
         }

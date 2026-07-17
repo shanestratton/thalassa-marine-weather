@@ -6300,6 +6300,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         ['#ecc94b', 'Special mark'],
                                         ['#3b82c4', 'Fairway edge'],
                                         ['#f59e0b', 'Leading line / track'],
+                                        // Closing audit: rendered since the
+                                        // TSS-family batch but never keyed.
+                                        ['#0e7490', 'Deep-water route'],
+                                        ['#d97706', 'Precautionary area'],
                                         ['#9a9a9a', 'Unknown mark'],
                                     ] as const
                                 ).map(([swatch, label]) => (
