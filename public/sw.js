@@ -224,9 +224,14 @@
 // parser (IO overlaps parse instead of strictly alternating), and the
 // sounding-density ladder stops assigning rungs the current window culls
 // anyway (~30-50% of ladder work at z10).
-const CACHE_NAME = 'thalassa-v117-core';
-const TILE_CACHE = 'thalassa-v117-tiles';
-const DATA_CACHE = 'thalassa-v117-data';
+// v118: routing-page declutter — while the tracer is open the layer FAB,
+// offline-download FAB, mic orb and the Clear All chip hide (Done brings
+// them back); the tracer card is height-clamped (~44% of screen, legs scroll
+// inside) so it never climbs under the compass/zoom box, and it sits clear
+// above the detail scrubber.
+const CACHE_NAME = 'thalassa-v118-core';
+const TILE_CACHE = 'thalassa-v118-tiles';
+const DATA_CACHE = 'thalassa-v118-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

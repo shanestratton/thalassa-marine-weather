@@ -812,6 +812,18 @@ export const MapHub: React.FC<MapHubProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [embedded, pickerMode, hideTracer, isPinView]);
 
+    // Routing-page declutter (Shane 2026-07-17): tell app-level chrome (the
+    // Bosun mic orb over the map) when the tracer is active so it steps
+    // aside; Done brings it back.
+    useEffect(() => {
+        if (embedded || pickerMode || isPinView) return;
+        try {
+            window.dispatchEvent(new CustomEvent('thalassa:tracer-active', { detail: { active: coordCaptureMode } }));
+        } catch {
+            /* chrome just stays visible */
+        }
+    }, [coordCaptureMode, embedded, pickerMode, isPinView]);
+
     // Departure set on the PLAN page (DepartControl) → adopt it here so the
     // tide windows / weather ETAs re-anchor without a remount.
     useEffect(() => {
@@ -4482,8 +4494,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     deviceMode={deviceMode}
                 />
 
-                {/* ═══ RADIAL HELM MENU (gesture-based layer control) ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && (
+                {/* ═══ RADIAL HELM MENU (gesture-based layer control) ═══
+                    Hidden while TRACING (Shane 2026-07-17: routing page
+                    declutter) — Done brings the rail back. */}
+                {!passage.showPassage && !embedded && !isPinView && !coordCaptureMode && (
                     <RadialHelmMenu
                         activeLayers={weather.activeLayers}
                         toggleLayer={weather.toggleLayer}
@@ -4880,7 +4894,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!embedded && !isPinView && !pickerMode && !hideTracer && (
                     <div
                         className="absolute left-3 z-[9995]"
-                        style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+                        // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
+                        // ~2.2rem tall) — it used to overlap it by ~24 px (Shane
+                        // 2026-07-17). The CLOSED 🧭 pill keeps its usual bottom-rail
+                        // home at 6rem.
+                        style={{
+                            bottom: coordCaptureMode
+                                ? 'calc(8.4rem + env(safe-area-inset-bottom))'
+                                : 'calc(6rem + env(safe-area-inset-bottom))',
+                        }}
                     >
                         {!coordCaptureMode ? (
                             <button
@@ -4909,7 +4931,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 🧭 Trace route{capturedCoords.length > 0 ? ` (${capturedCoords.length})` : ''}
                             </button>
                         ) : (
-                            <div className="flex max-h-[calc(100dvh-14rem)] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
+                            // Height CLAMPED to ~44% of the screen (was
+                            // 100dvh-14rem ≈ 75%): a long route made the card
+                            // climb under the compass rose + zoom box (Shane
+                            // 2026-07-17: "if the tracer box did not grow…").
+                            // The leg list already scrolls internally, so past
+                            // ~8 rows it scrolls instead of growing.
+                            <div className="flex max-h-[44dvh] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
                                 {/* The WHOLE header folds/unfolds the card (Shane
                                     2026-07-15: "we need a bigger button to minimise
                                     and maximise the plotting card") — the old chevron
@@ -6190,7 +6218,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     through 20 layer toggles. Always visible while on
                     the chart screen. */}
                 <ChartModes
-                    visible={!passage.showPassage && !embedded && !isPinView}
+                    // Hidden while TRACING (Shane 2026-07-17: "hide the clear
+                    // all thing at the top" on the routing page) — plotting
+                    // deserves a clean sheet; Done brings it back.
+                    visible={!passage.showPassage && !embedded && !isPinView && !coordCaptureMode}
                     onOpenSettings={() => setLayerSettingsOpen(true)}
                     activeSkyLayers={weather.activeLayers as Set<string>}
                     toggleSkyLayer={(layer) => weather.toggleLayer(layer as never)}
@@ -6548,8 +6579,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
                     Below the ℹ button on the right rail. Opens a modal that
                     pre-caches raster map tiles (OSM + OpenSeaMap) for the
-                    current view, routed through the boat Pi if available. */}
-                {!embedded && !isPinView && !passage.showPassage && (
+                    current view, routed through the boat Pi if available.
+                    Hidden while TRACING (routing-page declutter, 2026-07-17). */}
+                {!embedded && !isPinView && !passage.showPassage && !coordCaptureMode && (
                     <>
                         <button
                             onClick={() => {
