@@ -261,6 +261,33 @@ export async function parseAndCacheCellTextAsync(cellId: string, text: string): 
     return parsed;
 }
 
+/** Generic off-thread JSON.parse of an arbitrary blob, reusing the cell parse
+ *  worker (closing audit 2026-07-18: the cloud-download path ran a bare
+ *  main-thread JSON.parse of every 2-8 MB bucket blob, 3-wide, exactly the
+ *  indivisible-stall class this worker retired on the LOAD path). Returns the
+ *  raw parsed value — no shape gate, no cache, so it also handles the Pi's
+ *  { cells: [...] } wrapper the cloud sync must unwrap. Falls back to a
+ *  synchronous parse when the worker is unavailable or died; THROWS on
+ *  malformed JSON either way, so callers keep their existing try/catch. */
+export async function parseJsonOffThread(text: string): Promise<unknown> {
+    const worker = getParseWorker();
+    if (!worker) return JSON.parse(text);
+    const blob = await new Promise<unknown>((resolve) => {
+        const seq = ++parseSeq;
+        parseWaiters.set(seq, resolve);
+        try {
+            worker.postMessage({ seq, cellId: '(json)', text });
+        } catch {
+            parseWaiters.delete(seq);
+            resolve(null);
+        }
+    });
+    // The worker posts null on a parse failure OR resolves waiters null when it
+    // dies; a sync retry disambiguates — it throws on genuinely bad JSON and
+    // succeeds if only the worker was gone.
+    return blob === null ? JSON.parse(text) : blob;
+}
+
 /** The serial half of the pipeline: parse + shape-gate + LRU-cache one cell's
  *  text (exactly loadCellGeoJSON's semantics). Null on malformed. */
 export function parseAndCacheCellText(cellId: string, text: string): EncConversionResult | null {
