@@ -20,6 +20,7 @@ import { ProcessOverlay } from './components/ProcessOverlay';
 import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
+import { isBuilderDeepLink } from './services/deepLink';
 // NAV_ICON_CHAT no longer imported — Scuttlebutt was demoted off the
 // bottom nav in the Week 2 5-tab restructure. Chat is still
 // reachable via the Vessel hub's Wardroom section and any
@@ -118,6 +119,14 @@ const App: React.FC = () => {
     // console wraps the most expensive features (Pi AI, cloud Haiku,
     // ElevenLabs TTS, Cloudflare Worker proxy + Deepgram).
     const canUseBosunVoice = canAccess(settings.subscriptionTier, 'bosunVoice');
+
+    // Standalone planner page (Shane 2026-07-17: "boat-name.thalassawx.app/plan
+    // is a standalone page like the diary — the user should not have access to
+    // any other part of the app from here"). The SPA path is fixed for the
+    // session, so read it once: on /plan (or /builder) we hide the bottom tab
+    // bar entirely, leaving just the planner + chart. Native serves from '/',
+    // so this is web-only and never touches the app.
+    const [isStandalonePlan] = useState(isBuilderDeepLink);
 
     // Routing-page declutter (Shane 2026-07-17): MapHub broadcasts when the
     // Route Tracer is active; the floating mic orb over the map steps aside
@@ -1022,7 +1031,7 @@ const App: React.FC = () => {
                     <GlobalNowPlayingBar />
                 </Suspense>
 
-                {!isMobileLandscape && (
+                {!isMobileLandscape && !isStandalonePlan && (
                     <nav
                         className="fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)]"
                         style={{

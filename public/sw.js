@@ -264,9 +264,12 @@
 // v132: the tracer card is a FIXED height — adding waypoints no longer
 // grows it. The waypoint list is the one scroll region (soaks up the slack),
 // and Save/Report/Depart stay pinned and always reachable below it.
-const CACHE_NAME = 'thalassa-v132-core';
-const TILE_CACHE = 'thalassa-v132-tiles';
-const DATA_CACHE = 'thalassa-v132-data';
+// v133: tracer card header controls are proper fat-finger buttons (fold /
+// compass / Done, ≥36px targets); the standalone <boat>.thalassawx.app/plan
+// page hides the bottom tab bar — no access to the rest of the app.
+const CACHE_NAME = 'thalassa-v133-core';
+const TILE_CACHE = 'thalassa-v133-tiles';
+const DATA_CACHE = 'thalassa-v133-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

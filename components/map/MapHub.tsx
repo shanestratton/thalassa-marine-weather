@@ -5093,24 +5093,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     and maximise the plotting card") — the old chevron
                                     was a ~14 px target. The 🧭 and Done buttons stop
                                     propagation so they keep their own jobs. */}
-                                <div
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        setPanelFolded((f) => !f);
-                                    }}
-                                    className="flex cursor-pointer select-none items-center justify-between border-b border-white/10 px-3 py-2.5 active:bg-white/5"
-                                >
+                                {/* Header controls are PROPER buttons now (Shane
+                                    2026-07-17: "can these two be proper buttons… so
+                                    you can press them with fat fingers"). The outer
+                                    row is no longer one tap-to-fold target — each
+                                    control owns a ≥36 px hit area. */}
+                                <div className="flex select-none items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
                                     <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
+                                        onClick={() => {
                                             triggerHaptic('light');
                                             setPanelFolded((f) => !f);
                                         }}
                                         aria-expanded={!panelFolded}
                                         aria-label={panelFolded ? 'Expand tracer panel' : 'Collapse tracer panel'}
-                                        className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-amber-300"
+                                        className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 text-xs font-black uppercase tracking-widest text-amber-300 active:bg-white/10"
                                     >
-                                        <span className="text-base leading-none text-gray-400">
+                                        <span className="text-lg leading-none text-gray-400">
                                             {panelFolded ? '▸' : '▾'}
                                         </span>
                                         ● Tracer ({capturedCoords.length})
@@ -5124,20 +5122,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                   ? 'text-amber-300'
                                                   : 'text-emerald-300';
                                         return (
-                                            <span className={`text-[10px] font-black uppercase tracking-wide ${tone}`}>
+                                            <span
+                                                className={`shrink-0 text-[10px] font-black uppercase tracking-wide ${tone}`}
+                                            >
                                                 {capturedCoords.length >= 2 ? h.label : ''}
                                             </span>
                                         );
                                     })()}
                                     <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
+                                        onClick={() => {
                                             triggerHaptic('light');
                                             setRoseVisible((v) => !v);
                                         }}
                                         aria-pressed={roseVisible}
                                         aria-label={roseVisible ? 'Hide compass rose' : 'Show compass rose'}
-                                        className={`p-1 text-sm leading-none ${roseVisible ? '' : 'opacity-40 grayscale'}`}
+                                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg leading-none active:scale-95 ${roseVisible ? 'bg-white/10' : 'bg-white/[0.04] opacity-40 grayscale'}`}
                                     >
                                         🧭
                                     </button>
@@ -5146,8 +5145,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         the top one"). The action rows own the toggle:
                                         folded strip + the Undo/Copy/Clear row below. */}
                                     <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
+                                        onClick={() => {
                                             triggerHaptic('light');
                                             // Done = MINIMISE, not exit (Shane 2026-07-17:
                                             // "the charts page and the plan page are
@@ -5160,7 +5158,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             // (MapHub unmounts, CHARTS remounts clean).
                                             setPanelFolded(true);
                                         }}
-                                        className="p-1 text-xs font-bold text-gray-400"
+                                        className="flex h-9 shrink-0 items-center rounded-lg bg-white/10 px-3 text-xs font-black uppercase tracking-wide text-gray-200 active:scale-95"
                                     >
                                         Done
                                     </button>
