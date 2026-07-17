@@ -184,3 +184,17 @@ ledger row below.
 | 2026-07-18 | Lights overhaul + same-layer seam clip frames                          | 0.75 | see git log | 98.5                           |
 | 2026-07-18 | Case-defensive render expressions (TOPMAR deferred to extractor batch) | 0.25 | see git log | 98.75                          |
 | 2026-07-18 | Glaze fold step carved (glazeBuild.ts) — partial god-module bank       | 0.5  | see git log | **99.25 — LIST DISPOSITIONED** |
+
+## Cycle-3 closing audit (protocol step 2): **86.15/100**
+
+`wf_2d67d3fc-d85`, 11 agents, zero refutations (one UX verdict adjusted
+DOWN). Arc: 79.6 → 83.75 → 84.25 → **86.15** — the biggest single-cycle
+open-score jump, and safety hit **28.25/30**. Chief: "the validation
+core survived adversarial re-verification intact… the surviving safety
+findings are all edge-geometry and degraded-data cases — not systematic
+wrong answers." Trustworthy verdict for the 2.4 m Tayana in home waters;
+honest gap named for the 6 m-draft bluewater market (ZOC-B zero-margin
+graze + >5 m glaze gap + GEBCO positional trust). Full transcript:
+ENC_AUDIT_2026-07-18_closing.md. The new top-8 seeds burn-down #4;
+chief's fix-first = ZOC-aware lateral clearance margin + the free
+silent-catch advisory in the same commit.
