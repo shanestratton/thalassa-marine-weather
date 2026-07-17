@@ -159,7 +159,11 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
             const text = await data.text();
             // The Pi endpoint wraps cells as { cells: [RawCell] }; the local
             // store expects the EncConversionResult shape ({ cellId, layers }).
-            const parsed = JSON.parse(text) as {
+            // Parse OFF-THREAD (closing audit 2026-07-18): a bare main-thread
+            // JSON.parse of every 2-8 MB blob, 3-wide during hydration, was the
+            // exact indivisible-stall the load path already moved to the worker.
+            const { parseJsonOffThread } = await import('./EncCellStore');
+            const parsed = (await parseJsonOffThread(text)) as {
                 cells?: Array<{ cellId: string; layers: unknown }>;
                 cellId?: string;
                 layers?: unknown;

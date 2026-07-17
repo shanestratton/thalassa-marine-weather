@@ -6,9 +6,9 @@
  * small-cell history the 48 MB budget has room for. These lock in the caps'
  * interplay and the fail-safe min-keep floor.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-import { shouldEvictBlob } from '../../services/enc/EncCellStore';
+import { shouldEvictBlob, parseJsonOffThread } from '../../services/enc/EncCellStore';
 
 const MB = 1024 * 1024;
 
@@ -43,5 +43,27 @@ describe('shouldEvictBlob', () => {
         // count cap of 32. Same peak memory, fewer re-parses on a wide pan.
         expect(shouldEvictBlob(40, 20 * MB, 32, 48 * MB, 4)).toBe(true); // old cap: evicted
         expect(shouldEvictBlob(40, 20 * MB, 128, 48 * MB, 4)).toBe(false); // new cap: kept
+    });
+});
+
+describe('parseJsonOffThread (worker-unavailable sync fallback)', () => {
+    // No Worker in this env → the sync path runs. It must keep JSON.parse
+    // semantics exactly, and NOT shape-gate (the cloud sync unwraps the
+    // Pi's { cells:[…] } wrapper itself — closing audit 2026-07-18).
+    it('parses a bare cell object', async () => {
+        vi.stubGlobal('Worker', undefined);
+        await expect(parseJsonOffThread('{"cellId":"x","layers":{}}')).resolves.toEqual({ cellId: 'x', layers: {} });
+    });
+
+    it('returns the { cells:[…] } wrapper unchanged — no shape gate', async () => {
+        vi.stubGlobal('Worker', undefined);
+        await expect(parseJsonOffThread('{"cells":[{"cellId":"x","layers":{}}]}')).resolves.toEqual({
+            cells: [{ cellId: 'x', layers: {} }],
+        });
+    });
+
+    it('throws on malformed JSON, so the caller’s try/catch still fires', async () => {
+        vi.stubGlobal('Worker', undefined);
+        await expect(parseJsonOffThread('not json {')).rejects.toThrow();
     });
 });
