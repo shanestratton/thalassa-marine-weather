@@ -276,9 +276,12 @@
 // the card top to the rose alone still let it cover the zoom/moon pills.
 // v136: drop the pin-count "(N)" from the tracer header title — it wrapped
 // onto a second line and buggered the header layout.
-const CACHE_NAME = 'thalassa-v136-core';
-const TILE_CACHE = 'thalassa-v136-tiles';
-const DATA_CACHE = 'thalassa-v136-data';
+// v137: feature-info popups (tap a mark/depth/hazard) now sit ABOVE the
+// compass rose, tracer card and every FAB. The ENC popup carried no z-index
+// (rose/moon painted over it); the rest were only 800 — all now 10000.
+const CACHE_NAME = 'thalassa-v137-core';
+const TILE_CACHE = 'thalassa-v137-tiles';
+const DATA_CACHE = 'thalassa-v137-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -2530,9 +2530,21 @@ body,
     }
 }
 
+/* Feature-info popups (tap a mark / depth / hazard) sit above EVERYTHING on
+   the chart — the compass rose (9996), the tracer card (9995) and every FAB
+   (Shane 2026-07-17: "ensure any boxes like this are on top of anything
+   else"). enc-popup-mapbox / tide / mpa / anchorage carried NO z-index, so
+   the rose and moon painted over them; the rest were only 800. */
+.enc-popup-mapbox,
+.tide-station-popup,
+.mpa-popup,
+.anchorage-popup {
+    z-index: 10000 !important;
+}
+
 /* ── Weather Inspect Popup — strip Mapbox default styling ──────── */
 .weather-inspect-popup {
-    z-index: 800 !important; /* Above wind particles (400), layer menu (500), FABs (600) */
+    z-index: 10000 !important; /* above the compass rose (9996) + tracer card (9995) */
 }
 
 .weather-inspect-popup .mapboxgl-popup-content {
@@ -2548,7 +2560,7 @@ body,
 
 /* ── Seamark Popup — dark glass theme for nautical feature info ──────── */
 .seamark-popup {
-    z-index: 800 !important;
+    z-index: 10000 !important; /* above the compass rose (9996) + tracer card (9995) */
 }
 
 .seamark-popup .mapboxgl-popup-content {
@@ -2590,7 +2602,7 @@ body,
 /* ── Notices to Mariners / bridge popups — dark glass card (Shane: the bare
    text was unreadable against the chart) ─────────────────────────────── */
 .ntm-popup {
-    z-index: 800 !important;
+    z-index: 10000 !important; /* above the compass rose (9996) + tracer card (9995) */
 }
 
 .ntm-popup .mapboxgl-popup-content {
@@ -2643,7 +2655,7 @@ body,
 
 /* ── AIS Vessel Detail Popup — dark glass theme ──────── */
 .ais-vessel-popup {
-    z-index: 800 !important;
+    z-index: 10000 !important; /* above the compass rose (9996) + tracer card (9995) */
 }
 
 .ais-vessel-popup .mapboxgl-popup-content {
