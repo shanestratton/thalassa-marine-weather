@@ -83,10 +83,12 @@ ledger row below.
 
 ## Code quality (5.25)
 
-- [ ] **1.0 — Worker protocol lifecycle: zero test coverage** — lifecycle
-      tests for dispatchGeometryWork → reply handlers → applyGlazeUpgrade,
-      incl. overlapping jobs + eviction-abandon (geometryUpgrades.ts is
-      now import-mockable — carve made this feasible).
+- [x] **1.0 — Worker protocol lifecycle tests** — DONE: 6 lifecycle tests
+      over the REAL parking/cache modules with a fake Worker — round-trip
+      reassembly (untouched stripped from the wire), overlapping jobs on
+      one glaze key, eviction-abandon on 'done', error cleanup scoped to
+      its own job, symmetric postMessage-failure release, coverage-lib
+      subsetting.
 - [ ] **0.75 — Hand-mirrored ensureSource/uploads lists** — one
       declarative source-id→builder table drives both + mount smoke test
       (EncVectorLayer ~1339-1352 vs ~1475-1493).
