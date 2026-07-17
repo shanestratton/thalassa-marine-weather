@@ -41,9 +41,14 @@ free silent-catch advisory shipped in the same commit — first ledger row.
 
 ### Rendering (1.25 of the seed)
 
-- [ ] **0.75 — White lights render near-white on the white chart** — OPEN
-      (handover next-action #2): map the `#f0e030` `_lightColor` key to a
-      YELLOW flare glyph in seamarkIcons.ts (per the codebase's own comment).
+- [x] **0.75 — White lights render near-white on the white chart** — DONE:
+      `sm-light-white` now builds via `lightSvg(LIGHT_WHITE_FLARE '#f0e030')`
+      instead of `lightSvg(COLOURS.white)` — the icon's colour IS the S-52
+      warm yellow-white hue LIGHT_COLOUR_HEX['1'] bakes into `_lightColor`
+      (the match key), so it holds contrast over the day chart. Secondary
+      drift fixed in the same change: the "carry the S-52 flare shape" comment
+      corrected to the actual radiant star-burst, and the "render from z11"
+      comment aligned to the z10 filter. Locked by tests/seamarkLightIcons.ts.
 - [ ] **0.5 — Detail scrubber hides isolated-danger marks at d≥3** — OPEN:
       move BOYISD/BCNISD out of the d≥3 minors cut to the d=6 tier (or
       never-cut) in encDetailScrubber.ts; contradicts its own "never danger".
@@ -71,6 +76,7 @@ free silent-catch advisory shipped in the same commit — first ledger row.
 
 ## Ledger
 
-| Date       | Item                                                            | Pts | Commit     | Running (vs 86.15) |
-| ---------- | --------------------------------------------------------------- | --- | ---------- | ------------------ |
-| 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory | 1.0 | `4645e4e2` | 87.15              |
+| Date       | Item                                                               | Pts  | Commit     | Running (vs 86.15) |
+| ---------- | ------------------------------------------------------------------ | ---- | ---------- | ------------------ |
+| 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory    | 1.0  | `4645e4e2` | 87.15              |
+| 2026-07-19 | White lights → yellow-white flare (+ flare-shape / z-filter drift) | 0.75 | `62b707e3` | 87.90              |
