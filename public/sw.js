@@ -259,9 +259,11 @@
 // pin on a charted transit (leads are sparse, so a wide catch is safe).
 // v130: night-dim moon sits just off the compass rose's right edge (was
 // flung to the far right screen edge) — pill left, rose centre, moon beside.
-const CACHE_NAME = 'thalassa-v130-core';
-const TILE_CACHE = 'thalassa-v130-tiles';
-const DATA_CACHE = 'thalassa-v130-data';
+// v131: the tracer card's two share rows (share with a mate / share with all
+// skippers) are parked — the card ends at the harbourmaster queue now.
+const CACHE_NAME = 'thalassa-v131-core';
+const TILE_CACHE = 'thalassa-v131-tiles';
+const DATA_CACHE = 'thalassa-v131-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -313,6 +313,12 @@ const COURSE_FRAME_VISIBLE = false;
 // Wiring (pasteTrace, openVoyagePicker, the saved list) stays intact.
 const TRACER_CARD_LIBRARY_VISIBLE = false;
 
+// The card's two share rows (📤 share with a mate / 🌐 share with all
+// skippers) are PARKED (Shane 2026-07-17: "remove these from the bottom of
+// the tracer card"). Wiring (shareTrace, submitShare, the harbourmaster
+// review queue) stays intact for a future home.
+const TRACER_CARD_SHARE_VISIBLE = false;
+
 /** Equirectangular distance in metres between two lat/lon points. */
 const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
     const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
@@ -5888,7 +5894,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     📥 Paste coords from a mate
                                                 </button>
                                             )}
-                                            {capturedCoords.length >= 2 && (
+                                            {TRACER_CARD_SHARE_VISIBLE && capturedCoords.length >= 2 && (
                                                 <button
                                                     onClick={() => void shareTrace()}
                                                     className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
@@ -5896,7 +5902,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     📤 Share this route with a mate
                                                 </button>
                                             )}
-                                            {capturedCoords.length >= 2 && (
+                                            {TRACER_CARD_SHARE_VISIBLE && capturedCoords.length >= 2 && (
                                                 <button
                                                     onClick={() => {
                                                         if (shareArmed) {
