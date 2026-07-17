@@ -8,6 +8,7 @@
 import mapboxgl from 'mapbox-gl';
 import { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
 import { mapExpr } from './encDepthStyle';
+import { CAUTION_CLASS_COLOURS, CAUTION_DEFAULT_COLOUR } from './encPopup';
 
 /**
  * mountCautionAreaLayers — caution / info AREAS (RESARE/CBLARE/PIPARE/SBDARE/
@@ -25,29 +26,8 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
     const colourExpr = [
         'match',
         ['get', '_caution'],
-        'SBDARE',
-        '#8a8a5a', // seabed nature — olive (anchoring aid)
-        'CBLARE',
-        '#7c3aed', // submarine cable — violet
-        'PIPARE',
-        '#5b21b6', // pipeline — deep violet
-        'TSSLPT',
-        '#d97706', // TSS lane — amber
-        'TSEZNE',
-        '#c2410c', // TSS separation zone — burnt orange, darker than the lane (audit: zone read identical to lane)
-        'ACHARE',
-        '#2f6fd0', // designated anchorage — marine blue
-        'MARCUL',
-        '#5f7a3a', // marine farm — kelp green (nets + lines, keep clear)
-        'PRCARE',
-        '#d97706', // precautionary area — TSS amber family
-        'DWRTPT',
-        '#0e7490', // deep-water route — deep teal (big-ship water)
-        'TSELNE',
-        '#d97706', // TSS separation line (renders on the line layer)
-        'TSSBND',
-        '#d97706', // TSS boundary line
-        '#c0209a', // RESARE + CTNARE + default — caution magenta
+        ...Object.entries(CAUTION_CLASS_COLOURS).flat(),
+        CAUTION_DEFAULT_COLOUR,
     ] as unknown;
     if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_FILL)) {
         map.addLayer(
