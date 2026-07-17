@@ -17,6 +17,8 @@ import {
     healTripChain,
     saveTrace,
     loadSavedTraces,
+    persistLegVerdicts,
+    hydrateLegVerdicts,
 } from '../services/routeTracer';
 
 describe('trip-chain name helpers', () => {
@@ -137,5 +139,45 @@ describe('trip-chain storage operations', () => {
         expect(healTripChain(trace)).toBeNull(); // no tripId
         const { trace: tail } = saveTrace('woorim - end (2nd Leg)', PTS, { tripId: 'trip-b', legOrdinal: 2 });
         expect(healTripChain(tail)).toBeNull(); // no successor
+    });
+});
+
+describe('leg-verdict persistence (remount cold-cache fix, 2026-07-17)', () => {
+    const verdict = {
+        grade: 'clear' as const,
+        issues: [],
+        minDepthM: 8,
+        minAt: null,
+        needsTide: false,
+        nudge: null,
+        nudgeTo: null,
+    };
+    beforeEach(() => localStorage.clear());
+
+    it('round-trips when keel + chart library match', () => {
+        const cache = new Map([['a|b', verdict]]);
+        persistLegVerdicts(cache, 2.4, false, 7);
+        const back = hydrateLegVerdicts(2.4, false, 7)!;
+        expect(back.get('a|b')?.grade).toBe('clear');
+        expect(back.get('a|b')?.minDepthM).toBe(8);
+    });
+
+    it('a different keel, honesty flag, or chart version drops the lot', () => {
+        persistLegVerdicts(new Map([['a|b', verdict]]), 2.4, false, 7);
+        expect(hydrateLegVerdicts(2.6, false, 7)).toBeNull(); // draft changed
+        expect(hydrateLegVerdicts(2.4, true, 7)).toBeNull(); // assumed flipped
+        expect(hydrateLegVerdicts(2.4, false, 8)).toBeNull(); // chart installed
+        expect(hydrateLegVerdicts(2.4, false, 7)).not.toBeNull(); // unchanged → survives
+    });
+
+    it('caps at the newest 500 entries and survives garbage', () => {
+        const big = new Map(Array.from({ length: 620 }, (_, i) => [`k${i}`, verdict] as const));
+        persistLegVerdicts(big, 2.4, false, 7);
+        const back = hydrateLegVerdicts(2.4, false, 7)!;
+        expect(back.size).toBe(500);
+        expect(back.has('k619')).toBe(true); // newest kept
+        expect(back.has('k0')).toBe(false); // oldest culled
+        localStorage.setItem('thalassa_leg_verdicts_v1', '{corrupt');
+        expect(hydrateLegVerdicts(2.4, false, 7)).toBeNull();
     });
 });

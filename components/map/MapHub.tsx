@@ -138,6 +138,8 @@ import {
     curatedLanesNear,
     fixLegOnGrid,
     commonDepartureWindowLabel,
+    persistLegVerdicts,
+    hydrateLegVerdicts,
     nextLegSeed,
     ordinalLegLabel,
     withLegBadge,
@@ -153,7 +155,7 @@ import {
     type SavedTrace,
 } from '../../services/routeTracer';
 import { consumeTracerOpenRequest, consumeTracerAction } from '../../services/deepLink';
-import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
+import { listCells as listEncCells, getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
 import {
     subscribe as subscribeToEnc,
     subscribeHydration as subscribeToEncHydration,
@@ -575,6 +577,11 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  every untouched leg is a hit. Cleared when the CONTEXT rebuilds
      *  (new area / draft change) — those invalidate every cached verdict. */
     const legCacheRef = useRef<Map<string, TraceLegVerdict>>(new Map());
+    /** One-shot hydration of the persisted verdict cache (Shane 2026-07-17:
+     *  "checks the entire route again, even though nothing changed" — the
+     *  cache used to die with every remount/reload/tab-bounce). Runs inside
+     *  the grading effect where the real draft is known. */
+    const legCacheHydratedRef = useRef(false);
     /** VOLATILE failure verdicts ("no ENC chart here", build exception) —
      *  kept OUT of legCacheRef because a nochart can be a transient network
      *  blip (cloud cell hydration offline): every grading pass clears this
@@ -2171,6 +2178,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         gradedDraftRef.current = { d: draftNow, assumed: draftAssumed };
         const cache = legCacheRef.current;
+        if (!legCacheHydratedRef.current) {
+            legCacheHydratedRef.current = true;
+            // Same keel + same chart library ⇒ yesterday's verdicts are
+            // today's verdicts; anything else returns null and we re-grade.
+            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, getEncRegistryVersion());
+            if (persisted) for (const [k, v] of persisted) if (!cache.has(k)) cache.set(k, v);
+        }
         // Failure verdicts retry every pass — a chart that appears
         // mid-session (Pi back in range, cloud sync) heals the legs.
         const failMap = failVerdictsRef.current;
@@ -2308,6 +2322,9 @@ export const MapHub: React.FC<MapHubProps> = ({
             // Failures outrank the held ctx in the strip — a half-graded
             // trace must not read "ready" while legs say "load failed".
             setTracerStatus(failStatus ?? (sawMarksOnly ? 'marksonly' : tracerCtxRef.current ? 'ready' : 'nochart'));
+            // The pass is the unit of new knowledge — bank it so the NEXT
+            // mount (reload, deploy, tab-bounce) re-grades nothing.
+            persistLegVerdicts(cache, draftNow, draftAssumed, getEncRegistryVersion());
         })();
     }, [capturedCoords, coordCaptureMode, settings.vessel]);
     // Tide windows for sub-keel legs — async per shallow SPOT, cached by the
@@ -6196,6 +6213,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                     >
                         Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})
                     </div>
+                )}
+                {/* Night-dim quick toggle (closing audit: the ☾ lived only at
+                    the BOTTOM of the chart-modes dropdown, behind a scroll —
+                    at night, when you need it, menus blind you first). One
+                    tap from the map; same persisted state as the menu row. */}
+                {encVisible && !embedded && !pickerMode && !isPinView && (
+                    <button
+                        onClick={() => setNightDim(!nightDim)}
+                        aria-label="Toggle night dim"
+                        aria-pressed={nightDim}
+                        className="absolute bottom-24 right-2 z-[9979] flex h-10 w-10 items-center justify-center rounded-full border shadow-lg active:scale-95"
+                        style={{
+                            background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
+                            borderColor: 'rgba(220, 80, 60, 0.35)',
+                            color: '#e07a5f',
+                            fontSize: 18,
+                        }}
+                    >
+                        ☾
+                    </button>
                 )}
                 {/* No-coverage chip — uncharted water at nav zoom must never
                     read like the chart layer is merely off (2026-07-17 audit). */}

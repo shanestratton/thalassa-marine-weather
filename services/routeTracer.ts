@@ -1212,6 +1212,62 @@ export interface SavedTrace {
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
 
+// ── Leg-verdict persistence (Shane 2026-07-17: "sometimes the app wants to
+// check the entire route again, even though nothing changed") ─────────────
+// The in-memory verdict cache dies with the MapHub instance — every reload,
+// deploy, or tab-bounce remounted a COLD cache and a kept route re-graded
+// from scratch. Verdicts are pure functions of (leg coords, draft, chart
+// library), so they persist across mounts guarded by exactly those: a
+// draft change or a chart install/update (registry version bump) drops the
+// lot; otherwise a remount re-grades nothing.
+
+const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v1';
+/** A working route is tens of legs; 500 covers several routes' churn
+ *  without letting localStorage bloat. Insertion order ≈ age — the tail
+ *  (newest) survives the cap. */
+const LEG_VERDICTS_CAP = 500;
+
+interface PersistedLegVerdicts {
+    draftM: number;
+    draftAssumed: boolean;
+    encVersion: number;
+    entries: Array<[string, TraceLegVerdict]>;
+}
+
+export function persistLegVerdicts(
+    cache: ReadonlyMap<string, TraceLegVerdict>,
+    draftM: number,
+    draftAssumed: boolean,
+    encVersion: number,
+): void {
+    try {
+        const entries = Array.from(cache.entries()).slice(-LEG_VERDICTS_CAP);
+        const payload: PersistedLegVerdicts = { draftM, draftAssumed, encVersion, entries };
+        localStorage.setItem(LEG_VERDICTS_KEY, JSON.stringify(payload));
+    } catch {
+        /* quota/private mode — worst case is the old behaviour (re-grade) */
+    }
+}
+
+/** Null unless the persisted set was graded against the SAME keel and the
+ *  SAME chart library — a stale verdict is worse than a re-grade. */
+export function hydrateLegVerdicts(
+    draftM: number,
+    draftAssumed: boolean,
+    encVersion: number,
+): Map<string, TraceLegVerdict> | null {
+    try {
+        const raw = localStorage.getItem(LEG_VERDICTS_KEY);
+        if (!raw) return null;
+        const p = JSON.parse(raw) as PersistedLegVerdicts;
+        if (!p || p.draftM !== draftM || p.draftAssumed !== draftAssumed || p.encVersion !== encVersion) return null;
+        if (!Array.isArray(p.entries)) return null;
+        return new Map(p.entries.filter(([k, v]) => typeof k === 'string' && v && typeof v.grade === 'string'));
+    } catch {
+        return null;
+    }
+}
+
 // ── Trip-chain helpers (pure; names are paint, tripId/legOrdinal are glue) ──
 
 /** "(2nd Leg)"-style badge — matched/stripped by the helpers below. */
