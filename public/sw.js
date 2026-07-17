@@ -303,9 +303,13 @@
 // v146: removed the card's "Key" toggle (it jostled the card, no useful
 // info — the empty-state help keeps the colour key), and opening a saved
 // route now FITS THE WHOLE ROUTE on screen (overrides the z10 default).
-const CACHE_NAME = 'thalassa-v146-core';
-const TILE_CACHE = 'thalassa-v146-tiles';
-const DATA_CACHE = 'thalassa-v146-data';
+// v147: tracer header is just the TRACER fold button now (Done + compass
+// toggle removed; compass rose always shows + more opaque). Fixed the web
+// "no signal" false-offline bug (probe used a CORS-blocked fetch on web) and
+// dropped the redundant "Online" connectivity chip.
+const CACHE_NAME = 'thalassa-v147-core';
+const TILE_CACHE = 'thalassa-v147-tiles';
+const DATA_CACHE = 'thalassa-v147-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

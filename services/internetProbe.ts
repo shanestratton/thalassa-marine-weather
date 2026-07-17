@@ -25,7 +25,7 @@
  * Costs ~220 bytes every two minutes (headers only, 204 response) — a
  * rounding error on any plan, including satellite.
  */
-import { CapacitorHttp } from '@capacitor/core';
+import { CapacitorHttp, Capacitor } from '@capacitor/core';
 
 import { useUIStore } from '../stores/uiStore';
 import { createLogger } from '../utils/createLogger';
@@ -52,6 +52,22 @@ async function runProbe(): Promise<boolean> {
         // Navigator 'offline' is a definite signal — no need to burn a request.
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             return false;
+        }
+        // WEB: CapacitorHttp falls back to a normal (CORS) fetch, and the
+        // gstatic 204 probe sends no CORS headers — so it ALWAYS throws and
+        // the app wrongly read "offline" on every web session (Shane
+        // 2026-07-17: "top-left says no signal but I'm clearly online"). A
+        // no-cors fetch resolves with an opaque response when the WAN is
+        // reachable and rejects only on a real network failure — the correct
+        // web connectivity check. (Native keeps the real-status CapacitorHttp
+        // path below, which bypasses CORS.)
+        if (!Capacitor.isNativePlatform()) {
+            try {
+                await fetch(PROBE_URL, { mode: 'no-cors', cache: 'no-store' });
+                return true;
+            } catch {
+                return navigator?.onLine !== false; // network error → trust the browser flag
+            }
         }
         try {
             const res = await CapacitorHttp.get({

@@ -58,6 +58,11 @@ export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) =
     }, [visible]);
 
     if (!visible) return null;
+    // Plain "Online" is noise (Shane 2026-07-17: "clearly I am online — remove
+    // that word"). Only surface the states that TELL the skipper something:
+    // 🟢 Pi (on the boat network, no cellular cost) and 🔴 Offline (stale
+    // data). Ordinary internet shows nothing.
+    if (state === 'online') return null;
 
     const STYLES: Record<Connectivity, { dot: string; label: string; tooltip: string }> = {
         pi: {
