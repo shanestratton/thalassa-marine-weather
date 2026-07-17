@@ -17,14 +17,14 @@ ledger row below.
       (Multi)Polygon** — DONE same evening (`5455543a`): per-locality
       waiver (`BERTH_EXEMPT_RADIUS_M` 500 m), old pinning test re-pinned,
       distant-arm MultiPolygon regression added.
-- [ ] **0.5 — Fixed 1.3 m MSL→LAT pessimism under-corrects big-tide QLD**
-      — scale `GEBCO_MSL_TO_LAT_PESSIMISM_M` by regional tidal range (Broad
-      Sound ~8 m data exists at landAvoidance ~751-755) or at minimum a
-      "Moreton-calibrated datum" advisory outside the calibration zone.
-- [ ] **0.5 — Proximity report drops/mis-places large/linear hazards** —
-      polygon/line OBSTRN-class get true geometry-to-route distance (like
-      COALNE at EncHazardReportService ~298-317) instead of bbox-centre +
-      silent `continue` (~211-226, ~410-412).
+- [x] **0.5 — Regional MSL→LAT pessimism** — DONE: `gebcoDatumDeltaM`
+      option; the validator scales it from the live tide curve's range
+      (0.6 × range, floored at the Moreton 1.3 m — can only get MORE
+      cautious); 2 tests incl. the floor-never-relaxes case.
+- [x] **0.5 — Proximity report nearest-approach** — DONE: polygon/line
+      hazards ranked by their closest VERTEX to the route (stride-capped),
+      same treatment as COALNE — a training wall 0.1 NM abeam can no
+      longer vanish because its bbox centre sat outside the buffer.
 - [x] **0.25 — tideConstrained propagates from segment-crossing hits** —
       DONE: threaded through querySegmentHazards' return, counted per pass
       in the validator, buildRouteAdvisories takes the segment count.
