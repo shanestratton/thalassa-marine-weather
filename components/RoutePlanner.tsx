@@ -28,6 +28,7 @@ import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { requestTracerOpen } from '../services/deepLink';
 import { DepartControl } from './passage/DepartControl';
+import { TripLegPicker } from './passage/TripLegPicker';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
 // — Comfort + Trip/Leg stay up top, then Departure, then the three ways in
@@ -428,29 +429,25 @@ export const RoutePlanner: React.FC<{
                         <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
                     </div>
 
-                    {/* Multi-leg passage helper — always visible.
-                        Picking a trip selects which voyage we're
-                        adding a leg to (drafts + active voyage).
-                        Picking a leg fills the From box (and To if
-                        the leg has a known arrival). For Leg N+1
-                        (no arrival yet) From auto-fills with the
-                        previous leg's arrival, To clears, and the
-                        user types the next hop's destination.
-                        The picker NEVER auto-fires the routing
-                        engine — the user reviews + slides the
-                        Calculate gesture themselves. An earlier
-                        eager-auto-calc kicked the user to the map
-                        the moment they touched the trip dropdown,
-                        which broke the multi-leg planning flow. */}
-                    <LegPickerDropdown
-                        onSelectDeparture={setOrigin}
-                        onSelectDestination={setDestination}
-                        onLockDeparture={setOriginLocked}
-                    />
+                    {/* Multi-leg passage helper — the voyage-based picker
+                        belongs to the parked legacy From/To form; the tracer
+                        world's Trip box is TripLegPicker below (saved traces
+                        ARE the legs — Shane 2026-07-17). */}
+                    {LEGACY_PLANNER_FORM && (
+                        <LegPickerDropdown
+                            onSelectDeparture={setOrigin}
+                            onSelectDestination={setDestination}
+                            onLockDeparture={setOriginLocked}
+                        />
+                    )}
 
                     {/* ── Tracer front door (the PLAN-tab morph) ── */}
                     {!LEGACY_PLANNER_FORM && (
                         <>
+                            {/* Trip · Legs — pick a trip, tap a leg to open it,
+                                or plot the NEXT leg (pin 1 locked at the
+                                previous leg's arrival). */}
+                            <TripLegPicker onOpenChart={() => setPage('map')} />
                             <DepartControl />
                             <div className="space-y-2">
                                 {(

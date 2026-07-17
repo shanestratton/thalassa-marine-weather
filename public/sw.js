@@ -237,9 +237,13 @@
 // v121: depart pickers are 24-hour (the web time input's AM/PM clipped),
 // default to right now, and grey out past dates/times; the tracer card can
 // now grow to just under the zoom pill before its leg list scrolls.
-const CACHE_NAME = 'thalassa-v121-core';
-const TILE_CACHE = 'thalassa-v121-tiles';
-const DATA_CACHE = 'thalassa-v121-data';
+// v122: multi-leg trips — Trip box on the PLAN page chains saved routes
+// into legs; "plot the next leg" opens the tracer with pin 1 locked at the
+// previous leg's exact arrival; saves badge "(2nd Leg)", retro-badge leg 1,
+// and auto-heal keeps the chain welded when an earlier leg's arrival moves.
+const CACHE_NAME = 'thalassa-v122-core';
+const TILE_CACHE = 'thalassa-v122-tiles';
+const DATA_CACHE = 'thalassa-v122-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
