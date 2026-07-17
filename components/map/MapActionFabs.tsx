@@ -5,6 +5,13 @@
  */
 import React from 'react';
 
+// PARKED (Shane 2026-07-17: "remove that bottom right fab, and replace it
+// with the fab which is immediately to the left of it"): the recenter-on-
+// weather-location pin rarely earned its corner, and it pushed the far more
+// important GPS Locate Me under the detail scrubber. Locate Me now owns the
+// bottom-right slot; flip this to bring the pin back (wiring intact).
+const RECENTER_FAB_VISIBLE = false;
+
 interface MapActionFabsProps {
     onLocateMe: () => void;
     onRecenter: () => void;
@@ -38,7 +45,8 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                 </svg>
             </button>
 
-            {/* Recenter on weather location */}
+            {/* Recenter on weather location — parked, see RECENTER_FAB_VISIBLE */}
+            {RECENTER_FAB_VISIBLE && (
             <button
                 aria-label="Recenter on weather location"
                 onClick={onRecenter}
@@ -60,6 +68,7 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                     />
                 </svg>
             </button>
+            )}
         </div>
     );
 };

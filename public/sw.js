@@ -232,9 +232,11 @@
 // v119: tracer card slimmed — paste-from-a-mate / past-voyage / saved-routes
 // rows removed from the card's bottom (the PLAN page owns those flows now).
 // Share-with-a-mate + share-with-all-skippers stay.
-const CACHE_NAME = 'thalassa-v119-core';
-const TILE_CACHE = 'thalassa-v119-tiles';
-const DATA_CACHE = 'thalassa-v119-data';
+// v120: recenter-on-weather-location FAB parked — GPS Locate Me now owns the
+// bottom-right corner (it was hidden behind the detail scrubber).
+const CACHE_NAME = 'thalassa-v120-core';
+const TILE_CACHE = 'thalassa-v120-tiles';
+const DATA_CACHE = 'thalassa-v120-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
