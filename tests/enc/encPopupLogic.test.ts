@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ENC_VEC_LAYERS } from '../../components/map/encLayerIds';
-import { needsTideWindow, pickAreaTap, type AreaTapHit } from '../../components/map/encPopup';
+import { buildGebcoDepthPopupHtml, needsTideWindow, pickAreaTap, type AreaTapHit } from '../../components/map/encPopup';
 
 const hit = (layerId: string, properties: Record<string, unknown> = {}): AreaTapHit => ({ layerId, properties });
 
@@ -113,5 +113,43 @@ describe('needsTideWindow — DEPARE tide-window fetch gate', () => {
 
     it('numeric-string DRVAL1 (vector-tile property) coerces', () => {
         expect(needsTideWindow('1.5', 2.5, null)).toBe(true);
+    });
+});
+
+describe('buildGebcoDepthPopupHtml — uncharted-water tap answer (cycle-4 audit #6)', () => {
+    it('loading phase shows a "checking" placeholder and NO chart-verified caveat yet', () => {
+        const html = buildGebcoDepthPopupHtml(null, 2.9, 'loading');
+        expect(html).toContain('Uncharted water');
+        expect(html).toContain('checking');
+        expect(html).not.toContain('NOT chart-verified');
+    });
+
+    it('a deep GEBCO reading reads deeper-than-safety-depth + the loud caveat', () => {
+        const html = buildGebcoDepthPopupHtml(-12, 2.9, 'ready');
+        expect(html).toContain('~12 m');
+        expect(html).toContain('deeper than your 2.9 m safety depth');
+        expect(html).toContain('NOT chart-verified');
+        expect(html).toContain('460 m GEBCO');
+    });
+
+    it('a shallow GEBCO reading flags SHALLOWER-than-safety-depth caution', () => {
+        const html = buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready');
+        expect(html).toContain('~2 m'); // 1.5 rounds to 2 for display
+        expect(html).toContain('SHALLOWER than your 2.9 m safety depth');
+        expect(html).toContain('caution');
+    });
+
+    it('a positive reading reads as land / above sea level', () => {
+        expect(buildGebcoDepthPopupHtml(5, 2.9, 'ready')).toContain('land / above sea level');
+    });
+
+    it('null depth on ready = no data here (GEBCO unavailable)', () => {
+        expect(buildGebcoDepthPopupHtml(null, 2.9, 'ready')).toContain('no data here');
+    });
+
+    it('omits the keel read when no vessel safety depth is known', () => {
+        const html = buildGebcoDepthPopupHtml(-8, undefined, 'ready');
+        expect(html).toContain('~8 m');
+        expect(html).not.toContain('safety depth');
     });
 });

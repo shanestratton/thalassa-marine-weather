@@ -56,7 +56,14 @@ import {
     S57_POINT_MARK_CLASSES,
 } from './encLayerIds';
 import { isScrubHidden } from './encDetailScrubber';
-import { buildFeaturePopupHtml, needsTideWindow, pickAreaTap, type PopupExtras } from './encPopup';
+import {
+    buildFeaturePopupHtml,
+    buildGebcoDepthPopupHtml,
+    needsTideWindow,
+    pickAreaTap,
+    type PopupExtras,
+} from './encPopup';
+import { GebcoDepthService } from '../../services/GebcoDepthService';
 import { mountCautionAreaLayers } from './encCautionMounts';
 
 export { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
@@ -2020,6 +2027,46 @@ export function encHasClickableFeatureAt(map: mapboxgl.Map, lngLat: { lat: numbe
 }
 
 /**
+ * Tap on UNCHARTED water (no ENC area feature under the point) — answer with
+ * the coarse GEBCO depth the router itself falls back to, instead of silence
+ * (cycle-4 closing audit #6). A popup appears immediately at the tap ("checking
+ * …") and updates when the async depth lands — but only if it's still the
+ * current popup (a newer tap or a close supersedes it).
+ */
+function showUnchartedDepthPopup(map: mapboxgl.Map, lngLat: mapboxgl.LngLat): void {
+    const entry = attachedHandlers.get(map);
+    if (entry?.popup) entry.popup.remove();
+    const safetyDepthM = depthStyleState.get(map)?.safetyDepthM;
+    const popup = new mapboxgl.Popup({
+        closeButton: false,
+        maxWidth: '280px',
+        offset: 8,
+        className: 'enc-popup-mapbox',
+    })
+        .setLngLat(lngLat)
+        .setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'loading'))
+        .addTo(map);
+    if (entry) entry.popup = popup;
+    const wireClose = () => {
+        const btn = popup.getElement()?.querySelector<HTMLButtonElement>('.enc-popup-close');
+        if (btn) btn.addEventListener('click', () => popup.remove());
+    };
+    wireClose();
+    const isCurrent = () => popup.isOpen() && attachedHandlers.get(map)?.popup === popup;
+    GebcoDepthService.queryDepth(lngLat.lat, lngLat.lng)
+        .then((depthM) => {
+            if (!isCurrent()) return; // closed or superseded by a newer tap
+            popup.setHTML(buildGebcoDepthPopupHtml(depthM, safetyDepthM, 'ready'));
+            wireClose(); // setHTML replaced the DOM — re-wire the close button
+        })
+        .catch(() => {
+            if (!isCurrent()) return;
+            popup.setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'ready'));
+            wireClose();
+        });
+}
+
+/**
  * Wire up ONE map-level click handler for every ENC vector layer so
  * tapping a feature shows a popup describing it. Map-level (not
  * per-layer): 17 per-layer registrations ran the full query/HTML/popup
@@ -2112,7 +2159,12 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
                     properties: (h.properties ?? {}) as Record<string, unknown>,
                 })),
             );
-            if (!pick) return;
+            if (!pick) {
+                // No charted area under the tap → uncharted water. Answer with
+                // the coarse GEBCO depth rather than silence (cycle-4 audit #6).
+                showUnchartedDepthPopup(map, e.lngLat);
+                return;
+            }
             feat = areaHits[pick.index];
             cautionsUnder = pick.cautionsUnder;
         }

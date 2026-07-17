@@ -765,3 +765,64 @@ export function buildFeaturePopupHtml(
         </style>
     `;
 }
+
+/**
+ * Popup for a tap on UNCHARTED water — no ENC area feature under the point, so
+ * the flagship tap-the-water gesture would otherwise answer with SILENCE
+ * (cycle-4 closing audit #6). Surfaces the coarse ~460 m GEBCO ocean depth the
+ * router itself falls back to, with a loud "not chart-verified" caveat and a
+ * keel read against the vessel safety depth. `depthM` is GEBCO convention
+ * (negative = below sea level, positive = land); `phase` is 'loading' before
+ * the async depth lands, 'ready' after (null depth then = no data). Reuses the
+ * .enc-popup classes with a compact self-contained style so it stands alone.
+ */
+export function buildGebcoDepthPopupHtml(
+    depthM: number | null,
+    safetyDepthM: number | undefined,
+    phase: 'loading' | 'ready',
+): string {
+    const accent = '#f59e0b'; // amber — an uncharted, caution-grade read
+    let body: string;
+    if (phase === 'loading') {
+        body = `<div class="enc-popup-row"><span>Depth</span><b>checking…</b></div>`;
+    } else if (depthM === null) {
+        body = `<div class="enc-popup-row"><span>Depth</span><b>no data here</b></div>`;
+    } else if (depthM >= 0) {
+        body = `<div class="enc-popup-row"><span>Charted as</span><b>land / above sea level</b></div>`;
+    } else {
+        const d = Math.abs(depthM);
+        body = `<div class="enc-popup-row"><span>Approx depth</span><b>~${d.toFixed(0)} m</b></div>`;
+        if (typeof safetyDepthM === 'number') {
+            const keel =
+                d >= safetyDepthM
+                    ? `deeper than your ${safetyDepthM.toFixed(1)} m safety depth`
+                    : `SHALLOWER than your ${safetyDepthM.toFixed(1)} m safety depth — caution`;
+            body += `<div class="enc-popup-row"><span>Keel</span><b>${esc(keel)}</b></div>`;
+        }
+    }
+    const caveat =
+        phase === 'ready'
+            ? `<div class="enc-popup-sub">Uncharted here — coarse ~460 m GEBCO ocean bathymetry, ` +
+              `NOT chart-verified. Shoals smaller than the grid are invisible to it.</div>`
+            : '';
+    return `
+        <div class="enc-popup" role="dialog" aria-label="Uncharted depth">
+            <button class="enc-popup-close" aria-label="Close">×</button>
+            <div class="enc-popup-title" style="color:${accent}">Uncharted water</div>
+            <div class="enc-popup-body">${body}${caveat}</div>
+        </div>
+        <style>
+            .enc-popup { position: relative; font: -apple-system-body; font-family: system-ui, -apple-system, sans-serif; color: rgb(229,231,235); background: rgba(15,23,42,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; font-size: clamp(13px,1em,18px); line-height: 1.5; min-width: 180px; max-width: 280px; }
+            .enc-popup-close { position: absolute; top: -12px; right: -12px; background: rgba(15,23,42,0.96); border: 1px solid rgba(255,255,255,0.22); color: rgb(209,213,219); border-radius: 999px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 17px; line-height: 1; font-weight: bold; padding: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.45); }
+            .enc-popup-close:hover { background: rgba(220,38,38,0.9); color: white; }
+            .enc-popup-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; padding-right: 14px; }
+            .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
+            .enc-popup-sub { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; font-weight: 700; }
+            .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
+            .enc-popup-row span { color: rgba(229,231,235,0.55); }
+            .enc-popup-row b { font-weight: 600; color: rgb(229,231,235); }
+            .mapboxgl-popup-content { background: transparent !important; padding: 0 !important; box-shadow: none !important; }
+            .mapboxgl-popup-tip { display: none !important; }
+        </style>
+    `;
+}
