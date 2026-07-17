@@ -66,19 +66,18 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
                     filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.55))',
                 }}
             >
-                {/* Card — more opaque now (Shane 2026-07-17: "make the compass
-                    a bit more opaque"): 0.62 → 0.85 fill so it reads solidly
-                    over busy satellite imagery instead of the chart bleeding
-                    through it. */}
+                {/* Card — LESS opaque (Shane 2026-07-17: reverted "more opaque",
+                    now wants it lighter than the original): 0.85 → 0.40 fill so
+                    the chart shows through the rose. */}
                 <circle
                     cx="60"
                     cy="60"
                     r="57"
-                    fill="rgba(4,14,24,0.85)"
-                    stroke="rgba(255,255,255,0.5)"
+                    fill="rgba(4,14,24,0.40)"
+                    stroke="rgba(255,255,255,0.4)"
                     strokeWidth="1.5"
                 />
-                <circle cx="60" cy="60" r="44" fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="1" />
+                <circle cx="60" cy="60" r="44" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
                 {/* Intercardinal arms (shorter, muted) */}
                 {[45, 135, 225, 315].map((a) => (
                     <path
