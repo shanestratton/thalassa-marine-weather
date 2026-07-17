@@ -16,6 +16,8 @@ import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { failedCellIds } from '../enc/encIndexCache';
 import { GEBCO_MSL_TO_LAT_PESSIMISM_M } from '../HazardQueryService';
 import { CATZOC_LABELS, type EncAreaGraze, type EncCatzoc } from '../enc/types';
+import { cellsForBBox } from '../enc/EncCellMetadata';
+import { chartAgeYears, isChartStale } from '../enc/chartCurrency';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -708,6 +710,28 @@ function grazeOutranks(a: EncAreaGraze, b: EncAreaGraze): boolean {
     return a.clearanceM < b.clearanceM;
 }
 
+/**
+ * Turn the oldest covering chart-edition age into a currency advisory
+ * (closing audit 2026-07-18): a route validated wholly on a >5-yr edition
+ * presented the same clean report as a current chart, because chartCurrency
+ * reached only the map attribution chip, never the route advisories. An ENC is
+ * only current between re-issues if kept up with Notices to Mariners, and we
+ * hold the issue date, not the NtM status — so a stale edition is a real
+ * "verify updates" signal. Null when nothing along the route is stale. Pure +
+ * exported for unit testing (age injected, no clock dependency).
+ */
+export function describeChartCurrency(worstAgeYears: number | null): RouteAdvisory | null {
+    if (!isChartStale(worstAgeYears)) return null;
+    const yr = Math.round(worstAgeYears as number);
+    return {
+        severity: 'note',
+        kind: 'chart-currency',
+        text:
+            `Oldest chart edition on this route is ~${yr} yr old — an ENC is only current if kept ` +
+            `up to date with Notices to Mariners. Verify chart updates before relying on it.`,
+    };
+}
+
 export function describeAreaGraze(graze: EncAreaGraze | null): RouteAdvisory | null {
     if (graze === null) return null;
     const what =
@@ -768,6 +792,19 @@ export async function validateRouteSegments(
             landLog.info('[ValidateRoute] ENC coverage detected — preloaded spatial indexes');
         } catch (err) {
             landLog.warn('[ValidateRoute] ENC preload failed (continuing with GEBCO only)', err);
+        }
+    }
+
+    // Oldest chart-edition age among ENC cells covering the route — surfaced as
+    // a currency advisory in the exit branches below (closing audit 2026-07-18:
+    // edition age reached only the map chip, so a route on a >5-yr edition read
+    // as clean as a fresh chart). Null when uncharted or every edition is fresh.
+    let worstChartAgeYears: number | null = null;
+    if (Number.isFinite(bboxMinLon)) {
+        const nowMs = Date.now();
+        for (const c of cellsForBBox([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])) {
+            const age = chartAgeYears(c.issued, nowMs);
+            if (age != null && (worstChartAgeYears == null || age > worstChartAgeYears)) worstChartAgeYears = age;
         }
     }
 
@@ -1075,6 +1112,9 @@ export async function validateRouteSegments(
             // hazard within the chart's positional-error margin (burn-down #1).
             const grazeAdvisory = describeAreaGraze(worstGraze);
             if (grazeAdvisory) routeAdvisories.push(grazeAdvisory);
+            // Chart-edition currency: oldest covering edition is >5 yr old.
+            const currencyAdvisory = describeChartCurrency(worstChartAgeYears);
+            if (currencyAdvisory) routeAdvisories.push(currencyAdvisory);
             // The thin-islet crossing test threw this pass — say so, rather than
             // present a clean report over an unrun check (burn-down one-liner).
             if (segmentCheckFailed) {
@@ -1141,6 +1181,8 @@ export async function validateRouteSegments(
             ...buildRouteAdvisories(lastAllResults, options.vesselDraftM, failedCellIds(), segTideConstrained),
         ];
         if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
+        const currencyAdvisory = describeChartCurrency(worstChartAgeYears);
+        if (currencyAdvisory) routeAdvisories.push(currencyAdvisory);
         await appendCautionCrossings();
         landLog.warn(
             `[ValidateRoute] EXHAUSTED ${MAX_VALIDATION_PASSES} passes with ${unresolvedAfterPasses} ` +

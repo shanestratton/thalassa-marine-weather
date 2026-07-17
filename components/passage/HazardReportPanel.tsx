@@ -123,6 +123,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         'gebco-share': 'Depths not chart-verified',
         'lateral-clearance': 'Route grazes charted hazard',
         'segment-check-failed': 'Thin-islet check did not run',
+        'chart-currency': 'Chart edition may be out of date',
     };
     const firstCaution = cautions[0];
     const baseHeadline = !firstCaution

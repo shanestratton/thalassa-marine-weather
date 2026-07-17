@@ -13,7 +13,12 @@ import type { IsochroneNode, Isochrone, IsochroneResult } from '../services/isoc
 import { pruneWavefrontWithFallbacks } from '../services/isochrone/pruning';
 import { backtrack, smoothRoute } from '../services/isochrone/smoothing';
 import { detectTurnWaypoints, isochroneToGeoJSON } from '../services/isochrone/output';
-import { buildRouteAdvisories, describeAreaGraze, describeCautionCrossings } from '../services/isochrone/landAvoidance';
+import {
+    buildRouteAdvisories,
+    describeAreaGraze,
+    describeChartCurrency,
+    describeCautionCrossings,
+} from '../services/isochrone/landAvoidance';
 import type { HazardResult } from '../services/HazardQueryService';
 import type { EncAreaGraze } from '../services/enc/types';
 import type { EncCautionArea } from '../services/enc/EncSpatialIndex';
@@ -469,6 +474,24 @@ describe('describeAreaGraze (ZOC lateral clearance advisory, burn-down 2026-07-1
         const a = describeAreaGraze(graze({ catzoc: null }))!;
         expect(a.text).not.toContain('ZOC');
         expect(a.text).toContain('±50 m'); // still names the margin
+    });
+});
+
+describe('describeChartCurrency (chart-edition staleness, closing audit 2026-07-18)', () => {
+    it('no advisory for fresh / unknown / sub-5-yr editions', () => {
+        expect(describeChartCurrency(null)).toBeNull();
+        expect(describeChartCurrency(0)).toBeNull();
+        expect(describeChartCurrency(4.9)).toBeNull(); // under the 5-yr gate
+    });
+
+    it('a ≥5-yr edition surfaces a NOTE naming the age + Notices to Mariners', () => {
+        const a = describeChartCurrency(8.2)!;
+        expect(a.severity).toBe('note');
+        expect(a.kind).toBe('chart-currency');
+        expect(a.text).toContain('8 yr'); // rounded age
+        expect(a.text).toContain('Notices to Mariners');
+        // The gate boundary is inclusive at CHART_STALE_YEARS = 5.
+        expect(describeChartCurrency(5)).not.toBeNull();
     });
 });
 

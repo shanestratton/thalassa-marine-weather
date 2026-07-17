@@ -112,7 +112,9 @@ export interface RouteAdvisory {
         // chart's ZOC positional-error margin (burn-down 2026-07-18 #1).
         | 'lateral-clearance'
         // The segment-vs-polygon thin-islet crossing test threw and did not run.
-        | 'segment-check-failed';
+        | 'segment-check-failed'
+        // A covering chart edition is >5 yr past its issue date — verify NtM.
+        | 'chart-currency';
 }
 
 export interface RouteHazardReport {
@@ -339,19 +341,26 @@ function closestCoastlineApproach(
     const lines = eachLineString(coastlines);
     if (lines.length === 0) return null;
 
+    // Build each coastline's turf LineString ONCE — the inner loop below
+    // re-allocated a fresh turfLineString(coords) for EVERY route point though
+    // the line never changes, so a dense route over a charted coast paid
+    // O(routePoints × lines) feature allocations (closing audit 2026-07-18).
+    // Degenerate (<2-vertex) lines are dropped here instead of per point.
+    const lineFeats = lines.filter((l) => l.coords.length >= 2).map((l) => turfLineString(l.coords));
+    if (lineFeats.length === 0) return null;
+
     let bestDist = Infinity;
     let bestPoint: RoutePoint | null = null;
     const cap = bufferNm * 2;
 
     for (const routePt of route) {
         const pt = turfPoint([routePt.lon, routePt.lat]);
-        for (const { coords, geom } of lines) {
-            if (coords.length < 2) continue;
+        for (const lineFeat of lineFeats) {
             // pointToLineDistance returns the distance in km by
             // default; convert to NM.
             let distKm: number;
             try {
-                distKm = pointToLineDistance(pt, turfLineString(coords));
+                distKm = pointToLineDistance(pt, lineFeat);
             } catch {
                 continue; // Degenerate geometry — skip.
             }
