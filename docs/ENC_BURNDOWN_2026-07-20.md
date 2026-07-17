@@ -50,9 +50,16 @@ first — first ledger row.
 
 ### Code quality (1.0)
 
-- [ ] **1.0 — Residual god-modules** — STILL DEFERRED (shared-tree risk): the
-      large `buildMergedVectorData` carve on a tree other Claudes commit into
-      live. Held for a quiet window or Shane's explicit go.
+- [x] **1.0 — Residual god-modules** — DONE (`b7c5fc5b`, merged `33ffcb17`): the
+      ~520-line `buildMergedVectorData` closure carved into three named units in
+      a new `services/enc/mergeFold.ts` — `createClipGeometryMemos`
+      (ring-assembly), `accumulateCellLayers` (layer-accumulation), and
+      `applySoundingLod` (sounding-LOD) — each behind an explicit context, no
+      module state, matching the glazeBuild.ts seam. Done in an ISOLATED worktree
+      (shared-tree risk retired) and merged clean. ZERO behaviour change: a
+      normalized-code diff proved every moved span character-identical to the
+      pre-carve original (modulo the one `shallowClipCoverage`→`shallowClip`
+      injection rename). tests/enc (334) + tsc + eslint green; build + cap sync clean.
 - [x] **0.5 — Clone HARD/SOFT-cap glaze-drop degradation untested** — DONE
       (`8a334139`): 2 FakeWorker cases — over-cap payload dispatches nothing +
       releases its in-flight claim; just-under ships its one glaze cell.
@@ -68,11 +75,12 @@ first — first ledger row.
 
 ## Ledger
 
-| Date       | Item                                                          | Pts  | Commit     | Running (vs 91.20) |
-| ---------- | ------------------------------------------------------------- | ---- | ---------- | ------------------ |
-| 2026-07-20 | Failed-cell always-emit advisory (chief's fix-first)          | 1.5  | `979d717c` | 92.70              |
-| 2026-07-20 | Lateral-graze advisory made draft-aware (no over-warn)        | 0.25 | `f2a33fda` | 92.95              |
-| 2026-07-20 | Glaze cache pins active merge + gesture-defer upgrade re-push | 1.45 | `7e2949f1` | 94.40              |
-| 2026-07-20 | Clone HARD-cap glaze-drop degradation coverage                | 0.5  | `8a334139` | 94.90              |
-| 2026-07-20 | Safety contour bold amber by default on the white chart       | 0.5  | `1498893e` | 95.40              |
-| 2026-07-20 | Tap on uncharted water answers with coarse GEBCO depth        | 0.5  | `d3466fdd` | 95.90              |
+| Date       | Item                                                             | Pts  | Commit     | Running (vs 91.20) |
+| ---------- | ---------------------------------------------------------------- | ---- | ---------- | ------------------ |
+| 2026-07-20 | Failed-cell always-emit advisory (chief's fix-first)             | 1.5  | `979d717c` | 92.70              |
+| 2026-07-20 | Lateral-graze advisory made draft-aware (no over-warn)           | 0.25 | `f2a33fda` | 92.95              |
+| 2026-07-20 | Glaze cache pins active merge + gesture-defer upgrade re-push    | 1.45 | `7e2949f1` | 94.40              |
+| 2026-07-20 | Clone HARD-cap glaze-drop degradation coverage                   | 0.5  | `8a334139` | 94.90              |
+| 2026-07-20 | Safety contour bold amber by default on the white chart          | 0.5  | `1498893e` | 95.40              |
+| 2026-07-20 | Tap on uncharted water answers with coarse GEBCO depth           | 0.5  | `d3466fdd` | 95.90              |
+| 2026-07-20 | God-module carve: buildMergedVectorData → mergeFold.ts (3 units) | 1.0  | `b7c5fc5b` | 96.90              |
