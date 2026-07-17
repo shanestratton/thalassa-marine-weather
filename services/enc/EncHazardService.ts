@@ -904,10 +904,31 @@ export async function getMergedVectorData(
     setInflightMerge(cacheKey, build);
     try {
         return await build;
+    } catch (e) {
+        if (e instanceof MergeSupersededError) {
+            // Cooperative abort (2026-07-17 audit): fast panning used to
+            // stack concurrent full merges whose outputs were evicted
+            // almost immediately — a superseded WINDOWED merge now bails
+            // at its next slice boundary instead of burning to completion.
+            log.warn('[perf] merge superseded mid-build — abandoned at slice boundary');
+            return null;
+        }
+        throw e;
     } finally {
         deleteInflightMerge(cacheKey);
     }
 }
+
+/** Thrown inside a windowed merge's cooperative yielder when a NEWER
+ *  windowed merge has started — the map has moved on, finish is waste. */
+class MergeSupersededError extends Error {
+    constructor() {
+        super('merge superseded');
+    }
+}
+/** Monotonic id of the newest WINDOWED merge (full/seaway merges — zoom
+ *  null — never participate: they serve a different consumer). */
+let windowedMergeGen = 0;
 
 /** Sounding-derived contours run in encGeometryWorker (2026-07-13) —
  *  the Delaunay + isoline march hung the main thread when it ran here
@@ -1338,6 +1359,11 @@ async function buildMergedVectorData(
     // mid-flight when the next flick starts. While the interaction
     // probe reports a live gesture, slices park in short naps (capped —
     // a camera-follow animation must not starve the merge forever).
+    // SUPERSEDED-ABORT (2026-07-17 audit): a windowed merge claims the
+    // newest-generation slot; when a newer windowed merge starts, this one
+    // bails at its next slice boundary (getMergedVectorData converts the
+    // throw to the callers' established null-means-cancelled contract).
+    const myWindowGen = zoom != null ? ++windowedMergeGen : null;
     let sliceStart = performance.now();
     const yieldIfNeeded = async (): Promise<void> => {
         if (performance.now() - sliceStart < 12) return;
@@ -1349,6 +1375,7 @@ async function buildMergedVectorData(
             await new Promise<void>((resolve) => setTimeout(resolve, 80));
             parkedMs += 80;
         }
+        if (myWindowGen != null && myWindowGen !== windowedMergeGen) throw new MergeSupersededError();
         sliceStart = performance.now();
     };
 
