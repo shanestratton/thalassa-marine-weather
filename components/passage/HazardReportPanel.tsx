@@ -2,8 +2,9 @@
  * HazardReportPanel — surfaces ENC OBSTRN/WRECKS/UWTROC hazards
  * found within a 1 NM buffer of the most recently planned route.
  *
- * Renders as a small floating card on the map (bottom-left, above
- * the route legend area) when there's at least one hazard. Tap to
+ * Renders as a small floating card on the map — TOP-RIGHT, under the
+ * safe-area inset (`absolute right-3`; the old "bottom-left" claim was
+ * comment drift, closing audit) — when there's at least one hazard. Tap to
  * expand into a full list with distance, side, depth, and CATZOC.
  *
  * Self-contained:

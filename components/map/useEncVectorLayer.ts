@@ -141,7 +141,7 @@ export function useEncVectorLayer(
     /** The exact merged-data object last pushed to Mapbox. The merge
      *  cache is selection-keyed, so window escapes and zoom crossings
      *  over the SAME cell set return the identical object — re-running
-     *  9 wholesale setData uploads for it was pure waste (2026-07-12
+     *  14 wholesale setData uploads for it was pure waste (2026-07-12
      *  audit; visible as a hitch on every FAB toggle too). */
     const lastAppliedRef = useRef<unknown>(null);
 
@@ -329,7 +329,7 @@ export function useEncVectorLayer(
                     // Identity check: the selection-keyed merge cache hands
                     // back the same object when the cell set didn't change
                     // (zoom crossings, visibility toggles) — skip the
-                    // 9-source re-upload entirely.
+                    // 14-source re-upload entirely.
                     if (data !== lastAppliedRef.current) refreshEncVectorData(map, data);
                 } else {
                     mountEncVectorLayer(map, data, { safetyDepthM: safetyDepthRef.current });
@@ -353,7 +353,7 @@ export function useEncVectorLayer(
 
         // Defer the heavy ENC merge + mount one idle tick past first paint:
         // getMergedVectorData reads/parses/clones multi-MB cell blobs and
-        // mountEncVectorLayer adds ~6 sources + ~18 layers, all main-thread.
+        // mountEncVectorLayer adds ~14 sources + ~30 layers, all main-thread.
         // Running it synchronously on mapReady blocked the first frame, so a
         // cold Charts open stalled before the basemap even showed. Idle-gating
         // lets the basemap + ocean tiles paint first; the chart fades in a

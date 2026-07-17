@@ -389,7 +389,7 @@ export function buildFeaturePopupHtml(
         // Seabed nature under the tap (co-located SBDARE) — the anchoring
         // read, in the popup a punter actually opens ("Seabed: Sand / Mud").
         if (extras.seabed) {
-            const sb = natsurNames(extras.seabed.NATSUR ?? extras.seabed.natsur);
+            const sb = natsurNames(readS57(extras.seabed, 'NATSUR'));
             if (sb) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(sb)}</b></div>`;
         }
         // Caution area under the tap — the depth/keel read stays the star,
@@ -397,7 +397,7 @@ export function buildFeaturePopupHtml(
         if (extras.caution) {
             const cls = String(extras.caution._caution ?? '');
             const label = CAUTION_LABELS[cls] ?? 'Charted area';
-            const restrn = restrnNames(extras.caution.RESTRN ?? extras.caution.restrn);
+            const restrn = restrnNames(readS57(extras.caution, 'RESTRN'));
             const detail = restrn || (cls === 'CBLARE' || cls === 'PIPARE' ? 'No anchoring' : '');
             body += `<div class="enc-popup-row"><span>⚠</span><b style="color:#e879f9">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
         }

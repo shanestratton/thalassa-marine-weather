@@ -500,8 +500,9 @@ export function dropIndexCache(): void {
  * searches without exposing the whole index Map.
  *
  * Returns null if metadata is missing, the GeoJSON blob is
- * unreadable, or the cell ID is unknown. Failed loads stay null
- * for the rest of the session — re-import to clear.
+ * unreadable, or the cell ID is unknown. Failed loads retry after a
+ * 60 s cooldown (encIndexCache.INDEX_FAIL_RETRY_MS) — a transient read
+ * failure recovers on a later query; re-import clears immediately.
  */
 export async function getIndexForCell(cellId: string): Promise<EncSpatialIndex | null> {
     return getOrBuildIndex(cellId);
@@ -1301,7 +1302,7 @@ async function buildMergedVectorData(
                 // case expression that knows about IALA regions.
                 // Cardinal marks (BOYCAR/BCNCAR) are always yellow.
                 if (target === 'BOYLAT' || target === 'BCNLAT') {
-                    const catlamRaw = (feat.properties?.CATLAM ?? feat.properties?.catlam) as unknown;
+                    const catlamRaw = readS57(feat.properties, 'CATLAM') as unknown;
                     const catlam = typeof catlamRaw === 'number' ? catlamRaw : Number(catlamRaw);
                     props._displayColor = lateralMarkColour(Number.isFinite(catlam) ? catlam : null, ialaRegion);
                 }
