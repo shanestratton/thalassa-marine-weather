@@ -1195,9 +1195,130 @@ export interface SavedTrace {
     /** Set on overwrite-saves — the cross-device merge keeps the newer copy. */
     updatedAt?: string;
     points: TracePoint[];
+    // ── Multi-leg trip chain (Shane 2026-07-17: "we need to get our LEGS
+    //    functioning") — legs of one trip share a tripId (= leg 1's own id);
+    //    the chain is STRUCTURAL, names are generated decoration. The cloud
+    //    saved_routes table doesn't carry these columns yet, so the sync
+    //    merge grafts them back from the local copy and the name-badge
+    //    parsers below are the cross-device fallback. ──
+    /** Trip this leg belongs to — leg 1's id. Absent on standalone routes. */
+    tripId?: string;
+    /** 1-based position within the trip. */
+    legOrdinal?: number;
+    /** This leg's destination as the punter named it ("Woorim") — seeds the
+     *  NEXT leg's name prefill without re-parsing the route name. */
+    destName?: string;
 }
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
+
+// ── Trip-chain helpers (pure; names are paint, tripId/legOrdinal are glue) ──
+
+/** "(2nd Leg)"-style badge — matched/stripped by the helpers below. */
+const LEG_BADGE_RE = /\s*\((\d+)(?:st|nd|rd|th) Leg\)\s*$/i;
+
+/** 1 → "1st Leg", 2 → "2nd Leg", 11 → "11th Leg", 23 → "23rd Leg". */
+export function ordinalLegLabel(n: number): string {
+    const tens = n % 100;
+    const suffix =
+        tens >= 11 && tens <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th';
+    return `${n}${suffix} Leg`;
+}
+
+/** Remove a trailing "(Nth Leg)" badge (idempotent). */
+export function stripLegBadge(name: string): string {
+    return name.replace(LEG_BADGE_RE, '').trim();
+}
+
+/** Append the leg badge, replacing any existing one — re-saving a badged
+ *  name never stacks "(2nd Leg) (2nd Leg)". */
+export function withLegBadge(name: string, ordinal: number): string {
+    return `${stripLegBadge(name)} (${ordinalLegLabel(ordinal)})`;
+}
+
+/** Ordinal parsed from the name badge — the cross-device fallback for routes
+ *  whose structural fields were dropped by the cloud round-trip. */
+export function legBadgeOrdinal(name: string): number | null {
+    const m = LEG_BADGE_RE.exec(name);
+    return m ? Number(m[1]) : null;
+}
+
+/** Destination half of a "from - to" route name, badge stripped. The
+ *  separator is " - " WITH spaces — hyphenated localities (Kippa-Ring)
+ *  survive. Null when the name doesn't follow the convention. */
+export function destNameFromRouteName(name: string): string | null {
+    const parts = stripLegBadge(name).split(' - ');
+    if (parts.length < 2) return null;
+    const dest = parts[parts.length - 1].trim();
+    return dest.length > 0 ? dest : null;
+}
+
+/** Everything the tracer needs to open "plot the next leg of this trip":
+ *  the chain identity, the next ordinal, the name prefill, and the LOCKED
+ *  first pin (the previous leg's exact final coordinates — legs chain by
+ *  position, not by name). */
+export interface NextLegSeed {
+    tripId: string;
+    ordinal: number;
+    fromName: string;
+    anchor: TracePoint;
+}
+
+export function nextLegSeed(t: SavedTrace): NextLegSeed | null {
+    if (!Array.isArray(t.points) || t.points.length < 2) return null;
+    const last = t.points[t.points.length - 1];
+    return {
+        tripId: t.tripId ?? t.id,
+        ordinal: (t.legOrdinal ?? legBadgeOrdinal(t.name) ?? 1) + 1,
+        fromName: t.destName ?? destNameFromRouteName(t.name) ?? stripLegBadge(t.name),
+        anchor: { lat: last.lat, lon: last.lon },
+    };
+}
+
+/** Retro-badge (Shane's call, 2026-07-17): leg 1 earns its "(1st Leg)" badge
+ *  the moment leg 2 is born — day-sail routes never carry trip baggage.
+ *  Finds the trip's first leg (its id IS the tripId), stamps the structural
+ *  fields and renames in place (same id → the cloud upsert updates the same
+ *  row). Returns the renamed trace, or null when there was nothing to do. */
+export function retroBadgeFirstLeg(tripId: string): SavedTrace | null {
+    const first = loadSavedTraces().find((t) => t.id === tripId || (t.tripId === tripId && t.legOrdinal === 1));
+    if (!first) return null;
+    const alreadyBadged = LEG_BADGE_RE.test(first.name);
+    const alreadyStamped = first.tripId === tripId && first.legOrdinal === 1;
+    if (alreadyBadged && alreadyStamped) return null;
+    const { trace } = saveTrace(withLegBadge(first.name, 1), first.points, {
+        overwriteId: first.id,
+        tripId,
+        legOrdinal: 1,
+        destName: first.destName ?? destNameFromRouteName(first.name) ?? undefined,
+    });
+    return trace;
+}
+
+/** AUTO-HEAL (Shane's call, 2026-07-17): edits to a leg's endpoint ripple
+ *  into the NEXT leg's locked start, so the chain never gaps. Called after
+ *  every save; walks successors transitively (leg 1's new endpoint moves
+ *  leg 2's start; if that changed leg 2's endpoint too — it didn't, only
+ *  point 0 moves — the walk stops). Returns a human line for the toast, or
+ *  null when nothing needed healing. */
+export function healTripChain(saved: SavedTrace): string | null {
+    const tripId = saved.tripId ?? undefined;
+    if (!tripId) return null;
+    const ordinal = saved.legOrdinal ?? legBadgeOrdinal(saved.name);
+    if (!ordinal) return null;
+    const next = loadSavedTraces().find((t) => t.tripId === tripId && t.legOrdinal === ordinal + 1);
+    if (!next || next.points.length < 2) return null;
+    const want = saved.points[saved.points.length - 1];
+    const have = next.points[0];
+    if (Math.abs(have.lat - want.lat) < 1e-7 && Math.abs(have.lon - want.lon) < 1e-7) return null;
+    saveTrace(next.name, [{ lat: want.lat, lon: want.lon }, ...next.points.slice(1)], {
+        overwriteId: next.id,
+        tripId: next.tripId,
+        legOrdinal: next.legOrdinal,
+        destName: next.destName,
+    });
+    return `"${next.name}" start moved to match`;
+}
 
 export function loadSavedTraces(): SavedTrace[] {
     try {
@@ -1217,18 +1338,29 @@ export function loadSavedTraces(): SavedTrace[] {
 export function saveTrace(
     name: string,
     points: readonly TracePoint[],
-    opts: { overwriteId?: string } = {},
+    opts: { overwriteId?: string; tripId?: string; legOrdinal?: number; destName?: string } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
     // Overwrite KEEPS the id: the local replace and the cloud upsert (also
     // keyed on id) then update the SAME route instead of minting a twin
     // (Shane 2026-07-15: "if I save it as the same name, it overwrites").
     const existing = opts.overwriteId ? loadSavedTraces().find((t) => t.id === opts.overwriteId) : undefined;
+    // Trip-chain fields: opts win, then the existing copy's — a plain
+    // re-save of a chained leg must never shed its trip membership.
+    const tripId = opts.tripId ?? existing?.tripId;
+    const legOrdinal = opts.legOrdinal ?? existing?.legOrdinal;
+    const destName = opts.destName ?? existing?.destName;
     const trace: SavedTrace = {
-        id: existing?.id ?? `trace-${Date.now().toString(36)}`,
+        // Random suffix: two saves in the same millisecond used to mint the
+        // SAME id, and the by-id dedupe silently swallowed the first route
+        // (surfaced by the trip-chain tests saving leg 1 + leg 2 back-to-back).
+        id: existing?.id ?? `trace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
         name: name.trim() || `Trace ${new Date().toLocaleDateString('en-AU')}`,
         createdAt: existing?.createdAt ?? new Date().toISOString(),
         ...(existing ? { updatedAt: new Date().toISOString() } : {}),
         points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
+        ...(tripId ? { tripId } : {}),
+        ...(legOrdinal ? { legOrdinal } : {}),
+        ...(destName ? { destName } : {}),
     };
     const all = [trace, ...loadSavedTraces().filter((t) => t.id !== trace.id)].slice(0, 50);
     let persisted = false;

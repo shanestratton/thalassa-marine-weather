@@ -55,7 +55,10 @@ let pendingTracerOpen = false;
 export type TracerOpenAction =
     | { kind: 'paste' }
     | { kind: 'load-saved'; id: string }
-    | { kind: 'load-voyage'; choice: import('./shiplog/RoutesAndTracks').SeaVoyageChoice };
+    | { kind: 'load-voyage'; choice: import('./shiplog/RoutesAndTracks').SeaVoyageChoice }
+    /** Plot the NEXT leg of a trip: pin 1 pre-dropped + LOCKED at the
+     *  previous leg's exact final coordinates (Shane 2026-07-17). */
+    | { kind: 'new-leg'; fromId: string };
 let pendingTracerAction: TracerOpenAction | null = null;
 
 export function requestTracerOpen(action: TracerOpenAction | null = null): void {
