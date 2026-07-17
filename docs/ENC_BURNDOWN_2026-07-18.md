@@ -34,6 +34,9 @@ ledger row below.
 - [x] **0.25 — UWTROC VALSOU enters the hazard model** — DONE: rocks
       carry depth/drying context into severity + the report; old test that
       pinned the drop re-pinned (incl. drying negative VALSOU).
+
+## Rendering (3.25)
+
 - [ ] **0.5 — Depth-band palette abandons blue-shallow coding** — shallow
       water is the least saturated thing on the chart; revisit ramp
       (S-52/paper: shallow = blue). CAREFUL: Shane approved the white
@@ -82,6 +85,9 @@ ledger row below.
       half and keeps the instant grade).
 - [x] **0.25 — getOrBuildIndex coarse-sliced** — DONE (macrotask
       between the four builds + RBush construction).
+
+## Code quality (5.25)
+
 - [x] **1.0 — Worker protocol lifecycle tests** — DONE: 6 lifecycle tests
       over the REAL parking/cache modules with a fake Worker — round-trip
       reassembly (untouched stripped from the wire), overlapping jobs on
@@ -120,6 +126,9 @@ ledger row below.
       case-defensive pairs swept (extras.seabed/caution, InshoreRouter
       CATCAM, merge CATLAM); zero `as unknown as ExpressionSpecification`
       remain outside mapExpr's own doc.
+
+## UX (3.0)
+
 - [x] **0.5 — Chart key sweep** — DONE: Deep-water route +
       Precautionary area keyed (the TSS-family additions).
 - [x] **0.5 — Stacked cautions ALL fold in** — DONE: pickAreaTap
@@ -138,3 +147,21 @@ ledger row below.
       region (list roles were already in place).
 - [x] **0.25 — Dynamic Type hook** — DONE: popup tracks iOS text size
       via -apple-system-body with a 13px floor (device eyeball pending).
+
+## Ledger (reconstructed 2026-07-18 after a doc-edit truncation ate the table)
+
+| Date       | Item                                                     | Pts  | Commit     | Running (vs 84.25) |
+| ---------- | -------------------------------------------------------- | ---- | ---------- | ------------------ |
+| 2026-07-17 | Berth exemption per-locality (chief's fix-first)         | 0.75 | `5455543a` | 85.0               |
+| 2026-07-18 | Safety trio: seg tideConstrained, sounding depth, UWTROC | 0.75 | `4b6f111b` | 85.75              |
+| 2026-07-18 | Regional datum pessimism + nearest-approach report       | 1.0  | `e82cafe8` | 86.75              |
+| 2026-07-18 | Worker-protocol lifecycle tests                          | 1.0  | `15845859` | 87.75              |
+| 2026-07-18 | Doc-drift sweep + readS57/cast stragglers                | 0.75 | `e6893c21` | 88.5               |
+| 2026-07-18 | EncCellStore composition + glaze-LRU invariant           | 1.0  | `902fbdc3` | 89.5               |
+| 2026-07-18 | ENC_SOURCE_TABLE + lazy first-mount builders             | 1.0  | `1313b920` | 90.5               |
+| 2026-07-18 | Key unification + dead imports + mapFilter               | 0.5  | `234e90f6` | 91.0               |
+| 2026-07-18 | UX four: demo row, ZOC decode, panel announce            | 1.25 | `d0191521` | 92.25              |
+| 2026-07-18 | Stacked-caution fold-in + chart-key sweep                | 1.0  | `d20047f6` | 93.25              |
+| 2026-07-18 | Perf four: budgets, memo, clone caps, sliced index       | 1.0  | `c733c28a` | 94.25              |
+| 2026-07-18 | IALA-B prefixes + shared caution colour table            | 0.5  | `0700836f` | 94.75              |
+| 2026-07-18 | Night ☾ surfaced + Dynamic Type (UX COMPLETE)            | 0.75 | `0ac34b01` | **95.5**           |
