@@ -36,12 +36,12 @@ import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
 import { XIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
-// Production brand lockup — compass mark + "THALASSA" wordmark +
-// "MARINE DATA & NAVIGATION" descriptor, generated from the Gemini
-// Pro concept via Upscayl 4x → Vectorizer.AI → 3-pass SVGO cleanup
-// (see assets/brand/CLEANING_NOTES.md). White-on-dark variant.
-// Vite resolves the import to a hashed URL string at build time.
-import brandLockup from '../assets/brand/full-lockup-dark.svg';
+// Ornate compass MARK only — NOT the full lockup. The traced lockup baked
+// "THALASSA" in as raster-vectorised paths that rendered blocky/jagged at
+// display size (Shane 2026-07-17: "the logo has blockey text… amateur
+// stuff"). The compass artwork is fine; the wordmark + descriptor are now
+// crisp LIVE TEXT below. Vite resolves the import to a hashed URL string.
+import markDark from '../assets/brand/mark-dark.svg';
 // Locked brand palette — single source of truth in theme.ts. Used
 // here for the accent-coloured tagline middots and the pulse drop-
 // shadow keyframe at the bottom of this file. See theme.ts for the
@@ -193,29 +193,34 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 stay exactly as designed. The pulse keyframe (below)
                 animates a teal drop-shadow around it so the mark
                 breathes like a beacon. */}
-            <div className="relative z-10 mb-7 text-center">
+            <div className="relative z-10 mb-8 flex flex-col items-center text-center">
                 <div
-                    className="mx-auto w-60 h-60 sm:w-64 sm:h-64 flex items-center justify-center"
+                    className="w-40 sm:w-44 flex items-center justify-center"
                     style={{
                         animation: 'signInPulse 4s ease-in-out infinite',
                     }}
                 >
-                    <img
-                        src={brandLockup}
-                        alt="Thalassa — Marine Data & Navigation"
-                        className="w-full h-full object-contain"
-                        draggable={false}
-                    />
+                    <img src={markDark} alt="" className="w-full object-contain" draggable={false} />
                 </div>
-                {/*
-                    Positioning tagline — separate copy from the
-                    brand descriptor ("MARINE DATA & NAVIGATION")
-                    baked into the lockup SVG. This is the conversion
-                    promise: what signing in unlocks. Middot accents
-                    tinted safety-orange to echo the brand palette
-                    against the sky-300 line.
-                */}
-                <p className="mt-3 text-[13px] font-semibold tracking-wider text-sky-300/90">
+                {/* CRISP live wordmark (was the blocky baked-in SVG text).
+                    Wide tracking reads as a premium marine wordmark; the
+                    equal paddingLeft cancels the trailing letter-space so
+                    the caps stay optically centred. */}
+                <h1
+                    className="mt-5 text-[2.75rem] sm:text-6xl font-black uppercase leading-none text-white"
+                    style={{ letterSpacing: '0.18em', paddingLeft: '0.18em' }}
+                >
+                    Thalassa
+                </h1>
+                <p
+                    className="mt-2.5 text-[10px] sm:text-[11px] font-bold uppercase text-white/60"
+                    style={{ letterSpacing: '0.34em', paddingLeft: '0.34em' }}
+                >
+                    Marine Data &amp; Navigation
+                </p>
+                {/* Positioning tagline — the conversion promise. Middot
+                    accents tinted to the brand palette against the sky line. */}
+                <p className="mt-4 text-[13px] font-semibold tracking-wider text-sky-300/90">
                     <span>Plan it</span>
                     <span className="mx-1.5" style={{ color: BRAND.accent }}>
                         ·
@@ -347,9 +352,13 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 )}
             </div>
 
-            {/* Footer — legal copy lives elsewhere (Disclaimer modal),
-                this is the gentle trust aside. */}
-            <div className="relative z-10 absolute bottom-6 left-6 right-6 text-center">
+            {/* Footer — the gentle trust aside (legal copy lives in the
+                Disclaimer modal). PINNED to the viewport bottom: it had BOTH
+                `relative` and `absolute` classes, and when `relative` won the
+                cascade it fell into normal flow right under the button and
+                overlapped it (Shane 2026-07-17: "words under the CTA button").
+                Pure absolute now, clear of the centred content. */}
+            <div className="absolute bottom-6 left-6 right-6 z-10 text-center">
                 <p className="text-[10px] text-slate-500 leading-relaxed max-w-xs mx-auto">
                     Signing in unlocks crew sharing, cloud sync, and your public Voyage Log.
                     <br />
