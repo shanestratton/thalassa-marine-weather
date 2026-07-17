@@ -713,7 +713,8 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  pass on the correct side of cardinals but I do not know which
      *  side is which"). Session-only state, ON by default; ✕ on the
      *  rose hides it, the 🧭 in the panel header brings it back. */
-    const [roseVisible, setRoseVisible] = useState(true);
+    // Compass rose is always on while tracing now — the header show/hide
+    // toggle was removed 2026-07-17 ("we don't need to hide the compass").
     useEffect(() => {
         if (!coordCaptureMode) {
             autoFoldedRef.current = false;
@@ -5033,7 +5034,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* Compass rose — tracer's hand tool, same surface gates. */}
-                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && roseVisible && (
+                {/* Compass rose ALWAYS shows while tracing (Shane 2026-07-17:
+                    "we don't need to hide the compass" — the header toggle is
+                    gone). */}
+                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
                     <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} />
                 )}
 
@@ -5158,17 +5162,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     panelFolded ? '' : 'h-full'
                                 }`}
                             >
-                                {/* The WHOLE header folds/unfolds the card (Shane
-                                    2026-07-15: "we need a bigger button to minimise
-                                    and maximise the plotting card") — the old chevron
-                                    was a ~14 px target. The 🧭 and Done buttons stop
-                                    propagation so they keep their own jobs. */}
-                                {/* Header controls are PROPER buttons now (Shane
-                                    2026-07-17: "can these two be proper buttons… so
-                                    you can press them with fat fingers"). The outer
-                                    row is no longer one tap-to-fold target — each
-                                    control owns a ≥36 px hit area. */}
-                                <div className="flex select-none items-center gap-1.5 border-b border-white/10 px-2 py-1.5">
+                                {/* Header is a SINGLE full-width fold/expand button now
+                                    (Shane 2026-07-17: "remove Done and the compass — Done
+                                    does the exact same thing as Tracer, and we don't need
+                                    to hide the compass"). Tapping TRACER minimises to the
+                                    header strip / re-expands. The compass rose stays put;
+                                    leaving trace mode is via the tab bar. */}
+                                <div className="flex select-none items-center border-b border-white/10 px-2 py-1.5">
                                     <button
                                         onClick={() => {
                                             triggerHaptic('light');
@@ -5176,53 +5176,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         }}
                                         aria-expanded={!panelFolded}
                                         aria-label={panelFolded ? 'Expand tracer panel' : 'Collapse tracer panel'}
-                                        className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-black uppercase tracking-widest text-amber-300 active:scale-95"
+                                        className="flex h-9 w-full items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-black uppercase tracking-widest text-amber-300 active:scale-95"
                                     >
                                         <span className="text-lg leading-none text-gray-400">
                                             {panelFolded ? '▸' : '▾'}
                                         </span>
-                                        {/* No pin count (Shane 2026-07-17: "remove
-                                            the (3) — it just buggers up the layout"). */}
                                         ● Tracer
-                                    </button>
-                                    {/* Header health label ("1 NO-GO LEG" / "ALL
-                                        CLEAR") REMOVED (Shane 2026-07-17: "get rid of
-                                        it — the punter can find it elsewhere, and it's
-                                        fucking up my card"). The per-leg rows already
-                                        carry the verdict; the header is just the three
-                                        buttons now. */}
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            setRoseVisible((v) => !v);
-                                        }}
-                                        aria-pressed={roseVisible}
-                                        aria-label={roseVisible ? 'Hide compass rose' : 'Show compass rose'}
-                                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg leading-none active:scale-95 ${roseVisible ? 'bg-white/10' : 'bg-white/[0.04] opacity-40 grayscale'}`}
-                                    >
-                                        🧭
-                                    </button>
-                                    {/* Header plot-armed chip REMOVED (Shane 2026-07-15:
-                                        "two plotting and two pause buttons — get rid of
-                                        the top one"). The action rows own the toggle:
-                                        folded strip + the Undo/Copy/Clear row below. */}
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            // Done = MINIMISE, not exit (Shane 2026-07-17:
-                                            // "the charts page and the plan page are
-                                            // completely separate… those fabs should never
-                                            // show up on the plan page; it should just
-                                            // minimise"). The plotting surface stays the
-                                            // plotting surface — trace mode, grading, the
-                                            // scrubber and the hidden-FAB regime all
-                                            // persist; leaving happens via the tab bar
-                                            // (MapHub unmounts, CHARTS remounts clean).
-                                            setPanelFolded(true);
-                                        }}
-                                        className="flex h-9 shrink-0 items-center rounded-lg bg-white/10 px-3 text-xs font-black uppercase tracking-wide text-gray-200 active:scale-95"
-                                    >
-                                        Done
                                     </button>
                                 </div>
                                 {panelFolded ? (
