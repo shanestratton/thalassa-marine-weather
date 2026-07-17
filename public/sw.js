@@ -261,9 +261,12 @@
 // flung to the far right screen edge) — pill left, rose centre, moon beside.
 // v131: the tracer card's two share rows (share with a mate / share with all
 // skippers) are parked — the card ends at the harbourmaster queue now.
-const CACHE_NAME = 'thalassa-v131-core';
-const TILE_CACHE = 'thalassa-v131-tiles';
-const DATA_CACHE = 'thalassa-v131-data';
+// v132: the tracer card is a FIXED height — adding waypoints no longer
+// grows it. The waypoint list is the one scroll region (soaks up the slack),
+// and Save/Report/Depart stay pinned and always reachable below it.
+const CACHE_NAME = 'thalassa-v132-core';
+const TILE_CACHE = 'thalassa-v132-tiles';
+const DATA_CACHE = 'thalassa-v132-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
