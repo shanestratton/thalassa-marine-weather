@@ -282,9 +282,11 @@
 // v138: the ENC popup close ✕ moves to a smaller disc straddling the box's
 // top-right CORNER (was a 44px in-box disc covering the data rows) — floats
 // clear of every word, still a comfy fat-finger tap.
-const CACHE_NAME = 'thalassa-v138-core';
-const TILE_CACHE = 'thalassa-v138-tiles';
-const DATA_CACHE = 'thalassa-v138-data';
+// v139: the TRACER title is a proper boxed button now, matching the compass
+// and DONE buttons beside it.
+const CACHE_NAME = 'thalassa-v139-core';
+const TILE_CACHE = 'thalassa-v139-tiles';
+const DATA_CACHE = 'thalassa-v139-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
