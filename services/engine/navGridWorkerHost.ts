@@ -19,17 +19,28 @@ type GridMsg = { jobId: number; type: 'grid'; grid: NavGrid } | { jobId: number;
 
 let worker: Worker | null = null;
 let broken = false;
+/** Worker spawn attempts this session. One crash used to LATCH `broken`
+ *  permanently — every later window's grid then built synchronously on the
+ *  main thread (0.3–1.5 s freeze per rebuild) for the rest of the session,
+ *  the single biggest "checking a leg slows the page" cost (jank audit #1,
+ *  2026-07-17). A crash now only kills the CURRENT job (its caller falls
+ *  back sync); the NEXT job respawns, capped so a deterministically-crashing
+ *  worker can't thrash. */
+let spawnAttempts = 0;
+const MAX_SPAWN_ATTEMPTS = 3;
 let seq = 0;
 const pending = new Map<number, { resolve: (g: NavGrid) => void; reject: (e: Error) => void }>();
 
 function getWorker(): Worker | null {
     if (broken) return null;
     if (worker) return worker;
+    if (spawnAttempts >= MAX_SPAWN_ATTEMPTS) return null;
     try {
         if (typeof Worker === 'undefined') {
             broken = true;
             return null;
         }
+        spawnAttempts++;
         worker = new Worker(new URL('./navGridWorker.ts', import.meta.url), { type: 'module' });
         worker.onmessage = (ev: MessageEvent<GridMsg>) => {
             const d = ev.data;
@@ -41,8 +52,9 @@ function getWorker(): Worker | null {
         };
         worker.onerror = () => {
             // The whole worker died — reject everything in flight so each
-            // caller's fallback runs, and stop using the worker this session.
-            broken = true;
+            // caller's sync fallback runs, then let the NEXT job respawn a
+            // fresh worker (bounded by MAX_SPAWN_ATTEMPTS).
+            log.warn(`navGrid worker crashed (spawn ${spawnAttempts}/${MAX_SPAWN_ATTEMPTS})`);
             for (const [, p] of pending) p.reject(new Error('navGrid worker crashed'));
             pending.clear();
             try {
