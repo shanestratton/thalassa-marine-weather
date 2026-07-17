@@ -49,9 +49,13 @@ export function initialViewFromUrl(): string | null {
 let pendingTracerOpen = false;
 
 /** Optional follow-up the tracer performs right after opening — the PLAN
- *  page's front-door buttons (Shane 2026-07-16): paste a mate's coords,
- *  open the past-voyage picker, or open the saved-routes list. */
-export type TracerOpenAction = 'paste' | 'voyage' | 'saved';
+ *  page's front-door entries (Shane 2026-07-16): load a picked saved route or
+ *  past voyage STRAIGHT into the tracer (the punter already chose it in the
+ *  PLAN-page modal), or paste a mate's coords. */
+export type TracerOpenAction =
+    | { kind: 'paste' }
+    | { kind: 'load-saved'; id: string }
+    | { kind: 'load-voyage'; choice: import('./shiplog/RoutesAndTracks').SeaVoyageChoice };
 let pendingTracerAction: TracerOpenAction | null = null;
 
 export function requestTracerOpen(action: TracerOpenAction | null = null): void {

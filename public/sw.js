@@ -208,9 +208,13 @@
 // voyage / saved routes — each opens the chart with the tracer ready), and
 // the slider reads "Slide to Start Plotting". Old origin/destination
 // calculate form parked.
-const CACHE_NAME = 'thalassa-v113-core';
-const TILE_CACHE = 'thalassa-v113-tiles';
-const DATA_CACHE = 'thalassa-v113-data';
+// v114: PLAN front door tidy — paste-from-a-mate card removed; past-voyage +
+// saved-routes cards open a picker MODAL right on the page (tap a route →
+// taken straight to it on the chart); the hint card crowding the slide CTA
+// removed.
+const CACHE_NAME = 'thalassa-v114-core';
+const TILE_CACHE = 'thalassa-v114-tiles';
+const DATA_CACHE = 'thalassa-v114-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

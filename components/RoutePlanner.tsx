@@ -26,7 +26,7 @@ import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
-import { requestTracerOpen, type TracerOpenAction } from '../services/deepLink';
+import { requestTracerOpen } from '../services/deepLink';
 import { DepartControl } from './passage/DepartControl';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
@@ -188,6 +188,55 @@ export const RoutePlanner: React.FC<{
 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
+
+    // ── Route picker modal (PLAN front door, Shane 2026-07-16): pick a saved
+    // route or a past sea voyage RIGHT HERE and get taken straight to it on
+    // the chart — one tap, no second menu on arrival.
+    const [routePicker, setRoutePicker] = useState<null | {
+        kind: 'voyage' | 'saved';
+        loading: boolean;
+        items: Array<{ key: string; title: string; sub: string; go: () => void }>;
+    }>(null);
+    const openRoutePicker = useCallback(
+        async (kind: 'voyage' | 'saved') => {
+            setRoutePicker({ kind, loading: true, items: [] });
+            try {
+                if (kind === 'saved') {
+                    const { loadSavedTraces } = await import('../services/routeTracer');
+                    const items = loadSavedTraces().map((t) => ({
+                        key: t.id,
+                        title: t.name,
+                        sub: `${t.points.length} pins · saved ${new Date(t.updatedAt ?? t.createdAt).toLocaleDateString(
+                            'en-AU',
+                            { day: 'numeric', month: 'short' },
+                        )}`,
+                        go: () => {
+                            requestTracerOpen({ kind: 'load-saved', id: t.id });
+                            setPage('map');
+                        },
+                    }));
+                    setRoutePicker({ kind, loading: false, items });
+                } else {
+                    const { fetchSeaVoyageChoices } = await import('../services/shiplog/RoutesAndTracks');
+                    const choices = await fetchSeaVoyageChoices(8);
+                    const items = choices.map((c) => ({
+                        key: c.voyageId,
+                        title: c.label,
+                        sub: c.sublabel,
+                        go: () => {
+                            requestTracerOpen({ kind: 'load-voyage', choice: c });
+                            setPage('map');
+                        },
+                    }));
+                    setRoutePicker({ kind, loading: false, items });
+                }
+            } catch (err) {
+                log.warn(`route picker load failed: ${err instanceof Error ? err.message : String(err)}`);
+                setRoutePicker({ kind, loading: false, items: [] });
+            }
+        },
+        [setPage],
+    );
 
     // Drive/Walk modes removed 2026-05-17 — Thalassa is a marine
     // planner; road routing is Apple Maps' job, and the three-mode
@@ -407,21 +456,14 @@ export const RoutePlanner: React.FC<{
                                 {(
                                     [
                                         {
-                                            action: 'paste' as TracerOpenAction,
-                                            icon: '📥',
-                                            title: 'Paste coords from a mate',
-                                            sub: 'Their route, re-checked for YOUR keel',
-                                            accent: 'border-emerald-500/25 from-emerald-500/10 text-emerald-300',
-                                        },
-                                        {
-                                            action: 'voyage' as TracerOpenAction,
+                                            kind: 'voyage' as const,
                                             icon: '🛥',
                                             title: 'From a past voyage',
                                             sub: 'Sail it once, save it forever',
                                             accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
                                         },
                                         {
-                                            action: 'saved' as TracerOpenAction,
+                                            kind: 'saved' as const,
                                             icon: '💾',
                                             title: 'Saved routes',
                                             sub: 'Open one, re-graded at today’s tide',
@@ -430,12 +472,9 @@ export const RoutePlanner: React.FC<{
                                     ] as const
                                 ).map((b) => (
                                     <button
-                                        key={b.action}
+                                        key={b.kind}
                                         type="button"
-                                        onClick={() => {
-                                            requestTracerOpen(b.action);
-                                            setPage('map');
-                                        }}
+                                        onClick={() => void openRoutePicker(b.kind)}
                                         className={`flex w-full items-center gap-3 rounded-2xl border bg-gradient-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
                                     >
                                         <span className="text-2xl leading-none">{b.icon}</span>
@@ -750,28 +789,10 @@ export const RoutePlanner: React.FC<{
                         />
                     </>
                 ) : (
-                    /* Empty state — subtle map placeholder. Pre-calc, a
-                       static hint card fills the dead space; it yields to
-                       the loading indicator and to the computed plan. */
-                    <div className="w-full h-full bg-slate-950">
-                        {!loading && (
-                            <div className="px-4 pt-6">
-                                <div className="max-w-xl mx-auto bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 flex items-start gap-3 animate-in fade-in duration-300">
-                                    <span aria-hidden="true" className="shrink-0 mt-0.5">
-                                        <CompassIcon className="w-5 h-5 text-sky-400" rotation={0} />
-                                    </span>
-                                    <div className="min-w-0">
-                                        <h3 className="text-sm font-bold text-white">Plot your line</h3>
-                                        <p className="text-[12px] text-slate-400 mt-1">
-                                            Slide below to open the chart and start plotting — every leg is
-                                            depth-checked for your keel, with tide windows and weather at your
-                                            departure time.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    /* Empty state — clean dark placeholder. The hint card that
+                       lived here crowded the CTA (Shane 2026-07-16: "writing
+                       interfering with the slide button — remove that"). */
+                    <div className="w-full h-full bg-slate-950" />
                 )}
             </div>
 
@@ -882,6 +903,60 @@ export const RoutePlanner: React.FC<{
                 vessel={vessel}
                 onAccept={acceptSweepDeparture}
             />
+
+            {/* ─── Route picker (front-door modal): tap a route → chart ─── */}
+            {routePicker &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[10060] flex items-end justify-center bg-black/60 sm:items-center"
+                        onClick={() => setRoutePicker(null)}
+                    >
+                        <div
+                            className="max-h-[70vh] w-full max-w-md overflow-hidden rounded-t-3xl border border-white/10 bg-slate-900 shadow-2xl sm:rounded-3xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                                <span className="text-sm font-black uppercase tracking-widest text-sky-300">
+                                    {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
+                                </span>
+                                <button
+                                    onClick={() => setRoutePicker(null)}
+                                    className="text-sm font-bold text-gray-400"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <div className="max-h-[55vh] space-y-1.5 overflow-y-auto p-3">
+                                {routePicker.loading ? (
+                                    <div className="py-6 text-center text-[12px] text-gray-400">Loading…</div>
+                                ) : routePicker.items.length === 0 ? (
+                                    <div className="py-6 text-center text-[12px] text-gray-400">
+                                        {routePicker.kind === 'voyage'
+                                            ? 'No sea voyages in the log yet.'
+                                            : 'No saved routes yet — plot one and Save it.'}
+                                    </div>
+                                ) : (
+                                    routePicker.items.map((it) => (
+                                        <button
+                                            key={it.key}
+                                            onClick={it.go}
+                                            className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left transition-transform active:scale-[0.98]"
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block truncate text-sm font-bold text-gray-100">
+                                                    {it.title}
+                                                </span>
+                                                <span className="block text-[11px] text-gray-400">{it.sub}</span>
+                                            </span>
+                                            <span className="ml-auto text-gray-500">›</span>
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 };

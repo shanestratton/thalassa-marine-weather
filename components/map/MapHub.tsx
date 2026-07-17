@@ -148,6 +148,7 @@ import {
     subscribe as subscribeToEnc,
     subscribeHydration as subscribeToEncHydration,
     getHydrationProgress as getEncHydrationProgress,
+    hasCoverageFor as encHasCoverageFor,
 } from '../../services/enc/EncHazardService';
 import { DEPARE_BAND_COLORS, ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
@@ -751,14 +752,30 @@ export const MapHub: React.FC<MapHubProps> = ({
             consumeTracerOpenRequest();
             setWeatherInspectMode(false);
             setCoordCaptureMode(true);
-            // PLAN-page front-door actions (Shane 2026-07-16): the button on
-            // the planner both opens the tracer AND performs its action.
-            // paste runs SYNCHRONOUSLY inside the dispatching click so the
-            // clipboard read keeps its user-activation on iOS.
+            // PLAN-page front-door actions (Shane 2026-07-16): the punter
+            // already PICKED the route in the planner's modal — load it
+            // straight in, no second menu. paste runs SYNCHRONOUSLY inside
+            // the dispatching click so the clipboard read keeps its iOS
+            // user-activation.
             const action = consumeTracerAction();
-            if (action === 'paste') void pasteTrace();
-            else if (action === 'voyage') void openVoyagePicker();
-            else if (action === 'saved') setShowSavedTraces(true);
+            if (action?.kind === 'paste') void pasteTrace();
+            else if (action?.kind === 'load-voyage') void loadVoyageAsTrace(action.choice);
+            else if (action?.kind === 'load-saved') {
+                const t = loadSavedTraces().find((x) => x.id === action.id);
+                if (t && t.points.length >= 2) {
+                    rebaseHistoryRef.current = true; // opened a saved route → Undo floor
+                    setCapturedCoords(t.points);
+                    setTraceName(t.name);
+                    setSavedTraces(loadSavedTraces());
+                    const mid = t.points[Math.floor(t.points.length / 2)];
+                    const fly = () =>
+                        mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
+                    // Cold PLAN→map mount: the map object may trail this event
+                    // by a beat — one delayed retry covers it.
+                    if (mapRef.current) fly();
+                    else setTimeout(fly, 1_200);
+                }
+            }
         };
         if (consumeTracerOpenRequest()) open();
         window.addEventListener('thalassa:trace-mode', open);
@@ -2401,6 +2418,36 @@ export const MapHub: React.FC<MapHubProps> = ({
     // water is a cell still on its way down, not a gap in coverage.
     const [encHydration, setEncHydration] = useState(() => getEncHydrationProgress());
     useEffect(() => subscribeToEncHydration(setEncHydration), []);
+    // No-coverage affordance (2026-07-17 audit): browsing genuinely
+    // UNCHARTED water at nav zoom was indistinguishable from having the
+    // chart layer off — the dark shell told the punter nothing. When the
+    // viewport escapes every imported cell's bbox at z11+, say so.
+    const [encNoCoverage, setEncNoCoverage] = useState(false);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !encVisible) {
+            setEncNoCoverage(false);
+            return;
+        }
+        const probe = (): void => {
+            try {
+                if (map.getZoom() < 11 || listEncCells().length === 0) {
+                    setEncNoCoverage(false);
+                    return;
+                }
+                const b = map.getBounds();
+                if (!b) return;
+                setEncNoCoverage(!encHasCoverageFor([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]));
+            } catch {
+                setEncNoCoverage(false);
+            }
+        };
+        probe();
+        map.on('moveend', probe);
+        return () => {
+            map.off('moveend', probe);
+        };
+    }, [mapReady, encVisible]);
     useEffect(() => {
         const refresh = () => {
             const cells = listEncCells();
@@ -5916,6 +5963,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         aria-live="polite"
                     >
                         Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})
+                    </div>
+                )}
+                {/* No-coverage chip — uncharted water at nav zoom must never
+                    read like the chart layer is merely off (2026-07-17 audit). */}
+                {encNoCoverage && encHydration.remaining === 0 && encVisible && !embedded && !pickerMode && !isPinView && (
+                    <div
+                        className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-500/30 bg-slate-900/85 px-3 py-1 text-[11px] font-bold text-amber-300 shadow-lg"
+                        aria-live="polite"
+                    >
+                        No chart coverage here — depths unverified
                     </div>
                 )}
                 {/* Chart key — the legend for mere mortals (2026-07-11 #2).
