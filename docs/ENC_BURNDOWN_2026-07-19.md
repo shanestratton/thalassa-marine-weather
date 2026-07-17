@@ -40,9 +40,11 @@ free silent-catch advisory shipped in the same commit — first ledger row.
       result stays aligned to the request (order, length, coords) so caching
       keys stay consistent. 6 tests incl. the reversed-response shoal-swap
       (a shoal sample can never inherit a neighbour's deep value).
-- [ ] **0.25 — Chart-edition staleness never reaches route advisories**
-      (from cycle-3 safety verdict #3; not in the top-8 but same seed) —
-      OPEN: plumb `EncCell.issued` age into a currency advisory kind.
+- [x] **0.25 — Chart-edition staleness never reaches route advisories** — DONE
+      (`83258181`): the validator computes the oldest covering edition age
+      (cellsForBBox + chartAgeYears) and surfaces a new `chart-currency` note
+      via pure `describeChartCurrency()` on both the clean and exhaustion exits.
+      2 tests. **Safety dimension now fully burned.**
 
 ### Rendering (1.25 of the seed)
 
@@ -63,30 +65,62 @@ free silent-catch advisory shipped in the same commit — first ledger row.
 
 ### Performance (0.5 of the seed)
 
-- [ ] **0.5 — Cloud hydration multi-MB main-thread JSON.parse, 3-wide** —
-      OPEN: route cloudCellSync downloadCloudCell through encParseWorker (or
-      gate/patch without a full parse), matching the load path.
+- [x] **0.5 — Cloud hydration multi-MB main-thread JSON.parse, 3-wide** — DONE
+      (`d024fd40`): new `parseJsonOffThread` reuses the cell parse worker (raw
+      value, no shape gate, so it handles the Pi `{cells:[…]}` wrapper);
+      downloadCloudCell parses through it, shape gate / unwrap / patch run on the
+      off-thread result. 3 tests.
 
 ### Code quality (1.5 of the seed)
 
-- [ ] **0.75 — Residual god-modules** — OPEN: move the five `mount*`
-      families + `tagAndPush` into their own modules; lock with the e2e.
-- [ ] **0.75 — glazeBuild branches + staggered-refresh scheduler untested**
-      — OPEN: unit-test buildCellGlaze cached/uncached/needQueue paths and
-      refreshEncVectorData/beforeIdFor ordering (incl. the frozen-queue bug).
+- [ ] **0.75 — Residual god-modules** — DEFERRED (shared-tree risk): moving the
+      five `mount*` families + `tagAndPush` is a large file-move on a tree other
+      Claude sessions commit into live (MapHub changed under me repeatedly this
+      cycle) — high conflict / sweep risk. Held for a quiet window or Shane's go.
+- [x] **0.75 → 0.5 banked — glazeBuild branches untested (PARTIAL)** — DONE
+      (`3c54d0ce`): 5 tests over `buildCellGlaze` cached / uncached / needQueue /
+      upgraded-promotion paths (the frozen-queue-adjacent seam) via the real
+      cache. REMAINING 0.25: the refreshEncVectorData/beforeIdFor scheduler
+      ordering (map-coupled) — tracked as a residual.
 
 ### UX (0.5 of the seed)
 
-- [ ] **0.5 — "Depths verified on ocean bathymetry" headline on a
-      caution-grade advisory** — OPEN: severity-conditional headline in
-      HazardReportPanel ("Depths from LOW-RES ocean bathymetry — not
-      chart-verified") when cells failed.
+- [x] **0.5 — "Depths verified on ocean bathymetry" headline on a
+      caution-grade advisory** — DONE (`1516fea7`): the `gebco-share` collapsed
+      headline reads "Depths not chart-verified". It is ONLY ever shown
+      caution-grade (cells failed / ≥30% GEBCO), where "verified" was factually
+      wrong; note-grade gebco-share never reaches the headline.
+
+## Beyond the frozen seed — audit next-in-queue + missed findings (banked to reach ~92)
+
+The frozen top-8 tops out at 90.90 (86.15 + the priced seed). Shane's call this
+round: reach ~92, so these already-identified findings from the SAME cycle-3
+audit (its per-dimension "missed findings" + the "next in queue" list) were
+banked on top. All real, all cited distinct code paths.
+
+- [x] **0.25 — glaze-cell worker reply not job-guarded** (`1516fea7`): requires
+      a live job like its contours/done siblings — a post-death straggler cached
+      a touched-only incomplete glaze as upgraded. + regression test.
+- [x] **0.25 — tagAndPush 64-stride vs per-feature line clip** (`1516fea7`):
+      yields every clipped DEPCNT/COALNE feature, matching the glazeBuild fold.
+- [x] **0.25 — ENC_HAZARD_MAGENTA symbol/popup mismatch** (`1516fea7`):
+      COLOURS.magenta now references the single-source #d837a9 (was #D53F8C).
+- [x] **0.25 — attribution chip asserts provenance when ENC off** (`1516fea7`):
+      gated like every other ENC chip.
+- [x] **0.25 — visibility-writer docstrings describe retired model** (`1516fea7`):
+      setEncRouteFocusMode / setEncChartDetail rewritten to the composer model.
+- [x] **0.25 — coastline scan re-allocated turfLineString per point** (`83258181`):
+      each line's turf feature built ONCE before the point loop.
 
 ## Ledger
 
-| Date       | Item                                                               | Pts  | Commit     | Running (vs 86.15) |
-| ---------- | ------------------------------------------------------------------ | ---- | ---------- | ------------------ |
-| 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory    | 1.0  | `4645e4e2` | 87.15              |
-| 2026-07-19 | White lights → yellow-white flare (+ flare-shape / z-filter drift) | 0.75 | `62b707e3` | 87.90              |
-| 2026-07-19 | GEBCO positional-trust guard (reject reordered/mismatched depths)  | 0.5  | `888f295a` | 88.40              |
-| 2026-07-19 | Detail scrubber: isolated-danger marks join the safety floor       | 0.5  | `781aa431` | 88.90              |
+| Date       | Item                                                                                        | Pts  | Commit     | Running (vs 86.15) |
+| ---------- | ------------------------------------------------------------------------------------------- | ---- | ---------- | ------------------ |
+| 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory                             | 1.0  | `4645e4e2` | 87.15              |
+| 2026-07-19 | White lights → yellow-white flare (+ flare-shape / z-filter drift)                          | 0.75 | `62b707e3` | 87.90              |
+| 2026-07-19 | GEBCO positional-trust guard (reject reordered/mismatched depths)                           | 0.5  | `888f295a` | 88.40              |
+| 2026-07-19 | Detail scrubber: isolated-danger marks join the safety floor                                | 0.5  | `781aa431` | 88.90              |
+| 2026-07-19 | Backlog batch: glaze-guard + tagAndPush + magenta + gebco-headline + attrib-chip + vis-docs | 1.75 | `1516fea7` | 90.65              |
+| 2026-07-19 | buildCellGlaze branch coverage (scheduler residual)                                         | 0.5  | `3c54d0ce` | 91.15              |
+| 2026-07-19 | Cloud-cell download parses off-thread (parseJsonOffThread)                                  | 0.5  | `d024fd40` | 91.65              |
+| 2026-07-19 | Chart-edition currency advisory + coastline-scan hoist                                      | 0.5  | `83258181` | 92.15              |
