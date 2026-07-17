@@ -97,8 +97,12 @@ route. Fix the silent failures first.
       equivalent.
 - [x] **0.25 — Contour labels round non-integer VALDCO** — DONE (one decimal kept). — a wrong depth
       number at chart datum; show the decimal.
-- [ ] **0.25 — TSS family gaps at the extractor** — TSELNE/TSSBND/PRCARE/
-      DWRTPT never reach the renderer (bundle with next Pi re-extract).
+- [x] **0.25 — TSS family gaps at the extractor** — DONE: TSELNE/TSSBND/
+      PRCARE/DWRTPT through both mirrored lists, blob types, the caution
+      pipeline (PRCARE amber, DWRTPT deep teal; lines on the caution line
+      layer) + popup labels; Pi re-extraction #3 (11 cells, 32,708
+      features, 0 failures), pi-cache redeployed, cloud manifest **v8**
+      (OC-61-051032 serves DWRTPT:2 live).
 
 ### Performance (2.25)
 
