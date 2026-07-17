@@ -267,9 +267,13 @@
 // v133: tracer card header controls are proper fat-finger buttons (fold /
 // compass / Done, ≥36px targets); the standalone <boat>.thalassawx.app/plan
 // page hides the bottom tab bar — no access to the rest of the app.
-const CACHE_NAME = 'thalassa-v133-core';
-const TILE_CACHE = 'thalassa-v133-tiles';
-const DATA_CACHE = 'thalassa-v133-data';
+// v134: tracer card geometry fix — the fixed height was measured against the
+// viewport (dvh) but the card lives in the shorter map container, so it
+// overshot the top (covering the zoom pill / moon / compass rose). Now bound
+// by top+bottom in container coords; Done properly collapses it to the strip.
+const CACHE_NAME = 'thalassa-v134-core';
+const TILE_CACHE = 'thalassa-v134-tiles';
+const DATA_CACHE = 'thalassa-v134-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
