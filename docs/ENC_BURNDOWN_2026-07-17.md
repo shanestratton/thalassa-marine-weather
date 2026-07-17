@@ -135,9 +135,10 @@ route. Fix the silent failures first.
 - [x] **0.25 — Mapbox expression casts** — DONE (12 double-casts routed through the one documented `mapExpr` helper).
 - [x] **0.5 — GEBCO-tier verification invisible in HazardReportPanel** —
       DONE, folded into the corrupt-cell fix above (counted there).
-- [ ] **0.25 — No-coverage affordance (red-team add)** — browsing uncharted
-      water is indistinguishable from chart-off; add a "no chart coverage
-      here" read at nav zooms.
+- [x] **0.25 — No-coverage affordance** — DONE (z11+ viewport outside
+      every cell bbox shows "No chart coverage here — depths unverified";
+      hydration chip wins when a download is in flight). Landed via the
+      shared tree in `4cbd4b6e`.
 - [x] **0.5 — Night dim covers the canvas only** — DONE (full-screen DOM overlay: UI dims too, nothing can z-order past it). — DOM UI still glares and
       later-added layers escape; one full-screen overlay retires both.
 - [x] **0.5 — Chart-key legend omissions** — DONE (marine farm, special mark, fairway edge, leading line/track, TSS keep-out, unknown mark all keyed). — marine farms, special (yellow)
