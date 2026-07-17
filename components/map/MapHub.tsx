@@ -6218,17 +6218,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                     the BOTTOM of the chart-modes dropdown, behind a scroll —
                     at night, when you need it, menus blind you first). One
                     tap from the map; same persisted state as the menu row.
-                    Same 104px row as the zoom pill but on the FAR side of
-                    the compass rose (Shane 2026-07-17 screenshot markup):
-                    zoom pill left, rose centre, moon right. right-[68px]
-                    keeps it clear of the charts-page right rail (offline
-                    FAB column at right-[16px], rows from top-[128px]). */}
+                    Same 104px row as the zoom pill, tucked just off the
+                    compass rose's RIGHT edge (Shane 2026-07-17: on the other
+                    side of the rose, not the far side of the screen). The
+                    rose is fixed left 98px, 116px wide → right edge 214px;
+                    the moon sits at 224px with a ~10px gap. Zoom pill left,
+                    rose centre, moon just past it. */}
                 {encVisible && !embedded && !pickerMode && !isPinView && (
                     <button
                         onClick={() => setNightDim(!nightDim)}
                         aria-label="Toggle night dim"
                         aria-pressed={nightDim}
-                        className="absolute top-[104px] right-[68px] z-[700] flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
+                        className="absolute top-[104px] left-[224px] z-[700] flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
                         style={{
                             background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
                             borderColor: 'rgba(220, 80, 60, 0.35)',
