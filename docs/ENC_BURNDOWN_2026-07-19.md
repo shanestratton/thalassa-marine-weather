@@ -54,9 +54,12 @@ free silent-catch advisory shipped in the same commit — first ledger row.
       drift fixed in the same change: the "carry the S-52 flare shape" comment
       corrected to the actual radiant star-burst, and the "render from z11"
       comment aligned to the z10 filter. Locked by tests/seamarkLightIcons.ts.
-- [ ] **0.5 — Detail scrubber hides isolated-danger marks at d≥3** — OPEN:
-      move BOYISD/BCNISD out of the d≥3 minors cut to the d=6 tier (or
-      never-cut) in encDetailScrubber.ts; contradicts its own "never danger".
+- [x] **0.5 — Detail scrubber hides isolated-danger marks at d≥3** — DONE
+      (`781aa431`): BOYISD/BCNISD removed from the d≥3 cut and added to the
+      SAFETY FLOOR (never cut), matching the OBSTRN/WRECKS/UWTROC rule — they
+      point AT a charted hazard, so they outrank the laterals (d=6) they used
+      to die three notches before. 2 tests (never-hidden at any level; the
+      special-purpose minors they were grouped with still cut at d≥3).
 
 ### Performance (0.5 of the seed)
 
@@ -86,3 +89,4 @@ free silent-catch advisory shipped in the same commit — first ledger row.
 | 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory    | 1.0  | `4645e4e2` | 87.15              |
 | 2026-07-19 | White lights → yellow-white flare (+ flare-shape / z-filter drift) | 0.75 | `62b707e3` | 87.90              |
 | 2026-07-19 | GEBCO positional-trust guard (reject reordered/mismatched depths)  | 0.5  | `888f295a` | 88.40              |
+| 2026-07-19 | Detail scrubber: isolated-danger marks join the safety floor       | 0.5  | `781aa431` | 88.90              |
