@@ -69,6 +69,38 @@ function putDepth(key: string, depth: number | null): void {
     }
 }
 
+/**
+ * Align an edge `depths` response to the REQUEST points, trusting a depth ONLY
+ * where the echoed coords still identify the point we asked about, at cache-key
+ * precision (closing audit 2026-07-18 #5: the response was trusted
+ * POSITIONALLY — `depths[j]` assigned to request point j by index — so a
+ * reordered or mismatched same-length array silently gave a neighbour's depth
+ * to a shoal sample on the weakest-data GEBCO fallback water). The gebco-depth
+ * edge echoes the request lat/lon verbatim (supabase/functions/gebco-depth:
+ * queryDepthBatch), so a correct response matches exactly; any misalignment
+ * (reorder, short/long array, corruption) drops THAT point to the loud no-data
+ * path. The result stays aligned to `points` — order, length, and REQUEST
+ * coords — so the caller caches each depth under the same key it looked up.
+ */
+export function alignDepthsToRequest(points: DepthPoint[], depths: DepthResult[]): DepthResult[] {
+    let mismatches = 0;
+    const aligned = points.map((pt, j) => {
+        const d = depths[j] as DepthResult | undefined;
+        const coordsMatch = d != null && cacheKey(d.lat, d.lon) === cacheKey(pt.lat, pt.lon);
+        if (!coordsMatch) mismatches++;
+        // Only trust the depth when the echoed coords still name THIS point.
+        const depth_m = coordsMatch && Number.isFinite(d!.depth_m) ? (d!.depth_m as number) : null;
+        return { lat: pt.lat, lon: pt.lon, depth_m };
+    });
+    if (mismatches > 0) {
+        log.warn(
+            `[GebcoDepth] ${mismatches}/${points.length} depth point(s) misaligned with the request — ` +
+                `dropped to no-data (positional-trust guard)`,
+        );
+    }
+    return aligned;
+}
+
 // ── Service ──────────────────────────────────────────────────────
 
 class GebcoDepthServiceClass {
@@ -241,7 +273,7 @@ class GebcoDepthServiceClass {
             // Body read bounded separately — a trickling LTE body resets
             // WKWebView's request timer byte-by-byte and can stall too.
             const data: DepthQueryResponse = await withDeadline(resp.json(), 15_000, 'gebco-depth body');
-            return data.depths;
+            return alignDepthsToRequest(points, Array.isArray(data?.depths) ? data.depths : []);
         } catch (err) {
             log.error('[GebcoDepth] Fetch error:', err);
             return points.map((pt) => ({ lat: pt.lat, lon: pt.lon, depth_m: null }));
