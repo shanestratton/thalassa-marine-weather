@@ -43,8 +43,9 @@ ledger row below.
       warm GO-white (deliberately not the ramp); key caption updated.
       (S-52/paper: shallow = blue). CAREFUL: Shane approved the white
       ramp (`1dc014f0`) — confirm with him before touching.
-- [ ] **0.5 — Lights: near-all 'minor' (hidden < z10), ★ text glyph, fixed
-      900 m sector arcs** — tier by LITCHR/category not just VALNMR; real
+- [x] **0.5 — Lights overhaul** — DONE: tiering counts sectored lights + full-character lights as major (VALNMR alone hid nearly every
+      light below z10); the ★ text char is a real colour-matched flare
+      icon; sector arcs scale with charted VALNMR (clamped 500-3200 m).
       light-flare glyph; scale sector arc radius (VALNMR when present).
 - [x] **0.25 — Preferred-channel BEACONS banded** — DONE (region-aware
       banded posts; buoys got theirs in cycle 2).
@@ -52,8 +53,10 @@ ledger row below.
       hull-showing get their own INT1 glyphs; 2/3/unknown stay dangerous).
 - [x] **0.25 — IALA-B prefix set** — DONE (+15 HOs: Taiwan, Central
       America, Caribbean chain, PR/USVI).
-- [ ] **0.25 — Line seam de-dup clips against the finer cell's WHOLE
-      DEPARE-extent rect** — presence-gate is per layer but the clip frame
+- [x] **0.25 — Seam clip frame = same-layer extent** — DONE: coarse
+      DEPCNT/COALNE clip against the finer cell's OWN line-layer extent
+      (the DEPARE-extent frame erased contours across water the fine
+      survey charts without contours); subsumes the presence gate.
       is the full extent; clip against the finer cell's SAME-LAYER data
       extent instead.
 - [x] **0.25 — Caution colour table** — DONE: CAUTION_CLASS_COLOURS is
@@ -174,3 +177,4 @@ ledger row below.
 | 2026-07-18 | Visibility state machine (explicit state + composer)         | 0.5  | see git log | 96.5                   |
 | 2026-07-18 | Banded pref-channel beacons + wreck CATWRK taxonomy          | 0.5  | see git log | 97.0                   |
 | 2026-07-18 | Blue-shallow ramp (Shane's call) + underline device-verified | 0.75 | see git log | 97.75                  |
+| 2026-07-18 | Lights overhaul + same-layer seam clip frames                | 0.75 | see git log | 98.5                   |
