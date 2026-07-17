@@ -255,9 +255,11 @@
 // the zoom pill, evenly seated between pill, compass rose and tracer card.
 // v128: night-dim moon crosses to the far side of the compass rose —
 // zoom pill left, rose centre, moon right, all on the 104px row.
-const CACHE_NAME = 'thalassa-v128-core';
-const TILE_CACHE = 'thalassa-v128-tiles';
-const DATA_CACHE = 'thalassa-v128-data';
+// v129: the lead-snap grab radius widens 50 m → 120 m — easier to land a
+// pin on a charted transit (leads are sparse, so a wide catch is safe).
+const CACHE_NAME = 'thalassa-v129-core';
+const TILE_CACHE = 'thalassa-v129-tiles';
+const DATA_CACHE = 'thalassa-v129-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

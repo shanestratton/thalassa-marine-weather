@@ -1060,8 +1060,13 @@ export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'be
  * almost certainly means "on the lead". Returns the projection onto the
  * nearest lead within `maxM`, or null (deliberate off-lead placement more
  * than maxM away stays exactly where the skipper put it).
+ *
+ * 120 m grab radius (Shane 2026-07-17: "make it a bit of a larger area") —
+ * up from 50 m. Leads are sparse (a handful of charted transits per harbour,
+ * far apart), so a wide catch almost never has to choose between two, and
+ * intent is rarely ambiguous: near a lead you mean the lead.
  */
-export function snapTraceTapToLead(ctx: TracerContext, p: TracePoint, maxM = 50): TracePoint | null {
+export function snapTraceTapToLead(ctx: TracerContext, p: TracePoint, maxM = 120): TracePoint | null {
     let best: { point: TracePoint; dist: number } | null = null;
     for (const lead of ctx.leads) {
         if (lead.pts.length < 2) continue;

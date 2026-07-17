@@ -714,8 +714,12 @@ describe('snapTraceTapToLead — fat-finger pin onto the transit', () => {
         expect(p!.lat).toBeCloseTo(-27.01, 6); // at the perpendicular foot
     });
 
-    it('a pin ~100 m away stays where the skipper put it (null)', () => {
-        expect(snapTraceTapToLead(leadCtx, { lat: -27.01, lon: 153.011 })).toBeNull();
+    it('a pin ~100 m off still snaps — the grab radius is 120 m now', () => {
+        expect(snapTraceTapToLead(leadCtx, { lat: -27.01, lon: 153.011 })).not.toBeNull();
+    });
+
+    it('a pin ~150 m away stays where the skipper put it (null)', () => {
+        expect(snapTraceTapToLead(leadCtx, { lat: -27.01, lon: 153.0115 })).toBeNull();
     });
 
     it('no leads in the context → null; nearest of several leads wins', () => {

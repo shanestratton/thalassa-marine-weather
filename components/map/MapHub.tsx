@@ -1307,7 +1307,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const ll = marker.getLngLat();
                     triggerHaptic('light');
                     // Dragging NEAR a lead lands ON the lead (same fat-finger
-                    // rule as placement; >50 m away stays where dropped).
+                    // rule as placement; >120 m away stays where dropped).
                     let p0 = { lat: ll.lat, lon: ll.lng };
                     const ctx = tracerCtxRef.current;
                     const onLead = ctx ? snapTraceTapToLead(ctx, p0) : null;
@@ -3777,7 +3777,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 if (ctx) {
                     // Lead first (Shane 2026-07-17: "shove it directly on top
                     // of the lead — very hard with fat fingers"): a pin within
-                    // ~50 m of a charted transit means "on the lead", and the
+                    // ~120 m of a charted transit means "on the lead", and the
                     // lead IS navigable water, so the water snap is moot.
                     const onLead = snapTraceTapToLead(ctx, pt);
                     if (onLead) {
