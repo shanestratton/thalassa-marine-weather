@@ -17,41 +17,20 @@
 import React from 'react';
 import {
     loadSavedTraces,
-    legBadgeOrdinal,
-    stripLegBadge,
+    groupTracesByTrip,
     nextLegSeed,
     ordinalLegLabel,
-    type SavedTrace,
+    type TripGroup,
 } from '../../services/routeTracer';
 import { requestTracerOpen } from '../../services/deepLink';
 import { triggerHaptic } from '../../utils/system';
 
-interface UiTrip {
-    key: string;
-    label: string;
-    legs: SavedTrace[]; // ordinal-sorted
-}
-
-const buildTrips = (): UiTrip[] => {
-    const traces = loadSavedTraces();
-    const groups = new Map<string, SavedTrace[]>();
-    for (const t of traces) {
-        const key = t.tripId ?? t.id;
-        const g = groups.get(key);
-        if (g) g.push(t);
-        else groups.set(key, [t]);
-    }
-    return [...groups.entries()].map(([key, legs]) => {
-        legs.sort(
-            (a, b) => (a.legOrdinal ?? legBadgeOrdinal(a.name) ?? 1) - (b.legOrdinal ?? legBadgeOrdinal(b.name) ?? 1),
-        );
-        const base = stripLegBadge(legs[0].name);
-        return { key, legs, label: legs.length > 1 ? `${base} … (${legs.length} legs)` : base };
-    });
-};
+// Grouping is the SHARED helper (groupTracesByTrip) so this Trip box and the
+// tracer card's "open a saved route" list can never drift (2026-07-17).
+const buildTrips = (): TripGroup[] => groupTracesByTrip(loadSavedTraces());
 
 export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenChart }) => {
-    const [trips, setTrips] = React.useState<UiTrip[]>(() => buildTrips());
+    const [trips, setTrips] = React.useState<TripGroup[]>(() => buildTrips());
     const [selectedKey, setSelectedKey] = React.useState('');
     // Saved routes land from the cloud merge after mount — refresh once the
     // punter actually opens the dropdown so the list is never stale.

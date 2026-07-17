@@ -1336,6 +1336,38 @@ export function nextLegSeed(t: SavedTrace): NextLegSeed | null {
     };
 }
 
+/** One trip in the picker's eyes: its legs (ordinal-sorted) + a summary
+ *  label. Standalone routes are a one-leg trip. */
+export interface TripGroup {
+    key: string;
+    label: string;
+    legs: SavedTrace[];
+}
+
+/** Group saved traces into trips (SHARED by the PLAN-page Trip box and the
+ *  tracer card's "open a saved route" list, so the two can never drift —
+ *  2026-07-17). Legs of one trip share tripId (= leg 1's id); order is
+ *  preserved from the input so the caller controls newest-first, etc. */
+export function groupTracesByTrip(traces: readonly SavedTrace[]): TripGroup[] {
+    const groups = new Map<string, SavedTrace[]>();
+    const order: string[] = [];
+    for (const t of traces) {
+        const key = t.tripId ?? t.id;
+        const g = groups.get(key);
+        if (g) g.push(t);
+        else {
+            groups.set(key, [t]);
+            order.push(key);
+        }
+    }
+    return order.map((key) => {
+        const legs = groups.get(key)!;
+        legs.sort((a, b) => (a.legOrdinal ?? legBadgeOrdinal(a.name) ?? 1) - (b.legOrdinal ?? legBadgeOrdinal(b.name) ?? 1));
+        const base = stripLegBadge(legs[0].name);
+        return { key, legs, label: legs.length > 1 ? `${base} … (${legs.length} legs)` : base };
+    });
+}
+
 /** Retro-badge (Shane's call, 2026-07-17): leg 1 earns its "(1st Leg)" badge
  *  the moment leg 2 is born — day-sail routes never carry trip baggage.
  *  Finds the trip's first leg (its id IS the tripId), stamps the structural

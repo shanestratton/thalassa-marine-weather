@@ -140,6 +140,7 @@ import {
     commonDepartureWindowLabel,
     persistLegVerdicts,
     hydrateLegVerdicts,
+    groupTracesByTrip,
     nextLegSeed,
     ordinalLegLabel,
     withLegBadge,
@@ -5545,16 +5546,42 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         No saved routes yet — plot one and Save it.
                                                     </div>
                                                 ) : (
-                                                    savedTraces.map((t) => (
-                                                        <button
-                                                            key={t.id}
-                                                            onClick={() => openSavedTrace(t)}
-                                                            className="block w-full truncate rounded-md px-1.5 py-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
-                                                        >
-                                                            {t.name}{' '}
-                                                            <span className="text-gray-500">({t.points.length} pins)</span>
-                                                        </button>
-                                                    ))
+                                                    // GROUPED by trip (Shane 2026-07-17), the same
+                                                    // shared helper the PLAN Trip box uses: a
+                                                    // multi-leg trip shows a header + indented
+                                                    // legs; a standalone route is one row.
+                                                    groupTracesByTrip(savedTraces).map((trip) =>
+                                                        trip.legs.length === 1 ? (
+                                                            <button
+                                                                key={trip.key}
+                                                                onClick={() => openSavedTrace(trip.legs[0])}
+                                                                className="block w-full truncate rounded-md px-1.5 py-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
+                                                            >
+                                                                {trip.legs[0].name}{' '}
+                                                                <span className="text-gray-500">
+                                                                    ({trip.legs[0].points.length} pins)
+                                                                </span>
+                                                            </button>
+                                                        ) : (
+                                                            <div key={trip.key}>
+                                                                <div className="truncate px-1.5 pt-1 text-[10px] font-black uppercase tracking-wide text-amber-300/90">
+                                                                    🧩 {trip.label}
+                                                                </div>
+                                                                {trip.legs.map((leg) => (
+                                                                    <button
+                                                                        key={leg.id}
+                                                                        onClick={() => openSavedTrace(leg)}
+                                                                        className="block w-full truncate rounded-md py-1.5 pl-4 pr-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
+                                                                    >
+                                                                        {leg.name}{' '}
+                                                                        <span className="text-gray-500">
+                                                                            ({leg.points.length} pins)
+                                                                        </span>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        ),
+                                                    )
                                                 )}
                                             </div>
                                         )}

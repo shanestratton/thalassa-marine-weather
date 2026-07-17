@@ -15,6 +15,7 @@ import {
     nextLegSeed,
     retroBadgeFirstLeg,
     healTripChain,
+    groupTracesByTrip,
     saveTrace,
     loadSavedTraces,
     persistLegVerdicts,
@@ -179,5 +180,34 @@ describe('leg-verdict persistence (remount cold-cache fix, 2026-07-17)', () => {
         expect(back.has('k0')).toBe(false); // oldest culled
         localStorage.setItem('thalassa_leg_verdicts_v1', '{corrupt');
         expect(hydrateLegVerdicts(2.4, false, 7)).toBeNull();
+    });
+});
+
+describe('groupTracesByTrip (shared by PLAN Trip box + card list)', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('groups legs of one trip, ordinal-sorted, standalone routes stay singletons', () => {
+        saveTrace('newport - woorim (1st Leg)', PTS, { tripId: 'trip-a', legOrdinal: 1 });
+        saveTrace('woorim - mooloolaba (2nd Leg)', PTS, { tripId: 'trip-a', legOrdinal: 2 });
+        const { trace: solo } = saveTrace('bay run', PTS);
+        // Feed newest-first (like loadSavedTraces returns) and out of leg order.
+        const groups = groupTracesByTrip([
+            ...loadSavedTraces(),
+        ]);
+        const trip = groups.find((g) => g.key === 'trip-a')!;
+        expect(trip.legs.map((l) => l.legOrdinal)).toEqual([1, 2]); // ordinal-sorted
+        expect(trip.label).toContain('2 legs');
+        const standalone = groups.find((g) => g.key === solo.id)!;
+        expect(standalone.legs).toHaveLength(1);
+        expect(standalone.label).toBe('bay run');
+    });
+
+    it('badge-only legs (cloud shed the fields) still group + sort by name badge', () => {
+        const a = { id: 'x1', name: 'a - b (1st Leg)', createdAt: '', points: PTS, tripId: 'x1' };
+        const b = { id: 'x2', name: 'b - c (2nd Leg)', createdAt: '', points: PTS, tripId: 'x1' };
+        // legOrdinal absent → falls back to the name badge ordinal.
+        const groups = groupTracesByTrip([b, a] as never);
+        expect(groups).toHaveLength(1);
+        expect(groups[0].legs.map((l) => l.name)).toEqual(['a - b (1st Leg)', 'b - c (2nd Leg)']);
     });
 });
