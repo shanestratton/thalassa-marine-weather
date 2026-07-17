@@ -37,6 +37,7 @@ import {
     GLAZE_MARTINEZ_VERTEX_CAP,
     type FineCoverage,
 } from './clipDepareOverlap';
+import type { GeometryJobMsg, GeometryWorkerReply } from './geometryWorkerProtocol';
 import { buildDerivedContours } from './derivedContours';
 
 /** Aggregate martinez input budget per JOB (sum of subject+clip vertices
@@ -47,32 +48,16 @@ import { buildDerivedContours } from './derivedContours';
  *  iPhone and low-tens-of-MB transient — tune from the [glaze] line. */
 export const GLAZE_JOB_VERTEX_BUDGET = 500_000;
 
-interface GlazeCellJob {
-    cellId: string;
-    glazeKey: string;
-    features: Feature[];
-    /** Indexes into JobMsg.coverageLib — one shared FineCoverage per fine
-     *  cell per job (per-cell copies dominated the round-1 clone). */
-    coverageIds: string[];
-}
-
-interface JobMsg {
-    jobId: number;
-    glazeCells?: GlazeCellJob[];
-    coverageLib?: Record<string, FineCoverage>;
-    contourPoints?: Array<{ lon: number; lat: number; d: number }>;
-}
-
 const ctx = self as unknown as {
-    onmessage: ((ev: MessageEvent<JobMsg>) => void) | null;
-    postMessage(msg: unknown): void;
+    onmessage: ((ev: MessageEvent<GeometryJobMsg>) => void) | null;
+    postMessage(msg: GeometryWorkerReply): void;
 };
 
 /** One macrotask gap — lets the engine GC between per-cell allocation
  *  bursts instead of stacking them in a single synchronous task. */
 const breathe = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-ctx.onmessage = (ev: MessageEvent<JobMsg>) => {
+ctx.onmessage = (ev: MessageEvent<GeometryJobMsg>) => {
     void (async () => {
         const { jobId, glazeCells, coverageLib, contourPoints } = ev.data;
         try {

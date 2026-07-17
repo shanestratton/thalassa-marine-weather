@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { encNavaidIconId } from '../../services/enc/types';
+import { encNavaidIconId, readS57 } from '../../services/enc/types';
 
 describe('encNavaidIconId unknown-attribute fallbacks', () => {
     it('known CATCAM quadrants map to their cardinals', () => {
@@ -29,5 +29,18 @@ describe('encNavaidIconId unknown-attribute fallbacks', () => {
         expect(encNavaidIconId('BOYLAT', { CATLAM: 1 }, 'A')).toBe('sm-buoy-port');
         expect(encNavaidIconId('BOYLAT', { CATLAM: 1 }, 'B')).toBe('sm-buoy-port-b');
         expect(encNavaidIconId('BOYLAT', { CATLAM: 2 }, 'A')).toBe('sm-buoy-starboard');
+    });
+});
+
+describe('readS57 — case-defensive property read (audit: ~50 hand-repeated pairs)', () => {
+    it('prefers the uppercase key, falls back to lowercase (ogr2ogr cells)', () => {
+        expect(readS57({ DRVAL1: 5 }, 'DRVAL1')).toBe(5);
+        expect(readS57({ drval1: '3.2' }, 'DRVAL1')).toBe('3.2');
+        expect(readS57({ DRVAL1: 5, drval1: 9 }, 'DRVAL1')).toBe(5);
+    });
+    it('null/absent props read undefined, never throw', () => {
+        expect(readS57(null, 'OBJNAM')).toBeUndefined();
+        expect(readS57(undefined, 'OBJNAM')).toBeUndefined();
+        expect(readS57({}, 'OBJNAM')).toBeUndefined();
     });
 });

@@ -8,7 +8,7 @@
  * window) stays in EncVectorLayer.
  */
 
-import { LITCHR_LABELS } from '../../services/enc/types';
+import { LITCHR_LABELS, readS57 } from '../../services/enc/types';
 import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { ENC_VEC_LAYERS } from './encLayerIds';
 
@@ -244,11 +244,11 @@ function lightRows(props: Record<string, unknown>): string {
     // the raw LITCHR code through LITCHR_LABELS ('Fl' → 'Flashing');
     // else show the raw code the user can cross-reference on a chart.
     const lightLabel = props._lightLabel;
-    const litchr = props.LITCHR ?? props.litchr;
-    const sigper = props.SIGPER ?? props.sigper;
-    const valnmr = props.VALNMR ?? props.valnmr;
-    const height = props.HEIGHT ?? props.height;
-    const colour = props.COLOUR ?? props.colour;
+    const litchr = readS57(props, 'LITCHR');
+    const sigper = readS57(props, 'SIGPER');
+    const valnmr = readS57(props, 'VALNMR');
+    const height = readS57(props, 'HEIGHT');
+    const colour = readS57(props, 'COLOUR');
     if (typeof lightLabel === 'string' && lightLabel) {
         out += `<div class="enc-popup-row"><span>Character</span><b>${esc(lightLabel)}</b></div>`;
     } else if (litchr) {
@@ -323,8 +323,8 @@ export function buildFeaturePopupHtml(
         // needs-tide reads fills in async (see fillDepareTideWindow).
         title = 'Water';
         accent = '#3a8dbf';
-        const d1raw = Number(props.DRVAL1 ?? props.drval1);
-        const d2raw = Number(props.DRVAL2 ?? props.drval2);
+        const d1raw = Number(readS57(props, 'DRVAL1'));
+        const d2raw = Number(readS57(props, 'DRVAL2'));
         const d1 = Number.isFinite(d1raw) ? d1raw : null;
         const d2 = Number.isFinite(d2raw) ? d2raw : null;
         if (d1 !== null) {
@@ -404,41 +404,41 @@ export function buildFeaturePopupHtml(
     } else if (layerId === ENC_VEC_LAYERS.OBSTRN) {
         title = 'Obstruction';
         accent = ENC_HAZARD_MAGENTA;
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
-        const cat = String(props.CATOBS ?? props.catobs ?? '');
+        const cat = String(readS57(props, 'CATOBS') ?? '');
         if (cat && CATOBS_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATOBS_LABELS[cat])}</b></div>`;
         }
-        body += valsouRow(props.VALSOU ?? props.valsou);
-        const watlev = String(props.WATLEV ?? props.watlev ?? '');
+        body += valsouRow(readS57(props, 'VALSOU'));
+        const watlev = String(readS57(props, 'WATLEV') ?? '');
         if (watlev && WATLEV_LABELS[watlev]) {
             body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
         }
     } else if (layerId === ENC_VEC_LAYERS.WRECKS) {
         title = 'Wreck';
         accent = ENC_HAZARD_MAGENTA;
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
-        const cat = String(props.CATWRK ?? props.catwrk ?? '');
+        const cat = String(readS57(props, 'CATWRK') ?? '');
         if (cat && CATWRK_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATWRK_LABELS[cat])}</b></div>`;
         }
-        body += valsouRow(props.VALSOU ?? props.valsou);
+        body += valsouRow(readS57(props, 'VALSOU'));
     } else if (layerId === ENC_VEC_LAYERS.UWTROC) {
         title = 'Underwater rock';
         accent = ENC_HAZARD_MAGENTA;
-        body += valsouRow(props.VALSOU ?? props.valsou);
-        const watlev = String(props.WATLEV ?? props.watlev ?? '');
+        body += valsouRow(readS57(props, 'VALSOU'));
+        const watlev = String(readS57(props, 'WATLEV') ?? '');
         if (watlev && WATLEV_LABELS[watlev]) {
             body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
         }
     } else if (layerId === ENC_VEC_LAYERS.LIGHTS) {
         title = 'Light';
         accent = '#fde047';
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
         body += lightRows(props);
@@ -461,8 +461,8 @@ export function buildFeaturePopupHtml(
                 colourName,
             )}</b></div>`;
         }
-        const s1 = Number(props.SECTR1 ?? props.sectr1);
-        const s2 = Number(props.SECTR2 ?? props.sectr2);
+        const s1 = Number(readS57(props, 'SECTR1'));
+        const s2 = Number(readS57(props, 'SECTR2'));
         if (Number.isFinite(s1) && Number.isFinite(s2)) {
             // Raw from-seaward limits — the bearings read off the water ("you
             // see this colour when the light bears between…"), NOT the +180
@@ -471,7 +471,7 @@ export function buildFeaturePopupHtml(
                 0,
             )}° from seaward</b></div>`;
         }
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Light</span><b>${esc(name)}</b></div>`;
         const lightLabel = props._lightLabel;
@@ -491,7 +491,7 @@ export function buildFeaturePopupHtml(
             '3': 'Preferred channel to starboard',
             '4': 'Preferred channel to port',
         };
-        const cat = String(props.CATLAM ?? props.catlam ?? '');
+        const cat = String(readS57(props, 'CATLAM') ?? '');
         if (cat && CATLAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Mark</span><b>${esc(CATLAM_LABELS[cat])}</b></div>`;
         } else if (!cat) {
@@ -517,7 +517,7 @@ export function buildFeaturePopupHtml(
         if (region === 'A' || region === 'B') {
             body += `<div class="enc-popup-row"><span>Region</span><b>IALA-${esc(region)}</b></div>`;
         }
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.BOYCAR || layerId === ENC_VEC_LAYERS.BCNCAR) {
@@ -530,7 +530,7 @@ export function buildFeaturePopupHtml(
             '3': 'South',
             '4': 'West',
         };
-        const cat = String(props.CATCAM ?? props.catcam ?? '');
+        const cat = String(readS57(props, 'CATCAM') ?? '');
         if (cat && CATCAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Quadrant</span><b>${esc(CATCAM_LABELS[cat])}</b></div>`;
             // The rule, spelled out — a cardinal is passed on the side it
@@ -540,21 +540,21 @@ export function buildFeaturePopupHtml(
                 CATCAM_LABELS[cat].toUpperCase(),
             )} of this mark</b></div>`;
         }
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.BOYSAW || layerId === ENC_VEC_LAYERS.BCNSAW) {
         title = layerId === ENC_VEC_LAYERS.BCNSAW ? 'Safe-water beacon' : 'Safe-water buoy';
         accent = '#f87171';
         body += `<div class="enc-popup-row"><span>Meaning</span><b>Safe water all round — fairway / landfall mark</b></div>`;
-        const sawName = props.OBJNAM ?? props.objnam;
+        const sawName = readS57(props, 'OBJNAM');
         if (typeof sawName === 'string' && sawName)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(sawName)}</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.BOYISD || layerId === ENC_VEC_LAYERS.BCNISD) {
         title = layerId === ENC_VEC_LAYERS.BCNISD ? 'Isolated-danger beacon' : 'Isolated-danger buoy';
         accent = '#f87171';
         body += `<div class="enc-popup-row"><span>Meaning</span><b style="color:#fbbf24">Danger below — navigable water AROUND it, keep clear of the mark</b></div>`;
-        const isdName = props.OBJNAM ?? props.objnam;
+        const isdName = readS57(props, 'OBJNAM');
         if (typeof isdName === 'string' && isdName)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(isdName)}</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.BOYSPP || layerId === ENC_VEC_LAYERS.BCNSPP) {
@@ -581,7 +581,7 @@ export function buildFeaturePopupHtml(
             '39': 'Marine-farm mark',
             '44': 'Wreck mark',
         };
-        const cat = String(props.CATSPM ?? props.catspm ?? '').trim();
+        const cat = String(readS57(props, 'CATSPM') ?? '').trim();
         if (cat && CATSPM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Purpose</span><b>${esc(CATSPM_LABELS[cat])}</b></div>`;
         } else if (cat && cat !== 'undefined') {
@@ -591,10 +591,10 @@ export function buildFeaturePopupHtml(
         }
         // Free-text the chart may carry even without a CATSPM category — often
         // the most useful line ("Cable crossing", "No anchoring", "Ski area").
-        const informRaw = props.INFORM ?? props.inform ?? props.NINFOM ?? props.ninfom;
+        const informRaw = readS57(props, 'INFORM') ?? readS57(props, 'NINFOM');
         const inform = typeof informRaw === 'string' ? informRaw.trim() : '';
         if (inform) body += `<div class="enc-popup-row"><span>Note</span><b>${esc(inform)}</b></div>`;
-        const name = props.OBJNAM ?? props.objnam;
+        const name = readS57(props, 'OBJNAM');
         const hasName = typeof name === 'string' && name.trim() !== '';
         if (hasName) body += `<div class="enc-popup-row"><span>Name</span><b>${esc(String(name))}</b></div>`;
         // Nothing charted beyond "it's a yellow special mark" → say so plainly
@@ -625,23 +625,23 @@ export function buildFeaturePopupHtml(
                           ? '#84a95e'
                           : '#d43fc0';
         // RESTRN (restriction) — the values a skipper meets most.
-        const restrn = restrnNames(props.RESTRN ?? props.restrn);
+        const restrn = restrnNames(readS57(props, 'RESTRN'));
         if (restrn) body += `<div class="enc-popup-row"><span>Restriction</span><b>${esc(restrn)}</b></div>`;
         else if (CAUTION_NOTES[cls])
             body += `<div class="enc-popup-row"><span>Note</span><b>${esc(CAUTION_NOTES[cls])}</b></div>`;
         // NATSUR (nature of surface) for seabed areas — the anchoring read.
-        const natsur = natsurNames(props.NATSUR ?? props.natsur);
+        const natsur = natsurNames(readS57(props, 'NATSUR'));
         if (natsur) body += `<div class="enc-popup-row"><span>Seabed</span><b>${esc(natsur)}</b></div>`;
         // TSS lane direction (ORIENT) — the one thing a separation lane
         // must tell you is which WAY it flows.
-        const orient = Number(props.ORIENT ?? props.orient);
+        const orient = Number(readS57(props, 'ORIENT'));
         if (cls === 'TSSLPT' && Number.isFinite(orient)) {
             body += `<div class="enc-popup-row"><span>Lane direction</span><b>${esc(`${String(Math.round(orient)).padStart(3, '0')}°`)}</b></div>`;
         }
-        const informRaw = props.INFORM ?? props.inform ?? props.NINFOM ?? props.ninfom;
+        const informRaw = readS57(props, 'INFORM') ?? readS57(props, 'NINFOM');
         const inform = typeof informRaw === 'string' ? informRaw.trim() : '';
         if (inform) body += `<div class="enc-popup-row"><span>Note</span><b>${esc(inform)}</b></div>`;
-        const cname = props.OBJNAM ?? props.objnam;
+        const cname = readS57(props, 'OBJNAM');
         if (typeof cname === 'string' && cname.trim())
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(cname)}</b></div>`;
     }
