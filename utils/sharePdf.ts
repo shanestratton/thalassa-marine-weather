@@ -24,10 +24,18 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Share (native) or download (web) a PDF blob. Returns 'shared' | 'downloaded'
- * | 'cancelled'. Throws only on an unexpected failure so the caller can toast.
+ * Share (native) or download (web) ANY file blob. Returns 'shared' |
+ * 'downloaded' | 'cancelled'. Throws only on an unexpected failure so the
+ * caller can toast. `mimeType` is used for the web File wrapper (the native
+ * path is mimetype-agnostic — the extension in fileName drives handler
+ * selection). Used for the route-report PDF and the GPX route export.
  */
-export async function sharePdfBlob(blob: Blob, fileName: string, title: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
+export async function shareFileBlob(
+    blob: Blob,
+    fileName: string,
+    title: string,
+    mimeType: string,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
     if (Capacitor.isNativePlatform()) {
         const base64 = await blobToBase64(blob);
         const saved = await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
@@ -46,7 +54,7 @@ export async function sharePdfBlob(blob: Blob, fileName: string, title: string):
     }
 
     // Web: prefer a native share with the file, else download.
-    const file = new File([blob], fileName, { type: 'application/pdf' });
+    const file = new File([blob], fileName, { type: mimeType });
     const nav = navigator as Navigator & { canShare?: (d: unknown) => boolean };
     if (typeof nav.canShare === 'function' && nav.canShare({ files: [file] })) {
         try {
@@ -65,4 +73,13 @@ export async function sharePdfBlob(blob: Blob, fileName: string, title: string):
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5_000);
     return 'downloaded';
+}
+
+/** PDF convenience wrapper — the original signature, now atop shareFileBlob. */
+export function sharePdfBlob(
+    blob: Blob,
+    fileName: string,
+    title: string,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
+    return shareFileBlob(blob, fileName, title, 'application/pdf');
 }

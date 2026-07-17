@@ -1507,6 +1507,56 @@ export function traceAsCuratedFairwaySnippet(name: string, points: readonly Trac
     );
 }
 
+/** Escape the five XML metacharacters for GPX text nodes. */
+function escapeGpxXml(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+/**
+ * Serialise a trace to GPX 1.1 as a single <rte> of <rtept>s (Shane
+ * 2026-07-17: "export it as a gpx file for importing into a chartplotter").
+ * A route (not a track) is what OpenCPN / Garmin / B&G import as a plan you
+ * can activate and steer. Each pin becomes a named waypoint (WP-01…) at 6-dp
+ * precision. `nowIso` is passed in because the tracer runs where the
+ * clock-free Date guard doesn't apply, but callers keep it injectable/testable.
+ */
+export function traceToGpx(name: string, points: readonly TracePoint[], nowIso: string = new Date().toISOString()): string {
+    const routeName = name.trim() || 'Thalassa route';
+    const rtepts = points
+        .map(
+            (p, i) =>
+                `    <rtept lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}">\n` +
+                `      <name>WP-${String(i + 1).padStart(2, '0')}</name>\n` +
+                `    </rtept>`,
+        )
+        .join('\n');
+    return (
+        `<?xml version="1.0" encoding="UTF-8"?>\n` +
+        `<gpx version="1.1" creator="Thalassa Marine" xmlns="http://www.topografix.com/GPX/1/1" ` +
+        `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
+        `xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">\n` +
+        `  <metadata>\n    <name>${escapeGpxXml(routeName)}</name>\n    <time>${nowIso}</time>\n  </metadata>\n` +
+        `  <rte>\n    <name>${escapeGpxXml(routeName)}</name>\n${rtepts}\n  </rte>\n` +
+        `</gpx>\n`
+    );
+}
+
+/** Filesystem-safe .gpx filename from a route name. */
+export function traceGpxFileName(name: string): string {
+    const base =
+        name
+            .trim()
+            .replace(/[^a-z0-9]+/gi, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 60) || 'thalassa-route';
+    return `${base}.gpx`;
+}
+
 /** Minimal VoyagePlan so a trace can be followed like any planned passage. */
 export function traceAsVoyagePlan(
     name: string,

@@ -16,6 +16,8 @@ import {
     retroBadgeFirstLeg,
     healTripChain,
     groupTracesByTrip,
+    traceToGpx,
+    traceGpxFileName,
     saveTrace,
     loadSavedTraces,
     persistLegVerdicts,
@@ -209,5 +211,34 @@ describe('groupTracesByTrip (shared by PLAN Trip box + card list)', () => {
         const groups = groupTracesByTrip([b, a] as never);
         expect(groups).toHaveLength(1);
         expect(groups[0].legs.map((l) => l.name)).toEqual(['a - b (1st Leg)', 'b - c (2nd Leg)']);
+    });
+});
+
+describe('traceToGpx — chartplotter export', () => {
+    const pts = [
+        { lat: -27.2, lon: 153.1 },
+        { lat: -27.15, lon: 153.18 },
+        { lat: -27.1, lon: 153.25 },
+    ];
+
+    it('emits a GPX 1.1 <rte> with one <rtept> per pin, 6-dp coords', () => {
+        const gpx = traceToGpx('Newport - Woorim', pts, '2026-07-17T00:00:00.000Z');
+        expect(gpx).toContain('<gpx version="1.1"');
+        expect(gpx).toContain('http://www.topografix.com/GPX/1/1');
+        expect(gpx).toContain('<rte>');
+        expect((gpx.match(/<rtept /g) || []).length).toBe(3);
+        expect(gpx).toContain('lat="-27.200000" lon="153.100000"');
+        expect(gpx).toContain('<name>WP-01</name>');
+        expect(gpx).toContain('<name>WP-03</name>');
+    });
+
+    it('escapes XML in the route name and falls back when blank', () => {
+        expect(traceToGpx('A & B <test>', pts, 'T')).toContain('<name>A &amp; B &lt;test&gt;</name>');
+        expect(traceToGpx('   ', pts, 'T')).toContain('<name>Thalassa route</name>');
+    });
+
+    it('traceGpxFileName is filesystem-safe', () => {
+        expect(traceGpxFileName('Newport - Woorim (2nd Leg)')).toBe('Newport-Woorim-2nd-Leg.gpx');
+        expect(traceGpxFileName('  ')).toBe('thalassa-route.gpx');
     });
 });

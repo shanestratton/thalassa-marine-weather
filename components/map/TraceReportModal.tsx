@@ -228,6 +228,34 @@ export const TraceReportModal: React.FC<Props> = ({
         }
     }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, weather, spd, departureMs, exporting]);
 
+    // GPX export (Shane 2026-07-17: "export it in a gpx file for importing into
+    // a chartplotter") — a plain <rte> of the pins, shared/downloaded like the
+    // PDF. Route (not track): OpenCPN/Garmin/B&G import it as an activatable plan.
+    const onExportGpx = React.useCallback(async () => {
+        if (pins.length < 2 || exporting) return;
+        setExporting(true);
+        setExportMsg(null);
+        triggerHaptic('medium');
+        try {
+            const [{ traceToGpx, traceGpxFileName }, { shareFileBlob }] = await Promise.all([
+                import('../../services/routeTracer'),
+                import('../../utils/sharePdf'),
+            ]);
+            const blob = new Blob([traceToGpx(routeName, pins)], { type: 'application/gpx+xml' });
+            const outcome = await shareFileBlob(
+                blob,
+                traceGpxFileName(routeName),
+                `${routeName || 'Route'} — GPX`,
+                'application/gpx+xml',
+            );
+            if (outcome === 'downloaded') setExportMsg('GPX downloaded');
+        } catch (err) {
+            setExportMsg(`Couldn’t make the GPX (${err instanceof Error ? err.message.slice(0, 40) : 'error'})`);
+        } finally {
+            setExporting(false);
+        }
+    }, [pins, routeName, exporting]);
+
     if (!open) return null;
     const h = traceHealth(verdicts);
     const graded = verdicts.map((v, i) => ({ v, i })).filter((x): x is { v: TraceLegVerdict; i: number } => !!x.v);
@@ -245,6 +273,14 @@ export const TraceReportModal: React.FC<Props> = ({
                         )}
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
+                        <button
+                            onClick={() => void onExportGpx()}
+                            disabled={exporting || pins.length < 2}
+                            title="Export as GPX for a chartplotter (OpenCPN, Garmin, B&G…)"
+                            className="rounded-lg bg-emerald-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
+                        >
+                            ⬇ GPX
+                        </button>
                         <button
                             onClick={() => void onExportPdf()}
                             disabled={exporting || pins.length < 2}
