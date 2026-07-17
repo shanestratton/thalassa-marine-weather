@@ -871,7 +871,7 @@ function mountTrackAidLayers(
     // Colour comes from `_lightColor` pre-baked at merge time (first
     // code of the comma-split S-57 COLOUR — multi-colour lights no
     // longer fall to yellow). Declutter: minor lights (VALNMR < 10
-    // or missing) only render from z11; major lights always show and
+    // or missing) only render from z10; major lights always show and
     // win collision placement via the VALNMR sort key.
     if (!map.getLayer(ENC_VEC_LAYERS.LIGHTS)) {
         map.addLayer(
@@ -887,11 +887,14 @@ function mountTrackAidLayers(
                     ['any', ['==', ['get', '_lightTier'], 'major'], ['>=', ['zoom'], 10]],
                 ]),
                 layout: {
-                    // Real light-FLARE glyph, colour-matched (closing audit:
-                    // the light was a ★ text character — a font glyph, not
-                    // chart symbology). The pre-registered lightSvg icons
-                    // carry the S-52 flare shape; the match keys are the
-                    // exact hexes lightColourHex bakes into _lightColor.
+                    // Colour-matched light glyph (closing audit: the light was
+                    // a ★ text character — a font glyph, not chart symbology).
+                    // The pre-registered lightSvg icons are a radiant
+                    // halo-backed star-burst (the cheap glyph; a true S-52 SDF
+                    // flare is the phase-2 path noted above). The match keys are
+                    // the exact hexes LIGHT_COLOUR_HEX bakes into _lightColor —
+                    // white (#f0e030) renders a warm yellow-white flare, never
+                    // near-white, so it holds contrast over the day chart.
                     'icon-image': mapExpr([
                         'match',
                         ['coalesce', ['get', '_lightColor'], ''],

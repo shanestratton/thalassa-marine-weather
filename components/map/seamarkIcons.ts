@@ -23,6 +23,14 @@ const COLOURS = {
     amber: '#D69E2E',
 } as const;
 
+/** S-52 day-mode hue for a WHITE light flare — a warm yellow-white, NOT
+ *  COLOURS.white: a true-white star vanishes over the pale deep-water band
+ *  (DEPARE b20to50 #ecf4fa / b50plus #ffffff). Matches the exact hex
+ *  LIGHT_COLOUR_HEX['1'] bakes into `_lightColor` in services/enc/types.ts,
+ *  so the icon's colour IS its semantic colour (closing audit 2026-07-18:
+ *  the white light rendered near-white and washed out in daylight). */
+const LIGHT_WHITE_FLARE = '#f0e030';
+
 // ── SVG builders ─────────────────────────────────────────────────────────────
 
 function svgToImage(svgString: string, size: number): Promise<HTMLImageElement> {
@@ -399,7 +407,7 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-light-minor', svg: lightSvg(COLOURS.amber, false), size: 48 },
         { id: 'sm-light-red', svg: lightSvg(COLOURS.red, false), size: 48 },
         { id: 'sm-light-green', svg: lightSvg(COLOURS.green, false), size: 48 },
-        { id: 'sm-light-white', svg: lightSvg(COLOURS.white, false), size: 48 },
+        { id: 'sm-light-white', svg: lightSvg(LIGHT_WHITE_FLARE, false), size: 48 },
 
         // Beacons — cone (triangle) = starboard-hand topmark, can
         // (square) = port-hand topmark. Colour swaps by IALA region;
