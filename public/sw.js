@@ -274,9 +274,11 @@
 // v135: tracer card top now clears the LOWEST top-furniture via max() — on
 // the web (no safe-area) the pills sit lower than the compass rose, so tying
 // the card top to the rose alone still let it cover the zoom/moon pills.
-const CACHE_NAME = 'thalassa-v135-core';
-const TILE_CACHE = 'thalassa-v135-tiles';
-const DATA_CACHE = 'thalassa-v135-data';
+// v136: drop the pin-count "(N)" from the tracer header title — it wrapped
+// onto a second line and buggered the header layout.
+const CACHE_NAME = 'thalassa-v136-core';
+const TILE_CACHE = 'thalassa-v136-tiles';
+const DATA_CACHE = 'thalassa-v136-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
