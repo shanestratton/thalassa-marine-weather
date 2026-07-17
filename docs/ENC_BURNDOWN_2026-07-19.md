@@ -32,9 +32,14 @@ free silent-catch advisory shipped in the same commit — first ledger row.
       crossing check's catch now raises a `segment-check-failed` caution on
       the clean pass instead of a dev-log-only warn — a clean report can no
       longer hide an unrun sub-231 m crossing test.
-- [ ] **0.5 — GEBCO response trusted positionally** — OPEN: match
-      `depths[j].lat/lon` against `points[j]` at cache-key precision in
-      GebcoDepthService; reject mismatches to the loud no-data path.
+- [x] **0.5 — GEBCO response trusted positionally** — DONE:
+      `alignDepthsToRequest` trusts a depth ONLY where the edge's echoed
+      lat/lon still matches the requested point at cache-key precision (the
+      edge echoes coords verbatim). Any misalignment — reorder, short/long
+      array, corruption — drops THAT point to the loud no-data path; the
+      result stays aligned to the request (order, length, coords) so caching
+      keys stay consistent. 6 tests incl. the reversed-response shoal-swap
+      (a shoal sample can never inherit a neighbour's deep value).
 - [ ] **0.25 — Chart-edition staleness never reaches route advisories**
       (from cycle-3 safety verdict #3; not in the top-8 but same seed) —
       OPEN: plumb `EncCell.issued` age into a currency advisory kind.
@@ -80,3 +85,4 @@ free silent-catch advisory shipped in the same commit — first ledger row.
 | ---------- | ------------------------------------------------------------------ | ---- | ---------- | ------------------ |
 | 2026-07-19 | ZOC-aware lateral clearance margin + free silent-catch advisory    | 1.0  | `4645e4e2` | 87.15              |
 | 2026-07-19 | White lights → yellow-white flare (+ flare-shape / z-filter drift) | 0.75 | `62b707e3` | 87.90              |
+| 2026-07-19 | GEBCO positional-trust guard (reject reordered/mismatched depths)  | 0.5  | `888f295a` | 88.40              |
