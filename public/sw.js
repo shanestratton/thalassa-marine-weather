@@ -294,9 +294,12 @@
 // saved routes on the standalone /plan web page).
 // v143: park the Copy button from the tracer controls row — 6 buttons → 5,
 // so Plot/Undo/Redo/Clear/⇄ get a fatter fat-finger target on a phone.
-const CACHE_NAME = 'thalassa-v143-core';
-const TILE_CACHE = 'thalassa-v143-tiles';
-const DATA_CACHE = 'thalassa-v143-data';
+// v144: the card's "open a saved route" list now GROUPS by trip (multi-leg
+// trips show a header + indented legs), sharing one grouping helper with the
+// PLAN Trip box so the two can't drift.
+const CACHE_NAME = 'thalassa-v144-core';
+const TILE_CACHE = 'thalassa-v144-tiles';
+const DATA_CACHE = 'thalassa-v144-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
