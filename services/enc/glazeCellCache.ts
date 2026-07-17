@@ -23,7 +23,18 @@ export interface GlazeCellEntry {
 }
 
 const cache = new Map<string, GlazeCellEntry>();
-const MAX_ENTRIES = 32;
+let maxEntries = 32;
+
+/** INVARIANT (closing audit): the worker upgrade is all-or-nothing across
+ *  ONE merge's glaze keys — if the LRU can't hold a whole merge, the fold
+ *  evicts its own first cells before dispatch even returns and every
+ *  upgrade abandons forever. The merge declares its size here; the cap
+ *  grows (never shrinks) to fit + slack. Today's windows are ~10-25
+ *  cells, so 32 usually stands — this is the guarantee, not a resize. */
+export function ensureGlazeCapacity(mergeCellCount: number): void {
+    const need = mergeCellCount + 8;
+    if (need > maxEntries) maxEntries = need;
+}
 
 /** The cached glaze entry for a key, or undefined. Returns the live object —
  *  mutating `.upgraded` on it updates the cache in place. */
@@ -35,7 +46,7 @@ export function getGlazeCell(key: string): GlazeCellEntry | undefined {
 export function putGlazeCell(key: string, entry: GlazeCellEntry): void {
     cache.delete(key);
     cache.set(key, entry);
-    while (cache.size > MAX_ENTRIES) {
+    while (cache.size > maxEntries) {
         const oldest = cache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         cache.delete(oldest);

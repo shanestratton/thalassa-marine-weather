@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { Feature } from 'geojson';
 
 import {
+    ensureGlazeCapacity,
     getGlazeCell,
     putGlazeCell,
     clearGlazeCell,
@@ -51,6 +52,24 @@ describe('glazeCellCache', () => {
         putGlazeCell('k32', entry()); // pushes to 33 → evict oldest (k1, not k0)
         expect(getGlazeCell('k0')?.upgraded).toBe(true); // survived
         expect(getGlazeCell('k1')).toBeUndefined();
+    });
+});
+
+describe('ensureGlazeCapacity — the LRU holds a whole merge (closing audit)', () => {
+    beforeEach(() => clearGlazeCell());
+
+    it('grows the cap so a large merge cannot evict its own cells mid-fold', () => {
+        ensureGlazeCapacity(40); // 40-cell glaze merge declared
+        for (let i = 0; i < 48; i++) putGlazeCell(`c${i}`, entry());
+        expect(glazeCellCacheSize()).toBe(48); // 40+8 slack — all held
+        expect(getGlazeCell('c0')).toBeDefined();
+    });
+
+    it('never shrinks below an earlier declaration', () => {
+        ensureGlazeCapacity(40);
+        ensureGlazeCapacity(5); // smaller later merge must not shrink the cap
+        for (let i = 0; i < 48; i++) putGlazeCell(`k${i}`, entry());
+        expect(glazeCellCacheSize()).toBe(48);
     });
 });
 

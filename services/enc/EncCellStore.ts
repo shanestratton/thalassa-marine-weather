@@ -178,15 +178,26 @@ export async function saveCellGeoJSON(
  *  this is the paint-what's-local path. */
 export async function readCellRaw(
     cellId: string,
-): Promise<{ kind: 'cached'; blob: EncConversionResult } | { kind: 'text'; text: string } | { kind: 'missing' }> {
+): Promise<
+    | { kind: 'cached'; blob: EncConversionResult }
+    | { kind: 'text'; text: string }
+    | { kind: 'missing'; notFound: boolean }
+> {
     const cached = touchBlob(cellId);
     if (cached) return { kind: 'cached', blob: cached };
     try {
-        const result = await Filesystem.readFile({ path: relPath(cellId), directory: DIRECTORY, encoding: Encoding.UTF8 });
+        const result = await Filesystem.readFile({
+            path: relPath(cellId),
+            directory: DIRECTORY,
+            encoding: Encoding.UTF8,
+        });
         const text = typeof result.data === 'string' ? result.data : await result.data.text();
         return { kind: 'text', text };
-    } catch {
-        return { kind: 'missing' };
+    } catch (err) {
+        // notFound distinguishes ENOENT (remote ladder may hydrate) from a
+        // real read error (loadCellGeoJSON warns + stays local).
+        const msg = err instanceof Error ? err.message : String(err);
+        return { kind: 'missing', notFound: /not exist|ENOENT|File does not exist/i.test(msg) };
     }
 }
 
@@ -233,41 +244,27 @@ export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
  * loop the ladder forever.
  */
 export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Promise<EncConversionResult | null> {
-    const cached = touchBlob(cellId);
-    if (cached) return cached;
-    try {
-        const path = relPath(cellId);
-        const result = await Filesystem.readFile({
-            path,
-            directory: DIRECTORY,
-            encoding: Encoding.UTF8,
-        });
-        const text = typeof result.data === 'string' ? result.data : await result.data.text();
-        const parsed = JSON.parse(text) as EncConversionResult;
-        if (!parsed || typeof parsed !== 'object' || !parsed.cellId) {
-            log.warn(`loadCellGeoJSON ${cellId}: malformed JSON`);
-            return null;
-        }
-        cacheBlob(cellId, parsed, text.length);
-        return parsed;
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/not exist|ENOENT|File does not exist/i.test(msg)) {
-            if (remoteFallback) {
-                // Rung 1: the boat's Pi. importCell persists + warms the parse
-                // cache, so the retry read is a cache hit. No-ops in <1 ms when
-                // the Pi probe says unreachable (off the boat / HTTPS web).
-                const { downloadPiCell } = await import('./piCellSync');
-                if (await downloadPiCell(cellId)) return loadCellGeoJSON(cellId, false);
-                // Rung 2: the cloud bucket.
-                const { downloadCloudCell } = await import('./cloudCellSync');
-                if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
-            }
-            return null;
-        }
-        log.warn(`loadCellGeoJSON ${cellId} failed`, err);
+    // COMPOSED from the pipeline halves (closing audit: this body was a
+    // third hand-written copy of readCellRaw + parseAndCacheCellText —
+    // three parse/shape-gate/cache sites to keep in sync).
+    const raw = await readCellRaw(cellId);
+    if (raw.kind === 'cached') return raw.blob;
+    if (raw.kind === 'text') return parseAndCacheCellText(cellId, raw.text);
+    if (!raw.notFound) {
+        log.warn(`loadCellGeoJSON ${cellId} failed (read error, staying local)`);
         return null;
     }
+    if (remoteFallback) {
+        // Rung 1: the boat's Pi. importCell persists + warms the parse
+        // cache, so the retry read is a cache hit. No-ops in <1 ms when
+        // the Pi probe says unreachable (off the boat / HTTPS web).
+        const { downloadPiCell } = await import('./piCellSync');
+        if (await downloadPiCell(cellId)) return loadCellGeoJSON(cellId, false);
+        // Rung 2: the cloud bucket.
+        const { downloadCloudCell } = await import('./cloudCellSync');
+        if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
+    }
+    return null;
 }
 
 /**
