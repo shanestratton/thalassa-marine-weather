@@ -686,6 +686,10 @@ export function buildFeaturePopupHtml(
         <style>
             .enc-popup {
                 position: relative;
+                /* Dynamic Type (closing audit: no scaling hook existed) —
+                   -apple-system-body tracks the user's iOS text size;
+                   the clamp keeps a 13px floor and a sane ceiling. */
+                font: -apple-system-body;
                 font-family: system-ui, -apple-system, sans-serif;
                 color: rgb(229, 231, 235);
                 background: rgba(15, 23, 42, 0.92);
@@ -694,7 +698,7 @@ export function buildFeaturePopupHtml(
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 10px;
                 padding: 10px 12px;
-                font-size: 12px;
+                font-size: clamp(13px, 1em, 18px);
                 line-height: 1.5;
                 min-width: 180px;
                 max-width: 280px;

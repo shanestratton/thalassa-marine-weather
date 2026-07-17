@@ -130,17 +130,11 @@ ledger row below.
 - [x] **0.25 — Plan ENC Route clearable** — DONE: Clear All now also
       clears the test route (its route-focus mode stripped core safety
       layers for the session).
-- [ ] **0.5 — Night usability: toggle buried behind a scroll** — surface
-      the ☾ toggle; palette part is the deferred rendering item.
+- [x] **0.5 — Night toggle surfaced** — DONE: floating ☾ on the map
+      (one tap, same persisted state); the menu row stays.
 - [x] **0.25 — Advisory decodes CATZOC** — DONE ('ZOC D' wording; test
       re-pinned).
 - [x] **0.25 — Hazard panel a11y** — DONE: aria-live=polite on the
       region (list roles were already in place).
-- [ ] **0.25 — Fixed small type on flagship safety reads** — the remaining
-      fixed-px reads; add dynamic-type awareness.
-
-## Ledger
-
-| Date       | Item                                             | Pts  | Commit     | Running (vs 84.25) |
-| ---------- | ------------------------------------------------ | ---- | ---------- | ------------------ |
-| 2026-07-17 | Berth exemption per-locality (chief's fix-first) | 0.75 | `5455543a` | 85.0               |
+- [x] **0.25 — Dynamic Type hook** — DONE: popup tracks iOS text size
+      via -apple-system-body with a 13px floor (device eyeball pending).
