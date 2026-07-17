@@ -901,7 +901,13 @@ export class EncSpatialIndex {
      * intersect) is skipped here — that is the crossing path's job. Returns the
      * most significant graze (land before shoal; then the closest) or null.
      */
-    segmentAreaGraze(lat1: number, lon1: number, lat2: number, lon2: number): EncAreaGraze | null {
+    segmentAreaGraze(
+        lat1: number,
+        lon1: number,
+        lat2: number,
+        lon2: number,
+        shoalDepthM: number = ENC_HAZARD_DEPTH_M,
+    ): EncAreaGraze | null {
         const catzoc = this.queryCatzocAt((lat1 + lat2) / 2, (lon1 + lon2) / 2);
         const marginM = zocMarginM(catzoc);
 
@@ -931,11 +937,23 @@ export class EncSpatialIndex {
         for (const entry of candidates) {
             const geom = entry.hazard.geometry;
             if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
-            const type = classifyHazard(entry.hazard);
-            // Only AREA grounding hazards — land, shoal DEPARE/DRGARE, polygon
-            // OBSTRN. Deep DEPARE (classifyHazard → null) is clear water: a
-            // route hugging a deep-enough channel edge must NOT graze-flag.
-            if (type !== 'land' && type !== 'shallow' && type !== 'obstruction') continue;
+            // Draft-aware AREA-hazard classification (cycle-4 closing audit #8:
+            // the graze used classifyHazard's STATIC 15 m ENC_HAZARD_DEPTH_M
+            // cutoff, so it over-warned a 2.4 m keel about deep-but-<15 m edges).
+            // Land / polygon OBSTRN always count; a depth area counts ONLY when
+            // it is actually too shallow FOR THE VESSEL — mirroring the CROSSING
+            // path's encToHazardResult draft re-eval. `shoalDepthM` is the
+            // positive-metres keel threshold (draft·1.5 + UKC); a route hugging a
+            // deep-enough channel edge must NOT graze-flag.
+            const layer = entry.hazard.layer;
+            let type: EncHazardType | null;
+            if (layer === 'LNDARE') type = 'land';
+            else if (layer === 'OBSTRN') type = 'obstruction';
+            else if (layer === 'DEPARE' || layer === 'DRGARE') {
+                const d = entry.hazard.minDepthM;
+                type = d == null || d < shoalDepthM ? 'shallow' : null;
+            } else type = null;
+            if (type === null) continue;
             // A polygon the segment actually crosses is a CROSSING, handled by
             // segmentHazard — never double-count it as a graze.
             if (

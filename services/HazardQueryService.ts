@@ -456,8 +456,12 @@ export async function querySegmentHazards(
     }[]
 > {
     if (segments.length === 0) return [];
-    const encResults = await EncHazardService.querySegmentHazards(segments);
     const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
+    // hazardThresholdM is the GEBCO-convention negative threshold (e.g. -4.1 m
+    // for a 2.4 m draft); flip to positive metres-below-datum for the draft-
+    // aware lateral-graze classification (cycle-4 audit #8) so a depth area only
+    // graze-flags when it is genuinely too shallow for THIS vessel.
+    const encResults = await EncHazardService.querySegmentHazards(segments, -hazardThresholdM);
     const fallbackTideM = Number.isFinite(options.tideOffsetM as number) ? (options.tideOffsetM as number) : 0;
     return encResults.map((enc, i) => {
         // Lateral graze rides through regardless of grounding coverage — a

@@ -76,7 +76,7 @@ import {
 } from './encHazardParse';
 import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults } from './hazardSeverity';
-import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES } from './types';
+import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES, ENC_HAZARD_DEPTH_M } from './types';
 import { readS57 } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import {
@@ -323,6 +323,11 @@ export async function querySegmentHazards(
         exemptStart?: boolean;
         exemptEnd?: boolean;
     }[],
+    // Positive-metres keel threshold (draft·1.5 + UKC) for the DRAFT-AWARE
+    // lateral-graze classification (cycle-4 audit #8). Defaults to the static
+    // shallow ceiling when the caller has no draft — HazardQueryService always
+    // supplies the real per-vessel value.
+    grazeShoalDepthM: number = ENC_HAZARD_DEPTH_M,
 ): Promise<EncHazardResult[]> {
     const results: EncHazardResult[] = new Array(segments.length);
     if (segments.length === 0) return results;
@@ -359,7 +364,7 @@ export async function querySegmentHazards(
         for (const idx of candidateIndexes) {
             const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2, s.exemptStart, s.exemptEnd);
             if (r.covered) merged = mergeHazardResults(merged, r);
-            const g = idx.segmentAreaGraze(s.lat1, s.lon1, s.lat2, s.lon2);
+            const g = idx.segmentAreaGraze(s.lat1, s.lon1, s.lat2, s.lon2, grazeShoalDepthM);
             if (g) graze = foldGraze(graze, g);
         }
         results[i] = graze ? { ...merged, graze } : merged;
