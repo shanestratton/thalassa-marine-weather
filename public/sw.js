@@ -271,9 +271,12 @@
 // viewport (dvh) but the card lives in the shorter map container, so it
 // overshot the top (covering the zoom pill / moon / compass rose). Now bound
 // by top+bottom in container coords; Done properly collapses it to the strip.
-const CACHE_NAME = 'thalassa-v134-core';
-const TILE_CACHE = 'thalassa-v134-tiles';
-const DATA_CACHE = 'thalassa-v134-data';
+// v135: tracer card top now clears the LOWEST top-furniture via max() — on
+// the web (no safe-area) the pills sit lower than the compass rose, so tying
+// the card top to the rose alone still let it cover the zoom/moon pills.
+const CACHE_NAME = 'thalassa-v135-core';
+const TILE_CACHE = 'thalassa-v135-tiles';
+const DATA_CACHE = 'thalassa-v135-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
