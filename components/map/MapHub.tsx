@@ -6217,13 +6217,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* Night-dim quick toggle (closing audit: the ☾ lived only at
                     the BOTTOM of the chart-modes dropdown, behind a scroll —
                     at night, when you need it, menus blind you first). One
-                    tap from the map; same persisted state as the menu row. */}
+                    tap from the map; same persisted state as the menu row.
+                    TOP-LEFT CLUSTER (Shane 2026-07-17): same 104px row as
+                    the zoom pill (left-4, ends ~82px) with a matched-gap
+                    seat at 90px — pill ↔ moon ↔ compass rose, and the same
+                    ~8px clearance above the tracer card's 156px ceiling. */}
                 {encVisible && !embedded && !pickerMode && !isPinView && (
                     <button
                         onClick={() => setNightDim(!nightDim)}
                         aria-label="Toggle night dim"
                         aria-pressed={nightDim}
-                        className="absolute bottom-24 right-2 z-[9979] flex h-10 w-10 items-center justify-center rounded-full border shadow-lg active:scale-95"
+                        className="absolute top-[104px] left-[90px] z-[700] flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
                         style={{
                             background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
                             borderColor: 'rgba(220, 80, 60, 0.35)',
