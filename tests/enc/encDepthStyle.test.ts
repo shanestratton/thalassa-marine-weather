@@ -233,7 +233,10 @@ describe('satellite shallow-water salience — a known shoal is NOT identical to
         const shallow = glazeColor({ DRVAL1: 1 }, 3);
         const safe = glazeColor({ DRVAL1: 5 }, 3);
         expect(shallow).toBe(SHALLOW_CAUTION_COLOR);
-        expect(safe).toBe(DEPARE_BAND_COLORS.b20to50); // '#f7f5f0' safe white
+        // The glaze's safe-white is its OWN warm constant — deliberately NOT
+        // the chart ramp (blue-shallow, 2026-07-18): over imagery "white
+        // means GO"; a blue wash would read as water depth, not clearance.
+        expect(safe).toBe('#f7f5f0'); // glaze safe white
         expect(new Set([drying, shallow, safe]).size).toBe(3);
     });
 

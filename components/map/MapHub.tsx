@@ -6292,7 +6292,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ))}
                         </div>
                         <div className="space-y-1 text-[10px] leading-snug text-gray-300">
-                            <div>Whiter = deeper. Dirty white = shallow. Khaki dries at low tide.</div>
+                            <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
                             <div>Numbers are metres at the lowest tide — 3₄ means 3.4 m. Khaki numbers dry.</div>
                             {satelliteVisible ? (
                                 // The keel-keyed glaze was never taught anywhere
