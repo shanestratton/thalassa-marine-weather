@@ -5122,7 +5122,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         }}
                                         aria-expanded={!panelFolded}
                                         aria-label={panelFolded ? 'Expand tracer panel' : 'Collapse tracer panel'}
-                                        className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 text-xs font-black uppercase tracking-widest text-amber-300 active:bg-white/10"
+                                        className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-black uppercase tracking-widest text-amber-300 active:scale-95"
                                     >
                                         <span className="text-lg leading-none text-gray-400">
                                             {panelFolded ? '▸' : '▾'}
