@@ -106,8 +106,10 @@ ledger row below.
       `ENC_SOURCE_TABLE` (id + builder + buffer, upload-priority order)
       drives BOTH the mount and the staggered refresh; completeness smoke
       test locks table ↔ ENC_VEC_SRC 1:1.
-- [ ] **0.75 — Residual god modules** — extract tagAndPush, the glaze
-      memo/queue block, and the slicer from the ~590-line merge fold;
+- [x] **0.75 → 0.5 banked — God-module slab (PARTIAL)** — the glaze
+      fold step carved into glazeBuild.ts (explicit context, unit-
+      mockable seams; EncHazardService 1,787 → 1,705 this cycle).
+      REMAINING 0.25: tagAndPush + the slicer stay in-fold — next cycle.
       next slab from EncVectorLayer.
 - [x] **0.5 — Comment/doc drift** — DONE: source counts 11/12/9/6 → 14,
       failed-load contract now states the 60 s cooldown (both sites),
@@ -160,24 +162,25 @@ ledger row below.
 
 ## Ledger (reconstructed 2026-07-18 after a doc-edit truncation ate the table)
 
-| Date       | Item                                                                   | Pts  | Commit      | Running (vs 84.25)     |
-| ---------- | ---------------------------------------------------------------------- | ---- | ----------- | ---------------------- |
-| 2026-07-17 | Berth exemption per-locality (chief's fix-first)                       | 0.75 | `5455543a`  | 85.0                   |
-| 2026-07-18 | Safety trio: seg tideConstrained, sounding depth, UWTROC               | 0.75 | `4b6f111b`  | 85.75                  |
-| 2026-07-18 | Regional datum pessimism + nearest-approach report                     | 1.0  | `e82cafe8`  | 86.75                  |
-| 2026-07-18 | Worker-protocol lifecycle tests                                        | 1.0  | `15845859`  | 87.75                  |
-| 2026-07-18 | Doc-drift sweep + readS57/cast stragglers                              | 0.75 | `e6893c21`  | 88.5                   |
-| 2026-07-18 | EncCellStore composition + glaze-LRU invariant                         | 1.0  | `902fbdc3`  | 89.5                   |
-| 2026-07-18 | ENC_SOURCE_TABLE + lazy first-mount builders                           | 1.0  | `1313b920`  | 90.5                   |
-| 2026-07-18 | Key unification + dead imports + mapFilter                             | 0.5  | `234e90f6`  | 91.0                   |
-| 2026-07-18 | UX four: demo row, ZOC decode, panel announce                          | 1.25 | `d0191521`  | 92.25                  |
-| 2026-07-18 | Stacked-caution fold-in + chart-key sweep                              | 1.0  | `d20047f6`  | 93.25                  |
-| 2026-07-18 | Perf four: budgets, memo, clone caps, sliced index                     | 1.0  | `c733c28a`  | 94.25                  |
-| 2026-07-18 | IALA-B prefixes + shared caution colour table                          | 0.5  | `0700836f`  | 94.75                  |
-| 2026-07-18 | Night ☾ surfaced + Dynamic Type (UX COMPLETE)                          | 0.75 | `0ac34b01`  | **95.5**               |
-| 2026-07-18 | Cell parse off-thread (encParseWorker)                                 | 0.5  | see git log | **96.0 — BAR CROSSED** |
-| 2026-07-18 | Visibility state machine (explicit state + composer)                   | 0.5  | see git log | 96.5                   |
-| 2026-07-18 | Banded pref-channel beacons + wreck CATWRK taxonomy                    | 0.5  | see git log | 97.0                   |
-| 2026-07-18 | Blue-shallow ramp (Shane's call) + underline device-verified           | 0.75 | see git log | 97.75                  |
-| 2026-07-18 | Lights overhaul + same-layer seam clip frames                          | 0.75 | see git log | 98.5                   |
-| 2026-07-18 | Case-defensive render expressions (TOPMAR deferred to extractor batch) | 0.25 | see git log | 98.75                  |
+| Date       | Item                                                                   | Pts  | Commit      | Running (vs 84.25)             |
+| ---------- | ---------------------------------------------------------------------- | ---- | ----------- | ------------------------------ |
+| 2026-07-17 | Berth exemption per-locality (chief's fix-first)                       | 0.75 | `5455543a`  | 85.0                           |
+| 2026-07-18 | Safety trio: seg tideConstrained, sounding depth, UWTROC               | 0.75 | `4b6f111b`  | 85.75                          |
+| 2026-07-18 | Regional datum pessimism + nearest-approach report                     | 1.0  | `e82cafe8`  | 86.75                          |
+| 2026-07-18 | Worker-protocol lifecycle tests                                        | 1.0  | `15845859`  | 87.75                          |
+| 2026-07-18 | Doc-drift sweep + readS57/cast stragglers                              | 0.75 | `e6893c21`  | 88.5                           |
+| 2026-07-18 | EncCellStore composition + glaze-LRU invariant                         | 1.0  | `902fbdc3`  | 89.5                           |
+| 2026-07-18 | ENC_SOURCE_TABLE + lazy first-mount builders                           | 1.0  | `1313b920`  | 90.5                           |
+| 2026-07-18 | Key unification + dead imports + mapFilter                             | 0.5  | `234e90f6`  | 91.0                           |
+| 2026-07-18 | UX four: demo row, ZOC decode, panel announce                          | 1.25 | `d0191521`  | 92.25                          |
+| 2026-07-18 | Stacked-caution fold-in + chart-key sweep                              | 1.0  | `d20047f6`  | 93.25                          |
+| 2026-07-18 | Perf four: budgets, memo, clone caps, sliced index                     | 1.0  | `c733c28a`  | 94.25                          |
+| 2026-07-18 | IALA-B prefixes + shared caution colour table                          | 0.5  | `0700836f`  | 94.75                          |
+| 2026-07-18 | Night ☾ surfaced + Dynamic Type (UX COMPLETE)                          | 0.75 | `0ac34b01`  | **95.5**                       |
+| 2026-07-18 | Cell parse off-thread (encParseWorker)                                 | 0.5  | see git log | **96.0 — BAR CROSSED**         |
+| 2026-07-18 | Visibility state machine (explicit state + composer)                   | 0.5  | see git log | 96.5                           |
+| 2026-07-18 | Banded pref-channel beacons + wreck CATWRK taxonomy                    | 0.5  | see git log | 97.0                           |
+| 2026-07-18 | Blue-shallow ramp (Shane's call) + underline device-verified           | 0.75 | see git log | 97.75                          |
+| 2026-07-18 | Lights overhaul + same-layer seam clip frames                          | 0.75 | see git log | 98.5                           |
+| 2026-07-18 | Case-defensive render expressions (TOPMAR deferred to extractor batch) | 0.25 | see git log | 98.75                          |
+| 2026-07-18 | Glaze fold step carved (glazeBuild.ts) — partial god-module bank       | 0.5  | see git log | **99.25 — LIST DISPOSITIONED** |
