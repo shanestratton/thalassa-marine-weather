@@ -1252,28 +1252,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         triggerHaptic('medium');
     }, [capturedCoords]);
-    // Open a saved route straight into the card (Shane 2026-07-17: "a way,
-    // when you are in the web page, to bring up the previous tracks"). On the
-    // standalone /plan page there's no PLAN front door, so this is the ONLY
-    // path to a saved route. Same load semantics as the PLAN-page 'load-saved'
-    // deep link: rebase the Undo floor, adopt the name, drop the leg-chain
-    // lock, and fly to the route's midpoint.
-    const openSavedTrace = useCallback(
-        (t: SavedTrace) => {
-            if (!t || t.points.length < 2) return;
-            triggerHaptic('light');
-            setLegAnchor(null);
-            rebaseHistoryRef.current = true;
-            setCapturedCoords(t.points);
-            setTraceName(t.name);
-            setShowSavedTraces(false);
-            setSelectedPin(null);
-            const mid = t.points[Math.floor(t.points.length / 2)];
-            mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
-            flashTraceFeedback(`Opened "${t.name}"`);
-        },
-        [flashTraceFeedback],
-    );
     // Drop / refresh a numbered pin per captured coord so the skipper can see
     // exactly where each tap landed. Pins are DRAGGABLE (nudge one and the
     // adjoining legs re-grade live) and TAPPABLE (select → Delete / Insert-
@@ -1442,6 +1420,28 @@ export const MapHub: React.FC<MapHubProps> = ({
         setTraceFeedback(msg);
         setTimeout(() => setTraceFeedback(null), 1800);
     }, []);
+    // Open a saved route straight into the card (Shane 2026-07-17: "a way,
+    // when you are in the web page, to bring up the previous tracks"). On the
+    // standalone /plan page there's no PLAN front door, so this is the ONLY
+    // path to a saved route. Same load semantics as the PLAN-page 'load-saved'
+    // deep link: rebase the Undo floor, adopt the name, drop the leg-chain
+    // lock, and fly to the route's midpoint.
+    const openSavedTrace = useCallback(
+        (t: SavedTrace) => {
+            if (!t || t.points.length < 2) return;
+            triggerHaptic('light');
+            setLegAnchor(null);
+            rebaseHistoryRef.current = true;
+            setCapturedCoords(t.points);
+            setTraceName(t.name);
+            setShowSavedTraces(false);
+            setSelectedPin(null);
+            const mid = t.points[Math.floor(t.points.length / 2)];
+            mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
+            flashTraceFeedback(`Opened "${t.name}"`);
+        },
+        [flashTraceFeedback],
+    );
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
         // No name, no save (Shane 2026-07-15) — the date-stamped fallback
@@ -5494,6 +5494,65 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         {pinDiagnosis && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-red-400">
                                                 {pinDiagnosis}
+                                            </div>
+                                        )}
+                                        {/* Utility strip (Shane 2026-07-17): the colour
+                                            KEY on demand (it otherwise only shows before
+                                            any pins), and OPEN A SAVED ROUTE — the only
+                                            path to previous tracks on the standalone
+                                            /plan web page (no PLAN front door there). */}
+                                        <div className="flex shrink-0 gap-1.5 border-b border-white/10 px-3 py-1.5">
+                                            <button
+                                                onClick={() => {
+                                                    triggerHaptic('light');
+                                                    setShowKey((v) => !v);
+                                                    setShowSavedTraces(false);
+                                                }}
+                                                className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-wide active:scale-95 ${showKey ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
+                                            >
+                                                {showKey ? '▾ Key' : '▸ Key'}
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    triggerHaptic('light');
+                                                    setSavedTraces(loadSavedTraces());
+                                                    setShowSavedTraces((v) => !v);
+                                                    setShowKey(false);
+                                                }}
+                                                className={`flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
+                                            >
+                                                {showSavedTraces ? '▾ Saved routes' : '📂 Open a saved route'}
+                                            </button>
+                                        </div>
+                                        {showKey && (
+                                            <div className="shrink-0 border-b border-white/10 px-3 py-2 text-[10px] leading-snug text-gray-400">
+                                                <span className="text-emerald-300">●</span> good water ·{' '}
+                                                <span className="text-amber-300">●</span> check it ·{' '}
+                                                <span className="text-red-400">●</span> no-go at low tide
+                                                <div className="pt-1 text-gray-500">
+                                                    Tap the chart along your track; drag a pin to nudge it, tap a pin
+                                                    to delete or insert after it.
+                                                </div>
+                                            </div>
+                                        )}
+                                        {showSavedTraces && (
+                                            <div className="max-h-40 shrink-0 space-y-1 overflow-y-auto border-b border-white/10 px-3 py-2">
+                                                {savedTraces.length === 0 ? (
+                                                    <div className="text-[10px] text-gray-500">
+                                                        No saved routes yet — plot one and Save it.
+                                                    </div>
+                                                ) : (
+                                                    savedTraces.map((t) => (
+                                                        <button
+                                                            key={t.id}
+                                                            onClick={() => openSavedTrace(t)}
+                                                            className="block w-full truncate rounded-md px-1.5 py-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
+                                                        >
+                                                            {t.name}{' '}
+                                                            <span className="text-gray-500">({t.points.length} pins)</span>
+                                                        </button>
+                                                    ))
+                                                )}
                                             </div>
                                         )}
                                         {capturedCoords.length === 0 ? (

@@ -289,9 +289,12 @@
 // overlaps the CTA button (it had conflicting relative+absolute classes).
 // v141: drop the header health label ("1 NO-GO LEG" / "ALL CLEAR") from the
 // tracer card — it crowded the header; per-leg rows already carry the verdict.
-const CACHE_NAME = 'thalassa-v141-core';
-const TILE_CACHE = 'thalassa-v141-tiles';
-const DATA_CACHE = 'thalassa-v141-data';
+// v142: tracer card gains a utility strip — a KEY toggle (colour legend on
+// demand) and OPEN A SAVED ROUTE (loads a previous track; the only path to
+// saved routes on the standalone /plan web page).
+const CACHE_NAME = 'thalassa-v142-core';
+const TILE_CACHE = 'thalassa-v142-tiles';
+const DATA_CACHE = 'thalassa-v142-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
