@@ -309,9 +309,11 @@
 // dropped the redundant "Online" connectivity chip.
 // v148: the night-dim ☾ pill is planning-only now — hidden on the bare
 // charts page (still reachable from the chart-modes menu there).
-const CACHE_NAME = 'thalassa-v148-core';
-const TILE_CACHE = 'thalassa-v148-tiles';
-const DATA_CACHE = 'thalassa-v148-data';
+// v149: compass rose LESS opaque (0.85 → 0.40) — reverting the "more opaque"
+// tweak; the chart shows through it now.
+const CACHE_NAME = 'thalassa-v149-core';
+const TILE_CACHE = 'thalassa-v149-tiles';
+const DATA_CACHE = 'thalassa-v149-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
