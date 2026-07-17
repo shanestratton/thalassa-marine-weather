@@ -98,12 +98,14 @@ ledger row below.
 - [x] **0.5 — Comment/doc drift** — DONE: source counts 11/12/9/6 → 14,
       failed-load contract now states the 60 s cooldown (both sites),
       HazardReportPanel position comment corrected.
-- [ ] **0.5 — glazeAssembly upgrade all-or-nothing vs 32-entry LRU with no
-      invariant** — applyGlazeUpgrade abandons if ANY cell evicted; tie
-      the LRU floor to the largest merge's cell count or re-queue on
-      abandon.
-- [ ] **0.5 — EncCellStore duplication** — parseAndCacheCellText/
-      readCellRaw re-implement loadCellGeoJSON; unify.
+- [x] **0.5 — glaze-LRU invariant** — DONE: `ensureGlazeCapacity(n)`
+      (grow-only, merge size + slack) declared by every glaze merge — the
+      all-or-nothing upgrade can no longer self-defeat on a >32-cell
+      window; 2 tests.
+- [x] **0.5 — EncCellStore duplication** — DONE: loadCellGeoJSON is now
+      COMPOSED from readCellRaw + parseAndCacheCellText (was a third
+      hand-written parse/shape-gate/cache copy); readCellRaw reports
+      notFound so the remote ladder still only runs on ENOENT.
 - [ ] **0.5 — Dead export/param + duplicated localStorage keys across the
       MapHub seam** — sweep.
 - [ ] **0.5 — Visibility state machine composes via BCNLAT probe +

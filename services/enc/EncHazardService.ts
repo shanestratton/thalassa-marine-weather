@@ -42,6 +42,7 @@ import {
 // module's established surface — re-export the carved-out subsystem.
 export { subscribeGeometryUpgrades, buildContourPayload } from './geometryUpgrades';
 import {
+    ensureGlazeCapacity,
     getGlazeCell,
     putGlazeCell,
     parkGlazeAssembly,
@@ -1119,6 +1120,9 @@ async function buildMergedVectorData(
     // Newport-approach "dries 2 m over a surveyed 2–5 m band" conflict,
     // 2026-07-11) — order is what resolves the partial overlaps here.
     const cellsCoarseToFine = [...cells].sort((a, b) => cellScaleRank(a.bbox) - cellScaleRank(b.bbox));
+    // Glaze-LRU invariant (closing audit): the cache must hold this whole
+    // merge's glaze cells or the all-or-nothing upgrade self-defeats.
+    if (buildGlaze) ensureGlazeCapacity(cellsCoarseToFine.length);
 
     // Pass 1: load blobs and compute each cell's DEPARE DATA EXTENT — the
     // ground it ACTUALLY charts. Dropping/clipping coarse features by the
