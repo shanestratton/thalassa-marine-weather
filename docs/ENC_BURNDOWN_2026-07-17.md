@@ -125,8 +125,11 @@ route. Fix the silent failures first.
 - [x] **0.75 — Worker protocol types unified** — DONE (geometryWorkerProtocol.ts is the single wire-shape source; worker postMessage is TYPED to the reply union; service handler narrows on it; protocol-state tests landed with #5).
 - [x] **0.25 — postMessage-failure leak** — DONE (banked; fixed with #6's symmetric release). — FIXED with #6 (symmetric
       release); bank on next batch.
-- [ ] **0.75 — Residual god-module** — EncHazardService ~2000 lines w/
-      ~575-line merge closure; EncVectorLayer ~2300 lines. Carve next slabs.
+- [x] **0.75 — Residual god-module** — DONE: the heavy-geometry worker's
+      main-thread plumbing carved into geometryUpgrades.ts (EncHazardService
+      2,045 → 1,763) and the caution-area mounts into encCautionMounts.ts
+      (EncVectorLayer 2,317 → 2,162); both new modules are coherent
+      single-concern files with clean import seams.
 - [x] **0.5 — Case-defensive S-57 reads** — DONE (shared `readS57` in types.ts; 51 sites swept across 6 files; 2 tests).
 - [x] **0.25 — Stale glazeCellCache header comment** — DONE (documents the cell-identity triple). — documents the
       abandoned v{ver} key scheme.
