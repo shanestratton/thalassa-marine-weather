@@ -13,7 +13,7 @@ import type { Feature } from 'geojson';
 import type { Point } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import type { GeometryJobMsg, GeometryWorkerReply, GlazeCellJob } from './geometryWorkerProtocol';
-import type { FineCoverage } from './clipDepareOverlap';
+import { coverageVertexCount, type FineCoverage } from './clipDepareOverlap';
 import type { EncMergedVectorData } from './EncHazardService';
 import { getMergedData } from './mergedDataCache';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
@@ -27,6 +27,11 @@ import {
 } from './glazeCellCache';
 
 const log = createLogger('geometryUpgrades');
+
+/** Structured-clone payload weight caps (features + coverage vertices):
+ *  soft = log a warning; hard = drop the glaze half of the job. */
+export const GLAZE_CLONE_SOFT_CAP = 60_000;
+export const GLAZE_CLONE_HARD_CAP = 200_000;
 
 /** True once the worker has died/failed to spawn — the merge's queue
  *  gate must stop building payloads nothing will consume (audit #6). */
@@ -313,7 +318,31 @@ export function dispatchGeometryWork(
     }
     // The wire payload strips `untouched` — those features exist to NOT
     // ride the structured clone.
-    const glazeCells: GlazeCellJob[] = glazeUpgradeQueue.map(({ untouched: _parked, ...wire }) => wire);
+    let glazeCells: GlazeCellJob[] = glazeUpgradeQueue.map(({ untouched: _parked, ...wire }) => wire);
+    // CLONE BUDGET (closing audit: payload/result clone sizes were an
+    // acknowledged-but-unbudgeted risk). Weight ≈ touched features +
+    // coverage vertices; over the soft cap we log, over the hard cap we
+    // drop the glaze half of the job (instant grade stays up — the exact
+    // failure mode this machinery is designed to degrade to).
+    const payloadWeight =
+        glazeCells.reduce((n, c) => n + c.features.length, 0) +
+        (coverageLib ? Object.values(coverageLib).reduce((n, c) => n + coverageVertexCount(c.coverage), 0) : 0);
+    if (payloadWeight > GLAZE_CLONE_HARD_CAP) {
+        log.warn(
+            `[glaze] payload weight ${payloadWeight} > hard cap ${GLAZE_CLONE_HARD_CAP} — glaze job dropped, instant grade stays`,
+        );
+        releaseGlazeAssemblies(jobId, queuedGlazeKeys);
+        glazeCells = [];
+        coverageLib = undefined;
+        if (!contourPoints || contourPoints.length === 0) {
+            pendingGeometryJobs.delete(jobId);
+            return;
+        }
+    } else if (payloadWeight > GLAZE_CLONE_SOFT_CAP) {
+        log.warn(
+            `[glaze] payload weight ${payloadWeight} (soft cap ${GLAZE_CLONE_SOFT_CAP}) — watch the [glaze] job stats`,
+        );
+    }
     try {
         const wireMsg: GeometryJobMsg = { jobId, glazeCells, coverageLib, contourPoints };
         worker.postMessage(wireMsg);

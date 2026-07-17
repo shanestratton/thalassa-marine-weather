@@ -165,9 +165,15 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
         return null;
     }
 
+    // COARSE-SLICED (closing audit: the four builds + RBush construction
+    // ran as ONE synchronous gulp per cell on the routing path — a dense
+    // harbour cell froze a frame mid-validation). A macrotask between
+    // stages keeps frames flowing; total CPU unchanged.
     const hazards = buildHazardsForCell(blob);
+    await macroYield();
     const catzocZones = buildCatzocZones(blob);
     const coastlines = buildCoastlines(blob);
+    await macroYield();
     const cautionAreas = buildCautionAreas(blob);
     const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines, cautionAreas);
     cacheIndex(cellId, index);
