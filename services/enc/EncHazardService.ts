@@ -32,6 +32,7 @@ import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { reduceNamedAreas } from './seaareLabels';
 import { getDerivedContours, putDerivedContours } from './derivedContourCache';
+import type { GeometryJobMsg, GeometryWorkerReply, GlazeCellJob } from './geometryWorkerProtocol';
 import {
     getGlazeCell,
     putGlazeCell,
@@ -68,7 +69,6 @@ import {
     clipLineFeatureOutsideBboxes,
     coverageMaskStrips,
     type CoverageGeom,
-    type CoverageClipStats,
     type FineCoverage,
 } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
@@ -83,6 +83,7 @@ import {
 import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults } from './hazardSeverity';
 import { S57_POINT_MARK_CLASSES, CAUTION_AREA_CLASSES } from './types';
+import { readS57 } from './types';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
     buildLightCharacterLabel,
@@ -707,19 +708,12 @@ function getGeoWorker(): Worker | null {
         clearAllGlazeAssemblies();
         log.warn('geometry worker died — staying on fast glaze/contours this session');
     };
-    geoWorker.onmessage = (
-        ev: MessageEvent<{
-            jobId: number;
-            type: string;
-            glazeKey?: string;
-            features?: Feature[];
-            message?: string;
-            glazeStats?: CoverageClipStats & { ms: number };
-        }>,
-    ) => {
-        const { jobId, type, glazeKey, features, message } = ev.data;
+    geoWorker.onmessage = (ev: MessageEvent<GeometryWorkerReply>) => {
+        const msg = ev.data;
+        const { jobId } = msg;
         const job = pendingGeometryJobs.get(jobId);
-        if (type === 'glaze-cell' && glazeKey && features) {
+        if (msg.type === 'glaze-cell') {
+            const { glazeKey, features } = msg;
             // Reassemble: the worker clipped only the TOUCHED subset; the
             // untouched majority parked main-thread side under THIS job's
             // key (audit #5: keying by glazeKey alone let overlapping jobs
@@ -730,7 +724,8 @@ function getGeoWorker(): Worker | null {
             putGlazeCell(glazeKey, { upgraded: true, feats: [...untouched, ...features] });
             return;
         }
-        if (type === 'contours' && features && job) {
+        if (msg.type === 'contours' && job) {
+            const { features } = msg;
             // Memoize under the merge key so a later re-merge of the SAME
             // selection reuses these synchronously instead of blanking +
             // recomputing (the DEPCNT_DERIVED analogue of the glaze memo).
@@ -742,7 +737,7 @@ function getGeoWorker(): Worker | null {
             }
             return;
         }
-        if (type === 'done' && job) {
+        if (msg.type === 'done' && job) {
             pendingGeometryJobs.delete(jobId);
             // Defensive leftover sweep — glaze-cell answers should have
             // consumed every parked entry; job-scoped so other jobs'
@@ -751,7 +746,7 @@ function getGeoWorker(): Worker | null {
             if (job.glazeKeys.length > 0) applyGlazeUpgrade(job);
             // warn, not info (info is silent in prod): THE device-session
             // signal — exact/degraded split + the cap-tuning vertex peak.
-            const gs = ev.data.glazeStats;
+            const gs = msg.glazeStats;
             if (gs) {
                 log.warn(
                     `[glaze] true-coverage upgrade: exact=${gs.pairsExact} strip-capped=${gs.pairsStripped} ` +
@@ -760,10 +755,10 @@ function getGeoWorker(): Worker | null {
             }
             return;
         }
-        if (type === 'error') {
+        if (msg.type === 'error') {
             pendingGeometryJobs.delete(jobId);
             if (job) releaseGlazeAssemblies(jobId, job.queuedGlazeKeys);
-            log.warn(`geometry worker job failed (fast version stays): ${message ?? 'unknown'}`);
+            log.warn(`geometry worker job failed (fast version stays): ${msg.message ?? 'unknown'}`);
         }
     };
     return geoWorker;
@@ -1198,20 +1193,12 @@ export function buildContourPayload(soundings: Feature[]): { lon: number; lat: n
     return out;
 }
 
-/** One glaze true-coverage upgrade queued for the worker. `coverageIds`
- *  index into the job's shared coverage library (one FineCoverage per
- *  fine cell per JOB, not per coarse cell — the same fine cell shadows
- *  several coarse cells, and per-cell copies dominated the clone). */
-type GlazeUpgradeItem = {
-    cellId: string;
-    glazeKey: string;
-    features: Feature[];
-    coverageIds: string[];
-    /** The prefilter's untouched majority — parked main-thread side at
-     *  dispatch (job-scoped), NEVER sent to the worker. Stripped from
-     *  the wire payload in dispatchGeometryWork. */
-    untouched: Feature[];
-};
+/** One glaze true-coverage upgrade queued for the worker: the WIRE shape
+ *  (geometryWorkerProtocol.GlazeCellJob — single source of truth, audit:
+ *  hand-mirrored inline types drifted silently) plus the prefilter's
+ *  untouched majority, which parks main-thread side at dispatch
+ *  (job-scoped) and is STRIPPED from the wire payload. */
+type GlazeUpgradeItem = GlazeCellJob & { untouched: Feature[] };
 
 /**
  * The empty merged-vector shell every layer accumulates into — one FC per
@@ -1309,9 +1296,10 @@ function dispatchGeometryWork(
     }
     // The wire payload strips `untouched` — those features exist to NOT
     // ride the structured clone.
-    const glazeCells = glazeUpgradeQueue.map(({ untouched: _parked, ...wire }) => wire);
+    const glazeCells: GlazeCellJob[] = glazeUpgradeQueue.map(({ untouched: _parked, ...wire }) => wire);
     try {
-        worker.postMessage({ jobId, glazeCells, coverageLib, contourPoints });
+        const wireMsg: GeometryJobMsg = { jobId, glazeCells, coverageLib, contourPoints };
+        worker.postMessage(wireMsg);
     } catch (err) {
         // Symmetric cleanup (audit #6): a failed dispatch must release its
         // parked assemblies + in-flight claims or they leak until worker
@@ -1623,9 +1611,9 @@ async function buildMergedVectorData(
                 //    string, omitted when LITCHR is absent.
                 if (target === 'LIGHTS') {
                     const featProps = (feat.properties ?? {}) as Record<string, unknown>;
-                    const valnmr = Number(featProps.VALNMR ?? featProps.valnmr);
+                    const valnmr = Number(readS57(featProps, 'VALNMR'));
                     props._lightTier = Number.isFinite(valnmr) && valnmr >= 10 ? 'major' : 'minor';
-                    const colHex = lightColourHex(featProps.COLOUR ?? featProps.colour);
+                    const colHex = lightColourHex(readS57(featProps, 'COLOUR'));
                     if (colHex) props._lightColor = colHex;
                     const label = buildLightCharacterLabel(featProps);
                     if (label) props._lightLabel = label;
@@ -1638,13 +1626,13 @@ async function buildMergedVectorData(
                         const secProps = {
                             _cellId: cell.id,
                             _minZoom: typeof props._minZoom === 'number' ? props._minZoom : undefined,
-                            OBJNAM: featProps.OBJNAM ?? featProps.objnam,
+                            OBJNAM: readS57(featProps, 'OBJNAM'),
                             _lightLabel: label ?? undefined,
                             // For the tap-to-read sector popup (#3a): name the
                             // colour and the from-seaward limit bearings a
                             // helmsman reads off the water (raw, NOT the +180
                             // reciprocal the arc is DRAWN on).
-                            COLOUR: featProps.COLOUR ?? featProps.colour,
+                            COLOUR: readS57(featProps, 'COLOUR'),
                             SECTR1: bearings.sectr1,
                             SECTR2: bearings.sectr2,
                         };

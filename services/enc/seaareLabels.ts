@@ -9,6 +9,7 @@
  * away from the grounding-critical tagAndPush loop, which stays whole.
  */
 import type { Feature, FeatureCollection } from 'geojson';
+import { readS57 } from './types';
 
 /**
  * Label anchor for a named area: the coordinate for a Point, else the
@@ -60,7 +61,7 @@ export function reduceNamedAreas(
         const g = feat?.geometry;
         if (!g) continue;
         const props = (feat.properties ?? {}) as Record<string, unknown>;
-        const rawName = props.OBJNAM ?? props.objnam;
+        const rawName = readS57(props, 'OBJNAM');
         const name = typeof rawName === 'string' ? rawName.trim() : '';
         if (!name) continue;
         const anchor = labelAnchorFor(g);

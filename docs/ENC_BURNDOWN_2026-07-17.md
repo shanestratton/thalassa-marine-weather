@@ -122,24 +122,17 @@ route. Fix the silent failures first.
       their own job's entries; worker death clears all. 5 protocol tests
       incl. the exact overlapping-job truncation scenario. (Counts the
       perf 0.5 twin.)
-- [ ] **0.75 — Worker protocol: zero test coverage + hand-mirrored inline
-      message types** — shared wire-type module + handler tests (protocol
-      STATE tests landed with #5; the type unification remains).
+- [x] **0.75 — Worker protocol types unified** — DONE (geometryWorkerProtocol.ts is the single wire-shape source; worker postMessage is TYPED to the reply union; service handler narrows on it; protocol-state tests landed with #5).
 - [x] **0.25 — postMessage-failure leak** — DONE (banked; fixed with #6's symmetric release). — FIXED with #6 (symmetric
       release); bank on next batch.
 - [ ] **0.75 — Residual god-module** — EncHazardService ~2000 lines w/
       ~575-line merge closure; EncVectorLayer ~2300 lines. Carve next slabs.
-- [ ] **0.5 — Case-defensive S-57 reads hand-repeated at ~40 sites** —
-      one shared reader util, mechanical sweep.
+- [x] **0.5 — Case-defensive S-57 reads** — DONE (shared `readS57` in types.ts; 51 sites swept across 6 files; 2 tests).
 - [x] **0.25 — Stale glazeCellCache header comment** — DONE (documents the cell-identity triple). — documents the
       abandoned v{ver} key scheme.
 - [x] **0.25 — Dead export coverageStripRects** — DONE (deleted + tests). — superseded by
       coverageMaskStrips, still shipped.
-- [ ] **0.25 — ~30 `as unknown as` casts on Mapbox filters/expressions** —
-      typed expression helpers.
-
-### UX (2.75)
-
+- [x] **0.25 — Mapbox expression casts** — DONE (12 double-casts routed through the one documented `mapExpr` helper).
 - [x] **0.5 — GEBCO-tier verification invisible in HazardReportPanel** —
       DONE, folded into the corrupt-cell fix above (counted there).
 - [ ] **0.25 — No-coverage affordance (red-team add)** — browsing uncharted

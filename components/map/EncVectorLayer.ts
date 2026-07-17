@@ -38,6 +38,8 @@
  */
 
 import mapboxgl from 'mapbox-gl';
+import { mapExpr } from './encDepthStyle';
+import { readS57 } from '../../services/enc/types';
 import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
@@ -465,12 +467,7 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                     // The separation ZONE is a keep-out, not a lane — it reads
                     // at double the wash so the two are never confusable
                     // (audit: TSEZNE was visually identical to TSSLPT).
-                    'fill-opacity': [
-                        'case',
-                        ['==', ['get', '_caution'], 'TSEZNE'],
-                        0.22,
-                        0.1,
-                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    'fill-opacity': mapExpr(['case', ['==', ['get', '_caution'], 'TSEZNE'], 0.22, 0.1]),
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.CAUTION_AREA_FILL),
@@ -561,10 +558,7 @@ function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: string) => 
                     'symbol-placement': 'point',
                     'text-field': '⇧',
                     'text-size': ['interpolate', ['linear'], ['zoom'], 11, 18, 15, 30],
-                    'text-rotate': [
-                        'to-number',
-                        ['coalesce', ['get', 'ORIENT'], ['get', 'orient'], 0],
-                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    'text-rotate': mapExpr(['to-number', ['coalesce', ['get', 'ORIENT'], ['get', 'orient'], 0]]),
                     'text-rotation-alignment': 'map',
                     'text-allow-overlap': true,
                 },
@@ -610,13 +604,13 @@ function mountPointMarkLayers(
                     // CATOBS 7 = foul ground (K31 hash: anchoring/gear risk,
                     // not surface danger) — everything else, incl. unknown,
                     // keeps the dangerous-obstruction circle (audit).
-                    'icon-image': [
+                    'icon-image': mapExpr([
                         'match',
                         ['to-string', ['coalesce', ['get', 'CATOBS'], ['get', 'catobs'], '']],
                         '7',
                         'sm-hazard-foul',
                         'sm-hazard-obstruction',
-                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
                     'icon-allow-overlap': true, // a danger symbol never yields to declutter
                 },
@@ -637,13 +631,13 @@ function mountPointMarkLayers(
                     // CATWRK 1 = non-dangerous → outline hull; everything
                     // else INCLUDING unknown → filled dangerous hull (safety
                     // bias: an uncategorised wreck reads dangerous).
-                    'icon-image': [
+                    'icon-image': mapExpr([
                         'match',
                         ['to-string', ['coalesce', ['get', 'CATWRK'], ['get', 'catwrk'], '']],
                         '1',
                         'sm-hazard-wreck',
                         'sm-hazard-wreck-dangerous',
-                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
                     'icon-allow-overlap': true,
                 },
@@ -665,7 +659,7 @@ function mountPointMarkLayers(
                     // WATLEV 4 covers+uncovers → K11 asterisk; WATLEV 5
                     // awash at CD → K12 dotted cross; submerged/unknown →
                     // K13 plain cross.
-                    'icon-image': [
+                    'icon-image': mapExpr([
                         'match',
                         ['to-string', ['coalesce', ['get', 'WATLEV'], ['get', 'watlev'], '']],
                         '4',
@@ -673,7 +667,7 @@ function mountPointMarkLayers(
                         '5',
                         'sm-hazard-rock-awash-cd',
                         'sm-hazard-rock',
-                    ] as unknown as mapboxgl.ExpressionSpecification,
+                    ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
                     'icon-allow-overlap': true,
                 },
@@ -2076,7 +2070,7 @@ export function encSuppressNextClickPopup(map: mapboxgl.Map): void {
  * the popup closed or tide data is unreachable.
  */
 function fillDepareTideWindow(popup: mapboxgl.Popup, props: Record<string, unknown>, extras: PopupExtras): void {
-    const d1 = Number(props.DRVAL1 ?? props.drval1);
+    const d1 = Number(readS57(props, 'DRVAL1'));
     const S = extras.safetyDepthM;
     // Gate lives in needsTideWindow (pure, tested): keel-limited band the
     // current tide doesn't already clear.

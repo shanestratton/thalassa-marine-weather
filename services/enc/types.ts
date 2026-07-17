@@ -213,6 +213,15 @@ export function lateralMarkColour(catlam: number | null | undefined, region: Ial
  * glyphs (the bands + double-cone topmark ARE the information).
  * Specials: yellow X buoy / yellow beacon.
  */
+/** Case-defensive S-57 property read (2026-07-17 audit: `props.KEY ??
+ *  props.key` was hand-repeated at ~50 display sites — one typo'd pair
+ *  reads undefined and silently drops a chart attribute). ogr2ogr cells
+ *  carry lowercase names; extractor cells carry uppercase. */
+export function readS57(props: Record<string, unknown> | null | undefined, key: string): unknown {
+    if (!props) return undefined;
+    return props[key] ?? props[key.toLowerCase()];
+}
+
 export function encNavaidIconId(
     kind: Exclude<EncNavaidLayer, 'LIGHTS'>,
     props: Record<string, unknown> | null | undefined,
@@ -220,7 +229,7 @@ export function encNavaidIconId(
 ): string {
     const p = props ?? {};
     if (kind === 'BOYLAT' || kind === 'BCNLAT') {
-        const raw = p.CATLAM ?? p.catlam;
+        const raw = readS57(p, 'CATLAM');
         const c = Math.round(Number(raw));
         const isBeacon = kind === 'BCNLAT';
         // Preferred-channel marks (3/4) get their BANDED hull on buoys —
@@ -247,7 +256,7 @@ export function encNavaidIconId(
         return 'sm-mark-unknown';
     }
     if (kind === 'BOYCAR' || kind === 'BCNCAR') {
-        const raw = p.CATCAM ?? p.catcam;
+        const raw = readS57(p, 'CATCAM');
         const c = Math.round(Number(raw));
         if (c === 1) return 'sm-cardinal-north';
         if (c === 2) return 'sm-cardinal-east';
@@ -362,27 +371,27 @@ function fmtLightNumber(v: unknown): string | null {
  */
 export function buildLightCharacterLabel(props: Record<string, unknown> | null | undefined): string | null {
     const p = props ?? {};
-    const litchrRaw = p.LITCHR ?? p.litchr;
+    const litchrRaw = readS57(p, 'LITCHR');
     if (litchrRaw == null) return null;
     const chr = LITCHR_LABELS[String(litchrRaw).trim()];
     if (!chr) return null;
 
-    const siggrpRaw = p.SIGGRP ?? p.siggrp;
+    const siggrpRaw = readS57(p, 'SIGGRP');
     const siggrp = typeof siggrpRaw === 'string' ? siggrpRaw.trim() : '';
     // '(1)' is the implicit single-flash group — charts omit it.
     const grp = siggrp && siggrp !== '(1)' ? siggrp : '';
 
-    const colourFirst = String(p.COLOUR ?? p.colour ?? '')
+    const colourFirst = String(readS57(p, 'COLOUR') ?? '')
         .split(',')[0]
         ?.trim();
     const colLetter = colourFirst ? (LIGHT_COLOUR_LETTERS[colourFirst] ?? '') : '';
 
     const parts: string[] = [`${chr}${grp}${colLetter}`];
-    const sigper = fmtLightNumber(p.SIGPER ?? p.sigper);
+    const sigper = fmtLightNumber(readS57(p, 'SIGPER'));
     if (sigper) parts.push(`${sigper}s`);
-    const height = fmtLightNumber(p.HEIGHT ?? p.height);
+    const height = fmtLightNumber(readS57(p, 'HEIGHT'));
     if (height) parts.push(`${height}m`);
-    const valnmr = fmtLightNumber(p.VALNMR ?? p.valnmr);
+    const valnmr = fmtLightNumber(readS57(p, 'VALNMR'));
     if (valnmr) parts.push(`${valnmr}M`);
     return parts.join(' ');
 }

@@ -25,6 +25,7 @@
  */
 
 import type { ExpressionSpecification, FilterSpecification } from 'mapbox-gl';
+import { readS57 } from '../../services/enc/types';
 
 // ── Sentinels ──────────────────────────────────────────────────────
 
@@ -32,6 +33,16 @@ import type { ExpressionSpecification, FilterSpecification } from 'mapbox-gl';
  *  MUST stay distinct from NO_SAFETY_VALDCO: if they collided, a
  *  contour with unknown VALDCO would MATCH the "no safety contour"
  *  filter and render bold. */
+/** One named home for the raw-expression cast (2026-07-17 audit: ~30
+ *  scattered `as unknown as ExpressionSpecification` double-casts on
+ *  load-bearing filters/expressions). Mapbox's expression types can't
+ *  model data-driven match/case trees built as plain arrays; this helper
+ *  is the single greppable place that laundering happens — and the one
+ *  place to tighten if the types ever catch up. */
+export function mapExpr(expr: unknown): ExpressionSpecification {
+    return expr as ExpressionSpecification;
+}
+
 export const ATTR_UNKNOWN = -9999;
 
 /** Sentinel VALDCO that matches no real contour (no-contour cells). */
@@ -119,7 +130,7 @@ const attrValid = (attr: Expr): Expr => ['>', attr, ATTR_VALID_FLOOR];
  */
 export function buildDepareFillColor(tideOffsetM = 0): ExpressionSpecification {
     const h = tideOffsetM;
-    return [
+    return mapExpr([
         'case',
         attrValid(DRVAL1_ATTR),
         [
@@ -141,7 +152,7 @@ export function buildDepareFillColor(tideOffsetM = 0): ExpressionSpecification {
         ],
         // Unknown depth: uncharted read. NEVER deep (hard rule 1).
         'rgba(0,0,0,0)',
-    ] as unknown as ExpressionSpecification;
+    ]);
 }
 
 /** The white-ramp band palette. `drying` is deliberately a distinct
@@ -202,7 +213,7 @@ const SHALLOW_CAUTION_OPACITY = 0.4;
 
 export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
-    return [
+    return mapExpr([
         'case',
         attrValid(DRVAL1_ATTR),
         [
@@ -219,7 +230,7 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
             0.72, // open water — mostly paper
         ],
         0,
-    ] as unknown as ExpressionSpecification;
+    ]);
 }
 
 /**
@@ -236,14 +247,14 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
  */
 export function buildDepareGlazeFillColor(safetyDepthM: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
-    return [
+    return mapExpr([
         'case',
         attrValid(DRVAL1_ATTR),
         // drying khaki < 0 ≤ shallow-caution amber < S ≤ safe white. Same 0/S
         // boundaries as buildDepareSatelliteOpacity (the PAIRING INVARIANT).
         ['step', DRVAL1_ATTR, DEPARE_BAND_COLORS.drying, 0, SHALLOW_CAUTION_COLOR, s, '#f7f5f0'],
         '#f7f5f0', // unknown DRVAL1 is opacity-0 anyway; colour never shows
-    ] as unknown as ExpressionSpecification;
+    ]);
 }
 
 // ── Sounding typography ───────────────────────────────────────────
@@ -263,7 +274,7 @@ export function buildSoundingTextField(tideOffsetM = 0): ExpressionSpecification
     const d10 = ['round', ['*', ['abs', v], 10]];
     const whole = ['floor', ['/', d10, 10]];
     const tenth = ['%', d10, 10];
-    return [
+    return mapExpr([
         'case',
         ['<', ['abs', v], 10],
         [
@@ -280,7 +291,7 @@ export function buildSoundingTextField(tideOffsetM = 0): ExpressionSpecification
         // rare ≥10 m drying height keeps round (floor would overstate it in
         // the other sign).
         ['to-string', ['case', ['>=', v, 0], ['floor', v], ['round', v]]],
-    ] as unknown as ExpressionSpecification;
+    ]);
 }
 
 /**
@@ -293,17 +304,10 @@ export function buildSoundingTextColor(tideOffsetM: number | null = null): Expre
     if (tideOffsetM === null) {
         // Black-family ink (Shane 2026-07-11: "black, and thinner") —
         // shallow slightly blacker than deep, khaki for drying.
-        return [
-            'case',
-            ['<', ['get', '_d'], 0],
-            '#6b5e23',
-            ['<', ['get', '_d'], 5],
-            '#0b1116',
-            '#26333d',
-        ] as unknown as ExpressionSpecification;
+        return mapExpr(['case', ['<', ['get', '_d'], 0], '#6b5e23', ['<', ['get', '_d'], 5], '#0b1116', '#26333d']);
     }
     const v = ['+', ['get', '_d'], tideOffsetM];
-    return ['case', ['<', v, 0], '#6b5e23', ['<', v, 5], '#0b4f58', '#2a6b77'] as unknown as ExpressionSpecification;
+    return mapExpr(['case', ['<', v, 0], '#6b5e23', ['<', v, 5], '#0b4f58', '#2a6b77']);
 }
 
 /** Contour label text — shifts with the tide offset so the screen never
@@ -318,12 +322,7 @@ export function buildDepcntLabelField(tideOffsetM = 0): ExpressionSpecification 
     const tenths = ['round', ['*', v, 10]];
     const isWhole = ['==', ['%', tenths, 10], 0];
     const oneDp = ['concat', ['to-string', ['floor', ['/', tenths, 10]]], '.', ['to-string', ['%', tenths, 10]]];
-    return [
-        'case',
-        attrValid(VALDCO_ATTR),
-        ['case', isWhole, ['to-string', ['round', v]], oneDp],
-        '',
-    ] as unknown as ExpressionSpecification;
+    return mapExpr(['case', attrValid(VALDCO_ATTR), ['case', isWhole, ['to-string', ['round', v]], oneDp], '']);
 }
 
 // ── Safety contour derivation ─────────────────────────────────────
@@ -374,7 +373,7 @@ export function distinctValdcosByCell(fc: {
     const sets = new Map<string, Set<number>>();
     for (const f of fc.features ?? []) {
         const props = (f?.properties ?? {}) as Record<string, unknown>;
-        const v = Number(props.VALDCO ?? props.valdco);
+        const v = Number(readS57(props, 'VALDCO'));
         if (!Number.isFinite(v)) continue;
         const cellId = typeof props._cellId === 'string' ? props._cellId : '?';
         let set = sets.get(cellId);
