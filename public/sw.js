@@ -251,9 +251,11 @@
 // v126: leg verdicts persist across reloads/deploys/tab-bounces — a kept
 // route no longer re-checks the entire line when nothing changed. Cache
 // drops itself on a draft change or a chart install (registry version).
-const CACHE_NAME = 'thalassa-v126-core';
-const TILE_CACHE = 'thalassa-v126-tiles';
-const DATA_CACHE = 'thalassa-v126-data';
+// v127: the night-dim moon FAB moves to the top-left cluster — same row as
+// the zoom pill, evenly seated between pill, compass rose and tracer card.
+const CACHE_NAME = 'thalassa-v127-core';
+const TILE_CACHE = 'thalassa-v127-tiles';
+const DATA_CACHE = 'thalassa-v127-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
