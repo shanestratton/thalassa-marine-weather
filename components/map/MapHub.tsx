@@ -5678,9 +5678,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         {/* Departure date/time (Shane 2026-07-16): anchors the
                                             tide windows at each leg's ETA, the departure-window
                                             headline, and the report's per-waypoint weather.
-                                            Empty = leave now. Two lines (date, then time) so
-                                            neither is squeezed; OK blurs the native picker
-                                            closed (iOS keeps it open until the input blurs). */}
+                                            Empty = leave now. Two lines (date, then 24-hour
+                                            selects) so neither is squeezed. */}
                                         <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
                                             <div className="flex items-baseline justify-between">
                                                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
@@ -5748,31 +5747,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     selectClassName="min-w-0 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
                                                 />
                                             </div>
-                                            <div className="flex gap-1.5">
+                                            {/* OK button REMOVED (Shane 2026-07-17): it only
+                                                existed to blur the native time wheel closed,
+                                                and the 24-hour selects dismiss themselves. */}
+                                            {departureMs !== null && (
                                                 <button
                                                     onClick={() => {
                                                         triggerHaptic('light');
-                                                        // Blur = the only reliable way to close the
-                                                        // native date/time wheel on iOS.
                                                         (document.activeElement as HTMLElement | null)?.blur?.();
+                                                        setDepartureMs(null);
                                                     }}
-                                                    className="flex-1 rounded-lg bg-sky-500/20 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95"
+                                                    className="w-full rounded-lg bg-white/10 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
                                                 >
-                                                    OK
+                                                    Now
                                                 </button>
-                                                {departureMs !== null && (
-                                                    <button
-                                                        onClick={() => {
-                                                            triggerHaptic('light');
-                                                            (document.activeElement as HTMLElement | null)?.blur?.();
-                                                            setDepartureMs(null);
-                                                        }}
-                                                        className="flex-1 rounded-lg bg-white/10 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
-                                                    >
-                                                        Now
-                                                    </button>
-                                                )}
-                                            </div>
+                                            )}
                                         </div>
                                         {/* Build a route by keying GPS fixes — decimal, DMM
                                             ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
