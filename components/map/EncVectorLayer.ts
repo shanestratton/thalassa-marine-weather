@@ -1863,13 +1863,11 @@ const CHART_DETAIL_HIDE_LAYERS = [
  * polyline is the dominant visual, but keep markers / lights / hazards so the
  * sailor can sense-check the route against channel marks.
  *
- * Composes with the master FAB toggle (`setEncVectorVisibility`) by reading
- * the BCNLAT layer's current visibility as a master-state probe — BCNLAT is
- * one of the marker layers we never hide, so its visibility equals the master
- * state. If master is off, we leave every layer hidden. If master is on, we
- * flip the bulk-fill subset and leave the markers alone.
- *
- * Idempotent — calling repeatedly with the same args costs almost nothing.
+ * Sets the per-map `routeFocused` flag and re-runs the visibility COMPOSER
+ * (applyEncVisibility), which derives every layer from the full explicit state
+ * (master / routeFocused / detailed) — so call order no longer matters and the
+ * master toggle can no longer stomp an active focus mode (the BCNLAT-probe /
+ * last-writer-wins model this replaced is gone). Idempotent.
  */
 export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void {
     getVisibilityState(map).routeFocused = focused;
@@ -1878,13 +1876,14 @@ export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void 
 
 /**
  * Chart-detail toggle: false = clean (land + markers + hazards only), true =
- * full (also depth-fills + coastline). Mirrors `setEncRouteFocusMode` shape
- * so MapHub can call them independently and the more-specific layer wins.
+ * full (also depth-fills + coastline). Mirrors `setEncRouteFocusMode` shape so
+ * MapHub can call them independently.
  *
- * Order rule: clean-chart can be on alongside route-focus; whichever sets
- * 'none' last sticks. Since both target overlapping layers (DEPARE/COALNE),
- * effectively "clean OR focused → hide" is what the user sees — which is
- * the intended composition.
+ * Sets the per-map `detailed` flag and re-runs the same COMPOSER — order no
+ * longer matters (not "whichever sets 'none' last sticks"): the composer reads
+ * master + routeFocused + detailed together, so on the overlapping layers
+ * (DEPARE/COALNE) the user sees "clean OR focused → hide" regardless of which
+ * toggle fired last.
  */
 export function setEncChartDetail(map: mapboxgl.Map, detailed: boolean): void {
     getVisibilityState(map).detailed = detailed;

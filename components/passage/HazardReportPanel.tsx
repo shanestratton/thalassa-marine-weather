@@ -114,7 +114,13 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         'draft-clamp': 'Draft exceeds depth model',
         'caution-crossing': 'Route crosses a prohibited area',
         'tide-constrained': 'Tide-constrained leg',
-        'gebco-share': 'Depths verified on ocean bathymetry',
+        // Only ever the HEADLINE when the gebco-share advisory is CAUTION-grade
+        // (chart cells FAILED to load, or ≥30% of checks fell to the ~460 m
+        // GEBCO grid) — the collapsed header shows the first CAUTION, and a
+        // note-grade gebco-share never reaches here. "verified" was factually
+        // wrong for exactly that case (closing audit 2026-07-18): the depths
+        // are NOT chart-verified, they are coarse ocean bathymetry.
+        'gebco-share': 'Depths not chart-verified',
         'lateral-clearance': 'Route grazes charted hazard',
         'segment-check-failed': 'Thin-islet check did not run',
     };

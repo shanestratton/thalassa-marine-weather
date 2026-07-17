@@ -653,6 +653,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Focused by the no-name Save guard so the keyboard pops ready to type.
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
+    // Colour-key legend, revealed on demand from the card (Shane 2026-07-17:
+    // "we need a way of bringing the legend back") — it otherwise only shows
+    // in the empty state before any pins are dropped.
+    const [showKey, setShowKey] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
      *  "Sail anyway?" and only the second tap sails. Never a hard block. */
@@ -1248,6 +1252,28 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         triggerHaptic('medium');
     }, [capturedCoords]);
+    // Open a saved route straight into the card (Shane 2026-07-17: "a way,
+    // when you are in the web page, to bring up the previous tracks"). On the
+    // standalone /plan page there's no PLAN front door, so this is the ONLY
+    // path to a saved route. Same load semantics as the PLAN-page 'load-saved'
+    // deep link: rebase the Undo floor, adopt the name, drop the leg-chain
+    // lock, and fly to the route's midpoint.
+    const openSavedTrace = useCallback(
+        (t: SavedTrace) => {
+            if (!t || t.points.length < 2) return;
+            triggerHaptic('light');
+            setLegAnchor(null);
+            rebaseHistoryRef.current = true;
+            setCapturedCoords(t.points);
+            setTraceName(t.name);
+            setShowSavedTraces(false);
+            setSelectedPin(null);
+            const mid = t.points[Math.floor(t.points.length / 2)];
+            mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
+            flashTraceFeedback(`Opened "${t.name}"`);
+        },
+        [flashTraceFeedback],
+    );
     // Drop / refresh a numbered pin per captured coord so the skipper can see
     // exactly where each tap landed. Pins are DRAGGABLE (nudge one and the
     // adjoining legs re-grade live) and TAPPABLE (select → Delete / Insert-
@@ -5058,9 +5084,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // card cover the pills — max() takes the lower of the two.
                             // FOLDED: no top — the card shrinks to its header strip
                             // (so Done visibly minimises).
-                            top: panelFolded
-                                ? undefined
-                                : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
+                            top: panelFolded ? undefined : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
                             bottom: coordCaptureMode
                                 ? `calc(${panelFolded ? '10.4rem' : '8.4rem'} + env(safe-area-inset-bottom))`
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
@@ -6714,8 +6738,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* Viewport-aware — only renders when ENC cells overlap the
                     current view. IHO standard practice for chart displays.
                     Self-contained: subscribes to its own viewport + cell-list
-                    events. Tap to expand into a full per-cell list. */}
-                <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
+                    events. Tap to expand into a full per-cell list.
+                    Gated like every other ENC chip (closing audit 2026-07-18:
+                    it asserted "⚓ Charts: AHO ed.X" + a staleness warning even
+                    with the ENC layer OFF over satellite/hybrid, and leaked into
+                    embedded/picker/pin views the other chips suppress). */}
+                {encVisible && !embedded && !pickerMode && !isPinView && (
+                    <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
+                )}
 
                 {/* ═══ ENC HAZARD REPORT (route-adjacent obstructions) ═══ */}
                 {/* Auto-populated by validateRouteSegments after a successful
