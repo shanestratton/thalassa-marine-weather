@@ -114,7 +114,10 @@ export interface RouteAdvisory {
         // The segment-vs-polygon thin-islet crossing test threw and did not run.
         | 'segment-check-failed'
         // A covering chart edition is >5 yr past its issue date — verify NtM.
-        | 'chart-currency';
+        | 'chart-currency'
+        // An imported chart cell FAILED to load — its detailed grounding
+        // features were not consulted (coarse coverage may mask the gap).
+        | 'cell-load-failed';
 }
 
 export interface RouteHazardReport {

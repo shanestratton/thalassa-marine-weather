@@ -124,6 +124,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         'lateral-clearance': 'Route grazes charted hazard',
         'segment-check-failed': 'Thin-islet check did not run',
         'chart-currency': 'Chart edition may be out of date',
+        'cell-load-failed': 'Chart cell failed to load',
     };
     const firstCaution = cautions[0];
     const baseHeadline = !firstCaution

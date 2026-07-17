@@ -563,30 +563,41 @@ export function buildRouteAdvisories(
                 `(uncharted + GEBCO unavailable) — routed but NOT confirmed safe, verify visually`,
         });
     }
-    // GEBCO-tier verification made visible (2026-07-17 audit finding #1: a
-    // corrupt/unloadable ENC cell silently dropped its water to the ~460 m
-    // GEBCO raster and the panel showed the same clean face — a route over
-    // a charted rock "validated clean" against open-ocean bathymetry).
-    // Loud caution when imported cells actually FAILED (that water was
-    // supposed to be charted) or when GEBCO carries a large share; plain
-    // note for the honest offshore case (genuinely uncharted water).
+    // Failed chart cells ALWAYS warn, independent of GEBCO share (cycle-4
+    // closing audit #1, the single largest deduction): a fine cell that fails
+    // to load is dropped from the query indexes but stays in cellMeta, so an
+    // overlapping COARSE cell can answer covered:true and keep gebcoHits at 0.
+    // The old failed-cell note lived ONLY inside the gebco block below and was
+    // suppressed in exactly that case — presenting a clean ENC-validated face
+    // while the failed cell's detailed grounding features were never consulted.
+    const failed = failedCellIds ?? [];
+    if (failed.length > 0) {
+        advisories.push({
+            severity: 'caution',
+            kind: 'cell-load-failed',
+            text:
+                `${failed.length} imported chart cell(s) FAILED to load ` +
+                `(${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ', …' : ''}) — the detailed ` +
+                `grounding features they carry were NOT consulted on this route, and overlapping ` +
+                `coarser charts can mask the gap. Re-import those cells and verify that area visually.`,
+        });
+    }
+    // GEBCO-tier verification made visible (2026-07-17 audit: a corrupt/
+    // unloadable ENC cell silently dropped its water to the ~460 m GEBCO raster
+    // and the panel showed the same clean face). Loud caution on a large share;
+    // plain note for the honest offshore case (genuinely uncharted water). The
+    // failed-cell warning is now owned by cell-load-failed above (it must fire
+    // even when the share is zero), so this is purely about the GEBCO fraction.
     const gebcoHits = results.filter((r) => r.source === 'gebco').length;
     if (gebcoHits > 0 && results.length > 0) {
         const pct = Math.round((gebcoHits / results.length) * 100);
-        const failed = failedCellIds ?? [];
-        const failedNote =
-            failed.length > 0
-                ? ` ${failed.length} imported chart cell(s) FAILED to load (${failed.slice(0, 3).join(', ')}${
-                      failed.length > 3 ? ', …' : ''
-                  }) — their water fell back to GEBCO; re-import may be needed.`
-                : '';
         advisories.push({
-            severity: failed.length > 0 || pct >= 30 ? 'caution' : 'note',
+            severity: pct >= 30 ? 'caution' : 'note',
             kind: 'gebco-share',
             text:
                 `${gebcoHits}/${results.length} depth check(s) (${pct}%) used ~460 m GEBCO ocean ` +
                 `bathymetry, not charted ENC data — shoals smaller than the grid spacing are ` +
-                `invisible to it.${failedNote}`,
+                `invisible to it.`,
         });
     }
     // Tide-constrained clearances (audit #4): points that pass the draft

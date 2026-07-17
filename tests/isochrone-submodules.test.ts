@@ -358,16 +358,25 @@ describe('buildRouteAdvisories', () => {
         expect(out[0].text).toContain('67%');
     });
 
-    it('FAILED chart cells force CAUTION at any share and name the cells', () => {
+    it('FAILED chart cells raise a dedicated CAUTION naming the cells, plus the GEBCO note', () => {
         const out = buildRouteAdvisories([r({ source: 'gebco' }), r({}), r({}), r({})], undefined, ['OC-61-10ENB5']);
-        expect(out).toHaveLength(1);
-        expect(out[0].severity).toBe('caution');
-        expect(out[0].text).toContain('OC-61-10ENB5');
-        expect(out[0].text).toContain('FAILED to load');
+        const failedCaution = out.find((a) => a.kind === 'cell-load-failed');
+        expect(failedCaution?.severity).toBe('caution');
+        expect(failedCaution?.text).toContain('OC-61-10ENB5');
+        expect(failedCaution?.text).toContain('FAILED to load');
+        // The GEBCO-share advisory is now purely about the fraction (25% → note).
+        expect(out.find((a) => a.kind === 'gebco-share')?.severity).toBe('note');
     });
 
-    it('failed cells with zero gebco hits stay silent (nothing actually degraded on this route)', () => {
-        expect(buildRouteAdvisories([r({}), r({})], undefined, ['OC-61-10ENB5'])).toEqual([]);
+    it('failed cells STILL warn with zero gebco hits — a coarse backstop must not mask the gap (cycle-4 audit #1)', () => {
+        // The exact silent-degradation bug: a failed fine cell backstopped by an
+        // overlapping coarse cell (all source:'enc', gebcoHits=0). Old behaviour
+        // was silence; now a loud caution fires.
+        const out = buildRouteAdvisories([r({}), r({})], undefined, ['OC-61-10ENB5']);
+        expect(out).toHaveLength(1);
+        expect(out[0].kind).toBe('cell-load-failed');
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].text).toContain('OC-61-10ENB5');
     });
 
     it('ENC coverage with NO M_QUAL anywhere gets the quality-unassessed NOTE (audit)', () => {
