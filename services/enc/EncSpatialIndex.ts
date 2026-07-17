@@ -47,6 +47,13 @@ import { compareHazardSeverity } from './hazardSeverity';
  */
 export const POINT_HAZARD_GUARD_RADIUS_M = 150;
 
+/** How far from an exempt route terminal the berth exemption reaches
+ *  (closing audit 2026-07-17): a shoal-area boundary crossing beyond this
+ *  is a DIFFERENT arm of the feature, not the berth's own water, and
+ *  still flags. ~500 m covers a marina basin + its entrance channel
+ *  without reaching across a bay. */
+export const BERTH_EXEMPT_RADIUS_M = 500;
+
 const METRES_PER_DEG_LAT = 111_320;
 const EARTH_RADIUS_M = 6_371_000;
 
@@ -723,15 +730,36 @@ export class EncSpatialIndex {
             if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
                 const inA = booleanPointInPolygon(pA, geom);
                 const inB = booleanPointInPolygon(pB, geom);
-                const crosses = inA || inB || lineIntersect(segLine, geom).features.length > 0;
+                const boundaryCrossings = lineIntersect(segLine, geom).features;
+                const crosses = inA || inB || boundaryCrossings.length > 0;
                 // Berth exemption: the route's own origin/destination is often
                 // inside a shoal AREA on purpose. When this endpoint is a route
                 // TERMINAL, don't flag the leg merely for containing it — else
-                // we'd detour the route away from its own start/finish. Only a
-                // polygon the exempt terminal sits INSIDE is skipped; a thin
-                // islet the leg merely crosses elsewhere still flags. (Areas
+                // we'd detour the route away from its own start/finish. (Areas
                 // only — a discrete rock is a hard hazard, never berth-exempt.)
-                matched = crosses && !((exemptStart && inA) || (exemptEnd && inB));
+                //
+                // PER-LOCALITY (2026-07-17 closing audit, the last
+                // fail-dangerous geometry in the routing path): the waiver
+                // used to skip the ENTIRE (Multi)Polygon whenever the exempt
+                // terminal sat anywhere inside it — a big terminal feature's
+                // DISTANT arm crossed mid-leg was silently cleared. Now a
+                // boundary crossing farther than BERTH_EXEMPT_RADIUS_M from
+                // every exempt terminal still flags: the exemption covers the
+                // berth's own water, never a different arm of the same
+                // feature.
+                if (crosses && ((exemptStart && inA) || (exemptEnd && inB))) {
+                    const exemptPts: Array<[number, number]> = []; // [lat, lon]
+                    if (exemptStart && inA) exemptPts.push([lat1, lon1]);
+                    if (exemptEnd && inB) exemptPts.push([lat2, lon2]);
+                    matched = boundaryCrossings.some((f) => {
+                        const [cLon, cLat] = f.geometry.coordinates as [number, number];
+                        return exemptPts.every(
+                            ([eLat, eLon]) => metresBetween(cLat, cLon, eLat, eLon) > BERTH_EXEMPT_RADIUS_M,
+                        );
+                    });
+                } else {
+                    matched = crosses;
+                }
             } else if (geom.type === 'Point') {
                 // Point hazard within the guard corridor of the segment. This
                 // is what catches a charted rock/wreck on a SHORT terminal leg
