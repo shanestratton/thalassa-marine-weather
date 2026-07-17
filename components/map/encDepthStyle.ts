@@ -161,17 +161,20 @@ export function buildDepareFillColor(tideOffsetM = 0): ExpressionSpecification {
     ]);
 }
 
-/** The white-ramp band palette. `drying` is deliberately a distinct
- *  sand-green step away from the 0–2 m dirty white — at-a-glance
- *  dries-vs-water separation in sunlight (audit U4: the two warm
- *  whites were ~3 L* apart and unreadable in glare). */
+/** BLUE-SHALLOW band palette (Shane 2026-07-18: "change it — let's keep
+ *  it real"). S-52/paper convention: the shallower the water, the more
+ *  saturated the blue; deep water fades to clean paper white. This
+ *  replaced the earlier "whiter = deeper" warm ramp — matching every
+ *  chart a sailor has ever read beats a house style. `drying` keeps its
+ *  distinct sand-khaki step (dries-vs-water separation in glare, audit
+ *  U4) — that part of the old design survives on merit. */
 export const DEPARE_BAND_COLORS = {
     drying: '#c6c295',
-    b0to2: '#d4cdbf',
-    b2to5: '#ded8cc',
-    b5to10: '#e8e3d9',
-    b10to20: '#f0ede5',
-    b20to50: '#f7f5f0',
+    b0to2: '#8bbcdd',
+    b2to5: '#a6cce6',
+    b5to10: '#c0dcee',
+    b10to20: '#d8e9f5',
+    b20to50: '#ecf4fa',
     b50plus: '#ffffff',
 } as const;
 
