@@ -1726,21 +1726,67 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
     }
 }
 
-/**
- * Toggle layer visibility without mutating sources. Useful for the
- * UI toggle (when added) — keeps the tile cache warm so re-show
- * is instant.
- */
-export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): void {
+// ── Visibility state machine (closing audit) ───────────────────────
+//
+// FIVE writers used to compose by mutating the same layout property with
+// a "probe BCNLAT + whichever wrote 'none' last sticks" convention — an
+// indirect channel that broke the moment BCNLAT joined any hide list,
+// with the precedence specified only in prose. Now: each writer sets its
+// FIELD on one explicit per-map state record and ONE composer derives
+// every layer's visibility deterministically, in documented precedence:
+//
+//   1. master OFF hides everything (the FAB).
+//   2. route-focus subtracts ROUTE_FOCUS_HIDE_LAYERS.
+//   3. clean-chart (detailed=false) subtracts CHART_DETAIL_HIDE_LAYERS.
+//   4. satellite base subtracts SATELLITE_HIDE_LAYERS.
+//   5. the detail scrubber's cuts are never resurrected (its own channel).
+//
+// Call order no longer matters; toggling master can no longer stomp an
+// active focus/clean mode.
+
+export interface EncVisibilityState {
+    master: boolean;
+    routeFocused: boolean;
+    detailed: boolean;
+}
+
+const visibilityState = new WeakMap<mapboxgl.Map, EncVisibilityState>();
+
+function getVisibilityState(map: mapboxgl.Map): EncVisibilityState {
+    let st = visibilityState.get(map);
+    if (!st) {
+        st = { master: true, routeFocused: false, detailed: true };
+        visibilityState.set(map, st);
+    }
+    return st;
+}
+
+/** THE composer — the only writer of the visibility layout property.
+ *  Exported for tests (a stub map with getLayer/setLayoutProperty is
+ *  enough to verify the precedence table). */
+export function applyEncVisibility(map: mapboxgl.Map): void {
+    const st = getVisibilityState(map);
     const satOn = satelliteBaseOn();
     for (const id of ALL_LAYER_IDS) {
-        // isScrubHidden: never force-show furniture the detail scrubber
-        // has cut — this writer runs on every merge/effect pass, and the
-        // show-then-rehide race flashed the leads (2026-07-15).
-        const wantVisible = visible && !(satOn && SATELLITE_HIDE_LAYERS.includes(id)) && !isScrubHidden(id);
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
+        if (!map.getLayer(id)) continue;
+        let want = st.master;
+        if (want && st.routeFocused && (ROUTE_FOCUS_HIDE_LAYERS as readonly string[]).includes(id)) want = false;
+        if (want && !st.detailed && (CHART_DETAIL_HIDE_LAYERS as readonly string[]).includes(id)) want = false;
+        if (want && satOn && SATELLITE_HIDE_LAYERS.includes(id)) want = false;
+        if (want && isScrubHidden(id)) want = false;
+        map.setLayoutProperty(id, 'visibility', want ? 'visible' : 'none');
     }
     syncDepareBaseTreatment(map);
+}
+
+/**
+ * Master FAB toggle. Keeps the tile cache warm so re-show is instant —
+ * and, unlike the old writer, no longer stomps an active focus/clean
+ * mode: the composer re-derives them.
+ */
+export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): void {
+    getVisibilityState(map).master = visible;
+    applyEncVisibility(map);
 }
 
 /**
@@ -1807,21 +1853,8 @@ const CHART_DETAIL_HIDE_LAYERS = [
  * Idempotent — calling repeatedly with the same args costs almost nothing.
  */
 export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void {
-    // Probe master toggle state via BCNLAT (always 'visible' when ENC is on,
-    // 'none' when ENC is off). If the layer doesn't exist yet, the user has
-    // no cells imported and there's nothing to focus.
-    const probe = map.getLayer(ENC_VEC_LAYERS.BCNLAT);
-    if (!probe) return;
-    const masterVisible = map.getLayoutProperty(ENC_VEC_LAYERS.BCNLAT, 'visibility') !== 'none';
-    if (!masterVisible) return; // every ENC layer already hidden — leave it
-
-    const satOn = satelliteBaseOn();
-    for (const id of ROUTE_FOCUS_HIDE_LAYERS) {
-        // Scrub guard, same as every other visibility writer.
-        const wantVisible = !focused && !(satOn && SATELLITE_HIDE_LAYERS.includes(id)) && !isScrubHidden(id);
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
-    }
-    syncDepareBaseTreatment(map);
+    getVisibilityState(map).routeFocused = focused;
+    applyEncVisibility(map);
 }
 
 /**
@@ -1835,21 +1868,8 @@ export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void 
  * the intended composition.
  */
 export function setEncChartDetail(map: mapboxgl.Map, detailed: boolean): void {
-    const probe = map.getLayer(ENC_VEC_LAYERS.BCNLAT);
-    if (!probe) return;
-    const masterVisible = map.getLayoutProperty(ENC_VEC_LAYERS.BCNLAT, 'visibility') !== 'none';
-    if (!masterVisible) return;
-
-    const satOn = satelliteBaseOn();
-    for (const id of CHART_DETAIL_HIDE_LAYERS) {
-        // Contour lines stay under satellite — only the area fills yield.
-        // The scrub guard mirrors setEncVectorVisibility: detail-on must
-        // not resurrect contours the scrubber cut (they are HIDE_ONLY on
-        // the scrubber side for exactly this ownership seam).
-        const wantVisible = detailed && !(satOn && SATELLITE_HIDE_LAYERS.includes(id)) && !isScrubHidden(id);
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
-    }
-    syncDepareBaseTreatment(map);
+    getVisibilityState(map).detailed = detailed;
+    applyEncVisibility(map);
 }
 
 // ── Click-to-popup ─────────────────────────────────────────────────
