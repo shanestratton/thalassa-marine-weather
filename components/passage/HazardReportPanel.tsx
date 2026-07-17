@@ -115,6 +115,8 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         'caution-crossing': 'Route crosses a prohibited area',
         'tide-constrained': 'Tide-constrained leg',
         'gebco-share': 'Depths verified on ocean bathymetry',
+        'lateral-clearance': 'Route grazes charted hazard',
+        'segment-check-failed': 'Thin-islet check did not run',
     };
     const firstCaution = cautions[0];
     const baseHeadline = !firstCaution

@@ -294,3 +294,69 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(fold([fine, coarse]).hazardType).toBe('rock'); // same regardless of resolution order
     });
 });
+
+describe('EncSpatialIndex.segmentAreaGraze (ZOC lateral clearance, burn-down 2026-07-18 #1)', () => {
+    // All geometry sits at lat≈0 so 1° ≈ 111 320 m in BOTH axes — a lon offset
+    // of `m/111320` degrees is `m` metres of clearance. A vertical segment at
+    // lon=x whose lat span lies WITHIN the square's ±hw runs parallel to the
+    // square's nearest N-S edge, so the near-miss distance IS that lon gap.
+    const M = 111_320; // metres per degree at the equator
+    const deg = (m: number) => m / M;
+    /** A vertical (N-S) segment at longitude `lon`, from lat -span to +span. */
+    const vseg = (lon: number, span = 0.0005): [number, number, number, number] => [-span, lon, span, lon];
+    /** A cell whose whole area carries one CATZOC (M_QUAL) value. */
+    const zocIdx = (hazards: EncHazard[], catzoc: 1 | 2 | 3 | 4 | 5 | 6) =>
+        new EncSpatialIndex('A', hazards, [{ geometry: square(0, 0, 1), catzoc }]);
+
+    it('flags a shallow DEPARE the leg passes ~30 m outside (no M_QUAL → ZOC-B ±50 m margin)', () => {
+        // Shoal square centred so its WEST edge sits ~30 m east of the segment
+        // at lon 0 (centre = 30 m clearance + 500 m half-width, east).
+        const i = idx('A', [hz('DEPARE', square(deg(30) + deg(500), 0, deg(500)), 2)]);
+        const g = i.segmentAreaGraze(...vseg(0));
+        expect(g).not.toBeNull();
+        expect(g!.type).toBe('shallow');
+        expect(g!.marginM).toBe(50); // null CATZOC → treated as ZOC-B
+        expect(Math.abs(g!.clearanceM - 30)).toBeLessThan(6);
+    });
+
+    it('does NOT flag when the clearance exceeds the ZOC margin', () => {
+        // Same shoal but the segment sits 80 m outside — beyond the ±50 m ZOC-B margin.
+        const i = idx('A', [hz('DEPARE', square(deg(80) + deg(500), 0, deg(500)), 2)]);
+        expect(i.segmentAreaGraze(...vseg(0))).toBeNull();
+    });
+
+    it('margin SCALES with survey confidence — a 30 m near-miss flags in ZOC-B but not ZOC-A1', () => {
+        const shoalCentreLon = deg(30) + deg(500); // west edge ≈ 30 m east of lon 0
+        const haz = [hz('DEPARE', square(shoalCentreLon, 0, deg(500)), 2)];
+        expect(zocIdx(haz, 3).segmentAreaGraze(...vseg(0))).not.toBeNull(); // B ±50 → flags
+        const a1 = zocIdx(haz, 1).segmentAreaGraze(...vseg(0)); // A1 ±5 → 30 m is clear
+        expect(a1).toBeNull();
+    });
+
+    it('a leg that CROSSES the polygon is a crossing, never a graze (returned null here)', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, deg(500)), 2)]);
+        expect(i.segmentAreaGraze(0, -0.01, 0, 0.01)).toBeNull(); // W→E straight through
+    });
+
+    it('ignores DEEP water — a route hugging a deep-enough channel edge does NOT graze-flag', () => {
+        const i = idx('A', [hz('DEPARE', square(deg(30) + deg(500), 0, deg(500)), 25)]); // 25 m deep
+        expect(i.segmentAreaGraze(...vseg(0))).toBeNull();
+    });
+
+    it('LAND (drying bank / islet) outranks a CLOSER shoal near-miss', () => {
+        // Shoal 22 m east, land 44 m west — both inside the ±50 m ZOC-B margin.
+        const i = idx('A', [
+            hz('DEPARE', square(deg(22) + deg(500), 0, deg(500)), 2), // west edge ≈22 m east
+            hz('LNDARE', square(-(deg(44) + deg(500)), 0, deg(500))), // east edge ≈44 m west
+        ]);
+        const g = i.segmentAreaGraze(...vseg(0));
+        expect(g).not.toBeNull();
+        expect(g!.type).toBe('land'); // land wins despite the shoal being closer
+        expect(Math.abs(g!.clearanceM - 44)).toBeLessThan(8);
+    });
+
+    it('carries the CATZOC through so the advisory can name the survey band', () => {
+        const g = zocIdx([hz('DEPARE', square(deg(30) + deg(500), 0, deg(500)), 2)], 3).segmentAreaGraze(...vseg(0));
+        expect(g?.catzoc).toBe(3);
+    });
+});

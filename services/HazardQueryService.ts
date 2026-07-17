@@ -29,7 +29,7 @@
 import { createLogger } from '../utils/createLogger';
 import { GebcoDepthService } from './GebcoDepthService';
 import * as EncHazardService from './enc/EncHazardService';
-import type { EncCatzoc, EncHazardResult, EncHazardType } from './enc/types';
+import type { EncAreaGraze, EncCatzoc, EncHazardResult, EncHazardType } from './enc/types';
 import { ENC_HAZARD_DEPTH_M } from './enc/types';
 import type { EncCautionArea } from './enc/EncSpatialIndex';
 
@@ -446,13 +446,26 @@ export async function querySegmentHazards(
         timeMs?: number;
     }[],
     options: HazardQueryOptions = {},
-): Promise<{ isHazard: boolean; hazardType?: EncHazardType; source: 'enc' | 'none'; tideConstrained?: boolean }[]> {
+): Promise<
+    {
+        isHazard: boolean;
+        hazardType?: EncHazardType;
+        source: 'enc' | 'none';
+        tideConstrained?: boolean;
+        graze?: EncAreaGraze;
+    }[]
+> {
     if (segments.length === 0) return [];
     const encResults = await EncHazardService.querySegmentHazards(segments);
     const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
     const fallbackTideM = Number.isFinite(options.tideOffsetM as number) ? (options.tideOffsetM as number) : 0;
     return encResults.map((enc, i) => {
-        if (!enc.covered) return { isHazard: false, source: 'none' as const };
+        // Lateral graze rides through regardless of grounding coverage — a
+        // segment can validate CLEAN (no crossing → covered:false on the
+        // segment channel) yet still pass within the chart's positional-error
+        // margin of a shoal/land boundary (burn-down 2026-07-18 #1).
+        const graze = enc.graze;
+        if (!enc.covered) return { isHazard: false, source: 'none' as const, ...(graze ? { graze } : {}) };
         const midLat = (segments[i].lat1 + segments[i].lat2) / 2;
         const midLon = (segments[i].lon1 + segments[i].lon2) / 2;
         // Honour the live per-point tide curve the validator passes
@@ -472,6 +485,7 @@ export async function querySegmentHazards(
             hazardType: enc.hazardType,
             source: 'enc' as const,
             ...(r.tideConstrained ? { tideConstrained: true } : {}),
+            ...(graze ? { graze } : {}),
         };
     });
 }
