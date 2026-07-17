@@ -201,6 +201,66 @@ export async function readCellRaw(
     }
 }
 
+// ── Off-thread parse (closing audit: indivisible multi-MB JSON.parse) ──
+let parseWorker: Worker | null = null;
+let parseWorkerBroken = false;
+let parseSeq = 0;
+const parseWaiters = new Map<number, (blob: unknown) => void>();
+
+function getParseWorker(): Worker | null {
+    if (parseWorkerBroken) return null;
+    if (parseWorker) return parseWorker;
+    if (typeof Worker === 'undefined') return null;
+    try {
+        parseWorker = new Worker(new URL('./encParseWorker.ts', import.meta.url), { type: 'module' });
+    } catch {
+        parseWorkerBroken = true;
+        return null;
+    }
+    parseWorker.onerror = () => {
+        parseWorkerBroken = true;
+        parseWorker = null;
+        // Resolve every waiter null — callers fall back to the sync parse.
+        for (const resolve of parseWaiters.values()) resolve(null);
+        parseWaiters.clear();
+    };
+    parseWorker.onmessage = (ev: MessageEvent<{ seq: number; blob: unknown | null }>) => {
+        const resolve = parseWaiters.get(ev.data.seq);
+        if (resolve) {
+            parseWaiters.delete(ev.data.seq);
+            resolve(ev.data.blob);
+        }
+    };
+    return parseWorker;
+}
+
+/** Async parse: the WORKER pays the multi-MB JSON.parse; the main thread
+ *  pays only the (much cheaper) structured clone in. Falls back to the
+ *  sync path when workers are unavailable or the worker died. Same
+ *  shape-gate + LRU-cache semantics as parseAndCacheCellText. */
+export async function parseAndCacheCellTextAsync(cellId: string, text: string): Promise<EncConversionResult | null> {
+    const worker = getParseWorker();
+    if (!worker) return parseAndCacheCellText(cellId, text);
+    const blob = await new Promise<unknown>((resolve) => {
+        const seq = ++parseSeq;
+        parseWaiters.set(seq, resolve);
+        try {
+            worker.postMessage({ seq, cellId, text });
+        } catch {
+            parseWaiters.delete(seq);
+            resolve(null);
+        }
+    });
+    if (!blob || typeof blob !== 'object' || !(blob as EncConversionResult).cellId) {
+        // Worker path failed/malformed — one sync retry keeps behaviour
+        // identical to the old path (and logs there).
+        return parseAndCacheCellText(cellId, text);
+    }
+    const parsed = blob as EncConversionResult;
+    cacheBlob(cellId, parsed, text.length);
+    return parsed;
+}
+
 /** The serial half of the pipeline: parse + shape-gate + LRU-cache one cell's
  *  text (exactly loadCellGeoJSON's semantics). Null on malformed. */
 export function parseAndCacheCellText(cellId: string, text: string): EncConversionResult | null {
@@ -249,7 +309,7 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
     // three parse/shape-gate/cache sites to keep in sync).
     const raw = await readCellRaw(cellId);
     if (raw.kind === 'cached') return raw.blob;
-    if (raw.kind === 'text') return parseAndCacheCellText(cellId, raw.text);
+    if (raw.kind === 'text') return parseAndCacheCellTextAsync(cellId, raw.text);
     if (!raw.notFound) {
         log.warn(`loadCellGeoJSON ${cellId} failed (read error, staying local)`);
         return null;
