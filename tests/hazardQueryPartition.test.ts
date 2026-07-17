@@ -115,6 +115,29 @@ describe('GEBCO MSL→LAT pessimism (audit #7)', () => {
     });
 });
 
+describe('GEBCO regional datum delta (closing audit: big-tide QLD)', () => {
+    it('a caller-supplied larger delta flags points the Moreton constant cleared', async () => {
+        encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
+        // Draft 2 m → threshold -3.5. GEBCO -5.5: clears with the 1.3 m
+        // Moreton delta (-4.2 < -3.5) but a Broad-Sound-scale 4.8 m delta
+        // reads -0.7 → hazard.
+        gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -5.5 }]);
+        const clear = await queryHazards(P, { vesselDraftM: 2 });
+        expect(clear[0].isHazard).toBe(false);
+        gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -5.5 }]);
+        const flagged = await queryHazards(P, { vesselDraftM: 2, gebcoDatumDeltaM: 4.8 });
+        expect(flagged[0].isHazard).toBe(true);
+    });
+
+    it('a smaller caller delta can never RELAX the Moreton floor', async () => {
+        encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
+        // -4.0 flags under the 1.3 floor regardless of a 0 delta request.
+        gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -4.0 }]);
+        const out = await queryHazards(P, { vesselDraftM: 2, gebcoDatumDeltaM: 0 });
+        expect(out[0].isHazard).toBe(true);
+    });
+});
+
 describe('encToHazardResult — tide-constrained clearances (audit #4)', () => {
     const pt = { lat: -27.4, lon: 153.1 };
     const shallowBand = (minDepthM: number): EncHazardResult => ({

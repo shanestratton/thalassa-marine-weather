@@ -14,6 +14,7 @@ import type { HazardResult } from '../HazardQueryService';
 import type { RouteAdvisory } from '../enc/EncHazardReportService';
 import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { failedCellIds } from '../enc/encIndexCache';
+import { GEBCO_MSL_TO_LAT_PESSIMISM_M } from '../HazardQueryService';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -689,6 +690,7 @@ export async function validateRouteSegments(
     const queryOpts: {
         vesselDraftM?: number;
         tideOffsetM?: number;
+        gebcoDatumDeltaM?: number;
         tideAt?: (p: { lat: number; lon: number; timeMs?: number }) => number | null;
     } = {
         vesselDraftM: options.vesselDraftM,
@@ -745,6 +747,18 @@ export async function validateRouteSegments(
             const curve = await fetchTideCurve(midLat, midLon, startMs, endMs);
             if (curve) {
                 queryOpts.tideAt = (p) => (p.timeMs != null ? curve.heightAt(p.timeMs) : null);
+                // REGIONAL DATUM PESSIMISM (closing audit): scale the GEBCO
+                // MSL→LAT delta from the live curve's range instead of the
+                // fixed Moreton 1.3 m. Heights are LAT-referenced, so MSL sits
+                // near mid-range: delta ≈ 0.6 × observed range (the 0.6 over
+                // 0.5 leans pessimistic because a passage-window range
+                // underestimates the astronomical extreme at neaps). Floored
+                // at the Moreton constant — this can only get MORE cautious.
+                const hs = curve.heights.map((h) => h.height).filter((v) => Number.isFinite(v));
+                if (hs.length >= 2) {
+                    const range = Math.max(...hs) - Math.min(...hs);
+                    queryOpts.gebcoDatumDeltaM = Math.max(GEBCO_MSL_TO_LAT_PESSIMISM_M, 0.6 * range);
+                }
                 landLog.info(
                     `[ValidateRoute] tide curve loaded: ${curve.stationName ?? 'station unknown'} ` +
                         `(${curve.heights.length} heights)`,

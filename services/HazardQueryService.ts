@@ -247,6 +247,15 @@ export interface HazardQueryOptions {
      */
     vesselDraftM?: number;
     /**
+     * Regional MSL→LAT pessimism (metres) applied to GEBCO depths in
+     * the hazard comparison. Defaults to the Moreton-calibrated
+     * GEBCO_MSL_TO_LAT_PESSIMISM_M (1.3 m); the route validator scales
+     * it from the live tide curve's range (closing audit: the fixed
+     * constant quietly stops being pessimistic on the big-tide QLD
+     * coast — Broad Sound's MSL sits ~4 m above LAT, not 1.3).
+     */
+    gebcoDatumDeltaM?: number;
+    /**
      * Static tide offset above chart datum in metres, applied to
      * every point. Use this when the caller has a single
      * representative value (or "0 = worst case"). When `tideAt` is
@@ -376,7 +385,8 @@ export async function queryHazards(
                 // Moreton Bay). Without per-point datum offsets, the HAZARD
                 // COMPARISON assumes the pessimistic end; the reported
                 // depth_m stays the honest MSL value.
-                const pessimistic = tidedDepth == null ? null : tidedDepth + GEBCO_MSL_TO_LAT_PESSIMISM_M;
+                const datumDelta = Math.max(GEBCO_MSL_TO_LAT_PESSIMISM_M, options.gebcoDatumDeltaM ?? 0);
+                const pessimistic = tidedDepth == null ? null : tidedDepth + datumDelta;
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,

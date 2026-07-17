@@ -204,6 +204,49 @@ function pointToRoute(p: RoutePoint, route: RoutePoint[]): { distNm: number; sid
 }
 
 /**
+ * Nearest approach of a hazard's ACTUAL geometry to the route (closing
+ * audit 2026-07-17: polygon/line hazards were ranked by their BBOX
+ * CENTRE and silently dropped when that centre sat outside the buffer —
+ * a long training wall or a large foul area the route passes 0.1 NM
+ * abeam could vanish from the briefing because its centre lay 1.5 NM
+ * away). Walks every vertex (stride-sampled beyond 2 000 to bound cost)
+ * and returns the closest one + its distance/side — the same treatment
+ * COALNE already gets.
+ */
+function nearestApproach(
+    hazard: EncHazard,
+    bbox: { minX: number; minY: number; maxX: number; maxY: number },
+    route: RoutePoint[],
+): { repr: { lat: number; lon: number }; distNm: number; side: 'port' | 'starboard' | 'on' } {
+    const g = hazard.geometry;
+    const rings: Position[][] =
+        g.type === 'Polygon'
+            ? (g.coordinates as Position[][])
+            : g.type === 'MultiPolygon'
+              ? (g.coordinates as Position[][][]).flat()
+              : g.type === 'LineString'
+                ? [g.coordinates as Position[]]
+                : g.type === 'MultiLineString'
+                  ? (g.coordinates as Position[][])
+                  : [];
+    if (rings.length === 0) {
+        const repr = representativePoint(hazard, bbox);
+        const { distNm, side } = pointToRoute(repr, route);
+        return { repr, distNm, side };
+    }
+    let best: { repr: { lat: number; lon: number }; distNm: number; side: 'port' | 'starboard' | 'on' } | null = null;
+    for (const ring of rings) {
+        const stride = ring.length > 2000 ? Math.ceil(ring.length / 2000) : 1;
+        for (let i = 0; i < ring.length; i += stride) {
+            const p = { lat: ring[i][1], lon: ring[i][0] };
+            const { distNm, side } = pointToRoute(p, route);
+            if (!best || distNm < best.distNm) best = { repr: p, distNm, side };
+        }
+    }
+    return best!;
+}
+
+/**
  * Pull a representative {lat, lon} from a hazard's geometry.
  * Polygons → centroid of bbox; points → the coord; lines → bbox
  * centre. Fine for distance ranking — we don't need pixel-precision.
@@ -407,8 +450,7 @@ export async function findHazardsAlongRoute(
             const type = reportableHazardType(entry.hazard);
             if (!type) continue; // LNDARE/DEPARE — covered by validator.
 
-            const repr = representativePoint(entry.hazard, entry);
-            const { distNm, side } = pointToRoute(repr, route);
+            const { repr, distNm, side } = nearestApproach(entry.hazard, entry, route);
             if (distNm > bufferNm) continue;
 
             const key = dedupeKey(entry.hazard.layer, repr);
