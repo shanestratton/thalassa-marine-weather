@@ -28,7 +28,7 @@ class FakeWorker {
 }
 vi.stubGlobal('Worker', FakeWorker);
 
-import { dispatchGeometryWork, type GlazeUpgradeItem } from '../../services/enc/geometryUpgrades';
+import { dispatchGeometryWork, GLAZE_CLONE_HARD_CAP, type GlazeUpgradeItem } from '../../services/enc/geometryUpgrades';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { putMergedData, clearMergedData, getMergedData } from '../../services/enc/mergedDataCache';
 import {
@@ -117,6 +117,45 @@ describe('geometry-worker lifecycle', () => {
             'u1',
             'u2',
         ]);
+    });
+
+    // NOTE: placed before the worker-death test below — that test's onerror
+    // sets the module-level geoWorkerBroken and dispatch would then early-return.
+    it('CLONE HARD-CAP: an over-weight glaze payload is dropped and its in-flight claim released', () => {
+        const merged = shell();
+        putMergedData('mergeK', merged);
+        // payloadWeight = touched feature count (+ coverage verts) — push it one
+        // feature past the hard cap. No contours → the whole job degrades to the
+        // instant grade and nothing is dispatched (closing audit #7: this
+        // keel-safety-wash degradation path shipped with no test).
+        const huge: GlazeUpgradeItem = {
+            cellId: 'big',
+            glazeKey: 'big@1@9:s',
+            features: new Array(GLAZE_CLONE_HARD_CAP + 1).fill(feat('x')),
+            coverageIds: [],
+            untouched: [],
+        };
+        // The worker is a reused singleton across tests, so count the DELTA:
+        // the over-cap job with no contours must add NO new postMessage.
+        const before = FakeWorker.instances[FakeWorker.instances.length - 1]?.posted.length ?? 0;
+        dispatchGeometryWork('mergeK', merged, false, [huge], ['big@1@9:s'], lib);
+        const after = FakeWorker.instances[FakeWorker.instances.length - 1]?.posted.length ?? 0;
+        expect(after).toBe(before); // nothing shipped
+        expect(isGlazeInFlight('big@1@9:s')).toBe(false); // not left stuck "upgrading"
+    });
+
+    it('just UNDER the hard cap, the glaze half ships normally', () => {
+        const merged = shell();
+        putMergedData('mergeK', merged);
+        const ok: GlazeUpgradeItem = {
+            cellId: 'ok',
+            glazeKey: 'ok@1@9:s',
+            features: new Array(100).fill(feat('x')),
+            coverageIds: [],
+            untouched: [],
+        };
+        dispatchGeometryWork('mergeK', merged, false, [ok], ['ok@1@9:s'], lib);
+        expect(lastMsg().glazeCells).toHaveLength(1);
     });
 
     it('OVERLAPPING JOBS on the same glaze key keep separate parked majorities', () => {
