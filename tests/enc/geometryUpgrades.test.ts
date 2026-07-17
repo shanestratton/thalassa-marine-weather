@@ -169,6 +169,28 @@ describe('geometry-worker lifecycle', () => {
         expect(isGlazeInFlight('x@1@9:s')).toBe(false);
     });
 
+    it('a glaze-cell STRAGGLER after the worker died does NOT cache an incomplete glaze (job-guard)', () => {
+        const merged = shell();
+        putMergedData('mergeK', merged);
+        putGlazeCell('cellX@1@9:s', { upgraded: false, feats: [feat('instant')] });
+        dispatchGeometryWork('mergeK', merged, false, [item('cellX@1@9:s', ['t1'], ['u1'])], ['cellX@1@9:s'], lib);
+        const jobId = lastMsg().jobId;
+
+        // Worker dies mid-flight: pendingGeometryJobs + all parked assemblies
+        // are cleared. A queued 'glaze-cell' reply then straggles in.
+        worker().onerror!();
+        worker().onmessage!({
+            data: { jobId, type: 'glaze-cell', cellId: 'cellX', glazeKey: 'cellX@1@9:s', features: [feat('clipped')] },
+        });
+
+        // The instant entry must SURVIVE — the straggler had no job and no
+        // parked majority, so caching it would mark a touched-only, incomplete
+        // glaze as upgraded:true (closing audit 2026-07-18). The job-guard drops it.
+        const entry = getGlazeCell('cellX@1@9:s')!;
+        expect(entry.upgraded).toBe(false);
+        expect(entry.feats.map((f) => (f.properties as { id: string }).id)).toEqual(['instant']);
+    });
+
     it('coverage library ships only the entries queued cells reference', () => {
         const merged = shell();
         putMergedData('mergeK', merged);

@@ -7,6 +7,8 @@
  */
 import mapboxgl from 'mapbox-gl';
 
+import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
+
 // ── Colour palette ───────────────────────────────────────────────────────────
 
 const COLOURS = {
@@ -17,7 +19,12 @@ const COLOURS = {
     white: '#F7FAFC',
     orange: '#ED8936',
     blue: '#3182CE',
-    magenta: '#D53F8C',
+    // IHO hazard magenta — the ONE source of truth for hazard-symbol fill AND
+    // popup/legend accents. Was a local #D53F8C literal while popups used
+    // ENC_HAZARD_MAGENTA #d837a9, so the on-chart glyph and its popup drew two
+    // different magentas — the exact drift the single-source constant claims to
+    // have closed (closing audit 2026-07-18). Now they are one value.
+    magenta: ENC_HAZARD_MAGENTA,
     teal: '#319795',
     grey: '#718096',
     amber: '#D69E2E',

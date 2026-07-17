@@ -186,7 +186,12 @@ function getGeoWorker(): Worker | null {
         const msg = ev.data;
         const { jobId } = msg;
         const job = pendingGeometryJobs.get(jobId);
-        if (msg.type === 'glaze-cell') {
+        if (msg.type === 'glaze-cell' && job) {
+            // Require a live job, like the 'contours'/'done' siblings (closing
+            // audit 2026-07-18): after onerror cleared pendingGeometryJobs +
+            // clearAllGlazeAssemblies, a queued straggler reply would take an
+            // EMPTY assembly and cache {upgraded:true, feats: touched-only} — a
+            // permanently incomplete glaze marked final. No job → drop it.
             const { glazeKey, features } = msg;
             // Reassemble: the worker clipped only the TOUCHED subset; the
             // untouched majority parked main-thread side under THIS job's

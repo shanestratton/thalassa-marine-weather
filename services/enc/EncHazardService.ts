@@ -1307,6 +1307,13 @@ async function buildMergedVectorData(
                     const rects = target === 'DEPCNT' ? depcntDedupRects : coalneDedupRects;
                     if (rects.length > 0) {
                         const clipped = clipLineFeatureOutsideBboxes(feat, rects);
+                        // Yield EVERY clipped line feature, not on the 64-stride
+                        // above: per-feature clipLineFeatureOutsideBboxes on
+                        // multi-thousand-vertex contours/coastlines let 300 ms+
+                        // run uninterrupted between yields (closing audit
+                        // 2026-07-18 — the glazeBuild fold already learned this).
+                        // yieldIfNeeded is time-gated (12 ms) so it's cheap.
+                        await yieldIfNeeded();
                         if (!clipped) continue;
                         outGeometry = clipped.geometry;
                     }
