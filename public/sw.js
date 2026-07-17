@@ -300,9 +300,12 @@
 // v145: cross-device vessel sync — sign-in is a TWO-WAY reconcile now. A
 // vessel onboarded locally while signed out (draft/beam/etc.) uploads to the
 // cloud on the next sign-in, so a second device (incl. the web) gets the keel.
-const CACHE_NAME = 'thalassa-v145-core';
-const TILE_CACHE = 'thalassa-v145-tiles';
-const DATA_CACHE = 'thalassa-v145-data';
+// v146: removed the card's "Key" toggle (it jostled the card, no useful
+// info — the empty-state help keeps the colour key), and opening a saved
+// route now FITS THE WHOLE ROUTE on screen (overrides the z10 default).
+const CACHE_NAME = 'thalassa-v146-core';
+const TILE_CACHE = 'thalassa-v146-tiles';
+const DATA_CACHE = 'thalassa-v146-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

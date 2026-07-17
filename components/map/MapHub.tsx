@@ -256,6 +256,33 @@ const getWeatherInspectPopup = async () => {
 const legCacheKey = (a: { lat: number; lon: number }, b: { lat: number; lon: number }, isLast: boolean): string =>
     `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}${isLast ? '|last' : ''}`;
 
+/** Fit a saved route's WHOLE extent on screen (Shane 2026-07-17: "show the
+ *  entire route… overriding the zoom-10 restriction"). Shared by every "open
+ *  a saved route" path so they behave identically. fitBounds picks whatever
+ *  zoom shows every pin (in OR out past 10); the left/bottom padding clears
+ *  the tracer card + scrubber, and maxZoom stops a tiny route slamming to
+ *  max zoom. */
+function fitTraceBounds(map: mapboxgl.Map, points: ReadonlyArray<{ lat: number; lon: number }>): void {
+    if (points.length === 0) return;
+    let minLon = Infinity,
+        minLat = Infinity,
+        maxLon = -Infinity,
+        maxLat = -Infinity;
+    for (const p of points) {
+        if (p.lon < minLon) minLon = p.lon;
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lon > maxLon) maxLon = p.lon;
+        if (p.lat > maxLat) maxLat = p.lat;
+    }
+    map.fitBounds(
+        [
+            [minLon, minLat],
+            [maxLon, maxLat],
+        ],
+        { padding: { top: 90, bottom: 130, left: 300, right: 40 }, maxZoom: 15, duration: 900 },
+    );
+}
+
 /** One-time "live tide depth" disclaimer acknowledgment (design 2026-07-11:
  *  "needs a disclaimer of course"). Value = ISO timestamp of the ack. */
 const TIDE_ACK_KEY = 'thalassa_tide_depth_ack_v1';
@@ -657,10 +684,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Focused by the no-name Save guard so the keyboard pops ready to type.
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
-    // Colour-key legend, revealed on demand from the card (Shane 2026-07-17:
-    // "we need a way of bringing the legend back") — it otherwise only shows
-    // in the empty state before any pins are dropped.
-    const [showKey, setShowKey] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
      *  "Sail anyway?" and only the second tap sails. Never a hard block. */
@@ -849,8 +872,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setCapturedCoords(t.points);
                     setTraceName(t.name);
                     setSavedTraces(loadSavedTraces());
-                    const mid = t.points[Math.floor(t.points.length / 2)];
-                    const fly = () => mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
+                    // Fit the WHOLE route (Shane 2026-07-17) — same helper as
+                    // the card's open path.
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, t.points);
                     // Cold PLAN→map mount: the map object may trail this event
                     // by a beat — one delayed retry covers it.
                     if (mapRef.current) fly();
@@ -1429,7 +1453,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // standalone /plan page there's no PLAN front door, so this is the ONLY
     // path to a saved route. Same load semantics as the PLAN-page 'load-saved'
     // deep link: rebase the Undo floor, adopt the name, drop the leg-chain
-    // lock, and fly to the route's midpoint.
+    // lock, and FIT THE WHOLE ROUTE on screen (Shane 2026-07-17: "show the
+    // entire route, overriding the zoom-10 restriction") — fitBounds picks
+    // whatever zoom shows every pin, in OR out past 10, capped at 15 so a
+    // tiny route doesn't slam to max zoom.
     const openSavedTrace = useCallback(
         (t: SavedTrace) => {
             if (!t || t.points.length < 2) return;
@@ -1440,8 +1467,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             setTraceName(t.name);
             setShowSavedTraces(false);
             setSelectedPin(null);
-            const mid = t.points[Math.floor(t.points.length / 2)];
-            mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 900 });
+            if (mapRef.current) fitTraceBounds(mapRef.current, t.points);
             flashTraceFeedback(`Opened "${t.name}"`);
         },
         [flashTraceFeedback],
@@ -5500,45 +5526,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {pinDiagnosis}
                                             </div>
                                         )}
-                                        {/* Utility strip (Shane 2026-07-17): the colour
-                                            KEY on demand (it otherwise only shows before
-                                            any pins), and OPEN A SAVED ROUTE — the only
-                                            path to previous tracks on the standalone
-                                            /plan web page (no PLAN front door there). */}
-                                        <div className="flex shrink-0 gap-1.5 border-b border-white/10 px-3 py-1.5">
-                                            <button
-                                                onClick={() => {
-                                                    triggerHaptic('light');
-                                                    setShowKey((v) => !v);
-                                                    setShowSavedTraces(false);
-                                                }}
-                                                className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-wide active:scale-95 ${showKey ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
-                                            >
-                                                {showKey ? '▾ Key' : '▸ Key'}
-                                            </button>
+                                        {/* Open a saved route — the only path to previous
+                                            tracks on the standalone /plan web page (no PLAN
+                                            front door there). The "Key" toggle was removed
+                                            (Shane 2026-07-17: "makes the card go haywire and
+                                            gives no meaningful info"); the empty-state help
+                                            still carries the colour key. */}
+                                        <div className="flex shrink-0 border-b border-white/10 px-3 py-1.5">
                                             <button
                                                 onClick={() => {
                                                     triggerHaptic('light');
                                                     setSavedTraces(loadSavedTraces());
                                                     setShowSavedTraces((v) => !v);
-                                                    setShowKey(false);
                                                 }}
                                                 className={`flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
                                             >
                                                 {showSavedTraces ? '▾ Saved routes' : '📂 Open a saved route'}
                                             </button>
                                         </div>
-                                        {showKey && (
-                                            <div className="shrink-0 border-b border-white/10 px-3 py-2 text-[10px] leading-snug text-gray-400">
-                                                <span className="text-emerald-300">●</span> good water ·{' '}
-                                                <span className="text-amber-300">●</span> check it ·{' '}
-                                                <span className="text-red-400">●</span> no-go at low tide
-                                                <div className="pt-1 text-gray-500">
-                                                    Tap the chart along your track; drag a pin to nudge it, tap a pin
-                                                    to delete or insert after it.
-                                                </div>
-                                            </div>
-                                        )}
                                         {showSavedTraces && (
                                             <div className="max-h-40 shrink-0 space-y-1 overflow-y-auto border-b border-white/10 px-3 py-2">
                                                 {savedTraces.length === 0 ? (
