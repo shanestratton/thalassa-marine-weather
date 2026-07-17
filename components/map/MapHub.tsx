@@ -5045,6 +5045,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // free of the scrubber"). The CLOSED 🧭 pill keeps its
                         // usual bottom-rail home at 6rem (parked branch).
                         style={{
+                            // OPEN: bind BOTH edges so the card is a fixed band in
+                            // CONTAINER coords (Shane 2026-07-17: "the card is too
+                            // high — covering the zoom pill and half moon, halfway
+                            // up the compass rose"). The old fixed h-[100dvh…]
+                            // measured the VIEWPORT, but the map container is ~a tab
+                            // bar shorter, so the card overshot the top by that much.
+                            // top clears the compass rose (fixed at 0.5rem+safe-top,
+                            // 116px tall) + an 8px gap. FOLDED: no top — the card
+                            // shrinks to its header strip (so Done visibly minimises).
+                            top: panelFolded ? undefined : 'calc(env(safe-area-inset-top) + 0.5rem + 124px)',
                             bottom: coordCaptureMode
                                 ? `calc(${panelFolded ? '10.4rem' : '8.4rem'} + env(safe-area-inset-bottom))`
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
@@ -5077,17 +5087,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 🧭 Trace route{capturedCoords.length > 0 ? ` (${capturedCoords.length})` : ''}
                             </button>
                         ) : (
-                            // FIXED height = the glass between the card's bottom
-                            // anchor (8.4rem, clear of the scrubber) and just
-                            // under the zoom pill (top 104px + 44px + 8px = 156px).
-                            // Shane 2026-07-17: "the card does not grow when we add
-                            // waypoints — they just utilise the space they have;
-                            // fine to have a scroll bar." Was max-h (grew with
-                            // content); a fixed height keeps the card constant. The
-                            // waypoint list is the ONE flex-1 min-h-0 child, so it
-                            // soaks up all the slack and scrolls, while every action
-                            // below it (Save, Report, Depart) stays pinned.
-                            <div className="flex h-[calc(100dvh_-_8.4rem_-_156px_-_env(safe-area-inset-bottom))] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
+                            // OPEN: h-full fills the top/bottom-bound band above,
+                            // so the card is a FIXED size and never grows with
+                            // waypoints (Shane 2026-07-17); the waypoint list is the
+                            // ONE flex-1 min-h-0 child, soaking up the slack and
+                            // scrolling while Save/Report/Depart stay pinned. FOLDED:
+                            // no height — the card collapses to its header strip.
+                            <div
+                                className={`flex w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl ${
+                                    panelFolded ? '' : 'h-full'
+                                }`}
+                            >
                                 {/* The WHOLE header folds/unfolds the card (Shane
                                     2026-07-15: "we need a bigger button to minimise
                                     and maximise the plotting card") — the old chevron
