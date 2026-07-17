@@ -85,8 +85,13 @@ route. Fix the silent failures first.
       INT1 wants them VERTICAL.
 - [x] **0.25 — Rock WATLEV / obstruction CATOBS glyphs** — DONE (K11 asterisk / K12 dotted cross / K13 cross split; CATOBS 7 foul-ground hash). vs INT1
       K-section.
-- [ ] **0.25 — Night scrim ≠ S-52 night palette** — honest v1 shipped;
-      full palette swap or defer-with-reason.
+- [ ] **0.25 — Night scrim ≠ S-52 night palette** — DEFERRED WITH REASON
+      (protocol precedent: VTS geometry, burn-down #1): a faithful S-52
+      DUSK/NIGHT colour-table swap re-tints every layer's paint (depth
+      bands, land tint, ink, glaze, popups) — a standalone rendering
+      project, not a finding-sized fix. The shipped scotopic dim v2
+      (full-screen overlay) is the honest interim. These 0.25 pts DO NOT
+      BANK; the vs-bar ceiling is 99.75.
 - [x] **0.25 — Drying soundings underline** — DONE (combining U+0332 on the whole-metre digit). — khaki ink is
       the only 'dries' channel; add underline (combining U+0332) or
       equivalent.
