@@ -6,7 +6,8 @@
  * was sized for the 1–10-cell era, but a long coastal session pinned 30+
  * cells' full hazard geometry — surviving even blob-cache eviction, so
  * freeing a blob stopped freeing memory. `failedLoads` tracks cells whose
- * blob was missing/corrupt so a query doesn't retry them every time.
+ * blob was missing/corrupt with a 60 s retry cooldown (2026-07-17: a
+ * transient read failure no longer pins the cell dead all session).
  *
  * Extracted from the EncHazardService god-module (mission audit: 16 mutable
  * caches in one namespace) so the index-cache concern owns its own state.

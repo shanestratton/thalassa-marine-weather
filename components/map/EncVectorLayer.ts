@@ -1408,7 +1408,7 @@ export function mountEncVectorLayer(
  * Push ONLY the worker-upgraded collections (hole-free satellite glaze,
  * sounding-derived contours) into their live sources. Called by the hook
  * when encGeometryWorker's answer lands in the cached merge — a focused
- * two-source refresh, not the full 11-source re-upload.
+ * two-source refresh, not the full 14-source re-upload.
  */
 export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorData): void {
     const setData = (id: string, fc: FeatureCollection) => {
@@ -1464,7 +1464,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     };
     // STAGGERED upload ("free flowing", Shane 2026-07-14): every setData
     // serialises a multi-thousand-feature collection to Mapbox's worker
-    // ON the main thread — pushing all 12 sources in one tick was a
+    // ON the main thread — pushing all 14 sources in one tick was a
     // 100-400 ms hitch on every window-escape re-merge, felt as a jerk
     // mid-pan/zoom. One source per animation frame spreads the same work
     // across ~12 frames; layers refresh progressively and imperceptibly.

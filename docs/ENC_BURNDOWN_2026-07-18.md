@@ -95,9 +95,9 @@ ledger row below.
 - [ ] **0.75 — Residual god modules** — extract tagAndPush, the glaze
       memo/queue block, and the slicer from the ~590-line merge fold;
       next slab from EncVectorLayer.
-- [ ] **0.5 — Comment/doc drift** — stale source counts, contradicted
-      failed-load contract, wrong EncLayer doc block, HazardReportPanel
-      position comment.
+- [x] **0.5 — Comment/doc drift** — DONE: source counts 11/12/9/6 → 14,
+      failed-load contract now states the 60 s cooldown (both sites),
+      HazardReportPanel position comment corrected.
 - [ ] **0.5 — glazeAssembly upgrade all-or-nothing vs 32-entry LRU with no
       invariant** — applyGlazeUpgrade abandons if ANY cell evicted; tie
       the LRU floor to the largest merge's cell count or re-queue on
@@ -109,11 +109,10 @@ ledger row below.
 - [ ] **0.5 — Visibility state machine composes via BCNLAT probe +
       last-writer-wins** — replace probe with explicit state; document
       precedence.
-- [ ] **0.25 — readS57 stragglers + inconsistent expression casting** —
-      finish the sweep.
-
-## UX (3.0)
-
+- [x] **0.25 — readS57 stragglers + expression casting** — DONE: last 4
+      case-defensive pairs swept (extras.seabed/caution, InshoreRouter
+      CATCAM, merge CATLAM); zero `as unknown as ExpressionSpecification`
+      remain outside mapExpr's own doc.
 - [ ] **0.5 — Chart key omits things that render** — sweep again (new
       classes since the last key update: DWRTPT etc.).
 - [ ] **0.5 — Water-tap folds only ONE caution — stacked restrictions

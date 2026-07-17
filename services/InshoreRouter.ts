@@ -42,6 +42,7 @@ import type { FeatureCollection } from 'geojson';
 import { DeadlineExceeded, withDeadline } from '../utils/deadline';
 import { cellsForBBox, listCells } from './enc/EncCellMetadata';
 import type { EncCell } from './enc/types';
+import { readS57 } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type { ShallowRunInfo } from './engine/types';
@@ -1782,7 +1783,7 @@ export function encCardinalsToHazards(
         if (f.geometry?.type !== 'Point' || !Array.isArray(f.geometry.coordinates)) continue;
         const [lon, lat] = f.geometry.coordinates;
         if (typeof lon !== 'number' || typeof lat !== 'number') continue;
-        const raw = f.properties?.CATCAM ?? f.properties?.catcam;
+        const raw = readS57(f.properties, 'CATCAM');
         const c = Math.round(Number(raw));
         if (!(c >= 1 && c <= 4)) continue; // missing/invalid CATCAM — skip, never guess a direction
         const key = `${lat.toFixed(4)}|${lon.toFixed(4)}`;
