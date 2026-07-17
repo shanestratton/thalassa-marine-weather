@@ -875,11 +875,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // aside; Done brings it back.
     useEffect(() => {
         if (embedded || pickerMode || isPinView) return;
-        try {
-            window.dispatchEvent(new CustomEvent('thalassa:tracer-active', { detail: { active: coordCaptureMode } }));
-        } catch {
-            /* chrome just stays visible */
-        }
+        const say = (active: boolean) => {
+            try {
+                window.dispatchEvent(new CustomEvent('thalassa:tracer-active', { detail: { active } }));
+            } catch {
+                /* chrome just stays visible */
+            }
+        };
+        say(coordCaptureMode);
+        // Done no longer exits trace mode (2026-07-17) — the tab bar does,
+        // by UNMOUNTING MapHub. Without this cleanup the mic orb would stay
+        // hidden on every other page after leaving mid-trace.
+        return () => say(false);
     }, [coordCaptureMode, embedded, pickerMode, isPinView]);
 
     // Departure set on the PLAN page (DepartControl) → adopt it here so the
@@ -5009,11 +5016,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                         className="absolute left-3 z-[9995]"
                         // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
                         // ~2.2rem tall) — it used to overlap it by ~24 px (Shane
-                        // 2026-07-17). The CLOSED 🧭 pill keeps its usual bottom-rail
-                        // home at 6rem.
+                        // 2026-07-17). MINIMISED it lifts a further 2rem so the
+                        // little header block floats clear of the scrubber
+                        // (Shane 2026-07-17: "move it up slightly so that it is
+                        // free of the scrubber"). The CLOSED 🧭 pill keeps its
+                        // usual bottom-rail home at 6rem (parked branch).
                         style={{
                             bottom: coordCaptureMode
-                                ? 'calc(8.4rem + env(safe-area-inset-bottom))'
+                                ? `calc(${panelFolded ? '10.4rem' : '8.4rem'} + env(safe-area-inset-bottom))`
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
                         }}
                     >
@@ -5114,14 +5124,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             triggerHaptic('light');
-                                            setCoordCaptureMode(false);
-                                            // Free the grid (10–30 MB) and force a fresh
-                                            // rebuild on reopen — a ctx held across
-                                            // sessions is how stale-draft grading lived.
-                                            tracerCtxRef.current = null;
-                                            tracerCtxLruRef.current = []; // free the held grids with it
-                                            setTracerStatus('idle');
-                                            setLegVerdicts([]);
+                                            // Done = MINIMISE, not exit (Shane 2026-07-17:
+                                            // "the charts page and the plan page are
+                                            // completely separate… those fabs should never
+                                            // show up on the plan page; it should just
+                                            // minimise"). The plotting surface stays the
+                                            // plotting surface — trace mode, grading, the
+                                            // scrubber and the hidden-FAB regime all
+                                            // persist; leaving happens via the tab bar
+                                            // (MapHub unmounts, CHARTS remounts clean).
+                                            setPanelFolded(true);
                                         }}
                                         className="p-1 text-xs font-bold text-gray-400"
                                     >
