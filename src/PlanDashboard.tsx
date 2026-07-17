@@ -1,6 +1,7 @@
 /**
  * PlanDashboard — the standalone public Passage Plan page
- * (<handle>.thalassawx.app/plan). A float plan for shore crew: where
+ * (<handle>.thalassawx.app/float — moved off /plan 2026-07-17 when that
+ * address went to the interactive planner). A float plan for shore crew: where
  * the boat intends to go, when it departs, the planned route on a
  * chart. Deliberately NOT part of the app shell — no tabs, no nav,
  * nothing else reachable (Shane 2026-07-15: "it is a standalone page,
@@ -71,7 +72,7 @@ export default function PlanDashboard(): React.ReactElement {
     useEffect(() => {
         const { handle } = parsePlanParams();
         if (!handle) {
-            setError('This link is incomplete — it needs a vessel handle (boat-name.thalassawx.app/plan).');
+            setError('This link is incomplete — it needs a vessel handle (boat-name.thalassawx.app/float).');
             return;
         }
         fetchFloatPlan(handle)

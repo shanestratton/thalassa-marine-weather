@@ -14,20 +14,18 @@
         },
         {
             "source": "/plan",
-            "has": [{ "type": "host", "value": "thalassawx.app" }],
             "destination": "/index.html"
-        },
-        {
-            "source": "/plan",
-            "has": [{ "type": "host", "value": "www.thalassawx.app" }],
-            "destination": "/index.html"
-        },
-        {
-            "source": "/plan",
-            "destination": "/plan.html"
         },
         {
             "source": "/plan/:path*",
+            "destination": "/plan.html"
+        },
+        {
+            "source": "/float",
+            "destination": "/plan.html"
+        },
+        {
+            "source": "/float/:path*",
             "destination": "/plan.html"
         },
         {
