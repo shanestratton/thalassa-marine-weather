@@ -1228,14 +1228,15 @@ function mountContourLayers(
                 minzoom: minZoom,
                 filter: depcntSafetyFilter(safetyByCell),
                 paint: {
-                    // Slate hairline, not marker pen (Shane 2026-07-11:
-                    // "horrible black lines" — ECDIS-bold traced every bank
-                    // in a shallow bay into black scribble on the white
-                    // paper). Still the only keel-aware line on the chart;
-                    // now it whispers it.
-                    'line-color': '#44586a',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 15, 1.4],
-                    'line-opacity': 0.9,
+                    // Bold AMBER — the single most keel-load-bearing line, now
+                    // prominent by DEFAULT (Shane 2026-07-20; cycle-4 audit #4:
+                    // the old slate hairline was near-invisible on the white
+                    // chart). Amber, not the "horrible black lines" ECDIS-bold
+                    // scribbled every bank into (Shane 2026-07-11). Mount value
+                    // matches syncDepareBaseTreatment so there's no slate flash.
+                    'line-color': '#f97316',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.0, 15, 2.2],
+                    'line-opacity': 1,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPCNT_SAFETY),
@@ -1740,22 +1741,25 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         map.setFilter(ENC_VEC_LAYERS.DEPARE_GLAZE, satOn ? DEPARE_COMPETENCE_FILTER : null);
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
-        // The one keel-limit line, re-styled per base (#3c). On the white
-        // chart it stays the slate hairline Shane tuned; on satellite slate
-        // goes muddy over water, so it becomes a deliberate AMBER line — the
-        // crisp go/no-go boundary the glaze edge only implies, and still
-        // legible on coarse cells at overview zoom where the glaze retires.
-        // One per-cell contour, amber, hairline-to-modest — NOT the "thick
-        // black scribble" Shane rejected (2026-07-11).
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-color', satOn ? '#f97316' : '#44586a');
-        map.setPaintProperty(
-            ENC_VEC_LAYERS.DEPCNT_SAFETY,
-            'line-width',
-            satOn
-                ? ['interpolate', ['linear'], ['zoom'], 8, 1.0, 15, 2.2]
-                : ['interpolate', ['linear'], ['zoom'], 8, 0.8, 15, 1.4],
-        );
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-opacity', satOn ? 1 : 0.9);
+        // The one keel-limit line — now the deliberate AMBER line on BOTH bases
+        // (Shane 2026-07-20: default-bold; cycle-4 closing audit #4: the slate
+        // hairline was near-invisible on the primary white display, the most
+        // keel-load-bearing line whispering). Amber, hairline-to-modest — the
+        // crisp go/no-go boundary the glaze edge only implies — NOT the "thick
+        // black scribble" Shane rejected (2026-07-11); that was ECDIS-bold
+        // black, not this tuned amber. Same treatment on satellite, where slate
+        // went muddy over water anyway.
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-color', '#f97316');
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-width', [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            8,
+            1.0,
+            15,
+            2.2,
+        ]);
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-opacity', 1);
     }
 }
 
