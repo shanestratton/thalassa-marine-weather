@@ -241,9 +241,12 @@
 // into legs; "plot the next leg" opens the tracer with pin 1 locked at the
 // previous leg's exact arrival; saves badge "(2nd Leg)", retro-badge leg 1,
 // and auto-heal keeps the chain welded when an earlier leg's arrival moves.
-const CACHE_NAME = 'thalassa-v122-core';
-const TILE_CACHE = 'thalassa-v122-tiles';
-const DATA_CACHE = 'thalassa-v122-data';
+// v123: charts page goes bare — the Full/Clean scrubber and the tracer
+// pill/card only appear while plotting (enter via the PLAN page); Done
+// hands back a clean chart.
+const CACHE_NAME = 'thalassa-v123-core';
+const TILE_CACHE = 'thalassa-v123-tiles';
+const DATA_CACHE = 'thalassa-v123-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
