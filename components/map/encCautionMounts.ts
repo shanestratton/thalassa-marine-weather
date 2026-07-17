@@ -39,6 +39,14 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
         '#2f6fd0', // designated anchorage — marine blue
         'MARCUL',
         '#5f7a3a', // marine farm — kelp green (nets + lines, keep clear)
+        'PRCARE',
+        '#d97706', // precautionary area — TSS amber family
+        'DWRTPT',
+        '#0e7490', // deep-water route — deep teal (big-ship water)
+        'TSELNE',
+        '#d97706', // TSS separation line (renders on the line layer)
+        'TSSBND',
+        '#d97706', // TSS boundary line
         '#c0209a', // RESARE + CTNARE + default — caution magenta
     ] as unknown;
     if (!map.getLayer(ENC_VEC_LAYERS.CAUTION_AREA_FILL)) {

@@ -137,6 +137,10 @@ export const ROUTING_CLASSES = new Set([
     'TSEZNE', // TSS zone (the separation zone between lanes — keep OUT)
     'ACHARE', // Anchorage area (where you're MEANT to anchor)
     'MARCUL', // Marine farm / aquaculture (nets + lines — keep clear)
+    'TSELNE', // TSS separation line (audit: TSS family gaps)
+    'TSSBND', // TSS boundary
+    'PRCARE', // Precautionary area
+    'DWRTPT', // Deep-water route part
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here
