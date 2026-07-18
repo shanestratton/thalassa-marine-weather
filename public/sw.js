@@ -422,9 +422,15 @@
 // Layout: the scrubber moves off the Locate FAB onto the left rail and the
 // tracer card docks directly above it, open or folded, so the two read as one
 // column instead of drifting apart.
-const CACHE_NAME = 'thalassa-v174-core';
-const TILE_CACHE = 'thalassa-v174-tiles';
-const DATA_CACHE = 'thalassa-v174-data';
+// v175: the cast-off "Following a route?" sheet opens at the TOP, under the
+// Ship's Log header, instead of at the far bottom of the screen — and each row
+// is now named by its endpoints ("Newport -> Scarborough") instead of every row
+// reading an identical "Suggested route". The naming hook is shared with the
+// voyage cards, so a route is called the same thing in both places, and the
+// lookups are cached so showing both no longer geocodes a berth twice.
+const CACHE_NAME = 'thalassa-v175-core';
+const TILE_CACHE = 'thalassa-v175-tiles';
+const DATA_CACHE = 'thalassa-v175-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
