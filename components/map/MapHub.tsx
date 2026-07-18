@@ -17,7 +17,6 @@
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { CompassIcon, SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
@@ -332,11 +331,6 @@ const TIDE_ADOPT_FACTOR = 0.7;
 // now, so we can move on" — not deleted). The engine path (autoRouteLeg +
 // the tideDirect profile) stays wired and tested; flip this back to true to
 // re-expose the button.
-// Native (Capacitor iOS) vs the web build. Resolved ONCE at module load — the
-// platform cannot change mid-session, and calling it per render would run on
-// every tracer frame.
-const IS_NATIVE_APP = Capacitor.isNativePlatform();
-
 const AUTO_ROUTE_BUTTON_VISIBLE = false;
 // Copy-coords button PARKED (Shane 2026-07-17) — thinned the 6-button
 // controls row to 5 so the survivors get a fatter tap target on a phone.
@@ -972,9 +966,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
             }
         };
+        // THE WAY OUT (Shane 2026-07-18: "i cannot press the charts button... i
+        // can go to any other screen but the chart screen"). Every other tab left
+        // trace mode by unmounting MapHub, but Charts is already ON the map, so
+        // the tap changed nothing and the tracer sat there — the one destination
+        // you could not reach. This is the first commit where leaving is SAFE:
+        // the pins persist and the 🧭 pill brings them back, so Charts can simply
+        // close the tracer and hand over the bare chart, exactly like the other
+        // tabs do. It does NOT clear the trace.
+        const close = () => setCoordCaptureMode(false);
         if (consumeTracerOpenRequest()) open();
         window.addEventListener('thalassa:trace-mode', open);
-        return () => window.removeEventListener('thalassa:trace-mode', open);
+        window.addEventListener('thalassa:trace-mode-exit', close);
+        return () => {
+            window.removeEventListener('thalassa:trace-mode', open);
+            window.removeEventListener('thalassa:trace-mode-exit', close);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [embedded, pickerMode, hideTracer, isPinView]);
 
@@ -5194,7 +5201,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     bare; the slider appears with the plotting card. */}
                 {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && encCellCount > 0 && (
                     <div
-                        className="absolute left-1/2 z-[9994] -translate-x-1/2"
+                        // LEFT RAIL, not centred (Shane 2026-07-18: "the scrubber
+                        // just touches the location fab at the bottom right"). At
+                        // w-72 centred it reached ~300px on a 390pt screen, right
+                        // into the Locate FAB's corner. Pinned left it clears it,
+                        // and the tracer card stacks directly above on the same
+                        // rail so the two read as one column.
+                        className="absolute left-3 z-[9994]"
                         style={{ bottom: 'calc(5.4rem + env(safe-area-inset-bottom))' }}
                     >
                         {/* w-72 (was w-64) so the 7 detents sit further apart —
@@ -5255,13 +5268,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                     !hideTracer &&
                     (coordCaptureMode || capturedCoords.length > 0) && (
                     <div
-                        // DEVICE-ONLY CENTRING (Shane 2026-07-18: "can we make the
-                        // tracer card in the centre?? only on the device. not on the
-                        // webpage"). The card is a fixed w-72, so the container
-                        // shrink-wraps it and a half-width translate centres it
-                        // exactly. Web keeps the left rail, where there's room
-                        // beside it and a centred card would strand the chart.
-                        className={`absolute z-[9995] ${IS_NATIVE_APP ? 'left-1/2 -translate-x-1/2' : 'left-3'}`}
+                        // LEFT RAIL, shared with the scrubber (Shane 2026-07-18:
+                        // "move the tracer card so that it is right on top of the
+                        // scrubber, make it all balance nicely"). Briefly centred on
+                        // device earlier the same day, but once the scrubber moved
+                        // left to clear the Locate FAB, a centred card sat off-axis
+                        // from it. Same left-3, same w-72 — card directly above
+                        // scrubber, one column, nothing near the corner FABs.
+                        className="absolute left-3 z-[9995]"
                         // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
                         // ~2.2rem tall) — it used to overlap it by ~24 px (Shane
                         // 2026-07-17). MINIMISED it lifts a further 2rem so the
@@ -5289,13 +5303,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 !coordCaptureMode || panelFolded
                                     ? undefined
                                     : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
-                            // OPEN 8.4rem → 9.5rem: the scrubber grew ~18px taller
-                            // when it was resized for touch (2026-07-18), which ate
-                            // the card's clearance down to ~4px. 9.5rem restores the
-                            // ~22px gap it had before. FOLDED 10.4rem already clears
-                            // the taller slider with ~36px to spare, so it stands.
+                            // SITS ON THE SCRUBBER, open or folded (Shane 2026-07-18:
+                            // "right on top of the scrubber... balance nicely").
+                            // Scrubber bottom 5.4rem + its ~44px height puts its top
+                            // edge at ~130px, so 8.8rem (~141px) leaves a ~10px seam.
+                            // Folded used to sit 2rem higher to clear the slider; with
+                            // the card deliberately docked to it that lift is now the
+                            // thing to avoid — one value keeps the column stable when
+                            // Done folds it, instead of the header jumping.
                             bottom: coordCaptureMode
-                                ? `calc(${panelFolded ? '10.4rem' : '9.5rem'} + env(safe-area-inset-bottom))`
+                                ? 'calc(8.8rem + env(safe-area-inset-bottom))'
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
                         }}
                     >

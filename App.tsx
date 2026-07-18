@@ -1083,6 +1083,14 @@ const App: React.FC = () => {
                                 active={currentView === 'map' && !tracerActive}
                                 onClick={() => {
                                     mapFromWxRef.current = false;
+                                    // Already ON the map while plotting, so setPage
+                                    // alone is inert — Charts was the one tab that
+                                    // could not be reached from the tracer. Close the
+                                    // tracer instead; MapHub keeps the pins and offers
+                                    // the 🧭 pill to resume, so this costs nothing.
+                                    if (tracerActive) {
+                                        window.dispatchEvent(new CustomEvent('thalassa:trace-mode-exit'));
+                                    }
                                     handleTabMap();
                                 }}
                             />
