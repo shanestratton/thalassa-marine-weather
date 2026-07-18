@@ -1075,7 +1075,12 @@ const App: React.FC = () => {
                                     />
                                 }
                                 label="Charts"
-                                active={currentView === 'map'}
+                                // Plotting lives on the map surface but BELONGS to
+                                // Plan: "Slide to Start Plotting" does setPage('map'),
+                                // which lit Charts and made the tab bar contradict the
+                                // journey the skipper is on (Shane 2026-07-18). While
+                                // the tracer is up the highlight stays on Plan.
+                                active={currentView === 'map' && !tracerActive}
                                 onClick={() => {
                                     mapFromWxRef.current = false;
                                     handleTabMap();
@@ -1104,7 +1109,11 @@ const App: React.FC = () => {
                                     </div>
                                 }
                                 label="Plan"
-                                active={currentView === 'voyage'}
+                                // Stays lit through the whole plan journey — the
+                                // front door (voyage) AND the plotting surface the
+                                // slide hands you to (map + tracer). Mirror of the
+                                // Charts gate above; the two can't both be lit.
+                                active={currentView === 'voyage' || (currentView === 'map' && tracerActive)}
                                 onClick={() => setPage('voyage')}
                             />
                             {/* Log — promoted from a Vessel sub-page (was
