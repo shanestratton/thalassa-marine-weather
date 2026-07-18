@@ -503,9 +503,15 @@
 // begins at the router hazard depth of 1.5x draft+0.5, and kept saying "metres
 // at the lowest tide" while the live-tide toggle was on. The blue chart ramp no
 // longer shows over imagery, where those fills are not drawn at all.
-const CACHE_NAME = 'thalassa-v191-core';
-const TILE_CACHE = 'thalassa-v191-tiles';
-const DATA_CACHE = 'thalassa-v191-data';
+// v192: the Chart Key's marks list shows REAL IALA glyphs (the same assets the
+// chart paints, via seamarkIconDataUri) instead of hand-coloured circles, and
+// its area/line swatches import CAUTION_CLASS_COLOURS / LIGHT_COLOUR_HEX. Fixes
+// a cardinal drawn as two bands (a 50/50 yellow-over-black dot asserts SOUTH),
+// a light-sector swatch using the BUOY palette, two hexes that existed nowhere
+// in the render stack, and cable+pipeline merged into one row.
+const CACHE_NAME = 'thalassa-v192-core';
+const TILE_CACHE = 'thalassa-v192-tiles';
+const DATA_CACHE = 'thalassa-v192-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

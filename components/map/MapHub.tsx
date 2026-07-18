@@ -170,6 +170,11 @@ import {
 // hexes and went stale the moment the palette moved (same drift class as
 // MapHub's old SATELLITE_HIDE_LAYERS copy).
 import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, ENC_HAZARD_MAGENTA, SHALLOW_CAUTION_COLOR } from './encDepthStyle';
+// Chart-key glyphs + swatch colours, imported from the modules that RENDER them
+// so the legend cannot drift from the chart (audit 2026-07-19).
+import { seamarkIconDataUri } from './seamarkIcons';
+import { CAUTION_CLASS_COLOURS, CAUTION_DEFAULT_COLOUR } from './encPopup';
+import { LIGHT_COLOUR_HEX } from '../../services/enc/types';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
@@ -6756,52 +6761,99 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 <span className="font-black uppercase tracking-wider text-gray-200">
                                     Marks &amp; lights
                                 </span>
-                                {/* IALA-A (Australia): the lateral colours below are
-                                    region-specific, not universal (cycle-6 re-audit). */}
-                                <span className="text-[11px] text-gray-400">IALA-A · tap to read</span>
+                                {/* Region is DERIVED per cell (ialaRegionForSourceHO →
+                                    baked into _icon), not a global assumption — a
+                                    region-B cell swaps red and green. And three keyed
+                                    rows are not in CLICKABLE_LAYER_IDS, so "tap to read"
+                                    was over-promising (audit 2026-07-19). */}
+                                <span className="text-[11px] text-gray-400">IALA-A here · most tap to read</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                            {/* REAL GLYPHS, not coloured dots (Shane 2026-07-19:
+                                "change the circle symbols for proper symbols").
+                                They come from getSeamarkIconDefs — the SAME asset the
+                                chart paints — so the key cannot drift from the chart.
+                                It had: two hexes for Cardinal that exist nowhere in the
+                                render stack, the BUOY palette on the light-sector row,
+                                an invented grey for Unknown, and a cardinal drawn as
+                                TWO bands when cardinals have three (a 50/50
+                                yellow-over-black dot literally asserts SOUTH).
+
+                                <img src=data-uri>, never inlined: 13 glyphs share
+                                `filter id="s"` and two more share id="g"/"vstripes", so
+                                inlining collapses every url(#s) onto the first match and
+                                breaks the safe-water stripes and the light glow.
+
+                                Area/line classes have no glyph, so they keep a swatch —
+                                but now imported from CAUTION_CLASS_COLOURS /
+                                LIGHT_COLOUR_HEX rather than hand-typed. */}
+                            <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
                                 {(
                                     [
-                                        ['#e53e3e', 'Port-hand (can)'],
-                                        ['#38a169', 'Starboard (cone)'],
-                                        ['linear-gradient(180deg,#f5c400 50%,#111 50%)', 'Cardinal'],
-                                        ['linear-gradient(90deg,#e53e3e 50%,#f7fafc 50%)', 'Safe water'],
-                                        [
-                                            'linear-gradient(180deg,#111 33%,#e53e3e 33%,#e53e3e 66%,#111 66%)',
-                                            'Isolated danger',
-                                        ],
-                                        [ENC_HAZARD_MAGENTA, 'Wreck / rock'],
-                                        [
-                                            'linear-gradient(90deg,#38a169 34%,#f7fafc 34%,#f7fafc 66%,#e53e3e 66%)',
-                                            'Light sector',
-                                        ],
-                                        // Caution-area washes (audit: the new
-                                        // dashed zones had no legend entry).
-                                        ['#c0209a', 'Restricted zone'],
-                                        ['#7c3aed', 'Cable / pipeline'],
-                                        // TSS lane + precautionary area deliberately share the amber
-                                        // TSS family colour on the chart, so ONE keyed row is honest.
-                                        ['#d97706', 'TSS lane / precautionary'],
-                                        ['#c2410c', 'TSS keep-out zone'],
-                                        ['#8a8a5a', 'Seabed type'],
-                                        ['#2f6fd0', 'Anchorage'],
-                                        // Audit: these render but were never keyed.
-                                        ['#5f7a3a', 'Marine farm'],
-                                        ['#ecc94b', 'Special mark'],
-                                        ['#3b82c4', 'Fairway edge'],
-                                        ['#f59e0b', 'Leading line / track'],
-                                        // Closing audit: rendered since the
-                                        // TSS-family batch but never keyed.
-                                        ['#0e7490', 'Deep-water route'],
-                                        ['#9a9a9a', 'Unknown mark'],
+                                        ['icon', 'sm-buoy-port', 'Port-hand (can)'],
+                                        ['icon', 'sm-buoy-starboard', 'Starboard (cone)'],
+                                        // All four, because one dot cannot say "cardinal".
+                                        ['icons4', 'cardinal', 'Cardinals (N E S W)'],
+                                        ['icon', 'sm-safe-water', 'Safe water'],
+                                        ['icon', 'sm-isolated-danger', 'Isolated danger'],
+                                        ['icon', 'sm-special', 'Special mark'],
+                                        // Rendered since the CATLAM pass, never keyed.
+                                        ['icon', 'sm-buoy-prefchan-stbd', 'Preferred channel'],
+                                        // Was ONE row for nine distinct INT1 glyphs.
+                                        ['icon', 'sm-hazard-wreck-dangerous', 'Wreck'],
+                                        ['icon', 'sm-hazard-rock', 'Rock / obstruction'],
+                                        ['icon', 'sm-light-major', 'Light'],
+                                        ['icon', 'sm-anchorage', 'Anchorage'],
+                                        ['icon', 'sm-mark-unknown', 'Unknown mark'],
+                                        // ── Areas + lines: no glyph, so a swatch is right.
+                                        ['sector', '', 'Light sector'],
+                                        ['swatch', CAUTION_DEFAULT_COLOUR, 'Restricted / caution'],
+                                        // CBLARE and PIPARE are separate match arms — a
+                                        // pipeline never paints the cable colour.
+                                        ['swatch', CAUTION_CLASS_COLOURS.CBLARE ?? '#7c3aed', 'Submarine cable'],
+                                        ['swatch', CAUTION_CLASS_COLOURS.PIPARE ?? '#5b21b6', 'Pipeline'],
+                                        ['swatch', CAUTION_CLASS_COLOURS.TSSLPT ?? '#d97706', 'TSS lane / precautionary'],
+                                        ['swatch', CAUTION_CLASS_COLOURS.TSEZNE ?? '#c2410c', 'TSS keep-out zone'],
+                                        ['swatch', CAUTION_CLASS_COLOURS.MARCUL ?? '#5f7a3a', 'Marine farm'],
+                                        ['swatch', CAUTION_CLASS_COLOURS.SBDARE ?? '#8a8a5a', 'Seabed type'],
+                                        ['swatch', CAUTION_CLASS_COLOURS.DWRTPT ?? '#0e7490', 'Deep-water route'],
+                                        ['swatch', '#3b82c4', 'Fairway edge'],
+                                        ['swatch', '#f59e0b', 'Leading line / track'],
                                     ] as const
-                                ).map(([swatch, label]) => (
+                                ).map(([kind, key, label]) => (
                                     <div key={label} className="flex items-center gap-1.5">
-                                        <span
-                                            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-white/25"
-                                            style={{ background: swatch }}
-                                        />
+                                        {kind === 'icon' ? (
+                                            <img
+                                                src={seamarkIconDataUri(key) ?? ''}
+                                                alt=""
+                                                aria-hidden
+                                                className="h-5 w-5 shrink-0"
+                                            />
+                                        ) : kind === 'icons4' ? (
+                                            <span className="flex shrink-0 -space-x-1">
+                                                {['north', 'east', 'south', 'west'].map((c) => (
+                                                    <img
+                                                        key={c}
+                                                        src={seamarkIconDataUri(`sm-cardinal-${c}`) ?? ''}
+                                                        alt=""
+                                                        aria-hidden
+                                                        className="h-5 w-5"
+                                                    />
+                                                ))}
+                                            </span>
+                                        ) : kind === 'sector' ? (
+                                            // Driven by the arc palette, not the buoy one.
+                                            <span
+                                                className="inline-block h-2.5 w-5 shrink-0 rounded-sm border border-white/25"
+                                                style={{
+                                                    background: `linear-gradient(90deg,${LIGHT_COLOUR_HEX.green ?? '#22c55e'} 34%,${LIGHT_COLOUR_HEX.white ?? '#f0e030'} 34%,${LIGHT_COLOUR_HEX.white ?? '#f0e030'} 66%,${LIGHT_COLOUR_HEX.red ?? '#ef4444'} 66%)`,
+                                                }}
+                                            />
+                                        ) : (
+                                            <span
+                                                className="inline-block h-2.5 w-5 shrink-0 rounded-sm border border-white/25"
+                                                style={{ background: key }}
+                                            />
+                                        )}
                                         <span className="whitespace-nowrap">{label}</span>
                                     </div>
                                 ))}
