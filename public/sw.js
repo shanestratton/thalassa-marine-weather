@@ -494,9 +494,12 @@
 // only it publishes; a second must take over deliberately. Gates PUBLISHING, not
 // recording, so a non-primary device still logs the passage. Unclaimed boats
 // still publish, so nobody silently vanishes from their own page on upgrade.
-const CACHE_NAME = 'thalassa-v189-core';
-const TILE_CACHE = 'thalassa-v189-tiles';
-const DATA_CACHE = 'thalassa-v189-data';
+// v190: PLAN page opens with a "plot on the big screen" modal naming the boat's
+// own planner URL, with a don't-show-again tick. Native only — telling someone
+// already on the web planner to use the web planner would be daft.
+const CACHE_NAME = 'thalassa-v190-core';
+const TILE_CACHE = 'thalassa-v190-tiles';
+const DATA_CACHE = 'thalassa-v190-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
