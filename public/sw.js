@@ -465,9 +465,11 @@
 // move it, but adopting a ghost lane replaced the whole pin array and broke
 // every one of them at once. Now re-asserted centrally: whatever rewrites the
 // route, pin 1 returns to the previous leg's arrival.
-const CACHE_NAME = 'thalassa-v182-core';
-const TILE_CACHE = 'thalassa-v182-tiles';
-const DATA_CACHE = 'thalassa-v182-data';
+// v183: Trip box placeholder reads "New Trip or Route" (was "Continue a trip or
+// route…").
+const CACHE_NAME = 'thalassa-v183-core';
+const TILE_CACHE = 'thalassa-v183-tiles';
+const DATA_CACHE = 'thalassa-v183-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

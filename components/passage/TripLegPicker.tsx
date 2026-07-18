@@ -82,7 +82,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                 aria-label="Pick a trip or route to continue"
                 className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white [color-scheme:dark] focus:border-amber-500/50 focus:outline-none"
             >
-                <option value="">Continue a trip or route…</option>
+                <option value="">New Trip or Route</option>
                 {trips.map((t) => (
                     <option key={t.key} value={t.key}>
                         {t.label}
