@@ -346,9 +346,12 @@
 // v161: the base layer follows the SURFACE — browsing chart = clean dark,
 // PLOTTING = hybrid imagery so the white keel-clearance glaze ("zoom 10
 // whites") is back on the plan page. Changing one no longer changes the other.
-const CACHE_NAME = 'thalassa-v161-core';
-const TILE_CACHE = 'thalassa-v161-tiles';
-const DATA_CACHE = 'thalassa-v161-data';
+// v162: that per-surface base is now DERIVED rather than set by an effect, so
+// nothing can race or undo it — "plotting ⇒ imagery on" is structurally true,
+// which is what actually keeps the white keel glaze painted.
+const CACHE_NAME = 'thalassa-v162-core';
+const TILE_CACHE = 'thalassa-v162-tiles';
+const DATA_CACHE = 'thalassa-v162-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
