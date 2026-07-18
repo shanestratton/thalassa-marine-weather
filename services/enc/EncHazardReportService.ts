@@ -291,6 +291,9 @@ function representativePoint(
  */
 function reportableHazardType(hazard: EncHazard): EncHazardType | null {
     if (hazard.layer === 'OBSTRN') return 'obstruction';
+    // Man-made allision structures (audit #3) — surfaced in the proximity
+    // briefing with their OBJNAM descriptor, same as an obstruction.
+    if (hazard.layer === 'SLCONS' || hazard.layer === 'DAMCON' || hazard.layer === 'PILPNT') return 'obstruction';
     if (hazard.layer === 'WRECKS') return 'wreck';
     if (hazard.layer === 'UWTROC') return 'rock';
     return null;

@@ -354,3 +354,36 @@ describe('explodeSoundings — MultiPoint clouds → labelled points', () => {
         expect(explodeSoundings(fc([]))).toEqual([]);
     });
 });
+
+describe('featuresToHazards — man-made allision structures, WATLEV-gated (audit #3)', () => {
+    it('keeps an awash SLCONS (WATLEV 5) as a hazard with no VALSOU depth', () => {
+        const h = featuresToHazards('SLCONS', fc([pt({ WATLEV: 5 })]));
+        expect(h).toHaveLength(1);
+        expect(h[0]).toMatchObject({ layer: 'SLCONS', minDepthM: null });
+    });
+    it('reads VALSOU on a submerged SLCONS so a charted clearance can draft-clear', () => {
+        expect(featuresToHazards('SLCONS', fc([pt({ WATLEV: 3, VALSOU: 1.2 })]))[0].minDepthM).toBe(1.2);
+    });
+    it('keeps an always-dry SLCONS (fail-safe — a solid wall is still an allision)', () => {
+        expect(featuresToHazards('SLCONS', fc([pt({ WATLEV: 2 })]))).toHaveLength(1);
+    });
+    it('DROPS a floating structure (WATLEV 7) — never a grounding/allision hazard', () => {
+        expect(featuresToHazards('SLCONS', fc([pt({ WATLEV: 7 })]))).toHaveLength(0);
+    });
+    it('keeps an SLCONS with NO WATLEV (fail-safe: assume it is there)', () => {
+        expect(featuresToHazards('SLCONS', fc([pt({})]))).toHaveLength(1);
+    });
+    it('is case-defensive on a lowercased watlev', () => {
+        expect(featuresToHazards('SLCONS', fc([pt({ watlev: 7 })]))).toHaveLength(0);
+    });
+    it('PILPNT is submerged-only — a visible / undefined pile never carpets a marina', () => {
+        expect(featuresToHazards('PILPNT', fc([pt({ WATLEV: 4 })]))).toHaveLength(1); // covers/uncovers → kept
+        expect(featuresToHazards('PILPNT', fc([pt({ WATLEV: 2 })]))).toHaveLength(0); // always dry (visible) → dropped
+        expect(featuresToHazards('PILPNT', fc([pt({})]))).toHaveLength(0); // no WATLEV → dropped
+    });
+    it('buildHazardsForCell aggregates an SLCONS layer into the hazard list', () => {
+        expect(buildHazardsForCell(blob({ SLCONS: fc([pt({ WATLEV: 5 })]) })).some((x) => x.layer === 'SLCONS')).toBe(
+            true,
+        );
+    });
+});

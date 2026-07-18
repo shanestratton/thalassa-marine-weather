@@ -418,3 +418,14 @@ describe('EncSpatialIndex.segmentHazard — COALNE-only land crossing (audit #4)
         expect(i.segmentHazard(0, -0.001, 0, 0.5, true, false).covered).toBe(false); // exemptStart → waived
     });
 });
+
+describe('EncSpatialIndex — man-made allision structures classify as obstruction (audit #3)', () => {
+    it('an SLCONS training wall inside the cell is an obstruction hazard', () => {
+        const i = idx('A', [hz('SLCONS', square(0, 0, 1))]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ covered: true, hazard: true, hazardType: 'obstruction' });
+    });
+    it('a DAMCON area is an obstruction too', () => {
+        const i = idx('A', [hz('DAMCON', square(0, 0, 1))]);
+        expect(i.queryPoint(0, 0).hazardType).toBe('obstruction');
+    });
+});

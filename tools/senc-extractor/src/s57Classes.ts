@@ -141,11 +141,20 @@ export const ROUTING_CLASSES = new Set([
     'TSSBND', // TSS boundary
     'PRCARE', // Precautionary area
     'DWRTPT', // Deep-water route part
+    // Man-made allision structures (cycle-5 audit #3) — extracted for the
+    // grounding/allision HAZARD MODEL (buildHazardsForCell), NOT rendered.
+    // WATLEV-gated in encHazardParse (floating dropped; piles submerged-only),
+    // so the memory cost is only the sparse harbour/river-mouth features.
+    // NOTE: existing cells need RE-EXTRACTION (+ bucket manifest bump) before a
+    // training wall charted only as SLCONS is actually avoided.
+    'SLCONS', // Shoreline construction — training walls / breakwaters / groynes
+    'DAMCON', // Dam
+    'PILPNT', // Pile / dolphin / post
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here
     // the moment EncVectorLayer draws them. Next visual batch: TOPMAR/DAYMAR
-    // (topmark glyphs), PONTON/SLCONS/BRIDGE/MORFAC/HRBFAC (harbour
+    // (topmark glyphs), PONTON/BRIDGE/MORFAC/HRBFAC (harbour
     // structures), LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
     // (anchorages), CBLSUB/PIPSOL/DMPGRD (submarine cable/pipeline LINES). ──
 ]);

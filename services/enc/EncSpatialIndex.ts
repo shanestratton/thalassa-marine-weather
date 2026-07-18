@@ -347,6 +347,14 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
             return null;
         case 'OBSTRN':
             return 'obstruction';
+        case 'SLCONS':
+        case 'DAMCON':
+        case 'PILPNT':
+            // Man-made allision structures (audit #3) — a solid wall/dam/pile is
+            // not cleared by draft (unlike a shoal), so it maps to the existing
+            // 'obstruction' type; the WATLEV gate + the visible/floating drops
+            // happen at parse time (encHazardParse.featuresToHazards).
+            return 'obstruction';
         case 'WRECKS':
             return 'wreck';
         case 'UWTROC':
@@ -983,7 +991,8 @@ export class EncSpatialIndex {
             const layer = entry.hazard.layer;
             let type: EncHazardType | null;
             if (layer === 'LNDARE') type = 'land';
-            else if (layer === 'OBSTRN') type = 'obstruction';
+            else if (layer === 'OBSTRN' || layer === 'SLCONS' || layer === 'DAMCON')
+                type = 'obstruction'; // man-made allision AREA (audit #3) — always counts, like OBSTRN
             else if (layer === 'DEPARE' || layer === 'DRGARE') {
                 const d = entry.hazard.minDepthM;
                 type = d == null || d < shoalDepthM ? 'shallow' : null;
