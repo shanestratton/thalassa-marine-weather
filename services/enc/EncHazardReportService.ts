@@ -289,9 +289,11 @@ function representativePoint(
  * Map an EncHazard to a report-eligible type. LNDARE is excluded (the router
  * detours around it). SOUNDG/DEPARE shoals ARE reported when shallower than the
  * vessel keel (cycle-6 re-audit #1: an isolated shoal patch off the planned
- * track — reachable on a wide tack or drift — was surfaced nowhere). The depth
- * gate mirrors EncSpatialIndex.classifyHazard exactly so the briefing can never
- * disagree with routing about what counts as a shoal.
+ * track — reachable on a wide tack or drift — was surfaced nowhere). The shoal
+ * gate has the SAME shape as EncSpatialIndex.classifyHazard's, but is draft-
+ * aware: classify uses the static ENC_HAZARD_DEPTH_M cutoff for the reroute
+ * decision, while the briefing gets the per-vessel keel threshold — so it can
+ * only ever be MORE conservative than the routed line, never less.
  */
 function reportableHazardType(hazard: EncHazard, shoalDepthM: number): EncHazardType | null {
     if (hazard.layer === 'OBSTRN') return 'obstruction';

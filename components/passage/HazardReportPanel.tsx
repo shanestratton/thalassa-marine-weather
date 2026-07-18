@@ -263,7 +263,16 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                                             {formatLatLon(entry.representativePoint)}
                                         </p>
                                         <div className="text-[12px] text-amber-200/70 leading-tight mt-0.5">
-                                            {entry.minDepthM != null && <span>{entry.minDepthM.toFixed(1)} m </span>}
+                                            {/* S-57 sign: a negative depth is a DRYING height above datum.
+                                                Render it "Dries X.X m" like the popup (cycle-7 re-audit #1) —
+                                                a raw "-0.5 m" reads as 0.5 m DEEP, the anti-conservative misread. */}
+                                            {entry.minDepthM != null && (
+                                                <span>
+                                                    {entry.minDepthM < 0
+                                                        ? `Dries ${Math.abs(entry.minDepthM).toFixed(1)} m`
+                                                        : `${entry.minDepthM.toFixed(1)} m`}{' '}
+                                                </span>
+                                            )}
                                             <span className="font-mono">{entry.cellId}</span>
                                             <span> · {entry.sourceHO}</span>
                                             {entry.catzoc != null && (

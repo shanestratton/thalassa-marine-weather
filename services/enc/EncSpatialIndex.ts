@@ -371,6 +371,14 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
             // returned as point-in-polygon hazards. Defensive: if
             // one ends up here, it's a soft 'coast' hazard.
             return 'coast';
+        default:
+            // FAIL-SAFE (cycle-7 re-audit): a hazard layer added to
+            // buildHazardsForCell but not enumerated here used to fall through
+            // to `undefined` and be silently DROPPED from routing. Any charted
+            // feature that reached the hazard tree is by definition an
+            // obstacle — treat an unclassified one as an obstruction, never
+            // clear water.
+            return 'obstruction';
     }
 }
 
