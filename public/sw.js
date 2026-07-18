@@ -434,9 +434,15 @@
 // what pays for the pinned rows. Charts boot on SATELLITE again -- note that
 // also boots the full satellite ENC treatment (white keel glaze, hidden land
 // fills) instead of the dark ECDIS look.
-const CACHE_NAME = 'thalassa-v176-core';
-const TILE_CACHE = 'thalassa-v176-tiles';
-const DATA_CACHE = 'thalassa-v176-data';
+// v177: the "Following a route?" sheet is a true centred modal. It kept landing
+// low because PageTransition animates the page with translate3d, and a
+// transformed ancestor becomes the containing block for `fixed` children — so
+// `fixed inset-0` was covering the PAGE box, not the screen. Portalled to
+// <body> (the pattern LocationStarMenu already uses) so `fixed` means the
+// viewport again, and centred so no measured offset can be wrong.
+const CACHE_NAME = 'thalassa-v177-core';
+const TILE_CACHE = 'thalassa-v177-tiles';
+const DATA_CACHE = 'thalassa-v177-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
