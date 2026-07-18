@@ -587,3 +587,29 @@ export function resolveSeamarkIcon(seamarkType: string, tags: Record<string, str
 
     return 'sm-generic';
 }
+
+// ── Legend reuse ────────────────────────────────────────────────────────────
+/**
+ * The SAME glyph the chart paints, as a data URI, for use in DOM (the Chart
+ * Key). Added 2026-07-19 after an audit found the key drawing coloured CIRCLES
+ * with hand-typed hexes — two of which existed nowhere in the render stack, and
+ * a cardinal shown as two bands when cardinals have three (a 50/50 yellow-over-
+ * black dot asserts SOUTH). A legend that redraws the chart's symbols by hand is
+ * a legend that drifts from it; this makes them the same asset by construction.
+ *
+ * MUST be consumed as <img src={…}>, never inlined into the page. Thirteen
+ * glyphs share `filter id="s"`, and two more share `id="g"` / `id="vstripes"` —
+ * inline several in one document and every url(#s) resolves to the first match,
+ * which breaks the safe-water stripes and the light glow. A data URI gives each
+ * icon its own document, exactly as Mapbox already rasterises them.
+ */
+const iconDefById = new Map<string, SeamarkIconDef>();
+
+export function seamarkIconDataUri(id: string): string | undefined {
+    if (iconDefById.size === 0) {
+        for (const def of getSeamarkIconDefs()) iconDefById.set(def.id, def);
+    }
+    const def = iconDefById.get(id);
+    if (!def) return undefined;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(def.svg);
+}

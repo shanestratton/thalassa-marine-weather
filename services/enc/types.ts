@@ -378,7 +378,11 @@ const LIGHT_COLOUR_LETTERS: Record<string, string> = {
  * halo-backed warm yellow-white (#f0e030) — true #ffffff vanishes
  * over the pale deep-water band.
  */
-const LIGHT_COLOUR_HEX: Record<string, string> = {
+/** Exported so the Chart Key's light-sector swatch is driven by the SAME hexes
+ *  the sector arcs paint. It was hand-typed with the BUOY palette, which is a
+ *  different set — notably white, which renders warm (#f0e030) on purpose so it
+ *  reads on a pale chart (audit 2026-07-19). */
+export const LIGHT_COLOUR_HEX: Record<string, string> = {
     '1': '#f0e030', // white (rendered yellow-white per S-52 day symbology)
     '3': '#ef4444', // red
     '4': '#22c55e', // green
