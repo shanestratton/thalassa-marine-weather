@@ -313,16 +313,17 @@ function rockSubmergedSvg(): string {
         <line x1="24" y1="12" x2="24" y2="36"/><line x1="12" y1="24" x2="36" y2="24"/></g>`);
 }
 
-/** INT1 K12 — rock awash / covers-and-uncovers: the * asterisk. */
-function rockAwashSvg(): string {
+/** INT1 K11 — rock which covers and uncovers (drying rock, WATLEV 4): the
+ *  `*` asterisk. Renamed from the misleading "-awash" (awash is WATLEV 5, the
+ *  dotted cross below) so the id can't read as a transpose (cycle-5 audit #7). */
+function rockDryingSvg(): string {
     return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="3" stroke-linecap="round">
         <line x1="24" y1="11" x2="24" y2="37"/><line x1="11" y1="24" x2="37" y2="24"/>
         <line x1="15" y1="15" x2="33" y2="33"/><line x1="33" y1="15" x2="15" y2="33"/></g>`);
 }
 
-/** INT1 K12 — rock AWASH at chart datum: the + cross with a dot in each
- *  quadrant (distinct from K11 covers-and-uncovers asterisk — audit:
- *  both WATLEV 4 and 5 shared one glyph). */
+/** INT1 K12 — rock AWASH at chart datum (WATLEV 5): the + cross with a dot in
+ *  each quadrant, distinct from the K11 covers-and-uncovers asterisk above. */
 function rockAwashCdSvg(): string {
     return hazardDiscSvg(`<g stroke="${COLOURS.magenta}" stroke-width="3.5" stroke-linecap="round">
         <line x1="24" y1="11" x2="24" y2="37"/><line x1="11" y1="24" x2="37" y2="24"/></g>
@@ -400,7 +401,7 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
 
         // INT1 hazard glyphs (K-section) — see hazardDiscSvg block above.
         { id: 'sm-hazard-rock', svg: rockSubmergedSvg(), size: 48 },
-        { id: 'sm-hazard-rock-awash', svg: rockAwashSvg(), size: 48 },
+        { id: 'sm-hazard-rock-drying', svg: rockDryingSvg(), size: 48 },
         { id: 'sm-hazard-rock-awash-cd', svg: rockAwashCdSvg(), size: 48 },
         { id: 'sm-hazard-foul', svg: foulGroundSvg(), size: 48 },
         { id: 'sm-hazard-wreck-dangerous', svg: wreckSvg(true), size: 48 },
@@ -480,6 +481,17 @@ export async function registerSeamarkIcons(map: mapboxgl.Map): Promise<void> {
     }
 }
 
+/** UWTROC WATLEV → rock glyph, INT1 K-section — the single source of truth for
+ *  the hazard layer's icon match (cycle-5 audit #7 re-flagged a transpose that
+ *  wasn't there; locking the mapping in one tested place stops the re-flag).
+ *  WATLEV 4 = covers & uncovers (drying rock, K11 asterisk); 5 = awash at chart
+ *  datum (K12 dotted cross); anything else / submerged = K13 plain cross. */
+export const UWTROC_ROCK_GLYPH: ReadonlyArray<readonly [watlev: string, iconId: string]> = [
+    ['4', 'sm-hazard-rock-drying'],
+    ['5', 'sm-hazard-rock-awash-cd'],
+];
+export const UWTROC_ROCK_GLYPH_DEFAULT = 'sm-hazard-rock';
+
 /** Resolve a seamark feature to its icon ID */
 export function resolveSeamarkIcon(seamarkType: string, tags: Record<string, string>): string {
     // Lateral buoys — determine port/starboard from category
@@ -509,7 +521,30 @@ export function resolveSeamarkIcon(seamarkType: string, tags: Record<string, str
     if (seamarkType === 'buoy_isolated_danger') return 'sm-isolated-danger';
     if (seamarkType === 'buoy_special_purpose' || seamarkType === 'buoy_installation') return 'sm-special';
 
-    // Beacons
+    // Lateral beacons — the HAND (port = can topmark, starboard = cone topmark)
+    // is the primary channel, not colour (cycle-5 audit #6: the old colour-only
+    // branch drew every port-hand beacon as a starboard cone, contradicting the
+    // shape). Mirrors the buoy_lateral branch; colour picks the correct can/cone
+    // so both IALA regions work without a region argument (the OSM :colour is the
+    // painted colour). NOTE: the primary ENC navaid path (encNavaidIconId) is
+    // already correct — this only fixes the OSM free-basemap overlay fallback.
+    if (seamarkType === 'beacon_lateral') {
+        const cat = tags['beacon_lateral:category'] || '';
+        const colour = tags['beacon_lateral:colour'] || '';
+        if (cat === 'port') return colour.includes('green') ? 'sm-beacon-can-green' : 'sm-beacon-can-red';
+        if (cat === 'starboard') return colour.includes('red') ? 'sm-beacon-red' : 'sm-beacon-green';
+        if (cat === 'preferred_channel_port') return 'sm-beacon-prefchan-port';
+        if (cat === 'preferred_channel_starboard') return 'sm-beacon-prefchan-stbd';
+        // No category — fall back to colour → can for red, cone for green
+        // (IALA-A default); an unknown colour never asserts a hand.
+        if (colour.includes('red')) return 'sm-beacon-can-red';
+        if (colour.includes('green')) return 'sm-beacon-green';
+        return 'sm-mark-unknown';
+    }
+
+    // Other beacons (cardinal / safe-water / isolated-danger / special) — the
+    // cone glyph is not a lateral-hand assertion here, so colour/type routing is
+    // adequate.
     if (seamarkType.startsWith('beacon_')) {
         const colour = tags[`${seamarkType}:colour`] || '';
         if (colour.includes('red')) return 'sm-beacon-red';

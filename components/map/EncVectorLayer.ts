@@ -44,7 +44,7 @@ import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
-import { registerSeamarkIcons } from './seamarkIcons';
+import { registerSeamarkIcons, UWTROC_ROCK_GLYPH, UWTROC_ROCK_GLYPH_DEFAULT } from './seamarkIcons';
 import {
     ALL_LAYER_IDS,
     CLICKABLE_LAYER_IDS,
@@ -513,11 +513,10 @@ function mountPointMarkLayers(
                     'icon-image': mapExpr([
                         'match',
                         ['to-string', ['coalesce', ['get', 'WATLEV'], ['get', 'watlev'], '']],
-                        '4',
-                        'sm-hazard-rock-awash',
-                        '5',
-                        'sm-hazard-rock-awash-cd',
-                        'sm-hazard-rock',
+                        // Built from the tested UWTROC_ROCK_GLYPH source of truth
+                        // so the WATLEV→glyph mapping can't drift (audit #7).
+                        ...UWTROC_ROCK_GLYPH.flatMap(([w, id]) => [w, id]),
+                        UWTROC_ROCK_GLYPH_DEFAULT,
                     ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
                     'icon-allow-overlap': true,
