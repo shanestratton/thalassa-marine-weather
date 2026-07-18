@@ -23,7 +23,7 @@ import type { Geometry, Position } from 'geojson';
 
 import type { BBoxEntry, EncAreaGraze, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
 import { ENC_HAZARD_DEPTH_M } from './types';
-import { compareHazardSeverity } from './hazardSeverity';
+import { compareHazardSeverity, grazeOutranks } from './hazardSeverity';
 
 // ── Point-hazard guard radius ──────────────────────────────────────
 
@@ -1024,13 +1024,10 @@ export class EncSpatialIndex {
             }
             const clearanceM = segmentToPolygonMetres(lat1, lon1, lat2, lon2, geom);
             if (clearanceM > marginM) continue;
-            const isLand = type === 'land';
-            const bestIsLand = best?.type === 'land';
-            // Land (drying bank / islet — the finding's scary case) outranks a
-            // shoal graze; within the same class the CLOSEST wins.
-            if (best === null || (isLand && !bestIsLand) || (isLand === bestIsLand && clearanceM < best.clearanceM)) {
-                best = { clearanceM, marginM, catzoc, type };
-            }
+            // Land (drying bank / islet) outranks a shoal graze; within the same
+            // class the CLOSEST wins — the ONE graze ordering (grazeOutranks).
+            const candidate: EncAreaGraze = { clearanceM, marginM, catzoc, type };
+            if (best === null || grazeOutranks(candidate, best)) best = candidate;
         }
         return best;
     }

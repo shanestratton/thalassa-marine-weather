@@ -20,7 +20,7 @@
 import type { Feature, FeatureCollection } from 'geojson';
 
 import { type EncCatzocZone, type EncCoastline, type EncCautionArea } from './EncSpatialIndex';
-import { ENC_HAZARD_DEPTH_M } from './types';
+import { ENC_HAZARD_DEPTH_M, isStructureClass } from './types';
 import type { EncCatzoc, EncConversionResult, EncHazard, EncLayer } from './types';
 
 /** Max charted depth (m) at which a spot sounding is kept as a routing
@@ -87,7 +87,7 @@ export function featuresToHazards(layer: EncLayer, fc: FeatureCollection): EncHa
         //    inverted the null policy on the very next line).
         // Everything else kept as an allision hazard (classifyHazard → 'obstruction');
         // a missing WATLEV stays a hazard (fail-safe: assume it's there).
-        if (layer === 'SLCONS' || layer === 'DAMCON' || layer === 'PILPNT') {
+        if (isStructureClass(layer)) {
             const watlev = readNumber(feat, 'WATLEV');
             if (watlev === 7) continue;
             if (layer === 'PILPNT' && (watlev === 1 || watlev === 2)) continue;

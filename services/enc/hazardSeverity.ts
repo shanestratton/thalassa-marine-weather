@@ -12,7 +12,7 @@
  * Pure + unit-tested.
  */
 
-import type { EncHazardResult, EncHazardType } from './types';
+import type { EncAreaGraze, EncHazardResult, EncHazardType } from './types';
 
 /** Severity ranking of hazard TYPES — land is the hardest stop, shallow
  *  the softest. Used verbatim by queryPoint for its within-cell pick, so
@@ -96,4 +96,19 @@ function compareSeverity(a: EncHazardResult, b: EncHazardResult): number {
  */
 export function mergeHazardResults(a: EncHazardResult, b: EncHazardResult): EncHazardResult {
     return compareSeverity(a, b) >= 0 ? a : b;
+}
+
+/**
+ * True when graze `a` is MORE significant than `b` for the route-wide lateral-
+ * clearance advisory: land (drying bank / islet) before shoal/obstruction, then
+ * the closest clearance. The ONE graze ordering — shared by the per-cell pick
+ * (EncSpatialIndex.segmentAreaGraze), the cross-cell fold (EncHazardService),
+ * and the route-wide accumulator (landAvoidance), which hand-mirrored it three
+ * ways before (cycle-7 re-audit). Pure + unit-tested.
+ */
+export function grazeOutranks(a: EncAreaGraze, b: EncAreaGraze): boolean {
+    const aLand = a.type === 'land';
+    const bLand = b.type === 'land';
+    if (aLand !== bLand) return aLand;
+    return a.clearanceM < b.clearanceM;
 }

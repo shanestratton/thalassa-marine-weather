@@ -60,7 +60,7 @@ import {
     readNumber,
 } from './encHazardParse';
 import type { EncCautionArea } from './EncSpatialIndex';
-import { mergeHazardResults } from './hazardSeverity';
+import { mergeHazardResults, grazeOutranks } from './hazardSeverity';
 import { ENC_HAZARD_DEPTH_M } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 
@@ -355,10 +355,7 @@ export async function querySegmentHazards(
 function foldGraze(a: EncAreaGraze | null, b: EncAreaGraze | null): EncAreaGraze | null {
     if (a === null) return b;
     if (b === null) return a;
-    const aLand = a.type === 'land';
-    const bLand = b.type === 'land';
-    if (aLand !== bLand) return aLand ? a : b;
-    return b.clearanceM < a.clearanceM ? b : a;
+    return grazeOutranks(a, b) ? a : b; // the ONE graze ordering (hazardSeverity)
 }
 
 /**
