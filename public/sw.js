@@ -386,9 +386,13 @@
 // now a 26px input with a 22px thumb over a slim 6px bar, and w-72 for more
 // travel between detents. The tracer card's open offset rises 8.4 -> 9.5rem to
 // keep its clearance over the taller slider.
-const CACHE_NAME = 'thalassa-v168-core';
-const TILE_CACHE = 'thalassa-v168-tiles';
-const DATA_CACHE = 'thalassa-v168-data';
+// v169: the tab bar stays on PLAN while plotting. "Slide to Start Plotting"
+// does setPage('map'), so the bar lit CHARTS and contradicted the journey the
+// skipper was actually on. Both tabs now consult tracerActive (already
+// dispatched by MapHub), so plotting reads as Plan and the two can't both light.
+const CACHE_NAME = 'thalassa-v169-core';
+const TILE_CACHE = 'thalassa-v169-tiles';
+const DATA_CACHE = 'thalassa-v169-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
