@@ -1346,6 +1346,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         const validated = await Promise.race([
                             validateRouteSegments(seedNodes, {
                                 vesselDraftM,
+                                // Assumed default draft (no draft set) → surface the caution (audit #2).
+                                draftAssumed: !(Number(useSettingsStore.getState().settings.vessel?.draft) > 0),
                                 departureTimeMs,
                                 stillCurrent: () => !shortRouteStale,
                             }),
@@ -1814,6 +1816,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             const validated = await Promise.race([
                                 validateRouteSegments(isoResult.route, {
                                     vesselDraftM,
+                                    // Assumed default draft (no draft set) → surface the caution (audit #2).
+                                    draftAssumed: !(Number(useSettingsStore.getState().settings.vessel?.draft) > 0),
                                     departureTimeMs,
                                     stillCurrent: () => !deferredStale && computeGenRef.current === gen,
                                 }),
@@ -2158,6 +2162,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                             const validated = await Promise.race([
                                                 validateRouteSegments(ecmwfNodes, {
                                                     vesselDraftM,
+                                                    // Assumed default draft (no draft set) → caution (audit #2).
+                                                    draftAssumed: !(
+                                                        Number(useSettingsStore.getState().settings.vessel?.draft) > 0
+                                                    ),
                                                     departureTimeMs,
                                                     // The braid is the ECMWF COMPARISON line,
                                                     // not the sailed route — it must never own

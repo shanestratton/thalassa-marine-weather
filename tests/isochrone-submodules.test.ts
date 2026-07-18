@@ -444,6 +444,27 @@ describe('buildRouteAdvisories', () => {
         expect(buildRouteAdvisories([r({})], 5)).toEqual([]);
         expect(buildRouteAdvisories([r({})], 2.1)).toEqual([]);
     });
+
+    it('flags an implausibly-small draft — the feet/metres mis-scale (audit #2)', () => {
+        // 2.4 m stored in metres where feet was expected → vesselDraftMetres = 0.73.
+        const out = buildRouteAdvisories([r({})], 0.73);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].kind).toBe('draft-implausible');
+        expect(out[0].text).toContain('0.73');
+        // A plausible keelboat draft (and the 1.0 m boundary) stays silent.
+        expect(buildRouteAdvisories([r({})], 2.4)).toEqual([]);
+        expect(buildRouteAdvisories([r({})], 1.0)).toEqual([]);
+    });
+
+    it('warns when the draft is the ASSUMED default (no draft set) (audit #2)', () => {
+        const out = buildRouteAdvisories([r({})], 2.5, undefined, 0, true);
+        expect(out).toHaveLength(1);
+        expect(out[0].severity).toBe('caution');
+        expect(out[0].kind).toBe('draft-assumed');
+        // Not assumed → no draft advisory for a genuine 2.5 m boat.
+        expect(buildRouteAdvisories([r({})], 2.5, undefined, 0, false)).toEqual([]);
+    });
 });
 
 describe('describeAreaGraze (ZOC lateral clearance advisory, burn-down 2026-07-18 #1)', () => {
