@@ -77,10 +77,28 @@ export function featuresToHazards(layer: EncLayer, fc: FeatureCollection): EncHa
     const out: EncHazard[] = [];
     for (const feat of fc.features ?? []) {
         if (!feat || !feat.geometry) continue;
+        // Man-made allision structures (cycle-5 audit #3), WATLEV-gated so a
+        // deep pontoon / always-dry breakwater doesn't over-warn:
+        //  - WATLEV 7 (floating) never grounds → drop.
+        //  - PILPNT is a POINT with a 150 m guard corridor, which would carpet a
+        //    piled marina; include ONLY submerged/awash piles (WATLEV 3/4/5).
+        // Everything else kept as an allision hazard (classifyHazard → 'obstruction');
+        // a missing WATLEV stays a hazard (fail-safe: assume it's there).
+        if (layer === 'SLCONS' || layer === 'DAMCON' || layer === 'PILPNT') {
+            const watlev = readNumber(feat, 'WATLEV');
+            if (watlev === 7) continue;
+            if (layer === 'PILPNT' && !(watlev === 3 || watlev === 4 || watlev === 5)) continue;
+        }
         let minDepthM: number | null = null;
         if (layer === 'DEPARE' || layer === 'DRGARE') {
             minDepthM = readNumber(feat, 'DRVAL1');
-        } else if (layer === 'OBSTRN' || layer === 'WRECKS' || layer === 'UWTROC') {
+        } else if (
+            layer === 'OBSTRN' ||
+            layer === 'WRECKS' ||
+            layer === 'UWTROC' ||
+            layer === 'SLCONS' ||
+            layer === 'DAMCON'
+        ) {
             // UWTROC included (closing audit 2026-07-17): rocks carry VALSOU
             // too — dropping it lost the depth/drying context in severity
             // ordering and the proximity report (a rock was hazard=true
@@ -124,6 +142,12 @@ export function buildHazardsForCell(blob: EncConversionResult): EncHazard[] {
         ['OBSTRN', blob.layers.OBSTRN],
         ['WRECKS', blob.layers.WRECKS],
         ['UWTROC', blob.layers.UWTROC],
+        // Man-made allision structures (audit #3) — training walls / breakwaters
+        // (SLCONS), dams (DAMCON), submerged piles (PILPNT). WATLEV-gated in
+        // featuresToHazards; inert until cells carry these classes.
+        ['SLCONS', blob.layers.SLCONS],
+        ['DAMCON', blob.layers.DAMCON],
+        ['PILPNT', blob.layers.PILPNT],
     ];
     for (const [layer, fc] of layerPairs) {
         if (!fc) continue;

@@ -196,6 +196,13 @@ const ENC_LAYERS = [
     'TSSBND',
     'PRCARE',
     'DWRTPT',
+    // Man-made allision structures (cycle-5 audit #3) — mirrored with
+    // ROUTING_CLASSES. Extracted for the grounding/allision hazard model (not
+    // rendered), WATLEV-gated app-side. Existing cells need re-conversion +
+    // bucket manifest bump before they take effect.
+    'SLCONS',
+    'DAMCON',
+    'PILPNT',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');

@@ -35,7 +35,20 @@ import type { Geometry } from 'geojson';
  * - BOYCAR: cardinal buoys (display only)
  * - M_QUAL: zones of confidence (CATZOC). Tagged on every result.
  */
-export type EncLayer = 'DEPARE' | 'DRGARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'COALNE' | 'SOUNDG';
+export type EncLayer =
+    | 'DEPARE'
+    | 'DRGARE'
+    | 'LNDARE'
+    | 'OBSTRN'
+    | 'WRECKS'
+    | 'UWTROC'
+    | 'COALNE'
+    | 'SOUNDG'
+    // Man-made allision structures (cycle-5 audit #3): shoreline construction
+    // (training walls / breakwaters / groynes), dams, and piles.
+    | 'SLCONS'
+    | 'DAMCON'
+    | 'PILPNT';
 
 // ── S-57 point-mark class taxonomy ─────────────────────────────────
 // The DOMAIN source of truth for which buoy/beacon/light/hazard classes
@@ -655,6 +668,12 @@ export interface EncConversionResult {
         OBSTRN?: GeoJSON.FeatureCollection;
         WRECKS?: GeoJSON.FeatureCollection;
         UWTROC?: GeoJSON.FeatureCollection;
+        // Man-made allision structures (audit #3) — extracted for the hazard
+        // model, WATLEV-gated in encHazardParse. Inert until cells are
+        // re-extracted with these classes (see s57Classes ROUTING_CLASSES).
+        SLCONS?: GeoJSON.FeatureCollection;
+        DAMCON?: GeoJSON.FeatureCollection;
+        PILPNT?: GeoJSON.FeatureCollection;
         /** Coastline LineStrings — used for proximity warnings only. */
         COALNE?: GeoJSON.FeatureCollection;
         /** Lights / lighthouses (point features). Display only. */
