@@ -428,9 +428,15 @@
 // reading an identical "Suggested route". The naming hook is shared with the
 // voyage cards, so a route is called the same thing in both places, and the
 // lookups are cached so showing both no longer geocodes a berth twice.
-const CACHE_NAME = 'thalassa-v175-core';
-const TILE_CACHE = 'thalassa-v175-tiles';
-const DATA_CACHE = 'thalassa-v175-data';
+// v176: Watch Status (Anchor / Guardian / MOB / Radio) is pinned to the screen
+// on the Vessel page, joining NavStationHero's existing sticky block rather
+// than adding a second one that would overlap it; its heading is gone, which is
+// what pays for the pinned rows. Charts boot on SATELLITE again -- note that
+// also boots the full satellite ENC treatment (white keel glaze, hidden land
+// fills) instead of the dark ECDIS look.
+const CACHE_NAME = 'thalassa-v176-core';
+const TILE_CACHE = 'thalassa-v176-tiles';
+const DATA_CACHE = 'thalassa-v176-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

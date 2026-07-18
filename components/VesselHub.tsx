@@ -474,7 +474,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     above the section cards (default stacking) but
                     below modals/overlays. */}
                 <div
-                    className="sticky top-0 z-20 -mx-4 -mt-4 px-4 pt-4 pb-1 backdrop-blur-md"
+                    className="sticky top-0 z-20 -mx-4 -mt-4 mb-4 px-4 pb-3 pt-4 backdrop-blur-md"
                     style={{
                         background:
                             'linear-gradient(to bottom, rgba(2,6,23,0.92) 0%, rgba(2,6,23,0.92) 85%, rgba(2,6,23,0) 100%)',
@@ -503,7 +503,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         routeNm={routeNm}
                         onNavigate={onNavigate}
                     />
-                </div>
 
                 {/* The 4-bucket IA (2026-05-17) reordered the
                     sections so Quick Actions (daily ops) sits at the
@@ -530,15 +529,27 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/*  preserved to retain the expanded state for    */}
                 {/*  existing users.) */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Watch Status"
-                        id="quick"
-                        expanded={expanded.has('quick')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('quick')}>
+                {/* PINNED TO THE SCREEN (Shane 2026-07-19: "can we have it so the
+                    Watch Status items are always on the screen (locked to the
+                    screen) as they are quite important"). Anchor, Guardian, MOB
+                    and Radio are the live safety states — scrolling down to the
+                    Boat Binder should not take them off screen.
+                    
+                    These tiles live INSIDE NavStationHero's existing sticky
+                    wrapper rather than being sticky themselves. Two siblings
+                    both stuck at top-0 would simply overlap, and offsetting the
+                    second by the hero's height means hard-coding a height that
+                    changes with anchor state and voyage. One pinned block cannot
+                    drift out of agreement with itself.
+
+                    HEADER REMOVED (Shane: "remove the heading Watch Status, it
+                    is just taking up space"). It was also the section's only
+                    collapse control, and this section was always-expanded by
+                    design anyway — so the tiles now render unconditionally
+                    instead of through CollapsibleContent, and the 'quick' entry
+                    in the expanded set is vestigial. Reclaiming that row is what
+                    makes pinning the grid affordable. */}
+                    <div className="mt-3">
                         {/* Row 1 — Anchor Watch + Guardian */}
                         <div className="grid grid-cols-2 gap-3 mb-3">
                             <button
@@ -674,7 +685,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             "hidden a bit deeper — keep the important things
                             front and centre"). Watch Status is now purely the
                             daily-ops safety tiles: Anchor, Guardian, MOB, Radio. */}
-                    </CollapsibleContent>
+                    </div>
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
