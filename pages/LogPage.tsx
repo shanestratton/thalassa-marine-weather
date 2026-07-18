@@ -39,7 +39,7 @@ import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
-import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
+import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
 import { GpsDisclaimerModal } from './log/GpsDisclaimerModal';
@@ -1552,15 +1552,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 recording" skips. Publish-only (v1): the route also draws on
                 your own chart via the card's FOLLOW button. */}
             {followPromptVoyageId && (
+                // TOP-DOCKED, just under the "Ship's Log" header (Shane 2026-07-19:
+                // "can it start at the top just below where it says ship's log").
+                // It was an items-end sheet, so it opened at the far bottom of the
+                // screen — furthest from where the eye already was. The pt clears
+                // the safe area plus PageHeader; pb keeps it off the home
+                // indicator, and max-h-full then resolves against what is left,
+                // so the card can never run off either end.
                 <div
-                    className="fixed inset-0 z-[10055] flex items-end justify-center bg-black/60 sm:items-center"
+                    className="fixed inset-0 z-[10055] flex items-start justify-center bg-black/60 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+5.5rem)]"
                     onClick={() => setFollowPromptVoyageId(null)}
                 >
                     <div
-                        className="max-h-[70vh] w-full max-w-md overflow-hidden rounded-t-3xl border border-white/10 bg-slate-900 shadow-2xl sm:rounded-3xl"
+                        className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="border-b border-white/10 px-5 py-4">
+                        <div className="shrink-0 border-b border-white/10 px-5 py-4">
                             <div className="text-sm font-black uppercase tracking-widest text-emerald-300">
                                 Following a route?
                             </div>
@@ -1568,11 +1575,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 Pick one to show on your public page — or just record the track.
                             </div>
                         </div>
-                        <div className="max-h-[42vh] space-y-1.5 overflow-y-auto px-3 py-3">
+                        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
                             {plannedSummaries.map((s) => (
-                                <button
+                                <FollowRouteChoice
                                     key={s.voyageId}
-                                    onClick={() => {
+                                    summary={s}
+                                    onPick={() => {
                                         void publishFollowedRoute(s.voyageId).then((result) => {
                                             if (result === 'linked')
                                                 toast.success('Your public page now follows this route');
@@ -1580,18 +1588,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         });
                                         setFollowPromptVoyageId(null);
                                     }}
-                                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99]"
-                                >
-                                    <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">
-                                        🧭 Suggested route
-                                    </span>
-                                    <span className="shrink-0 text-[11px] font-bold text-sky-300">
-                                        {s.totalDistanceNM.toFixed(1)} NM · {s.entryCount} pts
-                                    </span>
-                                </button>
+                                />
                             ))}
                         </div>
-                        <div className="border-t border-white/10 px-5 py-3">
+                        <div className="shrink-0 border-t border-white/10 px-5 py-3">
                             <button
                                 onClick={() => setFollowPromptVoyageId(null)}
                                 className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95"

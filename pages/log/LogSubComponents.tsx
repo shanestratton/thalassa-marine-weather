@@ -9,6 +9,7 @@ import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry, VoyagePlan } from '../../types';
 import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
+import { useEndpointNames } from './useEndpointNames';
 import { useToast } from '../../components/Toast';
 import { publishFollowedRoute } from '../../services/shiplog/publishFollowedRoute';
 import { VoyageLogService } from '../../services/VoyageLogService';
@@ -113,6 +114,48 @@ export const MenuBtn: React.FC<{
         {label}
     </button>
 ));
+
+
+// ── FollowRouteChoice — one row of the cast-off "Following a route?" sheet ──
+//
+// A row per planned route. Every row used to read "🧭 Suggested route", so the
+// sheet asked the skipper to pick between rows that were word-for-word
+// identical, distinguishable only by distance (Shane 2026-07-19: "the heading
+// on all of the routes is the same... they should really be the name of the
+// route"). It names each route by its endpoints, via the same hook the voyage
+// cards use — so the row and the card agree about what a route is called.
+//
+// A component rather than inline JSX because each row needs its own lookup,
+// and hooks cannot run inside a .map() callback.
+export const FollowRouteChoice: React.FC<{
+    summary: VoyageSummary;
+    onPick: () => void;
+}> = ({ summary, onPick }) => {
+    const first =
+        summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
+    const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
+    const { startLabel, endLabel } = useEndpointNames(first, last);
+
+    // Round trips and single-fix plans collapse to one name instead of the
+    // silly "Newport → Newport". "Suggested route" survives only as the honest
+    // last resort when nothing resolved — offline, mid-ocean, or a bad fix.
+    const routeName =
+        startLabel && endLabel && startLabel !== endLabel
+            ? `${startLabel} → ${endLabel}`
+            : (startLabel ?? endLabel ?? 'Suggested route');
+
+    return (
+        <button
+            onClick={onPick}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99]"
+        >
+            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">🧭 {routeName}</span>
+            <span className="shrink-0 text-[11px] font-bold text-sky-300">
+                {summary.totalDistanceNM.toFixed(1)} NM · {summary.entryCount} pts
+            </span>
+        </button>
+    );
+};
 
 // ── FollowRouteButton — appears on planned route voyage cards ──
 
@@ -308,78 +351,11 @@ export const VoyageCard: React.FC<{
             summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
         const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
 
-        // Reverse-geocode start and end locations for card title
-        const [startLocName, setStartLocName] = useState<string | null>(null);
-        const [endLocName, setEndLocName] = useState<string | null>(null);
-
-        useEffect(() => {
-            const geocode = async (lat: number, lon: number): Promise<string | null> => {
-                // 1. Try the app's own reverseGeocode (Mapbox-backed, more reliable for coastal areas)
-                try {
-                    const { reverseGeocode: appGeocode } = await import('../../services/weatherService');
-                    const name = await appGeocode(lat, lon);
-                    if (name) {
-                        // Extract local part — take last meaningful segment
-                        // e.g. "Newport, Redcliffe, QLD" → "Newport"
-                        const parts = name
-                            .split(',')
-                            .map((s) => s.trim())
-                            .filter(Boolean);
-                        if (parts.length > 0) return parts[0];
-                    }
-                } catch (e) {
-                    log.warn('fall through to Nominatim:', e);
-                }
-
-                // 2. Fallback: Nominatim with progressive zoom levels (coastal/offshore positions)
-                const zoomLevels = [16, 14, 10, 8, 5];
-                for (const zoom of zoomLevels) {
-                    try {
-                        const res = await fetch(
-                            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=${zoom}&addressdetails=1`,
-                        );
-                        if (!res.ok) continue;
-                        const data = await res.json();
-                        const addr = data.address || {};
-                        const local =
-                            addr.neighbourhood ||
-                            addr.suburb ||
-                            addr.village ||
-                            addr.town ||
-                            addr.city_district ||
-                            addr.city ||
-                            addr.hamlet ||
-                            addr.county ||
-                            null;
-                        if (local) return local;
-                    } catch (e) {
-                        log.warn('geocode skip:', e);
-                        continue;
-                    }
-                }
-                return null;
-            };
-
-            if (first?.latitude && first.latitude !== 0) {
-                geocode(first.latitude, first.longitude ?? 0).then((name) => {
-                    if (name) setStartLocName(name);
-                });
-            }
-            if (last?.latitude && last.latitude !== 0) {
-                // Always geocode end — even if same entry, so single-entry voyages show the place name
-                geocode(last.latitude, last.longitude ?? 0).then((name) => {
-                    if (name) setEndLocName(name);
-                });
-            }
-        }, [first?.latitude, first?.longitude, last?.latitude, last?.longitude]);
-
-        // Use geocoded names, fall back to waypoint names, then DMS coords
-        const formatFallback = (c: { latitude: number; longitude: number | null } | undefined) => {
-            if (!c || !c.latitude) return null;
-            return `${Math.abs(c.latitude).toFixed(1)}°${c.latitude >= 0 ? 'N' : 'S'}`;
-        };
-        const startLabel = startLocName || formatFallback(first);
-        const endLabel = endLocName || formatFallback(last);
+        // Card title place names. Shared with the cast-off "Following a route?"
+        // sheet via useEndpointNames, so the same voyage is named identically in
+        // both places — and the lookups are cached, so showing a card and the
+        // sheet together no longer geocodes the same berth twice.
+        const { startLabel, endLabel } = useEndpointNames(first, last);
 
         // Set lookup, NOT nested .some() — the O(n²) form was ~33M comparisons
         // per render for an expanded one-day passage (audit 2026-07-03), and
