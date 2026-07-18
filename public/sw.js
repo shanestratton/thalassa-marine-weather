@@ -349,9 +349,18 @@
 // v162: that per-surface base is now DERIVED rather than set by an effect, so
 // nothing can race or undo it — "plotting ⇒ imagery on" is structurally true,
 // which is what actually keeps the white keel glaze painted.
-const CACHE_NAME = 'thalassa-v162-core';
-const TILE_CACHE = 'thalassa-v162-tiles';
-const DATA_CACHE = 'thalassa-v162-data';
+// v163: THE actual keel-glaze fix. v161/v162 closed the OPACITY channel; a
+// layout visibility:'none' beats opacity, and ENC-master / clean-chart /
+// route-focus can each set it — so the plotting surface could still lose its
+// whole depth read while the tracer's force-shown marks kept it looking
+// populated. Plotting now raises a keel FLOOR that outranks all three: depth
+// bands (glaze over imagery, DEPARE on chart), the safety contour, and
+// wrecks/rocks/obstructions — which the marks list never covered. Also stops
+// MapHub's stale hand-copy of SATELLITE_HIDE_LAYERS from killing the amber
+// keel-limit line that syncDepareBaseTreatment repaints every pass.
+const CACHE_NAME = 'thalassa-v163-core';
+const TILE_CACHE = 'thalassa-v163-tiles';
+const DATA_CACHE = 'thalassa-v163-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

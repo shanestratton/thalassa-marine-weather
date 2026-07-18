@@ -88,6 +88,8 @@ import {
     encSuppressNextClickPopup,
     setEncDraftAssumed,
     setEncNightDim,
+    setEncPlottingMode as encSetPlottingMode,
+    SATELLITE_HIDE_LAYERS as ENC_SATELLITE_HIDE_LAYERS,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
 import {
@@ -2924,16 +2926,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // syncDepareBaseTreatment. Contours, coastline, soundings,
                 // marks, routes and chips all render on the imagery.
                 if (imageryOn) {
-                    // Mirrors EncVectorLayer's SATELLITE_HIDE_LAYERS: land
-                    // fills + charted coastline + bold safety contour are
-                    // chart furniture the imagery replaces (Shane 2026-07-11).
+                    // Mirrors EncVectorLayer's SATELLITE_HIDE_LAYERS BY IMPORT,
+                    // not by hand: land fills + charted coastline are chart
+                    // furniture the imagery replaces (Shane 2026-07-11).
                     // Applies to BOTH imagery bases (satellite and hybrid).
-                    for (const id of [
-                        ENC_VEC_LAYERS.LNDARE,
-                        ENC_VEC_LAYERS.LNDARE_ISLET,
-                        ENC_VEC_LAYERS.COALNE,
-                        ENC_VEC_LAYERS.DEPCNT_SAFETY,
-                    ]) {
+                    //
+                    // The hand-copy had DRIFTED. It still listed DEPCNT_SAFETY,
+                    // which was deliberately dropped from the real list when
+                    // syncDepareBaseTreatment started restyling that contour
+                    // amber as the keel-limit line over imagery. So this loop
+                    // was killing the very line that function paints every
+                    // pass, and the two fought each other — on the plotting
+                    // surface that cost the second depth channel on top of the
+                    // glaze. Importing makes a future divergence impossible.
+                    for (const id of ENC_SATELLITE_HIDE_LAYERS) {
                         if (setVis(id, 'none')) changed = true;
                     }
                     // Bathymetry OVER the imagery (Shane 2026-07-09: "can we
@@ -4403,6 +4409,28 @@ export const MapHub: React.FC<MapHubProps> = ({
             }
         };
     }, [coordCaptureMode, mapReady, encVisible, encChartDetail]);
+
+    // Raise the PLOTTING KEEL FLOOR for as long as the tracer is up. The
+    // effect above force-shows the MARKS you steer by; this one guarantees the
+    // DEPTH you clear by (glaze/bands + safety contour + wrecks, rocks and
+    // obstructions), which no furniture toggle may strip from the one surface
+    // that exists to answer "does this leg float my keel?". Lowered on unmount
+    // so the browsing chart honours the skipper's own toggles again.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        encSetPlottingMode(map, coordCaptureMode);
+        return () => {
+            const m = mapRef.current;
+            if (m) {
+                try {
+                    encSetPlottingMode(m, false);
+                } catch {
+                    /* layers unmounted — nothing to lower */
+                }
+            }
+        };
+    }, [mapReady, coordCaptureMode]);
 
     // ── ENC test route line ──
     // One-off rendering of `tryInshoreRoute` output triggered by the
