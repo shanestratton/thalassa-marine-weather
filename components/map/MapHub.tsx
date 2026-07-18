@@ -671,6 +671,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Restored alongside the name, because THIS ref is what distinguishes "we
     // named it" from "the skipper named it". Lost, every restored name looks
     // hand-typed and auto-naming silently stops updating it.
+    // Hoisted above the auto-name effect, which reads it to keep a chained leg's
+    // FROM half stable. Self-contained (sessionStorage only), so the move costs
+    // nothing — and the effect referencing it from below was a TDZ error that
+    // vite bundled happily and tsc caught.
+    const [legAnchor, setLegAnchor] = useState<NextLegSeed | null>(() => {
+        try {
+            return JSON.parse(sessionStorage.getItem('thalassa_trace_wip_leg_anchor') ?? 'null');
+        } catch {
+            return null;
+        }
+    });
     const lastAutoNameRef = useRef<string>(
         (() => {
             try {
@@ -684,13 +695,25 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!coordCaptureMode || capturedCoords.length === 0) return;
         const isAuto = traceName === '' || traceName === lastAutoNameRef.current;
         if (!isAuto) return;
+        // A chained leg has no destination until one is traced. With just the
+        // locked start, first === last and this would name it "Newport - Newport";
+        // leaving the "Newport - " prefill alone is the honest state.
+        if (legAnchor && capturedCoords.length < 2) return;
         const first = capturedCoords[0];
         const last = capturedCoords[capturedCoords.length - 1];
         // Debounced: a burst of pin drops costs one geocode pass (and the
         // helper caches on a ~1 km grid anyway).
         const t = window.setTimeout(() => {
-            void import('../../services/routeAutoName').then(async ({ autoRouteName }) => {
-                const name = await autoRouteName(first, last);
+            void import('../../services/routeAutoName').then(async ({ autoRouteName, placeLabelFor }) => {
+                // CHAINED LEG: the FROM half is the previous leg's recorded arrival
+                // name and is authoritative. Re-geocoding the anchor can return a
+                // different label for the same spot — "Scarborough" for the pin the
+                // previous leg called "Newport" — which would contradict both the
+                // locked-start badge and the leg it chains from. Only the
+                // destination is looked up.
+                const name = legAnchor
+                    ? `${legAnchor.fromName} - ${await placeLabelFor(last)}`
+                    : await autoRouteName(first, last);
                 setTraceName((cur) => {
                     // The skipper typed while we were geocoding — theirs wins.
                     if (cur !== '' && cur !== lastAutoNameRef.current) return cur;
@@ -700,7 +723,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             });
         }, 800);
         return () => window.clearTimeout(t);
-    }, [capturedCoords, coordCaptureMode, traceName]);
+    }, [capturedCoords, coordCaptureMode, traceName, legAnchor]);
     // Typed GPS-fix entry (build a route by keying coords, not just tapping —
     // Shane 2026-07-16). Accepts decimal, hemisphere, DMM and DMS via
     // parseCoordinateString; each Add appends a pin to the trace.
@@ -717,13 +740,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // fields, and retro-badges leg 1. Loading anything else drops it.
     // Restored with the pins — see the persistence effect below for why the
     // chain must not outlive its own trace.
-    const [legAnchor, setLegAnchor] = useState<NextLegSeed | null>(() => {
-        try {
-            return JSON.parse(sessionStorage.getItem('thalassa_trace_wip_leg_anchor') ?? 'null');
-        } catch {
-            return null;
-        }
-    });
     const legAnchorRef = useRef<NextLegSeed | null>(null);
     useEffect(() => {
         legAnchorRef.current = legAnchor;
@@ -979,7 +995,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     rebaseHistoryRef.current = true; // fresh leg → Undo floor
                     setCapturedCoords([seed.anchor]);
                     setTraceName(`${seed.fromName} - `);
-                    lastAutoNameRef.current = ''; // the prefill is the punter's, not auto
+                    // The prefill IS ours, not the skipper's (Shane 2026-07-19: "it
+                    // does not auto put the destination in the save box, so i get
+                    // something like Newport -"). Marking it as the punter's typing
+                    // made isAuto false below, so auto-naming stood down and the
+                    // dangling "Newport - " could never be completed. Recording it
+                    // here as the last auto value lets the destination fill in.
+                    lastAutoNameRef.current = `${seed.fromName} - `;
                     setLegAnchor(seed);
                     setSelectedPin(null);
                     setOverwriteArm(null);
