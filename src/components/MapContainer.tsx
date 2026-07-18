@@ -15,6 +15,11 @@ import { CompassRose } from './CompassRose';
 import { WindBarb, windBarbColor } from './WindBarb';
 import { fetchWindGrid, type WindSample } from '../windField';
 
+// Wind barbs are a skipper's tool, not a viewer's — the public page is for
+// following a boat, and the control was competing with the base-map switcher in
+// the same corner (Shane 2026-07-19).
+const PUBLIC_WIND_TOGGLE_VISIBLE = false;
+
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
     /** Latest telemetry. Carries the boat's position, and when the track is
@@ -237,7 +242,12 @@ export default function MapContainer({
         // stay reachable — but it must not be what a moored boat looks like.
         if (allCoords.length === 0) {
             if (telemetry && Number.isFinite(telemetry.lat) && Number.isFinite(telemetry.lon)) {
-                return { longitude: telemetry.lon, latitude: telemetry.lat, zoom: 10 };
+                // z13 ≈ a bay/marina view (Shane 2026-07-19: "a nice high zoom so
+                // the punter can see clearly where we are"). z10 framed the whole
+                // region, which answers "roughly Moreton Bay" when the question is
+                // "which anchorage". There is no track to frame here, so nothing
+                // is lost by going in close — and the base map still zooms out.
+                return { longitude: telemetry.lon, latitude: telemetry.lat, zoom: 13 };
             }
             return { longitude: 0, latitude: 20, zoom: 1.3 };
         }
@@ -637,8 +647,11 @@ export default function MapContainer({
                 ))}
             </div>
 
-            {/* Wind-barb toggle */}
-            <button
+            {/* Wind-barb toggle PARKED (Shane 2026-07-19: "can we remove the wind
+                button from the public page"). The barb layer and its Open-Meteo
+                fetch stay wired and cost nothing while windOn is false — flip this
+                to bring the control back. */}
+            {PUBLIC_WIND_TOGGLE_VISIBLE && <button
                 onClick={() => setWindOn((v) => !v)}
                 aria-label="Toggle wind barbs"
                 className={`absolute top-14 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider transition-colors ${
@@ -651,7 +664,7 @@ export default function MapContainer({
                     <span aria-hidden>🌬️</span>
                 )}
                 Wind
-            </button>
+            </button>}
 
             {/* Compass rose — chart-style decoration, bottom-left */}
             <div className="absolute bottom-4 left-4 z-10">

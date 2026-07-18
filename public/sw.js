@@ -477,9 +477,12 @@
 // telemetry, not a one-point track, so it cannot be swallowed by the
 // land-voyage vote (a boat at its berth can read as majority-land). Labelled
 // "Last known · Nd ago" and not pinging, so a stale fix never poses as live.
-const CACHE_NAME = 'thalassa-v185-core';
-const TILE_CACHE = 'thalassa-v185-tiles';
-const DATA_CACHE = 'thalassa-v185-data';
+// v186: public page — wind-barb toggle parked (a skipper's tool, not a
+// viewer's), and the no-track camera goes z10 -> z13 so "where are they" reads
+// as an anchorage rather than a region.
+const CACHE_NAME = 'thalassa-v186-core';
+const TILE_CACHE = 'thalassa-v186-tiles';
+const DATA_CACHE = 'thalassa-v186-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
