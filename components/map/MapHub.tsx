@@ -5298,22 +5298,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                     tracer furniture at all — the PLAN page is the only door
                     in ("Slide to Start Plotting" / Trip box / saved routes),
                     and Done hands the bare chart back. */}
-                {/* THE WAY BACK (Shane 2026-07-18: "if a punter presses charts then
-                    the planning all disappears"). coordCaptureMode is useState(false)
-                    with NO false-setter, so it dies on any MapHub unmount — and
-                    MapHub unmounts on every tab except Charts. The pins themselves
-                    SURVIVE in thalassa_trace_wip_pins, so the trace was never
-                    actually lost; there was simply no door back into trace mode, the
-                    🧭 pill below having been gated behind the very flag it exists to
-                    restore (outer `&& coordCaptureMode` vs inner `!coordCaptureMode`
-                    — mutually exclusive, so it was unreachable dead code).
-                    Un-parked, but ONLY when unfinished pins exist: a chart with no
-                    work in progress stays bare, which was the 2026-07-17 intent. */}
-                {!embedded &&
-                    !isPinView &&
-                    !pickerMode &&
-                    !hideTracer &&
-                    (coordCaptureMode || capturedCoords.length > 0) && (
+                {/* PLOTTING ONLY — no tracer furniture on the browsing chart
+                    (Shane 2026-07-19: "once you put one plotted spot on the planning
+                    page, the tracer card shows up in the charts page, can we prevent
+                    that").
+
+                    The 🧭 resume pill was un-parked here on 2026-07-18 as the way
+                    back from a trace stranded by a tab hop. It turned out not to be
+                    needed: the real fix that day was PERSISTING the pins, and with
+                    thalassa_trace_wip_pins hydrating capturedCoords on mount, the
+                    Plan page's "Slide to Start Plotting" already restores the trace
+                    whole — its door fires requestTracerOpen() with no action, which
+                    never touches pins. So the pill was a second, redundant door that
+                    cost the browsing chart its cleanliness. Removed; the pins are
+                    still safe and still resume. (The closed-pill branch below returns
+                    to being parked, not deleted.) */}
+                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
                     <div
                         // LEFT RAIL, shared with the scrubber (Shane 2026-07-18:
                         // "move the tracer card so that it is right on top of the
