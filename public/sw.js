@@ -455,9 +455,14 @@
 // from a stranded trace, but persisting the pins was the actual fix -- the Plan
 // page's slide already restores the trace whole -- so it was a redundant second
 // door costing the chart its cleanliness.
-const CACHE_NAME = 'thalassa-v180-core';
-const TILE_CACHE = 'thalassa-v180-tiles';
-const DATA_CACHE = 'thalassa-v180-data';
+// v181: the PLAN start page's three pickers are proper centred modals. Saved
+// routes and Past voyages were bottom sheets; the Trip box unrolled its legs
+// INLINE, which shoved "Slide to Start Plotting" off the bottom of the page —
+// the one control the page exists to present. All three are portalled to <body>
+// so `fixed` means the screen, not PageTransition's transformed page box.
+const CACHE_NAME = 'thalassa-v181-core';
+const TILE_CACHE = 'thalassa-v181-tiles';
+const DATA_CACHE = 'thalassa-v181-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
