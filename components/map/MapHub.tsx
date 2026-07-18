@@ -336,6 +336,10 @@ const TRACER_COPY_BUTTON_VISIBLE = false;
 // also publishes to the public page). Plot → Save → cast off → follow.
 // sailTrace() stays wired for a future "cast off with this route" shortcut.
 const SAIL_IT_BUTTON_VISIBLE = false;
+// Charts source-picker category on the radial layer FAB PARKED (Shane
+// 2026-07-17): the boat's ENC/o-charts are automatic; the picker (Routes/
+// Tracks/NOAA/ECDIS/local) only cluttered the fan. Flip to restore it.
+const CHARTS_FAB_CATEGORY_VISIBLE = false;
 
 // The guided course-frame (From/To boxes + 🧭 Set course) and its ⚡
 // Auto-to-destination button are PARKED with it (Shane 2026-07-16: "remove
@@ -4828,7 +4832,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Compose chart sources from AvNav (o-charts) + free chart
                             // catalog + local MBTiles + Routes + Tracks so all chart
                             // toggles live in the radial menu's 4th category.
-                            sources: [
+                            // PARKED (Shane 2026-07-17: "do we really need the Charts
+                            // button under the layer fab — it's all automatic now"): the
+                            // boat's own ENC/o-charts load automatically by zoom, and the
+                            // grab-bag here (Routes/Tracks now live on PLAN/LOG + the
+                            // public page; NOAA/ECDIS/local are niche) only forced the
+                            // category to always show. Empty sources ⇒ buildChartsCategory
+                            // returns [] ⇒ the "Charts" button drops off the radial fan.
+                            // Flip CHARTS_FAB_CATEGORY_VISIBLE to bring the picker back
+                            // (all the pickers/state below stay wired).
+                            sources: !CHARTS_FAB_CATEGORY_VISIBLE
+                                ? []
+                                : [
                                 // Routes — picker for saved planned passages from
                                 // the ships log. Tap opens a sheet listing them;
                                 // selection draws the route as a green dashed line
