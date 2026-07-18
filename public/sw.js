@@ -404,9 +404,15 @@
 // Un-parked, shown only when unfinished pins exist. The leg CHAIN and the
 // route name now persist with the pins too, so a resumed leg 2 no longer saves
 // silently unchained.
-const CACHE_NAME = 'thalassa-v171-core';
-const TILE_CACHE = 'thalassa-v171-tiles';
-const DATA_CACHE = 'thalassa-v171-data';
+// v172: the route report sits CENTRED and safe-area-inset instead of pinned to
+// the bottom edge, where a short report hugged the screen bottom and the "Fix
+// all" button sat under the home indicator. Also fixes the heights: the body
+// was capped at 46vh inside an 80vh card that also stacked a header, a
+// departure row and a footer, so the footer could be pushed out. Now a flex
+// column -- fixed chrome, flexing leg list -- capped in dvh, not vh.
+const CACHE_NAME = 'thalassa-v172-core';
+const TILE_CACHE = 'thalassa-v172-tiles';
+const DATA_CACHE = 'thalassa-v172-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -263,9 +263,22 @@ export const TraceReportModal: React.FC<Props> = ({
     const cautions = graded.filter((x) => x.v.grade === 'caution');
     const fixable = dangers.filter((x) => !ackedLegs.has(x.i));
     return (
-        <div className="fixed inset-0 z-[10050] flex items-end justify-center bg-black/60 sm:items-center">
-            <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-t-3xl border border-white/10 bg-slate-900 shadow-2xl sm:rounded-3xl">
-                <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
+        // CENTRED, not bottom-pinned (Shane 2026-07-18: "the route report is not
+        // sitting nicely on the phone screen, it is down the bottom"). It was an
+        // items-end sheet, so a short report hugged the very bottom edge and the
+        // "Fix all" footer button sat under the home indicator with only py-3
+        // between them. The overlay now insets by the safe areas, so the card
+        // can never reach an edge on any device.
+        //
+        // dvh, not vh: on iOS vh is the LARGEST viewport (toolbars retracted),
+        // so a vh-capped sheet overflows whenever they're showing.
+        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/60 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+            {/* flex-col + a flexing body: header and footer keep their height and
+                the leg list takes the rest. The old fixed max-h-[46vh] body could
+                not compose with the 80vh cap once header, departure row and footer
+                were stacked on it — the footer got pushed out of the card. */}
+            <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl">
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
                     <div className="min-w-0">
                         <div className="text-sm font-black uppercase tracking-widest text-amber-300">Route report</div>
                         {routeName.trim() !== '' && (
@@ -294,11 +307,11 @@ export const TraceReportModal: React.FC<Props> = ({
                     </div>
                 </div>
                 {exportMsg && (
-                    <div className="border-b border-white/10 bg-sky-500/10 px-4 py-1.5 text-[11px] font-bold text-sky-300">
+                    <div className="shrink-0 border-b border-white/10 bg-sky-500/10 px-4 py-1.5 text-[11px] font-bold text-sky-300">
                         {exportMsg}
                     </div>
                 )}
-                <div className="border-b border-white/10 px-4 py-2 text-[12px] font-bold">
+                <div className="shrink-0 border-b border-white/10 px-4 py-2 text-[12px] font-bold">
                     <span className="text-emerald-300">{h.clear} clear</span>
                     <span className="text-gray-500"> · </span>
                     <span className="text-amber-300">{h.caution} caution</span>
@@ -312,15 +325,15 @@ export const TraceReportModal: React.FC<Props> = ({
                     )}
                 </div>
                 {departureLabel === null ? (
-                    <div className="border-b border-white/10 px-4 py-2 text-[11px] text-gray-400">
+                    <div className="shrink-0 border-b border-white/10 px-4 py-2 text-[11px] text-gray-400">
                         Checking tide gates…
                     </div>
                 ) : departureLabel !== '' ? (
-                    <div className="border-b border-white/10 bg-sky-500/10 px-4 py-2.5 text-[13px] font-black leading-snug text-sky-300">
+                    <div className="shrink-0 border-b border-white/10 bg-sky-500/10 px-4 py-2.5 text-[13px] font-black leading-snug text-sky-300">
                         🌊 {departureLabel}
                     </div>
                 ) : null}
-                <div className="max-h-[46vh] space-y-2 overflow-y-auto px-4 py-3">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
                     {verdicts.length === 0 && (
                         <div className="text-[12px] text-gray-400">No legs yet — trace a route first.</div>
                     )}
@@ -388,7 +401,7 @@ export const TraceReportModal: React.FC<Props> = ({
                     )}
                 </div>
                 {fixable.length > 0 && (
-                    <div className="border-t border-white/10 px-4 py-3">
+                    <div className="shrink-0 border-t border-white/10 px-4 py-3">
                         <button
                             onClick={onFixAll}
                             disabled={fixBusy !== null}
