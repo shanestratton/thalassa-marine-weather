@@ -109,6 +109,27 @@ async function doTick(): Promise<void> {
         const user = await getCurrentUser();
         if (!user) return;
 
+        // SKIPPER-DEVICE GATE. Two devices on one account both trickled under the
+        // same user_id, so the public page drew both and its boat marker jumped
+        // to whichever reported last. Only the device holding the claim
+        // publishes.
+        //
+        // This gates PUBLISHING only — the local log is already written by the
+        // capture pipeline before this runs, so a second device still records
+        // the passage in full and can be promoted later. Losing the primary to a
+        // flat battery must not cost the passage.
+        //
+        // Unclaimed boats publish (mayPublish), so shipping this does not
+        // silently take an existing skipper off their own page.
+        // Dynamic import, matching isEnabled() above: this module is loaded from
+        // the capture path and a static settings-store import risks a cycle.
+        const [{ useSettingsStore: store }, { mayPublish }] = await Promise.all([
+            import('../../stores/settingsStore'),
+            import('../skipperDevice'),
+        ]);
+        const claim = store.getState().settings.skipperDevice ?? null;
+        if (!mayPublish(claim)) return;
+
         const mark = await readMark();
         const queue = await getOfflineEntries();
         const fresh = queue
