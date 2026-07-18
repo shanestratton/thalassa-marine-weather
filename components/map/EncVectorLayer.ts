@@ -1490,7 +1490,11 @@ export function setEncNightDim(map: mapboxgl.Map, on: boolean): void {
     // it. One fixed full-screen DOM overlay retires both: it sits over
     // everything the app draws, map and UI alike, and nothing can be
     // z-ordered past it. pointer-events:none keeps every interaction live.
-    if (map.getLayer(NIGHT_DIM_LAYER)) map.removeLayer(NIGHT_DIM_LAYER); // legacy v1 cleanup
+    try {
+        if (map.getLayer(NIGHT_DIM_LAYER)) map.removeLayer(NIGHT_DIM_LAYER); // legacy v1 cleanup
+    } catch {
+        /* map/style torn down — the DOM overlay removal below must still run */
+    }
     const existing = document.getElementById(NIGHT_DIM_OVERLAY_ID);
     if (!on) {
         existing?.remove();
