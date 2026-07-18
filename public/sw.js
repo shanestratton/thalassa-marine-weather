@@ -332,9 +332,12 @@
 // v156: AIS shows only vessels in the CURRENT map view — the render is clipped
 // to the viewport (padded), so panning to the Whitsundays shows the yachts up
 // there and none from home (was: local store dumped every target everywhere).
-const CACHE_NAME = 'thalassa-v156-core';
-const TILE_CACHE = 'thalassa-v156-tiles';
-const DATA_CACHE = 'thalassa-v156-data';
+// v157: the charts page boots on the CLEAN DARK chart (dark-v11 base + ENC
+// depth bands) instead of the glazed hybrid satellite. Satellite/hybrid stay
+// one tap away via the base toggle.
+const CACHE_NAME = 'thalassa-v157-core';
+const TILE_CACHE = 'thalassa-v157-tiles';
+const DATA_CACHE = 'thalassa-v157-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

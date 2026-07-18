@@ -2813,14 +2813,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
     // Hybrid base (Shane 2026-07-15): the PUBLIC voyage-page look —
-    // satellite-streets, imagery with roads + names — as the ONLY other
-    // base beside plain satellite ("these are the only two layers that
-    // I want"; Terrain and Dark retired the same day). THE BOOT DEFAULT
-    // since the same evening ("lets default to hybrid"). Session-only,
+    // satellite-streets, imagery with roads + names. Session-only,
     // mutually exclusive with satellite via the ChartModes setters, and
     // it gets the FULL satellite ENC treatment (glaze, hidden land
     // fills, bathy tint) via imageryOn below.
-    const [hybridVisible, setHybridVisible] = useState(true);
+    // BOOT DEFAULT is now the CLEAN DARK CHART (Shane 2026-07-17: "change
+    // the default from our banging layer to something more benign, like the
+    // public page — the clean dark one"). Both imagery layers boot OFF, so
+    // the dark-v11 base (mapStyle) shows with the ENC depth bands / coastline
+    // / marks on top — an ECDIS-like chart, no satellite, no white glaze
+    // (glaze only renders when imageryOn). Hybrid + satellite stay one tap
+    // away via the base toggle. Session-only, so no state haunts a reboot.
+    const [hybridVisible, setHybridVisible] = useState(false);
     const imageryOn = satelliteVisible || hybridVisible;
     useEffect(() => {
         const map = mapRef.current;
