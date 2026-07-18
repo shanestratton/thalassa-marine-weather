@@ -444,9 +444,15 @@
 // separate saved voyage, so every passage appeared twice. Pairs collapse to the
 // direction that STARTS nearest the boat -- the way you are about to sail --
 // marked ⇄ so a folded return leg is visible rather than silently dropped.
-const CACHE_NAME = 'thalassa-v178-core';
-const TILE_CACHE = 'thalassa-v178-tiles';
-const DATA_CACHE = 'thalassa-v178-data';
+// v179: BATHYMETRY as its own chart base. The MapTiler Ocean raster has always
+// been there, but only as a 0.45 tint on top of satellite; as a base it becomes
+// the water itself -- depth contours as the chart, no photo. Counts as imagery
+// so ENC goes translucent over it (otherwise the 0.95-opaque DEPARE ramp would
+// paint straight over the bathymetry), and drops under the ENC stack rather
+// than floating above it the way a tint does.
+const CACHE_NAME = 'thalassa-v179-core';
+const TILE_CACHE = 'thalassa-v179-tiles';
+const DATA_CACHE = 'thalassa-v179-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
