@@ -513,7 +513,11 @@ export function useMapInit(opts: UseMapInitOptions) {
                     }
                     if (layer.type === 'fill' && /water|ocean|sea(?!rch)|bathymetr/i.test(layer.id)) {
                         try {
-                            map.setPaintProperty(layer.id, 'fill-color', '#0d2c49');
+                            // Lightened twice now (Shane 2026-07-17: "make the
+                            // water lighter, it is still very dark blue") —
+                            // #0d2c49 → #1f5a85, a readable mid marine blue that
+                            // sits clearly apart from the #333b45 land slate.
+                            map.setPaintProperty(layer.id, 'fill-color', '#1f5a85');
                         } catch {
                             /* some fills lock their colour */
                         }
