@@ -174,13 +174,21 @@ Deno.serve(async (req: Request) => {
             'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
             'wind_speed, wind_gust, wind_direction, ' +
             'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes, voyage_id, ' +
-            'cumulative_distance_nm';
+            'cumulative_distance_nm, is_on_water';
 
         // Owner's per-voyage exclusion list — voyages hidden from the public
         // page (the app's "Public tracks" list). Filters BOTH the durable
         // track and the live tail. Fail-open on error: a transient read
         // failure shouldn't blank a page the owner expects to be live.
         const hiddenVoyageIds = new Set<string>();
+        // Voyages that are majority-LAND — a car drive, not a passage (Shane
+        // 2026-07-19: "it also has some older test tracks there on land as
+        // well"; his M1 run from Redcliffe to Logan City was drawing on the
+        // public page as a voyage). Populated by fetchTrack from the rows it
+        // already pages in, then reused by the live tail. Unlike
+        // hiddenVoyageIds this is a HEURISTIC, so every choice below is made to
+        // fail toward publishing rather than hiding.
+        const landVoyageIds = new Set<string>();
         {
             const { data: hiddenRows, error: hiddenErr } = await supabase
                 .from('voyage_log_hidden_voyages')
@@ -212,6 +220,36 @@ Deno.serve(async (req: Request) => {
                 rows.push(...page);
                 if (page.length < PAGE) break;
             }
+            // LAND VERDICT, per VOYAGE — never per point. Mirrors the app's
+            // isLandVoyage()/LAND_VOYAGE_FRACTION majority vote
+            // (services/shiplog/VoyageSummary.ts:205-209); keep the threshold in
+            // step with it and with get_voyage_summaries_rpc.sql.
+            //
+            // Per-voyage is the safety-critical part. MapContainer only starts a
+            // new segment when voyage_id CHANGES, so dropping individual points
+            // would not leave a gap — it would bridge them with a straight chord
+            // and quietly redraw the passage. A voyage is kept or dropped whole.
+            //
+            // Untagged rows cast no vote, and a voyage with no tagged rows never
+            // enters the tally, so it stays published: same fail-open shape as
+            // isLandVoyage's `landFraction != null` guard. The water detector
+            // also returns true on any error/offline, so poor connectivity biases
+            // toward KEEPING a track. The realistic failure is under-filtering —
+            // a drive recorded offline survives — never blanking a real passage.
+            const LAND_VOYAGE_FRACTION = 0.6;
+            const landTally = new Map<string, { land: number; total: number }>();
+            for (const p of rows) {
+                if (typeof p.is_on_water !== 'boolean') continue;
+                const vid = (p.voyage_id as string | null) ?? '';
+                const c = landTally.get(vid) ?? { land: 0, total: 0 };
+                c.total += 1;
+                if (p.is_on_water === false) c.land += 1;
+                landTally.set(vid, c);
+            }
+            for (const [vid, c] of landTally) {
+                if (c.total > 0 && c.land / c.total >= LAND_VOYAGE_FRACTION) landVoyageIds.add(vid);
+            }
+
             // Trackworthy filter, mirroring the app's isTrackworthyEntry():
             // manual entries excluded above (their fix can be a cached
             // position up to 60 s behind the boat); COG turn pins are
@@ -219,6 +257,8 @@ Deno.serve(async (req: Request) => {
             // (0,0)-ish fixes never render.
             const trackworthy = rows.filter((p) => {
                 if (hiddenVoyageIds.has((p.voyage_id as string | null) ?? '')) return false;
+                // …and the car drives (see landVoyageIds above).
+                if (landVoyageIds.has((p.voyage_id as string | null) ?? '')) return false;
                 // SAVED/PLANNED routes leak in as ship_logs rows keyed
                 // 'planned_…' (savePassagePlanToLogbook) — they used to draw
                 // as a separate line + amber pins for EVERY route the boat
@@ -269,7 +309,15 @@ Deno.serve(async (req: Request) => {
                 }
                 const page = (data ?? []) as Record<string, unknown>[];
                 fetched += page.length;
-                rows.push(...page.filter((p) => !hiddenVoyageIds.has((p.voyage_id as string | null) ?? '')));
+                rows.push(
+                    ...page.filter((p) => {
+                        const vid = (p.voyage_id as string | null) ?? '';
+                        // live_track has voyage_id but no is_on_water, so the
+                        // verdict fetchTrack already reached is the only signal
+                        // here — another reason it is computed per voyage.
+                        return !hiddenVoyageIds.has(vid) && !landVoyageIds.has(vid);
+                    }),
+                );
                 if (page.length < PAGE) break;
             }
             return rows;
