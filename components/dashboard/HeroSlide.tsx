@@ -87,6 +87,7 @@ const HeroSlideComponent = ({
     generatedAt: _generatedAt,
     onTimeSelect,
     onHourChange,
+    onSlideIndexChange,
     onActiveDataChange,
     isVisible = false,
     utcOffset,
@@ -116,6 +117,11 @@ const HeroSlideComponent = ({
     generatedAt?: string;
     onTimeSelect?: (time: number | undefined) => void;
     onHourChange?: (hour: number) => void;
+    /** RAW carousel index, unlike onHourChange which maps it to an hour. A
+     *  forecast day's slide 0 is the day OVERVIEW and slide 1 is 00:00, and
+     *  both map to hour 0 — so the hour alone cannot tell them apart and
+     *  anything upstream that must (the header's time range) needs this. */
+    onSlideIndexChange?: (idx: number) => void;
     onActiveDataChange?: (data: SourcedWeatherMetrics) => void;
     isVisible?: boolean;
     utcOffset?: number;
@@ -467,6 +473,7 @@ const HeroSlideComponent = ({
             if (onTimeSelect) {
                 onTimeSelect(undefined); // undefined = live/now
             }
+            if (onSlideIndexChange) onSlideIndexChange(0);
         };
         window.addEventListener('hero-reset-scroll', handleReset);
         return () => {
@@ -876,6 +883,8 @@ const HeroSlideComponent = ({
                 if (onHourChange) {
                     onHourChange(index > 0 ? Math.max(0, newIdx - 1) : newIdx);
                 }
+                // RAW index too — the mapping above is lossy (see the comment).
+                if (onSlideIndexChange) onSlideIndexChange(newIdx);
                 // INSTANT UPDATE: Propagate active card data immediately without waiting for useEffect
                 // This eliminates one render cycle delay for temp/description updates
                 if (onActiveDataChange && isVisible) {
@@ -886,7 +895,7 @@ const HeroSlideComponent = ({
                 }
             }
         },
-        [slides, onHourChange, onActiveDataChange, isVisible, index],
+        [slides, onHourChange, onSlideIndexChange, onActiveDataChange, isVisible, index],
     );
 
     // Keyboard navigation for horizontal hour carousel

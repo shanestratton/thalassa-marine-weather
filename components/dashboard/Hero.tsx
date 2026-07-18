@@ -41,6 +41,7 @@ export const HeroSection = ({
     utcOffset,
     onDayChange,
     onHourChange,
+    onSlideIndexChange,
     onActiveDataChange,
     isEssentialMode,
     minutelyRain,
@@ -68,6 +69,8 @@ export const HeroSection = ({
     utcOffset?: number;
     onDayChange?: (day: number) => void;
     onHourChange?: (hour: number) => void;
+    /** Raw carousel index of the focused slide — see HeroSlide's prop docs. */
+    onSlideIndexChange?: (idx: number) => void;
     onActiveDataChange?: (data: WeatherMetrics) => void;
     isEssentialMode?: boolean;
     minutelyRain?: MinutelyRain[];
@@ -217,10 +220,13 @@ export const HeroSection = ({
                     setActiveIndex(idx);
                     if (onDayChange) onDayChange(idx);
                     if (onHourChange) onHourChange(0); // Reset to first hour of new day
+                    // A new day lands on ITS slide 0 — the overview for a forecast
+                    // day, the live card for today. Mirrors the onHourChange reset.
+                    if (onSlideIndexChange) onSlideIndexChange(0);
                 }
             }
         },
-        [onDayChange, onHourChange],
+        [onDayChange, onHourChange, onSlideIndexChange],
     );
 
     // Keyboard navigation for vertical day carousel
@@ -327,6 +333,7 @@ export const HeroSection = ({
                                 coordinates={coordinates}
                                 generatedAt={generatedAt}
                                 onTimeSelect={timeSelectHandlers[rIdx]}
+                                onSlideIndexChange={onSlideIndexChange}
                                 onHourChange={onHourChange}
                                 isVisible={activeIndex === rIdx}
                                 utcOffset={utcOffset}
