@@ -324,9 +324,12 @@
 // new "Following a route?" cast-off prompt when you slide to start tracking)
 // PUBLISH the picked route to your public page; "Sail it" removed from the
 // tracer. Following is a cast-off decision, not a plotting one.
-const CACHE_NAME = 'thalassa-v153-core';
-const TILE_CACHE = 'thalassa-v153-tiles';
-const DATA_CACHE = 'thalassa-v153-data';
+// v154: the Charts source-picker category is parked off the radial layer FAB
+// (the boat's ENC/o-charts are automatic) — the fan falls back to 3
+// categories (weather/tactical/nav). Reversible via CHARTS_FAB_CATEGORY_VISIBLE.
+const CACHE_NAME = 'thalassa-v154-core';
+const TILE_CACHE = 'thalassa-v154-tiles';
+const DATA_CACHE = 'thalassa-v154-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
