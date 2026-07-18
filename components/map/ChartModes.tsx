@@ -507,6 +507,60 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                         const isClearRow = spec.id === 'clear';
                         return (
                             <React.Fragment key={spec.id}>
+                                {/* SEA CHART master — the switch lives beside the thing
+                                    that flips it. Clear All sets enc:false (its
+                                    contract), but the only way back was a toggle
+                                    buried in the layer drawer, itself gated on
+                                    encCellCount > 0. So one tap could strip the
+                                    depth bands, contours, marks and hazards with no
+                                    obvious way to restore them — that cost Shane a
+                                    day of "where did my white keel areas go?"
+                                    (2026-07-18). Off and on now sit in one menu. */}
+                                {isClearRow && props.setEncVisible && props.encVisible !== undefined && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            props.setEncVisible?.(!props.encVisible);
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.encVisible
+                                                ? 'rgba(56, 189, 248, 0.18)'
+                                                : 'rgba(56, 189, 248, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                                        }}
+                                        aria-label="Toggle the sea chart"
+                                        aria-pressed={props.encVisible}
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#38bdf8' }}
+                                        >
+                                            <MapIcon className="w-[18px] h-[18px]" />
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#38bdf8', fontSize: 13 }}
+                                            >
+                                                Sea chart {props.encVisible ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                depth bands, contours, marks and hazards
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
                                 {isClearRow && showEncRouteRow && (
                                     <button
                                         onClick={() => {
