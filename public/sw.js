@@ -341,9 +341,11 @@
 // coastline is readable.
 // v159: bridges + Notices to Mariners are plotting-only now — they ride with
 // the tracer (plan surface) and leave the browsing chart page clean.
-const CACHE_NAME = 'thalassa-v159-core';
-const TILE_CACHE = 'thalassa-v159-tiles';
-const DATA_CACHE = 'thalassa-v159-data';
+// v160: water lightened again on the dark chart (#0d2c49 -> #1f5a85) — a
+// readable mid marine blue against the land slate.
+const CACHE_NAME = 'thalassa-v160-core';
+const TILE_CACHE = 'thalassa-v160-tiles';
+const DATA_CACHE = 'thalassa-v160-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
