@@ -12,7 +12,7 @@
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
+import { type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS, isParkedLayer } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 
 // ── Data structures ──────────────────────────────────────────────
@@ -286,6 +286,8 @@ function buildCategories(
             icon: <SeaCategoryIcon />,
             color: 'text-cyan-400',
             glowColor: 'rgba(34,211,238,0.4)',
+            // Waves / Sea Ice / MLD drop out via PARKED_SEA_LAYERS (one list,
+            // shared with the overlay drawer's picker).
             items: [
                 {
                     id: 'waves',
@@ -335,7 +337,7 @@ function buildCategories(
                     groupExclusive: true,
                     group: SEA_STATE_LAYERS,
                 },
-            ],
+            ].filter((it) => !it.layerKey || !isParkedLayer(it.layerKey as WeatherLayer)),
         },
         {
             id: 'atmosphere',

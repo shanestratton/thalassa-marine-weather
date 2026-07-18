@@ -366,9 +366,14 @@
 // see-through so the imagery shows the real bank) — chroma carries the warning.
 // Legend now imports those colours instead of hand-copied hexes, and is gated
 // on imageryOn so HYBRID finally teaches the glaze key instead of paper-chart.
-const CACHE_NAME = 'thalassa-v164-core';
-const TILE_CACHE = 'thalassa-v164-tiles';
-const DATA_CACHE = 'thalassa-v164-data';
+// v165: Waves / Sea Ice / MLD off the chart page's layer pickers. One shared
+// PARKED_SEA_LAYERS list drives both pickers (the radial fan and the overlay
+// drawer) so they can't disagree, and the persisted active-layer set filters
+// through it too — otherwise a saved 'waves' would restore ON with its control
+// gone. Layer keys and CMEMS plumbing stay wired; empty the list to restore.
+const CACHE_NAME = 'thalassa-v165-core';
+const TILE_CACHE = 'thalassa-v165-tiles';
+const DATA_CACHE = 'thalassa-v165-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
