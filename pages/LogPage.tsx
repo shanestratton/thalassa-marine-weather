@@ -8,6 +8,7 @@
  * This file is ONLY responsible for JSX layout.
  */
 
+import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
@@ -1551,16 +1552,23 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 2026-07-17). Tapping one publishes it to the public page; "Just
                 recording" skips. Publish-only (v1): the route also draws on
                 your own chart via the card's FOLLOW button. */}
-            {followPromptVoyageId && (
-                // TOP-DOCKED, just under the "Ship's Log" header (Shane 2026-07-19:
-                // "can it start at the top just below where it says ship's log").
-                // It was an items-end sheet, so it opened at the far bottom of the
-                // screen — furthest from where the eye already was. The pt clears
-                // the safe area plus PageHeader; pb keeps it off the home
-                // indicator, and max-h-full then resolves against what is left,
-                // so the card can never run off either end.
+            {followPromptVoyageId &&
+                // PORTALLED TO <body> — the reason two position fixes missed.
+                // PageTransition animates this page with translate3d, and a
+                // transformed ancestor becomes the containing block for `fixed`
+                // children, so `fixed inset-0` was covering the PAGE box, not the
+                // screen: hence a card that sat low and a backdrop that stopped
+                // short of the tab bar. Portalling out of that subtree makes
+                // `fixed` mean the viewport again, so centring is genuinely
+                // screen-centred and the modal covers the whole app. Same trick
+                // LocationStarMenu and RoutePlanner already use here.
+                // Centred rather than offset (Shane 2026-07-19: "can it be a modal
+                // screen instead, centred on the screen"): centring needs no
+                // measurement, so it cannot be wrong by a magic number the way the
+                // two previous attempts were.
+                createPortal(
                 <div
-                    className="fixed inset-0 z-[10055] flex items-start justify-center bg-black/60 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+5.5rem)]"
+                    className="fixed inset-0 z-[10055] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
                     onClick={() => setFollowPromptVoyageId(null)}
                 >
                     <div
@@ -1600,8 +1608,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </button>
                         </div>
                     </div>
-                </div>
-            )}
+                </div>,
+                    document.body,
+                )}
 
             {/* Voyage Choice Dialog - Continue or New */}
             {showVoyageChoiceDialog && (
