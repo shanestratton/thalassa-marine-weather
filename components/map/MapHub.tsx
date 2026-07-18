@@ -6652,6 +6652,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 ✕
                             </button>
                         </div>
+                        {/* CHART-MODE ramp only. Over imagery the DEPARE fills are at
+                            opacity 0 and the glaze paints instead, so showing this ramp
+                            there taught a legend for something not on the screen
+                            (audit 2026-07-19). */}
+                        {!imageryOn && (
                         <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
                             {(
                                 [
@@ -6672,9 +6677,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 </div>
                             ))}
                         </div>
+                        )}
                         <div className="space-y-1 text-[10px] leading-snug text-gray-300">
-                            <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
-                            <div>Numbers are metres at the lowest tide — 3₄ means 3.4 m. Khaki numbers dry.</div>
+                            {!imageryOn && (
+                                <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
+                            )}
+                            {/* The datum flips with the tide toggle, so the sentence has
+                                to as well — while live tide is on these are NOT lowest-tide
+                                numbers, and saying so would be the one lie a skipper acts on
+                                directly (audit 2026-07-19). */}
+                            {tideDepthMode ? (
+                                <div>
+                                    Numbers are metres of water RIGHT NOW (charted + predicted tide) — 3₄ means 3.4 m.
+                                </div>
+                            ) : (
+                                <div>
+                                    Numbers are metres at the lowest tide (LAT) — 3₄ means 3.4 m. Olive numbers dry.
+                                </div>
+                            )}
                             {imageryOn ? (
                                 // The keel-keyed glaze was never taught anywhere
                                 // (2026-07-12 audit). Gated on imageryOn, NOT
@@ -6683,24 +6703,49 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 // the paper-chart key on the very surface that paints
                                 // the glaze (Shane 2026-07-18).
                                 <div className="text-sky-200">
-                                    Over imagery: bright white glaze = water that clears YOUR keel (draft + 0.5 m).
+                                    {/* NOT "draft + 0.5 m" (audit 2026-07-19). White begins
+                                        at the ROUTER HAZARD depth — buildDepareSatelliteOpacity
+                                        steps to white at h, and h = draft × 1.5 + 0.5
+                                        (HazardQueryService:106). draft+0.5 is the SAFETY depth,
+                                        which is where the amber band starts — so the old text
+                                        contradicted the very next clause, both of them claiming
+                                        to define the same edge. */}
+                                    Over imagery: bright white glaze = water with the router&apos;s full margin under
+                                    your keel (1½× draft + 0.5 m).
                                     {/* The two decision-relevant washes were unexplained (cycle-7 re-audit #8).
                                         Swatches use the real constants so they track the palette. */}
                                     <span style={{ color: CAUTION_BAND_COLOR }}> Light amber</span> = margin-thin (clears
                                     the keel but the router still flags it as a hazard);
                                     <span style={{ color: SHALLOW_CAUTION_COLOR }}> amber</span> = too shallow;
                                     <span style={{ color: DEPARE_BAND_COLORS.drying }}> khaki</span> = dries at low tide.
-                                    Bare imagery = uncharted.
+                                    Bare imagery = no usable depth here — uncharted, unattributed, or surveyed too
+                                    coarsely for this zoom. Treat it as unsurveyed.
                                 </div>
                             ) : (
-                                <div>The slate contour is your keel's limit; thin grey lines join equal depths.</div>
+                                // COLOURS WERE INVERTED (audit 2026-07-19). This read
+                                // "The SLATE contour is your keel's limit" — but the
+                                // safety contour is AMBER #f97316 (EncVectorLayer:1165,
+                                // "the single most keel-load-bearing line") and #7d8e9b
+                                // slate is the ORDINARY contours. The key was naming the
+                                // keel limit by the colour of the other line, so a
+                                // skipper following it literally picks the wrong one.
+                                // "Slate" survived only in comments describing the value
+                                // that line USED to be.
+                                <div>
+                                    The <span className="font-bold text-orange-400">amber</span> contour is your keel&apos;s
+                                    limit; thin slate-grey lines join equal depths.
+                                </div>
                             )}
                             {!(Number(settings.vessel?.draft) > 0) && (
                                 <div className="text-amber-300">
                                     Keel reads use a default 2.5 m draft — set your vessel in Settings.
                                 </div>
                             )}
-                            <div className="text-teal-300">Teal numbers = live tide depth is on.</div>
+                            {tideDepthMode && (
+                                <div className="text-teal-300">
+                                    Teal numbers = live tide depth is on (drying numbers stay olive).
+                                </div>
+                            )}
                         </div>
                         {/* Marks & lights — the buoyage vocabulary the chart
                             renders and the popups decode. The key taught depth
