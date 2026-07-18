@@ -465,6 +465,27 @@ describe('buildRouteAdvisories', () => {
         // Not assumed → no draft advisory for a genuine 2.5 m boat.
         expect(buildRouteAdvisories([r({})], 2.5, undefined, 0, false)).toEqual([]);
     });
+
+    it('LOCALIZES the no-data caution — names the first (and last) uncharted point (re-audit #3)', () => {
+        const out = buildRouteAdvisories([
+            r({ source: 'none', lat: -27.42, lon: 153.17 }),
+            r({}),
+            r({ source: 'none', lat: -27.4, lon: 153.2 }),
+        ]);
+        const nd = out.find((a) => a.kind === 'no-data')!;
+        expect(nd.text).toContain('2/3');
+        expect(nd.text).toContain('27.420'); // first, S
+        expect(nd.text).toContain('153.170'); // first, E
+        expect(nd.text).toContain('last near 27.400'); // last of the run
+    });
+
+    it('folds a short-terminal-leg segment no-data into the same count + location (re-audit #3)', () => {
+        const out = buildRouteAdvisories([r({})], undefined, undefined, 0, false, [{ lat: -27.5, lon: 153.1 }]);
+        const nd = out.find((a) => a.kind === 'no-data')!;
+        expect(nd).toBeDefined();
+        expect(nd.text).toContain('1/1'); // the segment leg counts even with no point samples
+        expect(nd.text).toContain('27.500');
+    });
 });
 
 describe('describeAreaGraze (ZOC lateral clearance advisory, burn-down 2026-07-18 #1)', () => {

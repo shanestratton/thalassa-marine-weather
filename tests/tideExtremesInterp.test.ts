@@ -133,3 +133,31 @@ describe('buildTideCurve — hydration from cached extremes', () => {
         ).toBeNull();
     });
 });
+
+describe('extremesInterp — alternation + inversion guard (cycle-6 re-audit #4, safety)', () => {
+    it('a same-type pair (HW,HW — a dropped/aliased extreme) refuses to interpolate', () => {
+        const heightAt = buildExtremesLookup([
+            { timeMs: 0, heightM: 2.0, type: 'High' as const },
+            { timeMs: 6 * HOUR_MS, heightM: 2.0, type: 'High' as const },
+        ]);
+        expect(heightAt(3 * HOUR_MS)).toBeNull(); // no bogus near-HW credit across the trough
+        expect(heightAt(0)).toBe(2.0); // exact-hit measured height still honoured
+    });
+    it('a physically inverted alternating pair (High below the Low) refuses too', () => {
+        const heightAt = buildExtremesLookup([
+            { timeMs: 0, heightM: 0.5, type: 'High' as const }, // "High" lower than the "Low"
+            { timeMs: 6 * HOUR_MS, heightM: 2.0, type: 'Low' as const },
+        ]);
+        expect(heightAt(3 * HOUR_MS)).toBeNull();
+    });
+    it('a type-LESS pair still blends (stormglass display path is unaffected)', () => {
+        const heightAt = buildExtremesLookup([
+            { timeMs: 0, heightM: 0.4 },
+            { timeMs: 6 * HOUR_MS, heightM: 2.0 },
+        ]);
+        expect(heightAt(3 * HOUR_MS)).toBe(1.2); // guard NOT triggered without types
+    });
+    it('a well-formed alternating pair is unaffected', () => {
+        expect(heightFromExtremes([LOW, HIGH], 3 * HOUR_MS)).toBe(1.2);
+    });
+});

@@ -64,6 +64,21 @@ export function buildExtremesLookup(extremes: readonly TideExtremePoint[]): (tim
         if (timeMs === a.timeMs) return a.heightM;
         if (timeMs === b.timeMs) return b.heightM;
         if (a.timeMs === b.timeMs) return a.heightM;
+        // Alternation + inversion guard (cycle-6 re-audit #4, safety). Only when
+        // BOTH endpoints carry a type — the routing path always does (WorldTides
+        // 'High'/'Low'); the display-only stormglass path carries none and is
+        // unaffected. A same-type pair (HW,HW — a dropped/aliased extreme) or an
+        // inverted pair (a "High" below the adjacent "Low") is not a real tidal
+        // swing: refuse to interpolate rather than emit a bogus curve whose
+        // positive credit could clear a charted shallow. null → the caller falls
+        // back to the static tide offset (chart datum, worst case), so a genuine
+        // shoal stays flagged as a hazard.
+        if (a.type && b.type) {
+            if (a.type === b.type) return null;
+            const high = a.type === 'High' ? a : b;
+            const low = a.type === 'Low' ? a : b;
+            if (high.heightM < low.heightM) return null; // physically inverted
+        }
         return halfCosineBlend(a.heightM, b.heightM, (timeMs - a.timeMs) / (b.timeMs - a.timeMs));
     };
 }

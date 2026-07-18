@@ -47,6 +47,7 @@ import * as cellMeta from './EncCellMetadata';
 import { getIndexForCell } from './EncHazardService';
 import type { EncCatzoc, EncHazard, EncHazardType } from './types';
 import type { BBoxEntry } from './types';
+import { ENC_HAZARD_DEPTH_M } from './types';
 
 const log = createLogger('EncHazardReportService');
 
@@ -285,17 +286,29 @@ function representativePoint(
 // ── Hazard classification ─────────────────────────────────────────
 
 /**
- * Map an EncHazard to a report-eligible type. We deliberately
- * exclude LNDARE/DEPARE — those drive the routing detour logic
- * upstream; reporting them here would double-count.
+ * Map an EncHazard to a report-eligible type. LNDARE is excluded (the router
+ * detours around it). SOUNDG/DEPARE shoals ARE reported when shallower than the
+ * vessel keel (cycle-6 re-audit #1: an isolated shoal patch off the planned
+ * track — reachable on a wide tack or drift — was surfaced nowhere). The depth
+ * gate mirrors EncSpatialIndex.classifyHazard exactly so the briefing can never
+ * disagree with routing about what counts as a shoal.
  */
-function reportableHazardType(hazard: EncHazard): EncHazardType | null {
+function reportableHazardType(hazard: EncHazard, shoalDepthM: number): EncHazardType | null {
     if (hazard.layer === 'OBSTRN') return 'obstruction';
     // Man-made allision structures (audit #3) — surfaced in the proximity
     // briefing with their OBJNAM descriptor, same as an obstruction.
     if (hazard.layer === 'SLCONS' || hazard.layer === 'DAMCON' || hazard.layer === 'PILPNT') return 'obstruction';
     if (hazard.layer === 'WRECKS') return 'wreck';
     if (hazard.layer === 'UWTROC') return 'rock';
+    // Shoal awareness (positive-metres S-57 depth, draft-aware). A depthless
+    // DEPARE/DRGARE flags (unknown = caution, fail-safe); a depthless SOUNDG
+    // asserts nothing (matches classifyHazard).
+    if (hazard.layer === 'DEPARE' || hazard.layer === 'DRGARE') {
+        return hazard.minDepthM == null || hazard.minDepthM < shoalDepthM ? 'shallow' : null;
+    }
+    if (hazard.layer === 'SOUNDG') {
+        return hazard.minDepthM != null && hazard.minDepthM < shoalDepthM ? 'shallow' : null;
+    }
     return null;
 }
 
@@ -427,6 +440,16 @@ export interface HazardReportOptions {
     bufferNm?: number;
     /** Hard cap on entries returned (prevents reports ballooning). */
     maxEntries?: number;
+    /** Positive-metres keel threshold; a shoal shallower than this is reported.
+     *  Default ENC_HAZARD_DEPTH_M (15 m) — fail-safe for callers without a draft. */
+    shoalDepthM?: number;
+    /** Tighter lateral band (NM) for SOUNDG/DEPARE shoal entries — the plausible
+     *  drift / wide-tack reach, well beyond the 150 m on-track guard but not the
+     *  full 1 NM visual buffer. Default 0.3 NM (~556 m). */
+    shoalBandNm?: number;
+    /** Max shoal entries kept (nearest-N), so a shoal-heavy estuary can't crowd
+     *  out wrecks/rocks. Default 6. */
+    maxShoalEntries?: number;
 }
 
 /**
@@ -442,6 +465,9 @@ export async function findHazardsAlongRoute(
 ): Promise<RouteHazardReport> {
     const bufferNm = options.bufferNm ?? 1.0;
     const maxEntries = options.maxEntries ?? 50;
+    const shoalDepthM = options.shoalDepthM ?? ENC_HAZARD_DEPTH_M;
+    const shoalBandNm = options.shoalBandNm ?? 0.3;
+    const maxShoalEntries = options.maxShoalEntries ?? 6;
 
     if (route.length < 2) {
         return { cellsConsulted: 0, bufferNm, entries: [] };
@@ -471,11 +497,14 @@ export async function findHazardsAlongRoute(
         const candidates: BBoxEntry[] = index.searchInBBox(queryBBox);
 
         for (const entry of candidates) {
-            const type = reportableHazardType(entry.hazard);
-            if (!type) continue; // LNDARE/DEPARE — covered by validator.
+            const type = reportableHazardType(entry.hazard, shoalDepthM);
+            if (!type) continue; // LNDARE / deep water — covered by the validator.
 
             const { repr, distNm, side } = nearestApproach(entry.hazard, entry, route);
             if (distNm > bufferNm) continue;
+            // Shoals only within the tighter drift band (not the full 1 NM): an
+            // off-track shoal a keelboat could realistically reach on a wide tack.
+            if (type === 'shallow' && distNm > shoalBandNm) continue;
 
             const key = dedupeKey(entry.hazard.layer, repr);
             const existing = seen.get(key);
@@ -522,9 +551,12 @@ export async function findHazardsAlongRoute(
         }
     }
 
-    const entries = Array.from(seen.values())
-        .sort((a, b) => a.distanceNm - b.distanceNm)
-        .slice(0, maxEntries);
+    // Cap shoal entries (nearest-N) BEFORE the global cap so a shoal-dense
+    // estuary can't evict hard hazards (wreck/rock/obstruction) — re-audit #1.
+    const sorted = Array.from(seen.values()).sort((a, b) => a.distanceNm - b.distanceNm);
+    const shoals = sorted.filter((e) => e.hazardType === 'shallow').slice(0, maxShoalEntries);
+    const others = sorted.filter((e) => e.hazardType !== 'shallow');
+    const entries = [...others, ...shoals].sort((a, b) => a.distanceNm - b.distanceNm).slice(0, maxEntries);
 
     log.info(
         `report: ${entries.length} hazards within ${bufferNm.toFixed(1)} NM of route ` +
