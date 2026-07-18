@@ -94,6 +94,11 @@ export interface VoyageLogTelemetry {
     lat: number;
     lon: number;
     updated_at: string;
+    /** TRUE when this position is the last-known-position FALLBACK — no recent
+     *  track exists, so it is where the boat was last seen rather than where it
+     *  is now. The UI must label it; a stale berth fix shown as current is
+     *  something a viewer could plan a rendezvous around. */
+    is_last_known?: boolean;
 }
 
 export interface VoyageLogDestination {

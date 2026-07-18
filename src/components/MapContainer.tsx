@@ -17,6 +17,10 @@ import { fetchWindGrid, type WindSample } from '../windField';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
+    /** Latest telemetry. Carries the boat's position, and when the track is
+     *  empty it is the ONLY position available — the map centres and drops the
+     *  boat marker from it rather than opening on a globe view of nowhere. */
+    telemetry?: { lat: number; lon: number; updated_at: string; is_last_known?: boolean } | null;
     entries: VoyageLogEntry[];
     /** The one route the boat is currently following (linked passage plan),
      *  [lon,lat] points. Drawn as a distinct dashed line; every other
@@ -110,6 +114,7 @@ function simplifyTrack(coords: [number, number][]): [number, number][] {
 
 export default function MapContainer({
     track,
+    telemetry,
     entries,
     passageLine,
     waypoints,
@@ -227,7 +232,15 @@ export default function MapContainer({
 
     // Initial camera — fit the whole voyage, else a globe view.
     const initialViewState = useMemo(() => {
-        if (allCoords.length === 0) return { longitude: 0, latitude: 20, zoom: 1.3 };
+        // No track: centre on the boat's last known position if we have one.
+        // The globe view below is the genuine no-idea-where case, and it should
+        // stay reachable — but it must not be what a moored boat looks like.
+        if (allCoords.length === 0) {
+            if (telemetry && Number.isFinite(telemetry.lat) && Number.isFinite(telemetry.lon)) {
+                return { longitude: telemetry.lon, latitude: telemetry.lat, zoom: 10 };
+            }
+            return { longitude: 0, latitude: 20, zoom: 1.3 };
+        }
         if (allCoords.length === 1) return { longitude: allCoords[0][0], latitude: allCoords[0][1], zoom: 8 };
         let minLon = Infinity;
         let minLat = Infinity;
@@ -253,7 +266,26 @@ export default function MapContainer({
     // Selecting an entry deliberately does NOT move the camera — the whole
     // track is already framed, and viewers want to keep the overview.
 
-    const lastFix = trackCoords[trackCoords.length - 1];
+    // The track's end, or — with no track — wherever the boat was last seen.
+    const telemetryFix: [number, number] | undefined =
+        telemetry && Number.isFinite(telemetry.lat) && Number.isFinite(telemetry.lon)
+            ? [telemetry.lon, telemetry.lat]
+            : undefined;
+    const lastFix = trackCoords[trackCoords.length - 1] ?? telemetryFix;
+    // Only label the marker when the position is the fallback: a live boat needs
+    // no caption, a month-old berth fix very much does.
+    const lastKnownAgeLabel =
+        trackCoords.length === 0 && telemetry?.is_last_known
+            ? (() => {
+                  const ms = Date.now() - new Date(telemetry.updated_at).getTime();
+                  if (!Number.isFinite(ms) || ms < 0) return 'Last known';
+                  const days = Math.floor(ms / 86_400_000);
+                  if (days >= 1) return `Last known · ${days}d ago`;
+                  const hours = Math.floor(ms / 3_600_000);
+                  if (hours >= 1) return `Last known · ${hours}h ago`;
+                  return 'Last known · just now';
+              })()
+            : null;
 
     // Fetch the wind grid around the boat the first time the overlay is
     // switched on (and when the boat's position moves materially). Client-side
@@ -400,10 +432,27 @@ export default function MapContainer({
                 {/* Latest known position — pulsing */}
                 {lastFix && (
                     <Marker longitude={lastFix[0]} latitude={lastFix[1]} anchor="center">
-                        <span className="relative flex h-4 w-4">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60 animate-ping" />
-                            <span className="relative inline-flex h-4 w-4 rounded-full bg-sky-400 border-2 border-white shadow-lg" />
-                        </span>
+                        <div className="flex flex-col items-center">
+                            <span className="relative flex h-4 w-4">
+                                <span
+                                    className={`absolute inline-flex h-full w-full rounded-full opacity-60 ${
+                                        lastKnownAgeLabel ? 'bg-slate-400' : 'bg-sky-400 animate-ping'
+                                    }`}
+                                />
+                                <span
+                                    className={`relative inline-flex h-4 w-4 rounded-full border-2 border-white shadow-lg ${
+                                        lastKnownAgeLabel ? 'bg-slate-400' : 'bg-sky-400'
+                                    }`}
+                                />
+                            </span>
+                            {/* Not pinging, and captioned: a stale fix should not
+                                animate like a boat under way. */}
+                            {lastKnownAgeLabel && (
+                                <span className="mt-1 whitespace-nowrap rounded bg-slate-900/85 px-1.5 py-0.5 text-[10px] font-bold text-slate-300 shadow">
+                                    {lastKnownAgeLabel}
+                                </span>
+                            )}
+                        </div>
                     </Marker>
                 )}
 
