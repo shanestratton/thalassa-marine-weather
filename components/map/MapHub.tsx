@@ -6451,7 +6451,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 // STALE over imagery, where that contour is hidden.
                                 <div className="text-sky-200">
                                     Over satellite: bright white glaze = water that clears YOUR keel (draft + 0.5 m).
-                                    Bare imagery = not enough water, or uncharted.
+                                    {/* The two decision-relevant washes were unexplained (cycle-7 re-audit #8). */}
+                                    <span style={{ color: '#f4e3bb' }}> Straw</span> = margin-thin (clears the keel but
+                                    the router still flags it as a hazard);
+                                    <span style={{ color: '#ecd39a' }}> amber</span> = too shallow;
+                                    <span style={{ color: '#c6c295' }}> khaki</span> = dries at low tide. Bare imagery =
+                                    uncharted.
                                 </div>
                             ) : (
                                 <div>The slate contour is your keel's limit; thin grey lines join equal depths.</div>
