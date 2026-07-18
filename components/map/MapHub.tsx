@@ -2865,7 +2865,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // exists (no tiles = dark under the glaze) but the Chart toggle is
     // one tap and the owner asked. Still never persisted — the toggle
     // owns it per session, so no state can haunt a later boot.
-    const [satelliteVisible, setSatelliteVisible] = useState(false);
+    // BOOT DEFAULT is SATELLITE (Shane 2026-07-19: "can we try the satellite
+    // image as the default layer?"), replacing the clean-dark boot of 2026-07-17.
+    // Worth knowing what this turns back on: satellite is imagery, so satOn is
+    // true from the first frame and the chart boots with the FULL satellite ENC
+    // treatment — white keel glaze, hidden land fills, amber safety contour —
+    // rather than the dark ECDIS look. Still session-only, never persisted, so
+    // it is a default and not a setting that can haunt a later boot.
+    const [satelliteVisible, setSatelliteVisible] = useState(true);
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
@@ -2875,13 +2882,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // mutually exclusive with satellite via the ChartModes setters, and
     // it gets the FULL satellite ENC treatment (glaze, hidden land
     // fills, bathy tint) via imageryOn below.
-    // BOOT DEFAULT is now the CLEAN DARK CHART (Shane 2026-07-17: "change
-    // the default from our banging layer to something more benign, like the
-    // public page — the clean dark one"). Both imagery layers boot OFF, so
-    // the dark-v11 base (mapStyle) shows with the ENC depth bands / coastline
-    // / marks on top — an ECDIS-like chart, no satellite, no white glaze
-    // (glaze only renders when imageryOn). Hybrid + satellite stay one tap
-    // away via the base toggle. Session-only, so no state haunts a reboot.
+    // Hybrid boots OFF — SATELLITE is the boot base as of 2026-07-19 (see its
+    // declaration above; the clean-dark boot of 2026-07-17 lasted two days).
+    // The two imagery bases are mutually exclusive via the ChartModes setters,
+    // so hybrid starting false is what lets satellite be the one that shows.
+    // Both remain one tap away on the base toggle. Session-only.
     const [hybridVisibleRaw, setHybridVisible] = useState(false);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page — I've lost all my zoom 10 whites in the
