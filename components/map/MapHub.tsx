@@ -329,6 +329,12 @@ const AUTO_ROUTE_BUTTON_VISIBLE = false;
 // Copy-coords button PARKED (Shane 2026-07-17) — thinned the 6-button
 // controls row to 5 so the survivors get a fatter tap target on a phone.
 const TRACER_COPY_BUTTON_VISIBLE = false;
+// "Sail it" PARKED (Shane 2026-07-17): following a route is a CAST-OFF
+// decision now, not a plotting one — it lives on the Log page (slide to start
+// tracking → "Follow a route?", or the FOLLOW button on a route card, which
+// also publishes to the public page). Plot → Save → cast off → follow.
+// sailTrace() stays wired for a future "cast off with this route" shortcut.
+const SAIL_IT_BUTTON_VISIBLE = false;
 
 // The guided course-frame (From/To boxes + 🧭 Set course) and its ⚡
 // Auto-to-destination button are PARKED with it (Shane 2026-07-16: "remove
@@ -5947,7 +5953,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         Fairway
                                                     </button>
                                                 )}
-                                                {(() => {
+                                                {SAIL_IT_BUTTON_VISIBLE &&
+                                                    (() => {
                                                     // No-go acknowledgment: with danger legs the
                                                     // first tap arms a red "Sail anyway?" — the
                                                     // skipper owns the line, but the green button
@@ -5980,7 +5987,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                   : 'Sail it'}
                                                         </button>
                                                     );
-                                                })()}
+                                                    })()}
                                             </div>
                                             {TRACER_CARD_LIBRARY_VISIBLE && (
                                                 <button

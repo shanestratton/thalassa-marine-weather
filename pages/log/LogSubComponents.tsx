@@ -9,6 +9,9 @@ import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry, VoyagePlan } from '../../types';
 import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
+import { useToast } from '../../components/Toast';
+import { publishFollowedRoute } from '../../services/shiplog/publishFollowedRoute';
+import { VoyageLogService } from '../../services/VoyageLogService';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
 import { groupEntriesByDate, groupEntriesByNoonWindow, computePropulsionSplit } from '../../utils/voyageData';
@@ -120,6 +123,7 @@ const FollowRouteButton: React.FC<{
     onNeedEntries?: () => void;
 }> = ({ voyage, startLabel, endLabel, onNeedEntries }) => {
     const { isFollowing, voyageId: followingVoyageId, startFollowing } = useFollowRoute();
+    const toast = useToast();
     const isThisFollowed = isFollowing && followingVoyageId === voyage.voyageId;
 
     // Planned-route points may not be resident yet (the list is summary-
@@ -167,7 +171,17 @@ const FollowRouteButton: React.FC<{
         };
 
         startFollowing(plan, voyage.voyageId);
-    }, [voyage, startLabel, endLabel, isThisFollowed, startFollowing]);
+        // Publish to the PUBLIC page (Shane 2026-07-17) — tied to an active
+        // voyage (option A). Following a different route mid-voyage re-links,
+        // so the public page swaps to it; following while not tracking just
+        // draws the chart line with a hint to cast off.
+        void publishFollowedRoute(voyage.voyageId).then((result) => {
+            if (result === 'linked') toast.success('Your public page now follows this route');
+            else if (result === 'not-tracking')
+                toast.info('Following on your chart — Slide to Start Tracking to show it on your public page');
+            else toast.error(VoyageLogService.lastError ?? 'Couldn’t publish — try Settings → Voyage Log');
+        });
+    }, [voyage, startLabel, endLabel, isThisFollowed, startFollowing, toast]);
 
     return (
         <button
