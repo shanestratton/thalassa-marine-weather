@@ -29,6 +29,7 @@ import { useUI } from '../context/UIContext';
 import { requestTracerOpen } from '../services/deepLink';
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
+import { PlanOnWebHint } from './passage/PlanOnWebHint';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
 // — Comfort + Trip/Leg stay up top, then Departure, then the three ways in
@@ -317,6 +318,11 @@ export const RoutePlanner: React.FC<{
             }
         >
             {!embedded && <PageHeader title="Route Planner" onBack={onBack} />}
+            {/* "Plot on the big screen" nudge. Gated on !embedded so it fires on
+                the PLAN page itself and not on the planner's embedded uses, and
+                native-only inside the component (telling a web user to go to the
+                web would be daft). Every visit until they tick the box. */}
+            {!embedded && <PlanOnWebHint />}
             {/* Stays visible across the auto-nav from RoutePlanner → MapHub */}
             {/* because the chip listens to window events (no React tree dep). */}
             <RouteEnhancementChip />
