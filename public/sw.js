@@ -416,9 +416,15 @@
 // a real timestamp, so that test matched every slide and killed them all. The
 // honest signal is the RAW slide index -- activeHour is lossy, mapping both the
 // overview and 00:00 to hour 0 -- so HeroSlide now reports it upstream.
-const CACHE_NAME = 'thalassa-v173-core';
-const TILE_CACHE = 'thalassa-v173-tiles';
-const DATA_CACHE = 'thalassa-v173-data';
+// v174: Charts is reachable from the plan chart at last — every other tab left
+// trace mode by unmounting MapHub, but Charts is already ON the map, so its tap
+// was inert. It now closes the tracer (keeping the pins, 🧭 pill to resume).
+// Layout: the scrubber moves off the Locate FAB onto the left rail and the
+// tracer card docks directly above it, open or folded, so the two read as one
+// column instead of drifting apart.
+const CACHE_NAME = 'thalassa-v174-core';
+const TILE_CACHE = 'thalassa-v174-tiles';
+const DATA_CACHE = 'thalassa-v174-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
