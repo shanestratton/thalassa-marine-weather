@@ -131,6 +131,34 @@ export function hazardDepthForDraft(draftM: number | null | undefined): number {
  *  ENC depths are already LAT-referenced. */
 export const GEBCO_MSL_TO_LAT_PESSIMISM_M = 1.3;
 
+/** Regions where MSL sits well above LAT (chart datum), so a GEBCO (MSL) depth
+ *  must clear MORE water before it reads safe. bbox = [minLon,minLat,maxLon,maxLat].
+ *  Values are conservative FLOORS from AHO standard-port ranges — only ever
+ *  RAISE the pessimism vs the 1.3 m Moreton default (cycle-5 re-audit: a no-
+ *  departure-time plan kept the flat 1.3 m even on the big-tide central coast). */
+const REGIONAL_MSL_TO_LAT_DELTA_M: { bbox: [number, number, number, number]; deltaM: number }[] = [
+    { bbox: [149.0, -22.7, 150.0, -21.0], deltaM: 4.5 }, // Broad Sound / Hay Point / Mackay (largest E-coast tides)
+    { bbox: [148.0, -20.6, 149.2, -19.7], deltaM: 3.0 }, // Whitsundays / Bowen
+    { bbox: [150.8, -24.3, 152.6, -23.3], deltaM: 2.3 }, // Gladstone / Bundaberg
+    { bbox: [152.4, -25.6, 153.1, -24.6], deltaM: 1.8 }, // Hervey Bay / Great Sandy Strait
+    { bbox: [145.6, -19.6, 147.2, -16.7], deltaM: 1.8 }, // Townsville / Cairns
+    // Moreton Bay & elsewhere fall through to GEBCO_MSL_TO_LAT_PESSIMISM_M (1.3).
+];
+
+/** Most-conservative regional MSL→LAT delta touching a route bbox, floored at
+ *  the Moreton constant so it can only ever be MORE cautious. Usable WITHOUT a
+ *  departure time (unlike the tide-curve-derived 0.6×range in landAvoidance). */
+export function regionalGebcoDatumDeltaM(bbox: [number, number, number, number]): number {
+    let delta = GEBCO_MSL_TO_LAT_PESSIMISM_M;
+    const [qLon0, qLat0, qLon1, qLat1] = bbox;
+    for (const r of REGIONAL_MSL_TO_LAT_DELTA_M) {
+        const [aLon, aLat, bLon, bLat] = r.bbox;
+        const overlaps = !(bLon < qLon0 || aLon > qLon1 || bLat < qLat0 || aLat > qLat1);
+        if (overlaps) delta = Math.max(delta, r.deltaM); // worst overlapping region wins (safe direction)
+    }
+    return delta;
+}
+
 function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolean {
     // ROUTE+WARN POLICY (deliberate, not fail-open): null = NO depth data
     // (uncharted + GEBCO unavailable). We return false so the router still

@@ -14,7 +14,7 @@ import type { HazardResult } from '../HazardQueryService';
 import type { RouteAdvisory } from '../enc/EncHazardReportService';
 import type { EncCautionArea } from '../enc/EncSpatialIndex';
 import { failedCellIds } from '../enc/encIndexCache';
-import { GEBCO_MSL_TO_LAT_PESSIMISM_M } from '../HazardQueryService';
+import { GEBCO_MSL_TO_LAT_PESSIMISM_M, regionalGebcoDatumDeltaM } from '../HazardQueryService';
 import { CATZOC_LABELS, type EncAreaGraze, type EncCatzoc } from '../enc/types';
 import { cellsForBBox } from '../enc/EncCellMetadata';
 import { chartAgeYears, isChartStale } from '../enc/chartCurrency';
@@ -840,6 +840,14 @@ export async function validateRouteSegments(
         }
     }
 
+    // Regional MSL→LAT datum pessimism for GEBCO fallback points, set for the
+    // WHOLE route bbox even with NO departure time (cycle-5 re-audit: a no-time
+    // plan kept the flat 1.3 m even on the big-tide central coast). The tide-
+    // curve branch below can only RAISE this further, never lower the floor.
+    if (Number.isFinite(bboxMinLon)) {
+        queryOpts.gebcoDatumDeltaM = regionalGebcoDatumDeltaM([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat]);
+    }
+
     // Oldest chart-edition age among ENC cells covering the route — surfaced as
     // a currency advisory in the exit branches below (closing audit 2026-07-18:
     // edition age reached only the map chip, so a route on a >5-yr edition read
@@ -889,7 +897,11 @@ export async function validateRouteSegments(
                 const hs = curve.heights.map((h) => h.height).filter((v) => Number.isFinite(v));
                 if (hs.length >= 2) {
                     const range = Math.max(...hs) - Math.min(...hs);
-                    queryOpts.gebcoDatumDeltaM = Math.max(GEBCO_MSL_TO_LAT_PESSIMISM_M, 0.6 * range);
+                    queryOpts.gebcoDatumDeltaM = Math.max(
+                        GEBCO_MSL_TO_LAT_PESSIMISM_M,
+                        0.6 * range,
+                        queryOpts.gebcoDatumDeltaM ?? 0,
+                    );
                 }
                 landLog.info(
                     `[ValidateRoute] tide curve loaded: ${curve.stationName ?? 'station unknown'} ` +

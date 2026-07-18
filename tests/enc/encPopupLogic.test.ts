@@ -7,7 +7,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { ENC_VEC_LAYERS } from '../../components/map/encLayerIds';
-import { buildGebcoDepthPopupHtml, needsTideWindow, pickAreaTap, type AreaTapHit } from '../../components/map/encPopup';
+import {
+    buildFeaturePopupHtml,
+    buildGebcoDepthPopupHtml,
+    needsTideWindow,
+    pickAreaTap,
+    type AreaTapHit,
+} from '../../components/map/encPopup';
 
 const hit = (layerId: string, properties: Record<string, unknown> = {}): AreaTapHit => ({ layerId, properties });
 
@@ -158,5 +164,18 @@ describe('buildGebcoDepthPopupHtml — uncharted-water tap answer (cycle-4 audit
         // A real vessel draft set → no draft caveat; the defaulted 4th arg is backward-compatible.
         expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready', false)).not.toContain('default 2.5 m draft');
         expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready')).not.toContain('default 2.5 m draft');
+    });
+});
+
+describe('buildFeaturePopupHtml — chart-currency caveat on provenance (re-audit UX #8)', () => {
+    const depareProps = { _cellId: 'AU5TEST', _sourceHO: 'AU', DRVAL1: 5, DRVAL2: 10 };
+    it('a >5 yr edition appends a verify-NtM caveat', () => {
+        expect(buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, depareProps, { chartAgeYears: 8 })).toContain('verify NtM');
+    });
+    it('a fresh edition (or unknown age) adds no currency caveat', () => {
+        expect(buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, depareProps, { chartAgeYears: 2 })).not.toContain(
+            'verify NtM',
+        );
+        expect(buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, depareProps, {})).not.toContain('verify NtM');
     });
 });

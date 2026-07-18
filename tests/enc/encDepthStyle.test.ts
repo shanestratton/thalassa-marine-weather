@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     ATTR_UNKNOWN,
+    CAUTION_BAND_COLOR,
     DEPARE_BAND_COLORS,
     DEPCNT_LABEL_INK_DATUM,
     DEPCNT_LABEL_INK_LIVE,
@@ -249,5 +250,33 @@ describe('satellite shallow-water salience — a known shoal is NOT identical to
         expect(glazeColor({ DRVAL1: 3 }, 3)).toBe('#f7f5f0');
         expect(glaze({ DRVAL1: 3 }, 3)).toBeGreaterThanOrEqual(0.6);
         expect(glazeColor({ DRVAL1: 2.99 }, 3)).toBe(SHALLOW_CAUTION_COLOR);
+    });
+});
+
+describe('router-hazard caution band [S, hazard) — glaze agrees with the router (cycle-5 re-audit)', () => {
+    const S = 2.9;
+    const H = 4.1; // 2.4 m draft: safety 2.9, router hazard 4.1
+    const opa = (d: number): number => evalExpr(buildDepareSatelliteOpacity(S, H), { props: { DRVAL1: d } }) as number;
+    const col = (d: number): unknown => evalExpr(buildDepareGlazeFillColor(S, H), { props: { DRVAL1: d } });
+
+    it('the [S, hazard) band paints straw caution, NOT the GO-white it used to', () => {
+        expect(col(3.5)).toBe(CAUTION_BAND_COLOR);
+        expect(col(4.09)).toBe(CAUTION_BAND_COLOR);
+    });
+    it('white begins at the router HAZARD depth, not the safety depth', () => {
+        expect(col(4.1)).toBe('#f7f5f0');
+        expect(col(5)).toBe('#f7f5f0');
+    });
+    it('shallower than S stays amber; the four bands are distinct colours', () => {
+        expect(col(2.5)).toBe(SHALLOW_CAUTION_COLOR);
+        expect(new Set([col(-0.5), col(2.5), col(3.5), col(5)]).size).toBe(4);
+    });
+    it('caution opacity sits strictly between shallow and safe', () => {
+        expect(opa(3.5)).toBeGreaterThan(opa(2.5));
+        expect(opa(3.5)).toBeLessThan(opa(5));
+    });
+    it('graceful degrade: no hazard arg (or hazard <= S) reproduces the two-band look', () => {
+        expect(evalExpr(buildDepareGlazeFillColor(S), { props: { DRVAL1: 3.5 } })).toBe('#f7f5f0');
+        expect(evalExpr(buildDepareGlazeFillColor(S, 2.0), { props: { DRVAL1: 3.5 } })).toBe('#f7f5f0');
     });
 });

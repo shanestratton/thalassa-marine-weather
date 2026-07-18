@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { encToHazardResult, hazardDepthForDraft } from '../services/HazardQueryService';
+import { encToHazardResult, hazardDepthForDraft, regionalGebcoDatumDeltaM } from '../services/HazardQueryService';
 import type { EncHazardResult } from '../services/enc/types';
 
 const pt = { lat: -27.4, lon: 153.1 };
@@ -61,5 +61,22 @@ describe('encToHazardResult depth-sign convention', () => {
         const rock: EncHazardResult = { covered: true, hazard: true, hazardType: 'rock', minDepthM: null };
         const r = encToHazardResult(pt, rock, threshold, 5);
         expect(r.isHazard).toBe(true);
+    });
+});
+
+describe('regionalGebcoDatumDeltaM — big-tide MSL→LAT floor without a departure time (re-audit A)', () => {
+    it('the big-tide central coast (Broad Sound / Hay Point) raises the delta above the Moreton floor', () => {
+        expect(regionalGebcoDatumDeltaM([149.2, -22.3, 149.6, -21.6])).toBe(4.5);
+    });
+    it('Moreton Bay and un-tabled coast keep the 1.3 m default', () => {
+        expect(regionalGebcoDatumDeltaM([153.0, -27.5, 153.3, -27.0])).toBe(1.3); // Moreton
+        expect(regionalGebcoDatumDeltaM([115.0, -32.0, 116.0, -31.0])).toBe(1.3); // WA — not in the QLD table
+    });
+    it('a bbox straddling two regions takes the WORST (most conservative) delta', () => {
+        // Overlaps both Whitsundays (3.0) and Broad Sound (4.5) → 4.5.
+        expect(regionalGebcoDatumDeltaM([148.8, -22.0, 149.3, -20.0])).toBe(4.5);
+    });
+    it('never returns below the Moreton floor', () => {
+        expect(regionalGebcoDatumDeltaM([0, -1, 1, 0])).toBeGreaterThanOrEqual(1.3);
     });
 });

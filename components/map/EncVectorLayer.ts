@@ -40,6 +40,8 @@
 import mapboxgl from 'mapbox-gl';
 import { mapExpr, mapFilter } from './encDepthStyle';
 import { readS57 } from '../../services/enc/types';
+import { getCell } from '../../services/enc/EncCellMetadata';
+import { chartAgeYears as computeChartAgeYears } from '../../services/enc/chartCurrency';
 import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
@@ -253,6 +255,10 @@ function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): vo
  */
 interface EncDepthStyleState {
     safetyDepthM: number;
+    /** Router grounding threshold (draft×1.5 + UKC, metres) — drives the glaze's
+     *  [safety, hazard) caution band so the hand-piloting surface agrees with the
+     *  router (cycle-5 re-audit). Undefined → the two-band glaze look. */
+    hazardDepthM?: number;
     /** Distinct charted VALDCO values PER CELL (keyed by `_cellId`) —
      *  each cell bolds its own smallest qualifying contour, so a cell
      *  whose inventory lacks its neighbour's exact value keeps its
@@ -300,9 +306,12 @@ const scaminAwareMark = (kindFilter: unknown): mapboxgl.FilterSpecification =>
  *
  * `safetyDepthM` = vesselDraftMetres(vessel) + tide margin. METRES.
  */
-export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number): void {
+export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number, hazardDepthM?: number): void {
     const state = depthStyleState.get(map) ?? { safetyDepthM, depcntValdcosByCell: {} };
     state.safetyDepthM = safetyDepthM;
+    // Only overwrite when explicitly supplied — the data-refresh path calls this
+    // with just safetyDepthM and must preserve the hazard depth it spread in.
+    if (hazardDepthM !== undefined) state.hazardDepthM = hazardDepthM;
     depthStyleState.set(map, state);
 
     const safetyByCell = computeSafetyValdcoByCell(state.depcntValdcosByCell, safetyDepthM);
@@ -335,6 +344,9 @@ export interface EncVectorMountOptions {
      * `updateEncDepthStyle` for live changes after mount.
      */
     safetyDepthM?: number;
+    /** Router grounding threshold (draft×1.5 + UKC, metres) — drives the glaze's
+     *  [safety, hazard) caution band (cycle-5 re-audit). */
+    hazardDepthM?: number;
 }
 
 /** mountLandCoastLayers — lifted from the mount monolith (#2b, pure statement move). */
@@ -486,7 +498,14 @@ function mountPointMarkLayers(
                         'match',
                         ['to-string', ['coalesce', ['get', 'CATWRK'], ['get', 'catwrk'], '']],
                         '1',
-                        'sm-hazard-wreck',
+                        'sm-hazard-wreck', // non-dangerous
+                        '4',
+                        'sm-hazard-wreck-mast', // INT1 K25 — wreck showing mast(s)
+                        '5',
+                        'sm-hazard-wreck-hull', // INT1 K26 — showing hull / superstructure
+                        // 2/3/unknown → dangerous hull (safety bias: an
+                        // uncategorised wreck reads dangerous). Retires the
+                        // previously-dead mast/hull glyphs (re-audit rendering).
                         'sm-hazard-wreck-dangerous',
                     ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
@@ -1327,6 +1346,7 @@ export function mountEncVectorLayer(
     const minZoom = opts.minZoom ?? 7;
     const opacity = opts.opacity ?? 0.85;
     const safetyDepthM = opts.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
+    const hazardDepthM = opts.hazardDepthM;
 
     // IALA symbol sprites for the buoy/beacon symbol layers.
     // Idempotent (hasImage guard inside) and async — Mapbox repaints
@@ -1346,6 +1366,7 @@ export function mountEncVectorLayer(
     depthStyleState.set(map, {
         ...prevState,
         safetyDepthM,
+        hazardDepthM: hazardDepthM ?? prevState?.hazardDepthM,
         depcntValdcosByCell: valdcosByCell,
         tideOffsetM: prevState?.tideOffsetM ?? null,
     });
@@ -1741,12 +1762,21 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         // never moves the go/no-go read. Colour and opacity are asserted
         // TOGETHER on the same datum (pairing invariant, encDepthStyle):
         // applyTideOffsetPaint deliberately skips this layer.
-        const safetyDepthM = depthStyleState.get(map)?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareGlazeFillColor(safetyDepthM));
+        const glazeState = depthStyleState.get(map);
+        const safetyDepthM = glazeState?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
+        // Router-hazard caution band [safety, hazard): the glaze paints it a
+        // distinct straw instead of GO-white (cycle-5 re-audit). Undefined
+        // hazard depth → the two-band look (graceful degrade in the builders).
+        const hazardDepthM = glazeState?.hazardDepthM;
+        map.setPaintProperty(
+            ENC_VEC_LAYERS.DEPARE_GLAZE,
+            'fill-color',
+            buildDepareGlazeFillColor(safetyDepthM, hazardDepthM),
+        );
         map.setPaintProperty(
             ENC_VEC_LAYERS.DEPARE_GLAZE,
             'fill-opacity',
-            satOn ? buildDepareSatelliteOpacity(safetyDepthM) : 0,
+            satOn ? buildDepareSatelliteOpacity(safetyDepthM, hazardDepthM) : 0,
         );
         map.setFilter(ENC_VEC_LAYERS.DEPARE_GLAZE, satOn ? DEPARE_COMPETENCE_FILTER : null);
     }
@@ -2195,11 +2225,15 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             const sb = map.queryRenderedFeatures(e.point, { layers: [ENC_VEC_LAYERS.SBDARE_FILL] });
             if (sb.length > 0) seabed = (sb[0].properties ?? {}) as Record<string, unknown>;
         }
+        const popupCellId = props._cellId as string | undefined;
         const extras: PopupExtras = {
             safetyDepthM: dstate?.safetyDepthM,
             tideOffsetM: dstate?.tideOffsetM ?? null,
             tideOffsetAtMs: dstate?.tideOffsetAtMs ?? null,
             draftAssumed: dstate?.draftAssumed ?? false,
+            // Chart-currency signal on the tap answer (re-audit UX): the same
+            // >5 yr caveat the route panel + attribution chip carry.
+            chartAgeYears: popupCellId ? computeChartAgeYears(getCell(popupCellId)?.issued, Date.now()) : null,
             ...(colocatedLight ? { light: colocatedLight } : {}),
             ...(seabed ? { seabed } : {}),
             ...(cautionsUnder.length > 0 ? { cautions: cautionsUnder } : {}),
