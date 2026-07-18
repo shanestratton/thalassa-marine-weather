@@ -780,6 +780,7 @@ export function buildGebcoDepthPopupHtml(
     depthM: number | null,
     safetyDepthM: number | undefined,
     phase: 'loading' | 'ready',
+    draftAssumed = false,
 ): string {
     const accent = '#f59e0b'; // amber — an uncharted, caution-grade read
     let body: string;
@@ -798,6 +799,12 @@ export function buildGebcoDepthPopupHtml(
                     ? `deeper than your ${safetyDepthM.toFixed(1)} m safety depth`
                     : `SHALLOWER than your ${safetyDepthM.toFixed(1)} m safety depth — caution`;
             body += `<div class="enc-popup-row"><span>Keel</span><b>${esc(keel)}</b></div>`;
+            // Draft honesty (cycle-5 audit #5): the charted DEPARE popup carries
+            // this caveat, but the LEAST-certain read (coarse GEBCO) was missing
+            // it — a keel verdict against an assumed default draft must say so.
+            if (draftAssumed) {
+                body += `<div class="enc-popup-row"><span></span><b style="color:#fbbf24">checked against a default 2.5 m draft — set your vessel</b></div>`;
+            }
         }
     }
     const caveat =

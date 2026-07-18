@@ -152,4 +152,11 @@ describe('buildGebcoDepthPopupHtml — uncharted-water tap answer (cycle-4 audit
         expect(html).toContain('~8 m');
         expect(html).not.toContain('safety depth');
     });
+
+    it('carries the draft-assumed caveat when the default draft is used (audit #5)', () => {
+        expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready', true)).toContain('default 2.5 m draft');
+        // A real vessel draft set → no draft caveat; the defaulted 4th arg is backward-compatible.
+        expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready', false)).not.toContain('default 2.5 m draft');
+        expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready')).not.toContain('default 2.5 m draft');
+    });
 });
