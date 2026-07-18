@@ -174,6 +174,9 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
     const ageLabel = chartAgeLabel(ageYears);
     const worstCatzoc = worstCatzocInView(cellsInView);
     const catTone = catzocTone(worstCatzoc);
+    // The emerald frame reads as "trust green" — drop it whenever the data
+    // behind it isn't trustworthy (stale edition or low/no CATZOC) — audit #5.
+    const frameCaution = stale || isLowConfidenceCatzoc(worstCatzoc);
     const tone = stale
         ? {
               dot: 'bg-amber-400',
@@ -191,10 +194,12 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             <button
                 onClick={() => setExpanded((x) => !x)}
                 aria-expanded={expanded}
-                className="rounded-lg border border-emerald-400/30 bg-black/75 backdrop-blur-sm px-2 py-1 text-[11px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5"
+                className={`rounded-lg border ${frameCaution ? 'border-amber-400/40' : 'border-emerald-400/30'} bg-black/75 backdrop-blur-sm px-2 py-1 text-[11px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5`}
             >
                 <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} aria-hidden="true" />
-                <span className="font-bold text-emerald-300">{'⚓'} Charts:</span>
+                <span className={`font-bold ${frameCaution ? 'text-amber-300' : 'text-emerald-300'}`}>
+                    {'⚓'} Charts:
+                </span>
                 <span>{compactLabel}</span>
                 {cellsInView.length > 1 && (
                     <span className="text-emerald-300/70 ml-1">· {cellsInView.length} cells</span>

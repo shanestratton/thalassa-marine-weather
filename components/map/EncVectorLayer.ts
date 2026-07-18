@@ -2036,6 +2036,9 @@ function showUnchartedDepthPopup(map: mapboxgl.Map, lngLat: mapboxgl.LngLat): vo
     const entry = attachedHandlers.get(map);
     if (entry?.popup) entry.popup.remove();
     const safetyDepthM = depthStyleState.get(map)?.safetyDepthM;
+    // The GEBCO keel verdict must carry the same draft-assumed caveat the
+    // charted popup does (cycle-5 audit #5) — it's the least-certain read.
+    const draftAssumed = depthStyleState.get(map)?.draftAssumed ?? false;
     const popup = new mapboxgl.Popup({
         closeButton: false,
         maxWidth: '280px',
@@ -2043,7 +2046,7 @@ function showUnchartedDepthPopup(map: mapboxgl.Map, lngLat: mapboxgl.LngLat): vo
         className: 'enc-popup-mapbox',
     })
         .setLngLat(lngLat)
-        .setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'loading'))
+        .setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'loading', draftAssumed))
         .addTo(map);
     if (entry) entry.popup = popup;
     const wireClose = () => {
@@ -2055,12 +2058,12 @@ function showUnchartedDepthPopup(map: mapboxgl.Map, lngLat: mapboxgl.LngLat): vo
     GebcoDepthService.queryDepth(lngLat.lat, lngLat.lng)
         .then((depthM) => {
             if (!isCurrent()) return; // closed or superseded by a newer tap
-            popup.setHTML(buildGebcoDepthPopupHtml(depthM, safetyDepthM, 'ready'));
+            popup.setHTML(buildGebcoDepthPopupHtml(depthM, safetyDepthM, 'ready', draftAssumed));
             wireClose(); // setHTML replaced the DOM — re-wire the close button
         })
         .catch(() => {
             if (!isCurrent()) return;
-            popup.setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'ready'));
+            popup.setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'ready', draftAssumed));
             wireClose();
         });
 }
