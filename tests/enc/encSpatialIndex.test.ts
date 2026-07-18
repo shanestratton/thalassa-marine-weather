@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Geometry } from 'geojson';
 
-import { EncSpatialIndex } from '../../services/enc/EncSpatialIndex';
+import { EncSpatialIndex, type EncCoastline } from '../../services/enc/EncSpatialIndex';
 import { mergeHazardResults } from '../../services/enc/hazardSeverity';
 import type { EncHazard, EncLayer } from '../../services/enc/types';
 
@@ -369,5 +369,52 @@ describe('EncSpatialIndex.segmentAreaGraze (ZOC lateral clearance, burn-down 202
         // Land is unconditional — the draft threshold never suppresses it.
         const land = idx('A', [hz('LNDARE', square(deg(30) + deg(500), 0, deg(500)))]);
         expect(land.segmentAreaGraze(...vseg(0), 4.1)?.type).toBe('land');
+    });
+});
+
+describe('EncSpatialIndex.segmentHazard — COALNE-only land crossing (audit #4)', () => {
+    // A coastline LINE islet (closed ring) charted with NO backing LNDARE.
+    const ring: Geometry = {
+        type: 'LineString',
+        coordinates: [
+            [-1, -1],
+            [1, -1],
+            [1, 1],
+            [-1, 1],
+            [-1, -1],
+        ],
+    };
+    const coast = (geometry: Geometry): EncCoastline => ({ geometry });
+    const idxC = (hazards: EncHazard[], coastlines: EncCoastline[]) =>
+        new EncSpatialIndex('A', hazards, [], coastlines);
+
+    it('a leg crossing a COALNE-only islet is flagged as land (the gap this fix closes)', () => {
+        const i = idxC([], [coast(ring)]);
+        // lat=0 leg from lon -2 to 2 crosses the ring at lon -1 and +1.
+        expect(i.segmentHazard(0, -2, 0, 2)).toMatchObject({ covered: true, hazard: true, hazardType: 'land' });
+    });
+
+    it('a leg clear of the islet is not flagged', () => {
+        const i = idxC([], [coast(ring)]);
+        expect(i.segmentHazard(5, -2, 5, 2).covered).toBe(false); // far north — no crossing
+    });
+
+    it('a coincident LNDARE polygon still yields exactly one land verdict (no double-count / throw)', () => {
+        const i = idxC([hz('LNDARE', square(0, 0, 1))], [coast(ring)]);
+        expect(i.segmentHazard(0, -2, 0, 2)).toMatchObject({ covered: true, hazard: true, hazardType: 'land' });
+    });
+
+    it('a crossing within the berth radius of an exempt terminal is waived', () => {
+        // Open coastline line at lon=0; a leg starting ~110 m west of it.
+        const wall = coast({
+            type: 'LineString',
+            coordinates: [
+                [0, -1],
+                [0, 1],
+            ],
+        });
+        const i = idxC([], [wall]);
+        expect(i.segmentHazard(0, -0.001, 0, 0.5).hazardType).toBe('land'); // no exemption → flagged
+        expect(i.segmentHazard(0, -0.001, 0, 0.5, true, false).covered).toBe(false); // exemptStart → waived
     });
 });

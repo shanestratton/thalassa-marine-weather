@@ -784,13 +784,18 @@ export class EncSpatialIndex {
         exemptStart = false,
         exemptEnd = false,
     ): EncHazardResult {
-        const candidates = this.hazardTree.search({
+        const searchBox = {
             minX: Math.min(lon1, lon2),
             minY: Math.min(lat1, lat2),
             maxX: Math.max(lon1, lon2),
             maxY: Math.max(lat1, lat2),
-        });
-        if (candidates.length === 0) {
+        };
+        const candidates = this.hazardTree.search(searchBox);
+        // COALNE-only land crossing (cycle-5 audit #4): an islet charted only as
+        // a coastline LINE with NO backing LNDARE polygon otherwise reads as
+        // clear water — land detection depended entirely on LNDARE completeness.
+        const coastCandidates = this.coastlineTree.search(searchBox);
+        if (candidates.length === 0 && coastCandidates.length === 0) {
             return { covered: false, hazard: false, minDepthM: null };
         }
 
@@ -865,6 +870,36 @@ export class EncSpatialIndex {
             if (bestType === null || compareHazardSeverity(type, entry.hazard.minDepthM, bestType, bestDepth) > 0) {
                 bestType = type;
                 bestDepth = entry.hazard.minDepthM;
+            }
+        }
+
+        // COALNE crossing pass (audit #4). Guarded by bestType !== 'land': a
+        // route crossing well-charted land already crosses an LNDARE polygon
+        // (which set 'land' above), so this only fires for the COALNE-only islet
+        // gap — no double-count. Each intersection backed by a charted LNDARE
+        // polygon is skipped, and terminals get the same berth exemption as the
+        // polygon path. A false detour here is fail-safe (never a sail-over).
+        if (bestType !== 'land') {
+            for (const c of coastCandidates) {
+                const cg = c.geometry;
+                if (cg.type !== 'LineString' && cg.type !== 'MultiLineString') continue;
+                for (const f of lineIntersect(segLine, cg).features) {
+                    const [xLon, xLat] = f.geometry.coordinates as [number, number];
+                    const backedByLndare = candidates.some(
+                        (e) =>
+                            e.hazard.layer === 'LNDARE' &&
+                            (e.hazard.geometry.type === 'Polygon' || e.hazard.geometry.type === 'MultiPolygon') &&
+                            booleanPointInPolygon(turfPoint([xLon, xLat]), e.hazard.geometry),
+                    );
+                    if (backedByLndare) continue;
+                    const nearExemptTerminal =
+                        (exemptStart && metresBetween(xLat, xLon, lat1, lon1) <= BERTH_EXEMPT_RADIUS_M) ||
+                        (exemptEnd && metresBetween(xLat, xLon, lat2, lon2) <= BERTH_EXEMPT_RADIUS_M);
+                    if (nearExemptTerminal) continue;
+                    crossedCharted = true;
+                    bestType = 'land';
+                    bestDepth = null;
+                }
             }
         }
 
