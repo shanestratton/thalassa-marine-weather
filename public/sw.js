@@ -509,9 +509,14 @@
 // a cardinal drawn as two bands (a 50/50 yellow-over-black dot asserts SOUTH),
 // a light-sector swatch using the BUOY palette, two hexes that existed nowhere
 // in the render stack, and cable+pipeline merged into one row.
-const CACHE_NAME = 'thalassa-v192-core';
-const TILE_CACHE = 'thalassa-v192-tiles';
-const DATA_CACHE = 'thalassa-v192-data';
+// v193: a 2nd leg's name completes itself again. The "Newport - " prefill was
+// recorded as the SKIPPER's typing, which switched auto-naming off — so the
+// dangling half-name could never be finished. It is ours now, and a chained leg
+// geocodes only the DESTINATION, keeping the previous leg's recorded arrival
+// name as the FROM half.
+const CACHE_NAME = 'thalassa-v193-core';
+const TILE_CACHE = 'thalassa-v193-tiles';
+const DATA_CACHE = 'thalassa-v193-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
