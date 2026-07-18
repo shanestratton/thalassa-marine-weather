@@ -460,9 +460,14 @@
 // INLINE, which shoved "Slide to Start Plotting" off the bottom of the page —
 // the one control the page exists to present. All three are portalled to <body>
 // so `fixed` means the screen, not PageTransition's transformed page box.
-const CACHE_NAME = 'thalassa-v181-core';
-const TILE_CACHE = 'thalassa-v181-tiles';
-const DATA_CACHE = 'thalassa-v181-data';
+// v182: a chained leg's first pin is locked as an INVARIANT, not six separate
+// per-path guards. Drag/delete/reverse/insert/clear/load all already refused to
+// move it, but adopting a ghost lane replaced the whole pin array and broke
+// every one of them at once. Now re-asserted centrally: whatever rewrites the
+// route, pin 1 returns to the previous leg's arrival.
+const CACHE_NAME = 'thalassa-v182-core';
+const TILE_CACHE = 'thalassa-v182-tiles';
+const DATA_CACHE = 'thalassa-v182-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

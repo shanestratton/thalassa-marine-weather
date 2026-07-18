@@ -723,6 +723,32 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         legAnchorRef.current = legAnchor;
     }, [legAnchor]);
+
+    // THE LOCK IS AN INVARIANT, not a pile of per-path guards (Shane 2026-07-19:
+    // "the first pin LOCKED where the last pin from the previous leg ended… it
+    // should not be able to be moved at all").
+    //
+    // Dragging (setDraggable), delete, ⇄ reverse, tap-insert, Clear and the
+    // three load doors each already refuse to move pin 1 of a chained leg. That
+    // is SIX separate promises, and adopting a ghost lane — which replaces the
+    // whole pin array wholesale — quietly broke every one of them at once.
+    // Rather than add a seventh guard and wait for the eighth, re-assert the
+    // anchor here: whatever rewrote the route, pin 1 goes back to the previous
+    // leg's arrival. Same reasoning as the ENC keel floor — a rule enforced in
+    // one place cannot be forgotten by a path written later.
+    //
+    // The honest way to move it is unchanged and still works: edit the PREVIOUS
+    // leg, whose new arrival becomes this leg's locked start.
+    useEffect(() => {
+        const a = legAnchor?.anchor;
+        if (!a || capturedCoords.length === 0) return;
+        const p0 = capturedCoords[0];
+        if (p0.lat === a.lat && p0.lon === a.lon) return; // already correct — the common case
+        // A correction is not an edit: borrow the undo/redo suppression so this
+        // never lands on the history stack as a step the skipper can undo into.
+        isRestoringRef.current = true;
+        setCapturedCoords((prev) => (prev.length === 0 ? prev : [{ ...a }, ...prev.slice(1)]));
+    }, [legAnchor, capturedCoords]);
     // Focused by the no-name Save guard so the keyboard pops ready to type.
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
