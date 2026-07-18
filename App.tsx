@@ -32,6 +32,12 @@ import { SystemStatusButton } from './components/SystemStatusButton';
 import { canAccess } from './services/SubscriptionService';
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
+import {
+    hasBeenDisplaced,
+    holdsClaim,
+    readRememberedHeld,
+    rememberHeld,
+} from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { checkDisclaimerAccepted } from './modules/LegalGuard';
@@ -132,6 +138,26 @@ const App: React.FC = () => {
     // Route Tracer is active; the floating mic orb over the map steps aside
     // for the tracer card and comes back on Done.
     const [tracerActive, setTracerActive] = useState(false);
+
+    // SKIPPER-DEVICE DISPLACEMENT NOTICE. The claim syncs last-write-wins, so a
+    // takeover on another device silently stops this one publishing. A device
+    // that believes it is broadcasting while the server disagrees is silent data
+    // loss on the public page — worse than not publishing at all — so it has to
+    // say so. Held-state is remembered across cold boots because the likely case
+    // is being displaced while this app is closed.
+    // `settings` above is already the live store (SettingsContext delegates to
+    // it), so no second subscription is needed here.
+    const skipperClaim = settings.skipperDevice;
+    useEffect(() => {
+        const nowHeld = holdsClaim(skipperClaim);
+        if (hasBeenDisplaced(skipperClaim, readRememberedHeld()) && !nowHeld) {
+            toast.info(
+                `This device is no longer the skipper — ${skipperClaim?.deviceName ?? 'another device'} took over. ` +
+                    `It has stopped publishing to your public page.`,
+            );
+        }
+        rememberHeld(nowHeld);
+    }, [skipperClaim]);
     useEffect(() => {
         const onTracer = (e: Event) => setTracerActive(Boolean((e as CustomEvent).detail?.active));
         window.addEventListener('thalassa:tracer-active', onTracer);

@@ -488,9 +488,15 @@
 // last-known fallback turned into a lie). No-track zoom z13 -> z12. And the
 // fallback no longer resolves to a PLANNED waypoint: those rows carry ETAs, so
 // ordering by timestamp desc was returning a position six hours in the future.
-const CACHE_NAME = 'thalassa-v188-core';
-const TILE_CACHE = 'thalassa-v188-tiles';
-const DATA_CACHE = 'thalassa-v188-data';
+// v189: SKIPPER DEVICE claim. Two devices on one account both published track
+// points under the same user_id — the public page drew both and its boat marker
+// jumped to whichever reported last. One device now holds an exclusive claim and
+// only it publishes; a second must take over deliberately. Gates PUBLISHING, not
+// recording, so a non-primary device still logs the passage. Unclaimed boats
+// still publish, so nobody silently vanishes from their own page on upgrade.
+const CACHE_NAME = 'thalassa-v189-core';
+const TILE_CACHE = 'thalassa-v189-tiles';
+const DATA_CACHE = 'thalassa-v189-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
