@@ -656,13 +656,31 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  delete; the shallow patch itself doesn't move). */
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
-    const [traceName, setTraceName] = useState('');
+    // Name rides with the WIP pins across a tab hop (2026-07-18).
+    const [traceName, setTraceName] = useState(() => {
+        try {
+            return sessionStorage.getItem('thalassa_trace_wip_name') ?? '';
+        } catch {
+            return '';
+        }
+    });
     // AUTO-NAME (Shane 2026-07-16): "Newport - Scarborough" from the first +
     // last pins, live as the route grows; coords when no place is nearby.
     // Auto-naming is ACTIVE while the name box is empty or still holding the
     // last auto value — the moment the skipper types their own name (or opens
     // a saved route, whose name differs), it stops touching the box.
-    const lastAutoNameRef = useRef<string>('');
+    // Restored alongside the name, because THIS ref is what distinguishes "we
+    // named it" from "the skipper named it". Lost, every restored name looks
+    // hand-typed and auto-naming silently stops updating it.
+    const lastAutoNameRef = useRef<string>(
+        (() => {
+            try {
+                return sessionStorage.getItem('thalassa_trace_wip_auto_name') ?? '';
+            } catch {
+                return '';
+            }
+        })(),
+    );
     useEffect(() => {
         if (!coordCaptureMode || capturedCoords.length === 0) return;
         const isAuto = traceName === '' || traceName === lastAutoNameRef.current;
@@ -698,7 +716,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     // (no drag, no delete; Clear resets TO it — legs chain by position,
     // not by name). Save badges the name "(2nd Leg)", stamps the chain
     // fields, and retro-badges leg 1. Loading anything else drops it.
-    const [legAnchor, setLegAnchor] = useState<NextLegSeed | null>(null);
+    // Restored with the pins — see the persistence effect below for why the
+    // chain must not outlive its own trace.
+    const [legAnchor, setLegAnchor] = useState<NextLegSeed | null>(() => {
+        try {
+            return JSON.parse(sessionStorage.getItem('thalassa_trace_wip_leg_anchor') ?? 'null');
+        } catch {
+            return null;
+        }
+    });
     const legAnchorRef = useRef<NextLegSeed | null>(null);
     useEffect(() => {
         legAnchorRef.current = legAnchor;
@@ -782,6 +808,20 @@ export const MapHub: React.FC<MapHubProps> = ({
             /* quota/private-mode */
         }
     }, [traceOrigin, traceDest]);
+    // The leg CHAIN rides with the pins, or resuming a trace quietly corrupts it
+    // (2026-07-18). legAnchor is what makes leg 2 a leg 2 — saveTrace branches on
+    // it for tripId/legOrdinal — so a trace resumed after a tab hop would save
+    // UNCHAINED and unbadged, looking fine while having silently lost its parent.
+    // That is worse than the visible loss it accompanies, so it persists too.
+    useEffect(() => {
+        try {
+            sessionStorage.setItem('thalassa_trace_wip_leg_anchor', JSON.stringify(legAnchor));
+            sessionStorage.setItem('thalassa_trace_wip_name', traceName);
+            sessionStorage.setItem('thalassa_trace_wip_auto_name', lastAutoNameRef.current);
+        } catch {
+            /* quota/private-mode */
+        }
+    }, [legAnchor, traceName]);
     const [fromQuery, setFromQuery] = useState('');
     const [toQuery, setToQuery] = useState('');
     const [frameBusy, setFrameBusy] = useState(false);
@@ -5197,9 +5237,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                     card" from the charts page): the browsing chart carries no
                     tracer furniture at all — the PLAN page is the only door
                     in ("Slide to Start Plotting" / Trip box / saved routes),
-                    and Done hands the bare chart back. The closed-🧭-pill
-                    branch below is parked, not deleted. */}
-                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
+                    and Done hands the bare chart back. */}
+                {/* THE WAY BACK (Shane 2026-07-18: "if a punter presses charts then
+                    the planning all disappears"). coordCaptureMode is useState(false)
+                    with NO false-setter, so it dies on any MapHub unmount — and
+                    MapHub unmounts on every tab except Charts. The pins themselves
+                    SURVIVE in thalassa_trace_wip_pins, so the trace was never
+                    actually lost; there was simply no door back into trace mode, the
+                    🧭 pill below having been gated behind the very flag it exists to
+                    restore (outer `&& coordCaptureMode` vs inner `!coordCaptureMode`
+                    — mutually exclusive, so it was unreachable dead code).
+                    Un-parked, but ONLY when unfinished pins exist: a chart with no
+                    work in progress stays bare, which was the 2026-07-17 intent. */}
+                {!embedded &&
+                    !isPinView &&
+                    !pickerMode &&
+                    !hideTracer &&
+                    (coordCaptureMode || capturedCoords.length > 0) && (
                     <div
                         // DEVICE-ONLY CENTRING (Shane 2026-07-18: "can we make the
                         // tracer card in the centre?? only on the device. not on the
@@ -5228,8 +5282,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // stay at 148px, so tying top to the rose alone let the
                             // card cover the pills — max() takes the lower of the two.
                             // FOLDED: no top — the card shrinks to its header strip
-                            // (so Done visibly minimises).
-                            top: panelFolded ? undefined : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
+                            // (so Done visibly minimises). The CLOSED 🧭 pill likewise
+                            // binds bottom only — top-bound it would stretch the little
+                            // pill into a full-height band.
+                            top:
+                                !coordCaptureMode || panelFolded
+                                    ? undefined
+                                    : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
                             // OPEN 8.4rem → 9.5rem: the scrubber grew ~18px taller
                             // when it was resized for touch (2026-07-18), which ate
                             // the card's clearance down to ~4px. 9.5rem restores the

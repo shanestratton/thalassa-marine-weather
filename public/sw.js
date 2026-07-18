@@ -396,9 +396,17 @@
 // a forecast day's overview card no longer claims "00:00 - 01:00": it is an
 // average standing for no hour, and only selectedTime could tell it apart from
 // the real 00:00 card (both report activeHour 0).
-const CACHE_NAME = 'thalassa-v170-core';
-const TILE_CACHE = 'thalassa-v170-tiles';
-const DATA_CACHE = 'thalassa-v170-data';
+// v171: an in-progress trace can be resumed after a tab hop. coordCaptureMode
+// is useState(false) with no false-setter, so it died on any MapHub unmount --
+// every tab except Charts -- while the PINS survived in sessionStorage. The
+// 🧭 re-entry pill existed but was gated behind the very flag it restores
+// (outer && coordCaptureMode vs inner !coordCaptureMode), i.e. unreachable.
+// Un-parked, shown only when unfinished pins exist. The leg CHAIN and the
+// route name now persist with the pins too, so a resumed leg 2 no longer saves
+// silently unchained.
+const CACHE_NAME = 'thalassa-v171-core';
+const TILE_CACHE = 'thalassa-v171-tiles';
+const DATA_CACHE = 'thalassa-v171-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
