@@ -343,9 +343,12 @@
 // the tracer (plan surface) and leave the browsing chart page clean.
 // v160: water lightened again on the dark chart (#0d2c49 -> #1f5a85) — a
 // readable mid marine blue against the land slate.
-const CACHE_NAME = 'thalassa-v160-core';
-const TILE_CACHE = 'thalassa-v160-tiles';
-const DATA_CACHE = 'thalassa-v160-data';
+// v161: the base layer follows the SURFACE — browsing chart = clean dark,
+// PLOTTING = hybrid imagery so the white keel-clearance glaze ("zoom 10
+// whites") is back on the plan page. Changing one no longer changes the other.
+const CACHE_NAME = 'thalassa-v161-core';
+const TILE_CACHE = 'thalassa-v161-tiles';
+const DATA_CACHE = 'thalassa-v161-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

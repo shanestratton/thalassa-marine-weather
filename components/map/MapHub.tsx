@@ -2826,6 +2826,26 @@ export const MapHub: React.FC<MapHubProps> = ({
     // away via the base toggle. Session-only, so no state haunts a reboot.
     const [hybridVisible, setHybridVisible] = useState(false);
     const imageryOn = satelliteVisible || hybridVisible;
+    // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
+    // also changed the planning page — I've lost all my zoom 10 whites in the
+    // water"). The browsing chart and the plotting surface are the SAME map, so
+    // one base state served both. But the white shallow-water glaze the skipper
+    // plans against ("bright white = water that clears YOUR keel") is part of
+    // the SATELLITE ENC treatment, so the clean-dark chart default silently
+    // killed it on the plot surface too.
+    // Now the base follows the SURFACE: browsing chart = clean dark; PLOTTING =
+    // hybrid imagery, so the glaze + whites come back exactly where they're
+    // used. A manual base toggle still holds while you stay on that surface —
+    // this only re-asserts when you cross between them.
+    useEffect(() => {
+        if (coordCaptureMode) {
+            setSatelliteVisible(false);
+            setHybridVisible(true);
+        } else {
+            setSatelliteVisible(false);
+            setHybridVisible(false);
+        }
+    }, [coordCaptureMode]);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
