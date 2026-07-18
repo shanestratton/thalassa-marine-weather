@@ -440,9 +440,13 @@
 // `fixed inset-0` was covering the PAGE box, not the screen. Portalled to
 // <body> (the pattern LocationStarMenu already uses) so `fixed` means the
 // viewport again, and centred so no measured offset can be wrong.
-const CACHE_NAME = 'thalassa-v177-core';
-const TILE_CACHE = 'thalassa-v177-tiles';
-const DATA_CACHE = 'thalassa-v177-data';
+// v178: the cast-off picker lists each passage ONCE. A ⇄ reversed route is a
+// separate saved voyage, so every passage appeared twice. Pairs collapse to the
+// direction that STARTS nearest the boat -- the way you are about to sail --
+// marked ⇄ so a folded return leg is visible rather than silently dropped.
+const CACHE_NAME = 'thalassa-v178-core';
+const TILE_CACHE = 'thalassa-v178-tiles';
+const DATA_CACHE = 'thalassa-v178-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

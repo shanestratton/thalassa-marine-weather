@@ -40,6 +40,7 @@ import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
+import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -144,6 +145,33 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const plannedSummaries = React.useMemo(
         () => (state.summaries ?? []).filter((s) => s.isPlannedRoute && s.voyageId),
         [state.summaries],
+    );
+
+    // Latest trustworthy fix of the voyage being recorded. Used only to choose
+    // WHICH WAY ROUND to offer a there-and-back route (below) — same "ignore
+    // 0,0" rule as hasRecordedFix, since a null-island fix would drag every
+    // direction choice toward the Gulf of Guinea.
+    const currentFix = React.useMemo(() => {
+        const vid = state.currentVoyageId;
+        if (!vid) return null;
+        for (let i = state.entries.length - 1; i >= 0; i--) {
+            const e = state.entries[i];
+            if (e.voyageId !== vid) continue;
+            if (!e.latitude || !e.longitude) continue;
+            if (e.latitude === 0 && e.longitude === 0) continue;
+            return { lat: e.latitude, lon: e.longitude };
+        }
+        return null;
+    }, [state.entries, state.currentVoyageId]);
+
+    // One row per passage — the ⇄ reverse of a saved route is a separate
+    // voyage, so the picker was listing every passage twice. Pure + tested in
+    // collapseReversedRoutes (it can HIDE a route if wrong, which does not look
+    // like a bug from the cockpit — it looks like a route you saved simply not
+    // being offered).
+    const plannedChoices = React.useMemo(
+        () => collapseReversedRoutes(plannedSummaries, currentFix),
+        [plannedSummaries, currentFix],
     );
     React.useEffect(() => {
         const vid = state.currentVoyageId;
@@ -1584,10 +1612,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </div>
                         </div>
                         <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                            {plannedSummaries.map((s) => (
+                            {plannedChoices.map(({ summary: s, reversible }) => (
                                 <FollowRouteChoice
                                     key={s.voyageId}
                                     summary={s}
+                                    reversible={reversible}
                                     onPick={() => {
                                         void publishFollowedRoute(s.voyageId).then((result) => {
                                             if (result === 'linked')

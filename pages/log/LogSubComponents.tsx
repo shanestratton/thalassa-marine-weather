@@ -129,8 +129,10 @@ export const MenuBtn: React.FC<{
 // and hooks cannot run inside a .map() callback.
 export const FollowRouteChoice: React.FC<{
     summary: VoyageSummary;
+    /** This route has a saved reverse, collapsed into this row. */
+    reversible?: boolean;
     onPick: () => void;
-}> = ({ summary, onPick }) => {
+}> = ({ summary, reversible = false, onPick }) => {
     const first =
         summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
     const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
@@ -149,7 +151,18 @@ export const FollowRouteChoice: React.FC<{
             onClick={onPick}
             className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99]"
         >
-            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">🧭 {routeName}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">
+                🧭 {routeName}
+                {/* The return leg is a separate saved voyage, folded into this
+                    row. Marked rather than silently dropped — the direction shown
+                    is the one starting nearest the boat, and a skipper should be
+                    able to see that a choice was made on their behalf. */}
+                {reversible && (
+                    <span className="ml-1.5 text-[11px] font-black text-gray-500" title="Return leg also saved">
+                        ⇄
+                    </span>
+                )}
+            </span>
             <span className="shrink-0 text-[11px] font-bold text-sky-300">
                 {summary.totalDistanceNM.toFixed(1)} NM · {summary.entryCount} pts
             </span>
