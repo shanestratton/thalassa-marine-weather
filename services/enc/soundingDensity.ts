@@ -75,13 +75,23 @@ export async function assignSoundingDensityMinZoom(
     // on the next zoom-bucket merge exactly as before.
     const effMaxZ = Math.max(MIN_Z, Math.min(MAX_Z, Math.round(maxUsefulZ ?? MAX_Z)));
     const pts: Array<{ f: Feature<Point>; lon: number; lat: number; d: number }> = [];
-    for (const f of features) {
+    // Sliced setup (slicing-honesty, cycle-5 audit #8): the build, the O(n log n)
+    // sort, and the meanLat sum below all ran unsliced ahead of the (already
+    // sliced) rung loop — one main-thread gulp on a 170k heap. Guarded on
+    // yieldEvery so the no-callback path (tests, small heaps) stays synchronous.
+    for (let i = 0; i < features.length; i++) {
+        if (yieldEvery && (i & 1023) === 1023) await yieldEvery();
+        const f = features[i];
         const c = f.geometry?.coordinates;
         if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
         const d = Number((f.properties as Record<string, unknown> | null)?._d);
         pts.push({ f, lon: c[0], lat: c[1], d: Number.isFinite(d) ? d : 9999 });
     }
+    // The sort is atomic (can't be sliced); the boundary yields just give it a
+    // fresh 12 ms budget and yield right after.
+    if (yieldEvery) await yieldEvery();
     pts.sort((a, b) => a.d - b.d);
+    if (yieldEvery) await yieldEvery();
 
     const cellDeg: number[] = [];
     for (let z = 0; z <= MAX_Z; z++) cellDeg[z] = (cellPxAt(z) * BASE_M_PER_PX) / 2 ** z / 111_320;
@@ -94,7 +104,17 @@ export async function assignSoundingDensityMinZoom(
     // scatter (2026-07-12 audit). Latitude cells shrink by cos(lat),
     // sampled once at the merged set's mean latitude (a render window
     // spans a bay — the variation across it is sub-1%).
-    const meanLat = pts.length > 0 ? pts.reduce((s, p) => s + p.lat, 0) / pts.length : 0;
+    // Strided sum in POST-SORT index order — bit-identical to the old
+    // pts.reduce (float addition is non-associative, so the summation order is
+    // load-bearing: a different order could shift meanLat in the last bit →
+    // cosLat → a borderline point's grid cell → its _minZoom). Do NOT fold this
+    // into the pre-sort build loop.
+    let latSum = 0;
+    for (let i = 0; i < pts.length; i++) {
+        if (yieldEvery && (i & 1023) === 1023) await yieldEvery();
+        latSum += pts[i].lat;
+    }
+    const meanLat = pts.length > 0 ? latSum / pts.length : 0;
     const cosLat = Math.max(Math.cos((meanLat * Math.PI) / 180), 0.2);
     const latCellDeg: number[] = [];
     for (let z = 0; z <= MAX_Z; z++) latCellDeg[z] = cellDeg[z] * cosLat;

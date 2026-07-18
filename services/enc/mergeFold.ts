@@ -485,10 +485,15 @@ export async function accumulateCellLayers(
     // tagged `_caution` with its S-57 class so the renderer styles
     // restricted / cable / pipeline / seabed / TSS apart (2026-07-16
     // audit). Same provenance + sub-pixel cull as the other area classes.
+    let cautionSeen = 0;
     for (const cls of CAUTION_AREA_CLASSES) {
         const fc = blob.layers[cls];
         if (!fc || !Array.isArray(fc.features)) continue;
         for (const feat of fc.features) {
+            // Slice the caution tail (slicing-honesty, cycle-5 audit #8): a
+            // TSS/cable-dense cell ran this whole loop unsliced between the last
+            // tagAndPush yield and the next cell. Counter spans all classes.
+            if ((++cautionSeen & 63) === 0) await yieldIfNeeded();
             if (!feat || !feat.geometry) continue;
             if (cullDeg > 0 && featureDiagDeg(feat) < cullDeg) continue;
             merged.CAUTION_AREAS.features.push({
@@ -518,14 +523,27 @@ export async function accumulateCellLayers(
     // LNDARE islands — LNDARE already carries OBJNAM on named land, no
     // LNDRGN extraction needed). Extracted to seaareLabels.ts (pure +
     // tested); finest-cell-wins via the shared seaareByName accumulator.
+    // Bracket each pure reduce with a slice boundary (audit #8) — seaareLabels
+    // stays sync + separately tested; the boundaries give each reduce a fresh
+    // 12 ms budget and break the per-cell tail without an async rewrite.
+    await yieldIfNeeded();
     reduceNamedAreas(blob.layers.SEAARE, 'water', seaareByName);
+    await yieldIfNeeded();
     reduceNamedAreas(blob.layers.LNDARE, 'land', seaareByName);
+    await yieldIfNeeded();
 
     // Soundings: explode each MultiPoint cloud into labelled points via
     // the pure explodeSoundings (no provenance — the minimal {_d,_minZoom}
     // bag keeps the merged heap sane). Pushed one at a time (a harbour
-    // cell's thousands of points would overflow a spread-arg push).
-    for (const p of explodeSoundings(blob.layers.SOUNDG)) merged.SOUNDG.features.push(p);
+    // cell's thousands of points would overflow a spread-arg push), strided
+    // at 1024 (audit #8) — the exploded cloud is the largest per-cell array,
+    // and the old unsliced push blew the per-cell tail on a dense harbour cell.
+    const exploded = explodeSoundings(blob.layers.SOUNDG);
+    let soundingPushed = 0;
+    for (const p of exploded) {
+        if ((++soundingPushed & 1023) === 0) await yieldIfNeeded();
+        merged.SOUNDG.features.push(p);
+    }
 }
 
 // ── sounding-LOD: density ladder + look-ahead cull ────────────────────
@@ -564,10 +582,19 @@ export async function applySoundingLod(
     );
 
     if (zoom != null) {
+        // Strided cull (audit #8): the old single .filter() ran unsliced over
+        // the whole ~30-170k sounding heap. Same predicate in the same index
+        // order → byte-identical survivors; only the timing changes. zoom!=null
+        // is always a windowed (abortable) merge — exactly the heavy case.
         const cap = zoom + SOUNDING_LOD_LOOKAHEAD;
-        merged.SOUNDG.features = merged.SOUNDG.features.filter((f) => {
+        const src = merged.SOUNDG.features;
+        const kept: Feature[] = [];
+        for (let i = 0; i < src.length; i++) {
+            if ((i & 1023) === 1023) await yieldIfNeeded();
+            const f = src[i];
             const mz = (f.properties as { _minZoom?: number } | null)?._minZoom;
-            return typeof mz !== 'number' || mz <= cap;
-        });
+            if (typeof mz !== 'number' || mz <= cap) kept.push(f);
+        }
+        merged.SOUNDG.features = kept;
     }
 }
