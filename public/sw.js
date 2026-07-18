@@ -320,9 +320,13 @@
 // following (dashed violet passage line) — saved/planned routes no longer
 // leak in as clutter (client filters planned track lines; edge fn drops
 // planned rows from the track + waypoint pins at source).
-const CACHE_NAME = 'thalassa-v152-core';
-const TILE_CACHE = 'thalassa-v152-tiles';
-const DATA_CACHE = 'thalassa-v152-data';
+// v153: follow-a-route lives on the Log page now. The FOLLOW button (and the
+// new "Following a route?" cast-off prompt when you slide to start tracking)
+// PUBLISH the picked route to your public page; "Sail it" removed from the
+// tracer. Following is a cast-off decision, not a plotting one.
+const CACHE_NAME = 'thalassa-v153-core';
+const TILE_CACHE = 'thalassa-v153-tiles';
+const DATA_CACHE = 'thalassa-v153-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

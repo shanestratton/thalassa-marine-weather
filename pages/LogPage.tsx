@@ -47,6 +47,7 @@ import { ImportSheet } from './log/ImportSheet';
 import { ShareSheet } from './log/ShareSheet';
 import { ShareFormSheet } from './log/ShareFormSheet';
 import { StatsSheet } from './log/StatsSheet';
+import { publishFollowedRoute } from '../services/shiplog/publishFollowedRoute';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -131,6 +132,26 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     } = useLogPageState();
 
     const toast = useToast();
+
+    // ── Cast-off "Follow a route?" prompt (Shane 2026-07-17) ──
+    // When a fresh voyage starts and the skipper has suggested routes saved,
+    // ask which (if any) to broadcast on the public page. Publishing is tied
+    // to the active voyage (setVoyagePlanLink); "Just recording" skips it.
+    // One prompt per voyage — a ref so re-renders don't re-open it.
+    const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
+    const followPromptedRef = React.useRef<string | null>(null);
+    const plannedSummaries = React.useMemo(
+        () => (state.summaries ?? []).filter((s) => s.isPlannedRoute && s.voyageId),
+        [state.summaries],
+    );
+    React.useEffect(() => {
+        const vid = state.currentVoyageId;
+        if (!state.isTracking || !vid) return;
+        if (followPromptedRef.current === vid) return; // already asked this voyage
+        if (plannedSummaries.length === 0) return; // nothing to follow
+        followPromptedRef.current = vid;
+        setFollowPromptVoyageId(vid);
+    }, [state.isTracking, state.currentVoyageId, plannedSummaries.length]);
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(false);
 
@@ -1523,6 +1544,63 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     currentVoyageId={currentVoyageId ?? null}
                     voyageGroups={listVoyages}
                 />
+            )}
+
+            {/* Cast-off "Follow a route?" sheet — appears when a fresh voyage
+                starts and there are suggested routes to broadcast (Shane
+                2026-07-17). Tapping one publishes it to the public page; "Just
+                recording" skips. Publish-only (v1): the route also draws on
+                your own chart via the card's FOLLOW button. */}
+            {followPromptVoyageId && (
+                <div
+                    className="fixed inset-0 z-[10055] flex items-end justify-center bg-black/60 sm:items-center"
+                    onClick={() => setFollowPromptVoyageId(null)}
+                >
+                    <div
+                        className="max-h-[70vh] w-full max-w-md overflow-hidden rounded-t-3xl border border-white/10 bg-slate-900 shadow-2xl sm:rounded-3xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="border-b border-white/10 px-5 py-4">
+                            <div className="text-sm font-black uppercase tracking-widest text-emerald-300">
+                                Following a route?
+                            </div>
+                            <div className="mt-0.5 text-[12px] text-gray-400">
+                                Pick one to show on your public page — or just record the track.
+                            </div>
+                        </div>
+                        <div className="max-h-[42vh] space-y-1.5 overflow-y-auto px-3 py-3">
+                            {plannedSummaries.map((s) => (
+                                <button
+                                    key={s.voyageId}
+                                    onClick={() => {
+                                        void publishFollowedRoute(s.voyageId).then((result) => {
+                                            if (result === 'linked')
+                                                toast.success('Your public page now follows this route');
+                                            else toast.error('Couldn’t publish — try the Follow button, or Settings');
+                                        });
+                                        setFollowPromptVoyageId(null);
+                                    }}
+                                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99]"
+                                >
+                                    <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">
+                                        🧭 Suggested route
+                                    </span>
+                                    <span className="shrink-0 text-[11px] font-bold text-sky-300">
+                                        {s.totalDistanceNM.toFixed(1)} NM · {s.entryCount} pts
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="border-t border-white/10 px-5 py-3">
+                            <button
+                                onClick={() => setFollowPromptVoyageId(null)}
+                                className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
+                            >
+                                Just recording
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Voyage Choice Dialog - Continue or New */}
