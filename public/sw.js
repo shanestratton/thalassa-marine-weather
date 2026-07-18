@@ -327,9 +327,11 @@
 // v154: the Charts source-picker category is parked off the radial layer FAB
 // (the boat's ENC/o-charts are automatic) — the fan falls back to 3
 // categories (weather/tactical/nav). Reversible via CHARTS_FAB_CATEGORY_VISIBLE.
-const CACHE_NAME = 'thalassa-v154-core';
-const TILE_CACHE = 'thalassa-v154-tiles';
-const DATA_CACHE = 'thalassa-v154-data';
+// v155: Marks / Tides / No-Go / Window parked out of the radial FAB's
+// Tactical fan (wrong page). AIS, Anchor and Inspect stay.
+const CACHE_NAME = 'thalassa-v155-core';
+const TILE_CACHE = 'thalassa-v155-tiles';
+const DATA_CACHE = 'thalassa-v155-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

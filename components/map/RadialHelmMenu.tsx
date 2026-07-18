@@ -159,6 +159,12 @@ const glowPulse: Variants = {
     },
 };
 
+// Operational-reference tactical items PARKED (Shane 2026-07-17: "remove
+// marks, tides, no-go and window from the tactical area — they're on the
+// wrong page"). Marks/Tides/No-Go/Window drop off the fan; AIS, Anchor and
+// Inspect stay. Flip to restore. Handlers stay wired at the MapHub call site.
+const TACTICAL_REFERENCE_ITEMS_VISIBLE = false;
+
 // ── Default categories ──────────────────────────────────────────
 
 function buildCategories(
@@ -215,7 +221,8 @@ function buildCategories(
     }
 
     // ── Operational reference (lower in the fan) ──
-    if (tacticalState?.onToggleSeamark) {
+    // Marks / Tides / Window / No-Go PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
+    if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
         tactical.push({
             id: 'seamark',
             label: 'Marks',
@@ -223,7 +230,7 @@ function buildCategories(
             action: tacticalState.onToggleSeamark,
         });
     }
-    if (tacticalState?.onToggleTideStations) {
+    if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleTideStations) {
         tactical.push({
             id: 'tides',
             label: 'Tides',
@@ -239,7 +246,7 @@ function buildCategories(
             action: tacticalState.onToggleAnchorage,
         });
     }
-    if (tacticalState?.onOpenWeatherWindow) {
+    if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onOpenWeatherWindow) {
         tactical.push({
             id: 'weatherwindow',
             label: 'Window',
@@ -247,7 +254,7 @@ function buildCategories(
             action: tacticalState.onOpenWeatherWindow,
         });
     }
-    if (tacticalState?.onToggleMpa) {
+    if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleMpa) {
         tactical.push({
             id: 'mpa',
             label: 'No-Go',
