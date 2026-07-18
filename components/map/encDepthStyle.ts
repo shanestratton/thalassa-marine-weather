@@ -219,9 +219,23 @@ export const DEPARE_BAND_COLORS = {
  *  to restore the old binary look. */
 export const SHALLOW_CAUTION_COLOR = '#ecd39a';
 const SHALLOW_CAUTION_OPACITY = 0.4;
+/** Router-hazard CAUTION band [S, hazard): water that clears the S-52 safety
+ *  depth (draft + UKC) but is shallower than the ROUTER's draft×1.5 + UKC
+ *  grounding threshold — margin-thin (cycle-5 re-audit: the glaze painted this
+ *  band GO-white while the router flagged it as a hazard, a mixed signal at the
+ *  helm). Pale straw between the [0,S) amber and safe white. DEVICE-VISUAL,
+ *  tunable; omit the hazard arg (or set opacity 0) to restore the two-band look. */
+export const CAUTION_BAND_COLOR = '#f4e3bb';
+const CAUTION_BAND_OPACITY = 0.5;
 
-export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpecification {
+export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
+    // Router-hazard caution band [s, h): present only when a valid deeper hazard
+    // depth is supplied; otherwise h === s and every stop below is byte-
+    // identical to the pre-caution expression (graceful degrade for one-arg
+    // callers + the pathological deep-draft case where hazard clamps below s).
+    const h = hazardDepthM != null && hazardDepthM > s ? hazardDepthM : s;
+    const hasCaution = h > s;
     return mapExpr([
         'case',
         attrValid(DRVAL1_ATTR),
@@ -231,11 +245,12 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
             0.55, // drying — a real warning even over imagery
             0,
             SHALLOW_CAUTION_OPACITY, // charted-shallow — distinct caution wash (was 0 = identical to uncharted)
-            s,
-            0.62, // enough water — bright paper, sail here
-            Math.max(s + 0.01, 20),
+            ...(hasCaution ? [s, CAUTION_BAND_OPACITY] : []), // [s,h) router-hazard caution
+            h,
+            0.62, // enough water — bright paper, sail here (white begins at the HAZARD depth, not s)
+            Math.max(h + 0.01, 20),
             0.68,
-            Math.max(s + 0.02, 50),
+            Math.max(h + 0.02, 50),
             0.72, // open water — mostly paper
         ],
         0,
@@ -254,14 +269,26 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
  * drying keeps its distinct khaki. Chart-datum keyed, matching the
  * opacity (the PAIRING INVARIANT above).
  */
-export function buildDepareGlazeFillColor(safetyDepthM: number): ExpressionSpecification {
+export function buildDepareGlazeFillColor(safetyDepthM: number, hazardDepthM?: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
+    const h = hazardDepthM != null && hazardDepthM > s ? hazardDepthM : s;
+    const hasCaution = h > s;
     return mapExpr([
         'case',
         attrValid(DRVAL1_ATTR),
-        // drying khaki < 0 ≤ shallow-caution amber < S ≤ safe white. Same 0/S
-        // boundaries as buildDepareSatelliteOpacity (the PAIRING INVARIANT).
-        ['step', DRVAL1_ATTR, DEPARE_BAND_COLORS.drying, 0, SHALLOW_CAUTION_COLOR, s, '#f7f5f0'],
+        // drying khaki < 0 ≤ shallow-caution amber < s ≤ router-caution straw
+        // < h ≤ safe white. Same 0/s boundaries as buildDepareSatelliteOpacity
+        // (the PAIRING INVARIANT); white now begins at the router HAZARD depth h.
+        [
+            'step',
+            DRVAL1_ATTR,
+            DEPARE_BAND_COLORS.drying,
+            0,
+            SHALLOW_CAUTION_COLOR,
+            ...(hasCaution ? [s, CAUTION_BAND_COLOR] : []),
+            h,
+            '#f7f5f0',
+        ],
         '#f7f5f0', // unknown DRVAL1 is opacity-0 anyway; colour never shows
     ]);
 }

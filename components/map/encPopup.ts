@@ -10,6 +10,7 @@
 
 import { LITCHR_LABELS, readS57 } from '../../services/enc/types';
 import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
+import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
 import { ENC_VEC_LAYERS } from './encLayerIds';
 
 /**
@@ -329,6 +330,11 @@ export interface PopupExtras {
      *  tap — folded into the depth popup as a "⚠ Restricted area…" row, so
      *  the caution wash never REPLACES the depth/keel read (audit). */
     cautions?: Record<string, unknown>[];
+    /** Age (years) of the covering chart edition, from the cell's issue date —
+     *  a >5 yr edition appends a "verify Notices to Mariners" caveat to the
+     *  provenance line, matching the route panel + attribution chip (re-audit
+     *  UX: the least-current tap answer carried no currency signal). */
+    chartAgeYears?: number | null;
 }
 
 const fmtHm = (ms: number): string =>
@@ -341,8 +347,14 @@ export function buildFeaturePopupHtml(
 ): string {
     const cellId = props._cellId as string | undefined;
     const sourceHO = props._sourceHO as string | undefined;
+    // Chart-currency caveat (re-audit UX): a >5 yr edition earns the same
+    // "verify NtM" nudge the route panel + attribution chip carry.
+    const staleSuffix =
+        extras.chartAgeYears != null && isChartStale(extras.chartAgeYears)
+            ? ` · <b style="color:#fbbf24">~${esc(chartAgeLabel(extras.chartAgeYears) ?? '')} old — verify NtM</b>`
+            : '';
     const provenance = cellId
-        ? `<div class="enc-popup-cell">${esc(cellId)}${sourceHO ? ` · ${esc(sourceHO)}` : ''}</div>`
+        ? `<div class="enc-popup-cell">${esc(cellId)}${sourceHO ? ` · ${esc(sourceHO)}` : ''}${staleSuffix}</div>`
         : '';
 
     let title = 'Feature';

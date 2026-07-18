@@ -9,7 +9,13 @@
 import { describe, it, expect } from 'vitest';
 import type { Geometry } from 'geojson';
 
-import { EncSpatialIndex, type EncCoastline } from '../../services/enc/EncSpatialIndex';
+import {
+    EncSpatialIndex,
+    zocMarginM,
+    GRAZE_MARGIN_CAP_M,
+    WORST_ZOC_GRAZE_MARGIN_CAP_M,
+    type EncCoastline,
+} from '../../services/enc/EncSpatialIndex';
 import { mergeHazardResults } from '../../services/enc/hazardSeverity';
 import type { EncHazard, EncLayer } from '../../services/enc/types';
 
@@ -427,5 +433,23 @@ describe('EncSpatialIndex — man-made allision structures classify as obstructi
     it('a DAMCON area is an obstruction too', () => {
         const i = idx('A', [hz('DAMCON', square(0, 0, 1))]);
         expect(i.queryPoint(0, 0).hazardType).toBe('obstruction');
+    });
+});
+
+describe('zocMarginM — C/D/U carry the true ±500 m CEP, A/B stay tight (re-audit B)', () => {
+    it('well-surveyed water stays at the tight cap', () => {
+        expect(zocMarginM(1)).toBe(5); // A1
+        expect(zocMarginM(2)).toBe(20); // A2
+        expect(zocMarginM(3)).toBe(50); // B
+        expect(zocMarginM(null)).toBe(50); // no M_QUAL → treated as B, not worst-case
+    });
+    it('poorly-surveyed water (C/D/U) opens to the real ±500 m CEP', () => {
+        expect(zocMarginM(4)).toBe(WORST_ZOC_GRAZE_MARGIN_CAP_M); // C
+        expect(zocMarginM(5)).toBe(WORST_ZOC_GRAZE_MARGIN_CAP_M); // D
+        expect(zocMarginM(6)).toBe(WORST_ZOC_GRAZE_MARGIN_CAP_M); // U
+    });
+    it('A/B never exceed the tight cap; C/D/U exceed it', () => {
+        expect(zocMarginM(3)).toBeLessThanOrEqual(GRAZE_MARGIN_CAP_M);
+        expect(zocMarginM(4)).toBeGreaterThan(GRAZE_MARGIN_CAP_M);
     });
 });

@@ -131,6 +131,10 @@ export function useEncVectorLayer(
      * MapHub always passes the live value.
      */
     safetyDepthM?: number,
+    /** The router's grounding threshold (draft×1.5 + UKC). Drives the glaze's
+     *  [safety, hazard) caution band so the hand-piloting surface agrees with
+     *  the router (cycle-5 re-audit). Omitted → the two-band glaze look. */
+    hazardDepthM?: number,
 ): void {
     const mountedRef = useRef(false);
     const [bumpCounter, setBumpCounter] = useState(0);
@@ -156,6 +160,8 @@ export function useEncVectorLayer(
     // ref.current when mount runs.
     const safetyDepthRef = useRef(safetyDepthM);
     safetyDepthRef.current = safetyDepthM;
+    const hazardDepthRef = useRef(hazardDepthM);
+    hazardDepthRef.current = hazardDepthM;
 
     useEffect(() => {
         // DEBOUNCED (2026-07-11, Shane: "takes a long time for our new
@@ -353,7 +359,10 @@ export function useEncVectorLayer(
                     // 14-source re-upload entirely.
                     if (data !== lastAppliedRef.current) refreshEncVectorData(map, data);
                 } else {
-                    mountEncVectorLayer(map, data, { safetyDepthM: safetyDepthRef.current });
+                    mountEncVectorLayer(map, data, {
+                        safetyDepthM: safetyDepthRef.current,
+                        hazardDepthM: hazardDepthRef.current,
+                    });
                     // Click handlers reference the layer IDs that
                     // mount() just registered. Attach is idempotent
                     // so repeat-mounts on cell-list bumps don't pile
@@ -407,6 +416,6 @@ export function useEncVectorLayer(
         if (!mapReady || safetyDepthM === undefined || !mountedRef.current) return;
         const map = mapRef.current;
         if (!map) return;
-        updateEncDepthStyle(map, safetyDepthM);
-    }, [mapRef, mapReady, safetyDepthM]);
+        updateEncDepthStyle(map, safetyDepthM, hazardDepthM);
+    }, [mapRef, mapReady, safetyDepthM, hazardDepthM]);
 }

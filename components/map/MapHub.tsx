@@ -115,6 +115,7 @@ import {
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
+import { hazardDepthForDraft } from '../../services/HazardQueryService';
 import {
     buildTracerContext,
     validateTraceLeg,
@@ -2113,6 +2114,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // tide margin. A grounding-risk line drawn against a fake draft is worse
     // than none, so this is the LIVE value, recomputed when the profile edits.
     const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
+    // The ROUTER's grounding threshold (draft×1.5 + UKC), from its OWN function
+    // so the satellite glaze's caution band and the router can't drift apart
+    // (cycle-5 re-audit: the [safety, hazard) band read GO-white yet routed as
+    // a hazard). hazardDepthForDraft returns negative metres → magnitude here.
+    const encHazardDepthM = Math.abs(hazardDepthForDraft(vesselDraftMetres(settings.vessel)));
     // THE departure window — computed when the report opens. (Below the
     // settings declaration: the dep array reads settings.vessel at render.)
     useEffect(() => {
@@ -4298,7 +4304,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // obstruction/wreck/rock symbols. Depth-graduated blues so
     // the user can read shoals at a glance. Mounts at zoom 7+
     // (lower zooms get the dashed coverage overlay above).
-    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM);
+    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM, encHazardDepthM);
     // Tracer WYSIWYG (Shane 2026-07-09 "show markers, leads, laterals
     // and cardinals"): while tracing, every mark the grader checks
     // must be ON SCREEN — laterals, cardinals, specials, lights and

@@ -64,25 +64,30 @@ export const BERTH_EXEMPT_RADIUS_M = 500;
  * only an assumption. We surface it as a `segmentAreaGraze` advisory.
  *
  * IHO horizontal accuracy: A1 ±5 m, A2 ±20 m, B ±50 m, C ±500 m, D worse.
- * C/D/U are CAPPED to GRAZE_MARGIN_CAP_M here so the graze advisory stays a
- * SPECIFIC near-miss caveat and does not fire on every feature within half a
- * kilometre — the route-wide low-confidence CATZOC note (buildRouteAdvisories,
- * now ZOC ≥ B) already carries the "poorly surveyed, verify everything"
- * warning for that water, so the graze pass need not restate it 500 m wide.
+ * Well-surveyed water (A1/A2/B) stays tight (GRAZE_MARGIN_CAP_M); C/D/U carry
+ * their TRUE ±500 m CEP (cycle-5 re-audit: a 150-500 m pass off a charted bank
+ * in poorly-surveyed water fired NO specific near-miss, only the generic
+ * route-wide CATZOC note). The graze is advisory-only (never reroutes) and the
+ * validator keeps just ONE worst graze per route, so the wider C/D/U reach
+ * upgrades honesty without spamming.
  */
 const POSITIONAL_CEP_M: Record<EncCatzoc, number> = {
     1: 5, // A1
     2: 20, // A2
     3: 50, // B
-    4: 100, // C  (true CEP ±500 m — capped, see above)
-    5: 100, // D  (worse than C — capped)
-    6: 100, // U  (unassessed — capped)
+    4: 500, // C  (true CEP ±500 m)
+    5: 500, // D  (worse than C)
+    6: 500, // U  (unassessed)
 };
 
-/** Upper bound on the graze margin (m). C/D/U clamp here. Matches the
- *  point-hazard guard's order of magnitude so a graze can't out-reach a
- *  reroute. */
+/** Graze-margin cap for WELL-SURVEYED water (A1/A2/B) — stays tight so the
+ *  advisory reads as a specific near-miss, not a blanket. */
 export const GRAZE_MARGIN_CAP_M = 100;
+/** Graze-margin cap for the WORST ZOC (C/D/U) — the real ±500 m CEP, so a pass
+ *  within the chart's genuine position error fires a specific caution. Safe to
+ *  widen: the graze never reroutes, and only the single worst graze per route
+ *  surfaces (cycle-5 re-audit). */
+export const WORST_ZOC_GRAZE_MARGIN_CAP_M = 500;
 
 /** Margin (m) for a CATZOC. `null` (no M_QUAL under the segment) is treated
  *  as ZOC-B (±50 m), NOT worst-case: the separate `quality-unknown` note
@@ -90,7 +95,9 @@ export const GRAZE_MARGIN_CAP_M = 100;
  *  graze margin needn't also blow out to the cap on every no-M_QUAL cell. */
 export function zocMarginM(catzoc: EncCatzoc | null): number {
     if (catzoc == null) return POSITIONAL_CEP_M[3];
-    return Math.min(POSITIONAL_CEP_M[catzoc] ?? GRAZE_MARGIN_CAP_M, GRAZE_MARGIN_CAP_M);
+    const cep = POSITIONAL_CEP_M[catzoc] ?? GRAZE_MARGIN_CAP_M;
+    const cap = catzoc >= 4 ? WORST_ZOC_GRAZE_MARGIN_CAP_M : GRAZE_MARGIN_CAP_M;
+    return Math.min(cep, cap);
 }
 
 const METRES_PER_DEG_LAT = 111_320;
