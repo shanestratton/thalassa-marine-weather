@@ -697,7 +697,18 @@ Deno.serve(async (req: Request) => {
             }
         }
         let nearbyVessels: unknown[] = [];
-        if (last) {
+        // AIS TARGETS PARKED off the public page (Shane 2026-07-19: "can we
+        // remove the ais targets from the public page"). Gated here rather than
+        // hidden in the client, because that also drops the work: the
+        // vessels_nearby RPC (200 nm, up to 60 rows) plus the follow-up MMSI
+        // metadata lookup ran on EVERY page load, and the page polls every two
+        // minutes per viewer. Nothing was going to be drawn with it.
+        //
+        // The payload keeps `nearby_vessels: []`, so the client contract is
+        // unchanged and its map-over renders nothing — no dead flag needed over
+        // there. Flip this to bring the targets back.
+        const PUBLIC_AIS_ENABLED = false;
+        if (PUBLIC_AIS_ENABLED && last) {
             const { data: aisData, error: aisErr } = await supabase.rpc('vessels_nearby', {
                 query_lat: last.lat,
                 query_lon: last.lon,
