@@ -376,9 +376,14 @@
 // encVisible, so it vanished for anyone whose ENC master was off -- and since
 // the plotting keel floor force-shows the depth read regardless of that toggle,
 // it disappeared exactly when the chart it dims was on screen.
-const CACHE_NAME = 'thalassa-v166-core';
-const TILE_CACHE = 'thalassa-v166-tiles';
-const DATA_CACHE = 'thalassa-v166-data';
+// v167: "Sea chart ON/off" row in the chart-modes menu. The ENC master toggle
+// did exist, but only in the layer drawer (gated on encCellCount > 0) while
+// Clear All -- which switches it OFF -- sits in the chart-modes menu. One tap
+// could strip the depth bands, contours, marks and hazards with no obvious way
+// back. Off and on now live in the same menu.
+const CACHE_NAME = 'thalassa-v167-core';
+const TILE_CACHE = 'thalassa-v167-tiles';
+const DATA_CACHE = 'thalassa-v167-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
