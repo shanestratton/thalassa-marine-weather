@@ -35,6 +35,8 @@ function hazardIcon(type: RouteHazardReportEntry['hazardType']): string {
             return '\u{1FAA8}'; // 🪨 rock
         case 'obstruction':
             return '⚠'; // warning
+        case 'shallow':
+            return '\u{1F53D}'; // 🔽 down-triangle — shoal / shallow patch
         case 'coast':
             return '\u{1F3D6}'; // beach
         default:
@@ -50,6 +52,8 @@ function hazardLabel(type: RouteHazardReportEntry['hazardType']): string {
             return 'Underwater rock';
         case 'obstruction':
             return 'Obstruction';
+        case 'shallow':
+            return 'Shoal / shallow patch';
         case 'coast':
             return 'Charted coastline';
         default:

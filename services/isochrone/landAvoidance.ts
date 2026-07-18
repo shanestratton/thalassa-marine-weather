@@ -544,8 +544,14 @@ export function buildRouteAdvisories(
     failedCellIds?: readonly string[],
     segmentTideConstrained = 0,
     draftAssumed = false,
+    /** Midpoints of sub-231 m legs that got ZERO depth samples AND no ENC
+     *  coverage — a short uncharted terminal leg in a GEBCO gap that the sampled
+     *  no-data count can't see (cycle-6 re-audit #3). Folded into the count. */
+    noDataSegmentLocs: readonly { lat: number; lon: number }[] = [],
 ): RouteAdvisory[] {
     const advisories: RouteAdvisory[] = [];
+    const fmtLatLon = (p: { lat: number; lon: number }): string =>
+        `${Math.abs(p.lat).toFixed(3)}°${p.lat >= 0 ? 'N' : 'S'} ${Math.abs(p.lon).toFixed(3)}°${p.lon >= 0 ? 'E' : 'W'}`;
     // Draft plausibility (cycle-5 audit #2, safety). Two fail-quiet cases the
     // green "no advisory" badge used to hide:
     //  (a) no draft set → hazardDepthForDraft silently assumed a default 2.5 m.
@@ -587,14 +593,23 @@ export function buildRouteAdvisories(
     }
     // No-data first — it's the louder caution (unknown depth, not just
     // low-confidence). This is the route+warn signal the skipper must see.
-    const noDataHits = results.filter((r) => r.source === 'none').length;
-    if (noDataHits > 0) {
+    const noDataPts = results.filter((r) => r.source === 'none');
+    const noDataCount = noDataPts.length + noDataSegmentLocs.length;
+    if (noDataCount > 0) {
+        // Localize (re-audit #3): name WHERE the uncharted stretch is, not just
+        // how many points — first (and last, if the run spans) position.
+        const locs = [...noDataPts.map((r) => ({ lat: r.lat, lon: r.lon })), ...noDataSegmentLocs];
+        const where =
+            locs.length > 0
+                ? ` — first near ${fmtLatLon(locs[0])}` +
+                  (locs.length > 1 ? `, last near ${fmtLatLon(locs[locs.length - 1])}` : '')
+                : '';
         advisories.push({
             severity: 'caution',
             kind: 'no-data',
             text:
-                `${noDataHits}/${results.length} route point(s) have NO depth data ` +
-                `(uncharted + GEBCO unavailable) — routed but NOT confirmed safe, verify visually`,
+                `${noDataCount}/${results.length} route point(s) have NO depth data ` +
+                `(uncharted + GEBCO unavailable)${where} — routed but NOT confirmed safe, verify visually`,
         });
     }
     // Failed chart cells ALWAYS warn, independent of GEBCO share (cycle-4
@@ -948,6 +963,10 @@ export async function validateRouteSegments(
     // sampled-point results carry their own flags; these are the sub-231 m
     // polygon crossings the samples can't see).
     let segTideConstrained = 0;
+    // Midpoints of sub-231 m legs with ZERO samples AND no ENC coverage — a
+    // short uncharted terminal leg in a GEBCO gap the sampled no-data count
+    // can't see (cycle-6 re-audit #3). Reset + repopulated each pass.
+    let segNoDataLocs: { lat: number; lon: number }[] = [];
     // Worst lateral GRAZE from the latest pass (a leg that validated clean but
     // passes within the chart's positional-error margin of an AREA hazard —
     // burn-down 2026-07-18 #1). Reset each pass, surfaced on the clean break.
@@ -1128,9 +1147,19 @@ export async function validateRouteSegments(
             try {
                 const segResults = await HazardQueryService.querySegmentHazards(polySegs, queryOpts);
                 segTideConstrained = 0;
+                segNoDataLocs = [];
                 for (let k = 0; k < polySegs.length; k++) {
                     if (segResults[k]?.isHazard && !landSegments.includes(polySegs[k].idx)) {
                         landSegments.push(polySegs[k].idx);
+                    }
+                    // Short (sub-231 m) leg with ZERO samples AND no ENC coverage:
+                    // uncharted water in a GEBCO gap the point count can't see
+                    // (re-audit #3). Its midpoint feeds the no-data advisory.
+                    if (segmentMeta[polySegs[k].idx].sampleCount === 0 && segResults[k]?.source === 'none') {
+                        segNoDataLocs.push({
+                            lat: (polySegs[k].lat1 + polySegs[k].lat2) / 2,
+                            lon: (polySegs[k].lon1 + polySegs[k].lon2) / 2,
+                        });
                     }
                     // Closing audit: a crossing cleared ONLY by tide credit
                     // was computed then discarded — count it so the
@@ -1164,6 +1193,7 @@ export async function validateRouteSegments(
                 failedCellIds(),
                 segTideConstrained,
                 options.draftAssumed,
+                segNoDataLocs,
             );
             if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
             // Lateral clearance: a clean leg that still grazes a charted AREA
@@ -1242,6 +1272,7 @@ export async function validateRouteSegments(
                 failedCellIds(),
                 segTideConstrained,
                 options.draftAssumed,
+                segNoDataLocs,
             ),
         ];
         if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
@@ -1278,7 +1309,13 @@ export async function validateRouteSegments(
     } else if (HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])) {
         try {
             const { findHazardsAlongRoute, setLastReport } = await import('./../enc/EncHazardReportService');
-            const report = await findHazardsAlongRoute(result.map((n) => ({ lat: n.lat, lon: n.lon })));
+            const report = await findHazardsAlongRoute(
+                result.map((n) => ({ lat: n.lat, lon: n.lon })),
+                // Draft-aware keel threshold so off-track shoals surface for THIS
+                // vessel (re-audit #1) — the same positive-metres flip the graze
+                // and point-query paths use.
+                { shoalDepthM: -HazardQueryService.hazardDepthForDraft(options.vesselDraftM) },
+            );
             if (!mayPublish()) {
                 landLog.warn('[ValidateRoute] report publish skipped — went stale during hazard walk');
                 return result;
