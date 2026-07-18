@@ -77,7 +77,7 @@ export function isGeoWorkerBroken(): boolean {
  *
  *  ROUND 2 (same day) — ON again with four bounds: queue-side feature
  *  prefilter (only coverage-touching features ride to the worker; the
- *  untouched majority parks in glazeAssemblyBase), a per-job shared
+ *  untouched majority parks via parkGlazeAssembly), a per-job shared
  *  coverage library (the same fine cell's polygons used to clone once
  *  PER coarse cell), per-job aggregate vertex budget
  *  (GLAZE_JOB_VERTEX_BUDGET) on top of the per-pair cap, and the worker

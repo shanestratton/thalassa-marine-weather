@@ -35,4 +35,15 @@ describe('seamark light icons — white light hue', () => {
         expect(byId.get('sm-light-red')!.svg).toContain('#E53E3E');
         expect(byId.get('sm-light-green')!.svg).toContain('#38A169');
     });
+
+    it('the full sector-light palette is registered so blue/yellow/amber/orange keep their colour (re-audit)', () => {
+        const byId = defsById();
+        for (const id of ['sm-light-blue', 'sm-light-yellow', 'sm-light-amber', 'sm-light-orange']) {
+            expect(byId.has(id), `${id} not registered`).toBe(true);
+        }
+        // Each glyph carries its charted hex (LIGHT_COLOUR_HEX case) so it
+        // matches its LIGHTSEC sector arc.
+        expect(byId.get('sm-light-blue')!.svg.toLowerCase()).toContain('#3b82f6');
+        expect(byId.get('sm-light-amber')!.svg.toLowerCase()).toContain('#f59e0b');
+    });
 });

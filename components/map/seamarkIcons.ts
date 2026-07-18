@@ -416,6 +416,14 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-light-red', svg: lightSvg(COLOURS.red, false), size: 48 },
         { id: 'sm-light-green', svg: lightSvg(COLOURS.green, false), size: 48 },
         { id: 'sm-light-white', svg: lightSvg(LIGHT_WHITE_FLARE, false), size: 48 },
+        // Blue / yellow / amber / orange sector lights (cycle-6 re-audit): the
+        // glyph now carries the charted colour instead of collapsing to a
+        // generic amber star, so it matches the sector arc it belongs to. Hexes
+        // mirror LIGHT_COLOUR_HEX (services/enc/types.ts).
+        { id: 'sm-light-blue', svg: lightSvg('#3b82f6', false), size: 48 },
+        { id: 'sm-light-yellow', svg: lightSvg('#fde047', false), size: 48 },
+        { id: 'sm-light-amber', svg: lightSvg('#f59e0b', false), size: 48 },
+        { id: 'sm-light-orange', svg: lightSvg('#fb923c', false), size: 48 },
 
         // Beacons — cone (triangle) = starboard-hand topmark, can
         // (square) = port-hand topmark. Colour swaps by IALA region;

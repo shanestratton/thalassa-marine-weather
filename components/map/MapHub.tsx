@@ -4844,65 +4844,65 @@ export const MapHub: React.FC<MapHubProps> = ({
                             sources: !CHARTS_FAB_CATEGORY_VISIBLE
                                 ? []
                                 : [
-                                // Routes — picker for saved planned passages from
-                                // the ships log. Tap opens a sheet listing them;
-                                // selection draws the route as a green dashed line
-                                // and fits the map to its bounds.
-                                {
-                                    id: 'routes',
-                                    label: 'Routes',
-                                    iconKind: 'generic' as const,
-                                    enabled: activeChartRoute !== null,
-                                    onToggle: () => setRoutePickerOpen((v) => !v),
-                                },
-                                // Tracks — picker for actually-sailed passages.
-                                // Same UX as Routes; renders amber solid line so
-                                // the two can be visible together without confusing
-                                // which is the plan vs the reality.
-                                {
-                                    id: 'tracks',
-                                    label: 'Tracks',
-                                    iconKind: 'generic' as const,
-                                    enabled: activeChartTrack !== null,
-                                    onToggle: () => setTrackPickerOpen((v) => !v),
-                                },
-                                ...skCharts.availableCharts.map((c) => ({
-                                    id: `sk-${c.id}`,
-                                    label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
-                                    iconKind: 'avnav' as const,
-                                    enabled: skChartIds.has(c.id),
-                                    onToggle: () => selectChartExclusive('sk', c.id),
-                                })),
-                                ...chartCatalog.sources.map((s) => ({
-                                    id: `cat-${s.id}`,
-                                    label:
-                                        s.id === 'noaa-ncds'
-                                            ? 'NOAA'
-                                            : s.id === 'noaa-ecdis'
-                                              ? 'ECDIS'
-                                              : s.id === 'linz-charts'
-                                                ? 'NZ'
-                                                : s.name.length > 10
-                                                  ? s.name.substring(0, 10)
-                                                  : s.name,
-                                    iconKind: (s.id === 'noaa-ncds'
-                                        ? 'noaa'
-                                        : s.id === 'noaa-ecdis'
-                                          ? 'ecdis'
-                                          : s.id === 'linz-charts'
-                                            ? 'linz'
-                                            : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
-                                    enabled: s.enabled && !!s.tileUrl,
-                                    onToggle: () => selectChartExclusive('catalog', s.id),
-                                })),
-                                ...localCharts.availableCharts.map((c) => ({
-                                    id: `local-${c.fileName}`,
-                                    label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
-                                    iconKind: 'local' as const,
-                                    enabled: localChartIds.has(c.fileName),
-                                    onToggle: () => selectChartExclusive('local', c.fileName),
-                                })),
-                            ],
+                                      // Routes — picker for saved planned passages from
+                                      // the ships log. Tap opens a sheet listing them;
+                                      // selection draws the route as a green dashed line
+                                      // and fits the map to its bounds.
+                                      {
+                                          id: 'routes',
+                                          label: 'Routes',
+                                          iconKind: 'generic' as const,
+                                          enabled: activeChartRoute !== null,
+                                          onToggle: () => setRoutePickerOpen((v) => !v),
+                                      },
+                                      // Tracks — picker for actually-sailed passages.
+                                      // Same UX as Routes; renders amber solid line so
+                                      // the two can be visible together without confusing
+                                      // which is the plan vs the reality.
+                                      {
+                                          id: 'tracks',
+                                          label: 'Tracks',
+                                          iconKind: 'generic' as const,
+                                          enabled: activeChartTrack !== null,
+                                          onToggle: () => setTrackPickerOpen((v) => !v),
+                                      },
+                                      ...skCharts.availableCharts.map((c) => ({
+                                          id: `sk-${c.id}`,
+                                          label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
+                                          iconKind: 'avnav' as const,
+                                          enabled: skChartIds.has(c.id),
+                                          onToggle: () => selectChartExclusive('sk', c.id),
+                                      })),
+                                      ...chartCatalog.sources.map((s) => ({
+                                          id: `cat-${s.id}`,
+                                          label:
+                                              s.id === 'noaa-ncds'
+                                                  ? 'NOAA'
+                                                  : s.id === 'noaa-ecdis'
+                                                    ? 'ECDIS'
+                                                    : s.id === 'linz-charts'
+                                                      ? 'NZ'
+                                                      : s.name.length > 10
+                                                        ? s.name.substring(0, 10)
+                                                        : s.name,
+                                          iconKind: (s.id === 'noaa-ncds'
+                                              ? 'noaa'
+                                              : s.id === 'noaa-ecdis'
+                                                ? 'ecdis'
+                                                : s.id === 'linz-charts'
+                                                  ? 'linz'
+                                                  : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
+                                          enabled: s.enabled && !!s.tileUrl,
+                                          onToggle: () => selectChartExclusive('catalog', s.id),
+                                      })),
+                                      ...localCharts.availableCharts.map((c) => ({
+                                          id: `local-${c.fileName}`,
+                                          label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
+                                          iconKind: 'local' as const,
+                                          enabled: localChartIds.has(c.fileName),
+                                          onToggle: () => selectChartExclusive('local', c.fileName),
+                                      })),
+                                  ],
                         }}
                     />
                 )}
@@ -6468,13 +6468,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 <span className="font-black uppercase tracking-wider text-gray-200">
                                     Marks &amp; lights
                                 </span>
-                                <span className="text-[11px] text-gray-400">tap any to read</span>
+                                {/* IALA-A (Australia): the lateral colours below are
+                                    region-specific, not universal (cycle-6 re-audit). */}
+                                <span className="text-[11px] text-gray-400">IALA-A · tap to read</span>
                             </div>
                             <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                                 {(
                                     [
-                                        ['#e53e3e', 'Port-hand'],
-                                        ['#38a169', 'Starboard'],
+                                        ['#e53e3e', 'Port-hand (can)'],
+                                        ['#38a169', 'Starboard (cone)'],
                                         ['linear-gradient(180deg,#f5c400 50%,#111 50%)', 'Cardinal'],
                                         ['linear-gradient(90deg,#e53e3e 50%,#f7fafc 50%)', 'Safe water'],
                                         [
