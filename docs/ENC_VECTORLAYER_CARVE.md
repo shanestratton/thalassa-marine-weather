@@ -38,11 +38,8 @@ back → circular. Both cycles are call-time-only (safe in ES modules), but it's
 
 ## The clean sequence (recommended)
 
-1. **First** extract the depth-style STATE layer into `encDepthStyleState.ts`:
-   `depthStyleState` (WeakMap) + `EncDepthStyleState` + `updateEncDepthStyle` +
-   `applyTideOffsetPaint` + `setEncTideOffset` + `setEncDraftAssumed` + the DEPARE rank
-   filters. This is the shared substrate both the mounts and the rest of EncVectorLayer
-   depend on. Byte-identical move; EncVectorLayer + the new mounts module both import it.
+1. ✅ **DONE** — depth-style STATE layer extracted into `components/map/encDepthStyleState.ts`
+   (332 lines out of EncVectorLayer; 2369 → 2105).
 2. **Then** extract `encLayerMounts.ts` (the 6 builders + `scaminAware`/`scaminAwareMark`/
    `BRISBANE_VTS_AREA`), importing the state layer from step 1 — no cycle.
 3. Add tests for the pure glue: `buildMergedPoints`, `buildMergedNavaids`, and an
