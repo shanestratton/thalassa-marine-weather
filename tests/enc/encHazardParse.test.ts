@@ -376,10 +376,10 @@ describe('featuresToHazards — man-made allision structures, WATLEV-gated (audi
     it('is case-defensive on a lowercased watlev', () => {
         expect(featuresToHazards('SLCONS', fc([pt({ watlev: 7 })]))).toHaveLength(0);
     });
-    it('PILPNT is submerged-only — a visible / undefined pile never carpets a marina', () => {
+    it('PILPNT drops only VISIBLE piles (WATLEV 1/2); submerged or unknown stays a hazard (fail-safe)', () => {
         expect(featuresToHazards('PILPNT', fc([pt({ WATLEV: 4 })]))).toHaveLength(1); // covers/uncovers → kept
         expect(featuresToHazards('PILPNT', fc([pt({ WATLEV: 2 })]))).toHaveLength(0); // always dry (visible) → dropped
-        expect(featuresToHazards('PILPNT', fc([pt({})]))).toHaveLength(0); // no WATLEV → dropped
+        expect(featuresToHazards('PILPNT', fc([pt({})]))).toHaveLength(1); // unknown WATLEV → kept (fail-safe)
     });
     it('buildHazardsForCell aggregates an SLCONS layer into the hazard list', () => {
         expect(buildHazardsForCell(blob({ SLCONS: fc([pt({ WATLEV: 5 })]) })).some((x) => x.layer === 'SLCONS')).toBe(
