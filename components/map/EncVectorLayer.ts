@@ -1701,7 +1701,11 @@ export const SATELLITE_KEY = 'thalassa_satellite_base_v2';
 // per-cell contour, NOT the "thick black scribble" Shane rejected. The
 // thin grey depth contours + labels also stay: they carry information the
 // imagery can't.
-const SATELLITE_HIDE_LAYERS: readonly string[] = [
+/** Exported so MapHub's satellite pass can MIRROR it by import rather than by
+ *  hand — the two copies had drifted (DEPCNT_SAFETY was removed here, because
+ *  syncDepareBaseTreatment restyles it amber as the keel-limit line over
+ *  imagery, but MapHub's hand-copy kept hiding it). */
+export const SATELLITE_HIDE_LAYERS: readonly string[] = [
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
@@ -1845,6 +1849,43 @@ export interface EncVisibilityState {
     master: boolean;
     routeFocused: boolean;
     detailed: boolean;
+    /** Tracer card is up — the keel floor below outranks every subtraction. */
+    plotting: boolean;
+}
+
+// THE PLOTTING KEEL FLOOR (Shane 2026-07-18: "i still do not have my white
+// keel areas in the planning map any more" — with the phone showing marks +
+// soundings but NO glaze, NO contours and NO magenta wrecks, i.e. only the
+// tracer's force-shown MARK_LAYERS).
+//
+// The derived-base fix upstream guarantees imagery is ON while plotting, so
+// the glaze always has non-zero OPACITY. But opacity is not the only channel:
+// a layout `visibility:'none'` beats it outright, and THREE independent
+// per-device toggles (ENC master, clean-chart, route-focus) can each set it.
+// So the surface whose entire job is keel clearance could still be stripped of
+// its depth read by furniture state — silently, because the tracer re-asserts
+// MARK_LAYERS and the chart therefore still looks populated.
+//
+// This is the same authority the tracer's MARK_LAYERS re-assert already claims
+// ("even if the punter has flipped the ENC master toggle off"), extended to the
+// things you actually plot AGAINST. Base-dependent, because the band painter
+// swaps with the base: over imagery syncDepareBaseTreatment zeroes DEPARE and
+// hands the bands to the glaze; on the paper chart the reverse.
+const PLOTTING_KEEL_SAT: readonly string[] = [ENC_VEC_LAYERS.DEPARE_GLAZE];
+const PLOTTING_KEEL_CHART: readonly string[] = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.DEPARE_FINE];
+// Keel-limit line + the three that will actually sink you. MARK_LAYERS covers
+// buoys and beacons but NOT these, so a plotter could be grading legs against
+// wrecks and rocks it was never shown.
+const PLOTTING_KEEL_ALWAYS: readonly string[] = [
+    ENC_VEC_LAYERS.DEPCNT_SAFETY,
+    ENC_VEC_LAYERS.WRECKS,
+    ENC_VEC_LAYERS.UWTROC,
+    ENC_VEC_LAYERS.OBSTRN,
+];
+
+function isPlottingKeelLayer(id: string, satOn: boolean): boolean {
+    if (PLOTTING_KEEL_ALWAYS.includes(id)) return true;
+    return (satOn ? PLOTTING_KEEL_SAT : PLOTTING_KEEL_CHART).includes(id);
 }
 
 const visibilityState = new WeakMap<mapboxgl.Map, EncVisibilityState>();
@@ -1852,10 +1893,19 @@ const visibilityState = new WeakMap<mapboxgl.Map, EncVisibilityState>();
 function getVisibilityState(map: mapboxgl.Map): EncVisibilityState {
     let st = visibilityState.get(map);
     if (!st) {
-        st = { master: true, routeFocused: false, detailed: true };
+        st = { master: true, routeFocused: false, detailed: true, plotting: false };
         visibilityState.set(map, st);
     }
     return st;
+}
+
+/** Raise/lower the plotting keel floor. Idempotent — no-ops (and so emits no
+ *  styledata) when the mode is unchanged, keeping the steady-state loop dead. */
+export function setEncPlottingMode(map: mapboxgl.Map, plotting: boolean): void {
+    const st = getVisibilityState(map);
+    if (st.plotting === plotting) return;
+    st.plotting = plotting;
+    applyEncVisibility(map);
 }
 
 /** THE composer — the only writer of the visibility layout property.
@@ -1871,6 +1921,9 @@ export function applyEncVisibility(map: mapboxgl.Map): void {
         if (want && !st.detailed && (CHART_DETAIL_HIDE_LAYERS as readonly string[]).includes(id)) want = false;
         if (want && satOn && SATELLITE_HIDE_LAYERS.includes(id)) want = false;
         if (want && isScrubHidden(id)) want = false;
+        // FLOOR LAST so it outranks every subtraction above, master included:
+        // while the tracer is up, the depth read is not furniture.
+        if (!want && st.plotting && isPlottingKeelLayer(id, satOn)) want = true;
         map.setLayoutProperty(id, 'visibility', want ? 'visible' : 'none');
     }
     syncDepareBaseTreatment(map);
