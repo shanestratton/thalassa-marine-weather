@@ -410,9 +410,15 @@
 // was capped at 46vh inside an 80vh card that also stacked a header, a
 // departure row and a footer, so the footer could be pushed out. Now a flex
 // column -- fixed chrome, flexing leg list -- capped in dvh, not vh.
-const CACHE_NAME = 'thalassa-v172-core';
-const TILE_CACHE = 'thalassa-v172-tiles';
-const DATA_CACHE = 'thalassa-v172-data';
+// v173: hero time ranges are back on the hour cards, and now actually track the
+// swipe: overview (no time), 00:00-01:00, 01:00-02:00, ... v170 suppressed the
+// label using selectedTime === undefined, but onTimeSelect is NEVER called with
+// a real timestamp, so that test matched every slide and killed them all. The
+// honest signal is the RAW slide index -- activeHour is lossy, mapping both the
+// overview and 00:00 to hour 0 -- so HeroSlide now reports it upstream.
+const CACHE_NAME = 'thalassa-v173-core';
+const TILE_CACHE = 'thalassa-v173-tiles';
+const DATA_CACHE = 'thalassa-v173-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
