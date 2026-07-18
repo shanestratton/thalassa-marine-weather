@@ -904,15 +904,22 @@ export const RoutePlanner: React.FC<{
             {/* ─── Route picker (front-door modal): tap a route → chart ─── */}
             {routePicker &&
                 createPortal(
+                    // CENTRED, not a bottom sheet (Shane 2026-07-19: "saved routes
+                    // and from a past voyage both need to be modal screens centred
+                    // correctly"). Already portalled, which is what makes centring
+                    // trustworthy here — inside PageTransition's transform, `fixed`
+                    // would resolve against the page box rather than the screen.
+                    // dvh + safe-area padding so a long list cannot run off either
+                    // end on a phone.
                     <div
-                        className="fixed inset-0 z-[10060] flex items-end justify-center bg-black/60 sm:items-center"
+                        className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
                         onClick={() => setRoutePicker(null)}
                     >
                         <div
-                            className="max-h-[70vh] w-full max-w-md overflow-hidden rounded-t-3xl border border-white/10 bg-slate-900 shadow-2xl sm:rounded-3xl"
+                            className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                            <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
                                 <span className="text-sm font-black uppercase tracking-widest text-sky-300">
                                     {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
                                 </span>
@@ -923,7 +930,7 @@ export const RoutePlanner: React.FC<{
                                     Close
                                 </button>
                             </div>
-                            <div className="max-h-[55vh] space-y-1.5 overflow-y-auto p-3">
+                            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
                                 {routePicker.loading ? (
                                     <div className="py-6 text-center text-[12px] text-gray-400">Loading…</div>
                                 ) : routePicker.items.length === 0 ? (
