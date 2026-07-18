@@ -495,6 +495,41 @@ export function useMapInit(opts: UseMapInitOptions) {
                             // Some MapTiler layers may not support text paint properties
                         }
                     }
+
+                    // WATER vs LAND contrast on the dark base (Shane 2026-07-17:
+                    // "the map is too dark to read — at least have the water and
+                    // land in opposing colours"). dark-v11 paints both a near-
+                    // identical charcoal, so the coastline vanishes on the clean
+                    // dark chart. Repaint water a marine blue and land / the base
+                    // background a lighter slate so the two read at a glance.
+                    // Harmless under satellite (imagery covers the base) and
+                    // under ENC (depth bands paint over water where charted).
+                    if (layer.type === 'background') {
+                        try {
+                            map.setPaintProperty(layer.id, 'background-color', '#333b45');
+                        } catch {
+                            /* style may lock the background */
+                        }
+                    }
+                    if (layer.type === 'fill' && /water|ocean|sea(?!rch)|bathymetr/i.test(layer.id)) {
+                        try {
+                            map.setPaintProperty(layer.id, 'fill-color', '#0d2c49');
+                        } catch {
+                            /* some fills lock their colour */
+                        }
+                    }
+                    if (
+                        layer.type === 'fill' &&
+                        /(^|[-_])land($|[-_])|landcover|landuse|national.?park|wood|forest|grass|sand|glacier/i.test(
+                            layer.id,
+                        )
+                    ) {
+                        try {
+                            map.setPaintProperty(layer.id, 'fill-color', '#333b45');
+                        } catch {
+                            /* some fills lock their colour */
+                        }
+                    }
                 }
             }
 

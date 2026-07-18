@@ -479,9 +479,15 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     //   At 60px bubble-diameter + 15px gap, we want chord ≥ 75px.
     //   4 items, step = SPREAD/3. Solving gives R=125, SPREAD=105° as the
     //   minimum that gives clear visual separation at every pair.
-    const TIER1_RADIUS = categories.length >= 4 ? 125 : 90;
+    // Radius + spread widen with the count so adjacent bubbles stay ≥ ~85px
+    // apart (60px bubble + gap) at any category count. The old binary
+    // (>=4 ? 125/105 : 90/70) treated 3 the SAME as 2 — so when the Charts
+    // category was parked (4→3), the three bunched up (Shane 2026-07-17:
+    // "SKY/SEA/TACTICAL are all bunched — space them evenly like before").
+    // n=3 → chord = 2·115·sin(95/4°) ≈ 93px, cleanly spaced.
+    const TIER1_RADIUS = categories.length >= 4 ? 125 : categories.length === 3 ? 115 : 90;
     const TIER1_CENTER_ANGLE = 150; // Down-left (keeps arc below top edge)
-    const TIER1_SPREAD = categories.length >= 4 ? 105 : 70;
+    const TIER1_SPREAD = categories.length >= 4 ? 105 : categories.length === 3 ? 95 : 60;
 
     // Tier 2 items are now rendered in a grid, not an arc — these constants
     // are kept for the drag-hover zone detection in handlePointerMove.
