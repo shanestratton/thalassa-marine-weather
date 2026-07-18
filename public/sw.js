@@ -358,9 +358,17 @@
 // wrecks/rocks/obstructions — which the marks list never covered. Also stops
 // MapHub's stale hand-copy of SATELLITE_HIDE_LAYERS from killing the amber
 // keel-limit line that syncDepareBaseTreatment repaints every pass.
-const CACHE_NAME = 'thalassa-v163-core';
-const TILE_CACHE = 'thalassa-v163-tiles';
-const DATA_CACHE = 'thalassa-v163-data';
+// v164: glaze legibility round 2 — the on-device review v163 asked for came
+// back negative. Sub-safe water was three pale near-whites against a white
+// safe band, so "will ground you" and "sail here" composited to one wash.
+// White now means GO and nothing else; shallow/caution move into the amber of
+// the safety contour. Alpha keeps its monotonic depth ramp (shallow stays most
+// see-through so the imagery shows the real bank) — chroma carries the warning.
+// Legend now imports those colours instead of hand-copied hexes, and is gated
+// on imageryOn so HYBRID finally teaches the glaze key instead of paper-chart.
+const CACHE_NAME = 'thalassa-v164-core';
+const TILE_CACHE = 'thalassa-v164-tiles';
+const DATA_CACHE = 'thalassa-v164-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

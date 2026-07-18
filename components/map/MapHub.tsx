@@ -166,7 +166,10 @@ import {
     getHydrationProgress as getEncHydrationProgress,
     hasCoverageFor as encHasCoverageFor,
 } from '../../services/enc/EncHazardService';
-import { DEPARE_BAND_COLORS, ENC_HAZARD_MAGENTA } from './encDepthStyle';
+// Legend swatches import the REAL glaze constants — they were hand-copied
+// hexes and went stale the moment the palette moved (same drift class as
+// MapHub's old SATELLITE_HIDE_LAYERS copy).
+import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, ENC_HAZARD_MAGENTA, SHALLOW_CAUTION_COLOR } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
@@ -6494,18 +6497,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <div className="space-y-1 text-[10px] leading-snug text-gray-300">
                             <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
                             <div>Numbers are metres at the lowest tide — 3₄ means 3.4 m. Khaki numbers dry.</div>
-                            {satelliteVisible ? (
+                            {imageryOn ? (
                                 // The keel-keyed glaze was never taught anywhere
-                                // (2026-07-12 audit) — and the slate-contour line is
-                                // STALE over imagery, where that contour is hidden.
+                                // (2026-07-12 audit). Gated on imageryOn, NOT
+                                // satelliteVisible: HYBRID is the boot base and the
+                                // plotting base, so gating on satellite-only taught
+                                // the paper-chart key on the very surface that paints
+                                // the glaze (Shane 2026-07-18).
                                 <div className="text-sky-200">
-                                    Over satellite: bright white glaze = water that clears YOUR keel (draft + 0.5 m).
-                                    {/* The two decision-relevant washes were unexplained (cycle-7 re-audit #8). */}
-                                    <span style={{ color: '#f4e3bb' }}> Straw</span> = margin-thin (clears the keel but
-                                    the router still flags it as a hazard);
-                                    <span style={{ color: '#ecd39a' }}> amber</span> = too shallow;
-                                    <span style={{ color: '#c6c295' }}> khaki</span> = dries at low tide. Bare imagery =
-                                    uncharted.
+                                    Over imagery: bright white glaze = water that clears YOUR keel (draft + 0.5 m).
+                                    {/* The two decision-relevant washes were unexplained (cycle-7 re-audit #8).
+                                        Swatches use the real constants so they track the palette. */}
+                                    <span style={{ color: CAUTION_BAND_COLOR }}> Light amber</span> = margin-thin (clears
+                                    the keel but the router still flags it as a hazard);
+                                    <span style={{ color: SHALLOW_CAUTION_COLOR }}> amber</span> = too shallow;
+                                    <span style={{ color: DEPARE_BAND_COLORS.drying }}> khaki</span> = dries at low tide.
+                                    Bare imagery = uncharted.
                                 </div>
                             ) : (
                                 <div>The slate contour is your keel's limit; thin grey lines join equal depths.</div>

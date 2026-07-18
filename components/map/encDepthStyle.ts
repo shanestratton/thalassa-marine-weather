@@ -211,22 +211,45 @@ export const DEPARE_BAND_COLORS = {
  *  bright safe-white and clearly not bare imagery. See-through enough to
  *  keep reading the water + soundings.
  *
- *  DEVICE-VISUAL, tunable/revertible: this reverses the deliberate
- *  "shallow = bare imagery, imagery IS the message" model AND may re-expose
- *  the parked strip-clip glaze holes as FAINT gaps in shallow water (they
- *  were hidden because shallow was untinted — "a hole in nothing is
- *  nothing"). Needs on-device review; set SHALLOW_CAUTION_OPACITY back to 0
- *  to restore the old binary look. */
-export const SHALLOW_CAUTION_COLOR = '#ecd39a';
-const SHALLOW_CAUTION_OPACITY = 0.4;
+ *  ROUND 2 — the on-device review this asked for came back NEGATIVE (Shane,
+ *  2026-07-18, Moreton Bay over hybrid imagery). Round 1 shipped the three
+ *  sub-safe bands as #ecd39a / #f4e3bb against a #f7f5f0 safe white: three
+ *  pale warm near-whites a few percent apart in luminance, alpha-composited
+ *  at 0.4-0.5 onto photographic water. The verdict was computed correctly and
+ *  then encoded in a channel the eye cannot resolve on a phone in daylight —
+ *  "will ground you" and "sail here" read as one wash, which is worse than
+ *  the binary look it replaced because it looks informative.
+ *
+ *  The defect was HUE, not alpha, so the fix is hue: white now means GO and
+ *  nothing else. Sub-safe water moves into the saturated amber of the #f97316
+ *  safety contour, where it reads as a warning at a glance and cannot be
+ *  confused with paper. This also matches the S-52 convention the eye already
+ *  expects — depth areas lighten as they deepen — so darker-warm reads as
+ *  "shallow" without training.
+ *
+ *  Alpha does NOT carry the warning and must not be used to: the opacity ramp
+ *  rises monotonically with depth on purpose (asserted by encDepthStyle.test),
+ *  because shallow water is precisely where the imagery should read through and
+ *  show the real sand bank, while deep water is where thick paper-white is safe
+ *  to lay down. So shallow keeps the LOWEST alpha and gets its urgency from
+ *  chroma instead — a saturated amber at 0.30 reads as a warning far more
+ *  loudly than round 1's pale cream at 0.40 did.
+ *
+ *  It stays ABOVE 0 though: opacity 0 is what made a known shoal pixel-
+ *  identical to uncharted no-data, the bug round 1 fixed. Do not "fix" this by
+ *  reverting to 0. */
+export const SHALLOW_CAUTION_COLOR = '#d9822b';
+const SHALLOW_CAUTION_OPACITY = 0.3;
 /** Router-hazard CAUTION band [S, hazard): water that clears the S-52 safety
  *  depth (draft + UKC) but is shallower than the ROUTER's draft×1.5 + UKC
  *  grounding threshold — margin-thin (cycle-5 re-audit: the glaze painted this
  *  band GO-white while the router flagged it as a hazard, a mixed signal at the
- *  helm). Pale straw between the [0,S) amber and safe white. DEVICE-VISUAL,
- *  tunable; omit the hazard arg (or set opacity 0) to restore the two-band look. */
-export const CAUTION_BAND_COLOR = '#f4e3bb';
-const CAUTION_BAND_OPACITY = 0.5;
+ *  helm). Round 2: a LIGHT amber — still unmistakably warm (not paper), but
+ *  visibly weaker than the [0,S) amber, so the three-step read is
+ *  amber → light amber → white as the water deepens. DEVICE-VISUAL, tunable;
+ *  omit the hazard arg (or set opacity 0) to restore the two-band look. */
+export const CAUTION_BAND_COLOR = '#f0c26a';
+const CAUTION_BAND_OPACITY = 0.36;
 
 export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
