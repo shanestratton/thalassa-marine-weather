@@ -2888,6 +2888,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     // so hybrid starting false is what lets satellite be the one that shows.
     // Both remain one tap away on the base toggle. Session-only.
     const [hybridVisibleRaw, setHybridVisible] = useState(false);
+    // OCEAN BASE (Shane 2026-07-19: "we used to have one that had a bit of
+    // bathymetry with it" → make it its own base). The MapTiler Ocean raster has
+    // always existed, but only as a 0.45 tint ON TOP of satellite. As a BASE it
+    // becomes the water itself: a bathymetric chart rather than a photograph.
+    //
+    // It counts as imagery below, which is the load-bearing part. imageryOn is
+    // what gives ENC its translucent treatment — DEPARE drops to the glaze and
+    // the opaque land fills stand down. Without that the 0.95-opaque DEPARE ramp
+    // would paint straight over the bathymetry and the base would be invisible,
+    // which is the whole reason for choosing it. Session-only, like the others.
+    const [oceanBaseVisible, setOceanBaseVisible] = useState(false);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page — I've lost all my zoom 10 whites in the
     // water"). The browsing chart and the plotting surface are the SAME map, so
@@ -2903,8 +2914,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // true — imageryOn can never be false while the tracer is up, so the glaze
     // always paints. Plain satellite still wins if the skipper picked it (also
     // imagery, so the glaze holds); the browsing chart keeps the clean dark.
-    const hybridVisible = coordCaptureMode && !satelliteVisible ? true : hybridVisibleRaw;
-    const imageryOn = satelliteVisible || hybridVisible;
+    // Plotting forces hybrid ONLY when no other imagery base is already chosen —
+    // ocean counts, or picking it would be silently overridden the moment the
+    // tracer opened.
+    const hybridVisible =
+        coordCaptureMode && !satelliteVisible && !oceanBaseVisible ? true : hybridVisibleRaw;
+    const imageryOn = satelliteVisible || hybridVisible || oceanBaseVisible;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -3009,6 +3024,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // now it stays on as a translucent depth tint so the water
                     // carries its contours while the imagery shows through.
                     if (setVis('maptiler-ocean-layer', 'visible')) changed = true;
+                    // …but as the BASE it is the water, not a tint over one, so
+                    // it has to drop UNDER the ENC stack. As an overlay it is
+                    // deliberately inserted just below the labels, which leaves
+                    // it ABOVE the depth bands and marks — fine when it is a
+                    // wash over a photo, wrong when the chart is drawn on it.
+                    if (oceanBaseVisible && map.getLayer('maptiler-ocean-layer')) {
+                        if (encBottom && orderIds.indexOf('maptiler-ocean-layer') > orderIds.indexOf(encBottom)) {
+                            map.moveLayer('maptiler-ocean-layer', encBottom);
+                            changed = true;
+                            refreshOrder();
+                        }
+                    }
                     // Only re-paint the DEPARE glaze when this pass actually
                     // changed layer state (a cell load hid a fresh fill, the
                     // z-order moved, or force). At steady state this is
@@ -3016,7 +3043,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                     if (changed) {
                         encSyncDepareBaseTreatment(map);
                         if (map.getLayer('maptiler-ocean-layer')) {
-                            map.setPaintProperty('maptiler-ocean-layer', 'raster-opacity', 0.45);
+                            // 0.45 as a tint so the imagery beneath still reads;
+                            // near-opaque as the base, where there is nothing
+                            // underneath worth showing and the contours should be
+                            // as legible as a paper bathymetric chart.
+                            map.setPaintProperty(
+                                'maptiler-ocean-layer',
+                                'raster-opacity',
+                                oceanBaseVisible ? 0.95 : 0.45,
+                            );
+                            // The tint is dimmed to sit under imagery; as the base
+                            // it should render at its own contrast.
+                            map.setPaintProperty(
+                                'maptiler-ocean-layer',
+                                'raster-brightness-max',
+                                oceanBaseVisible ? 1 : 0.7,
+                            );
                         }
                     }
                 }
@@ -3079,7 +3121,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [satelliteVisible, hybridVisible, imageryOn, declutter, mapReady, encVisible, encChartDetail]);
+    }, [satelliteVisible, hybridVisible, oceanBaseVisible, imageryOn, declutter, mapReady, encVisible, encChartDetail]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -6783,12 +6825,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                     satelliteVisible={satelliteVisible}
                     setSatelliteVisible={(v) => {
                         setSatelliteVisible(v);
-                        if (v) setHybridVisible(false); // one base at a time
+                        if (v) {
+                            setHybridVisible(false); // one base at a time
+                            setOceanBaseVisible(false);
+                        }
                     }}
                     hybridVisible={hybridVisible}
                     setHybridVisible={(v) => {
                         setHybridVisible(v);
-                        if (v) setSatelliteVisible(false);
+                        if (v) {
+                            setSatelliteVisible(false);
+                            setOceanBaseVisible(false);
+                        }
+                    }}
+                    oceanBaseVisible={oceanBaseVisible}
+                    setOceanBaseVisible={(v) => {
+                        setOceanBaseVisible(v);
+                        if (v) {
+                            setSatelliteVisible(false);
+                            setHybridVisible(false);
+                        }
                     }}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}

@@ -162,6 +162,10 @@ interface ChartModesProps {
     hybridVisible?: boolean;
     setHybridVisible?: (v: boolean) => void;
 
+    /** MapTiler Ocean BASE — bathymetric chart instead of a photograph. */
+    oceanBaseVisible?: boolean;
+    setOceanBaseVisible?: (v: boolean) => void;
+
     /** "Depth right now" — depth tints/numbers re-read as charted +
      *  predicted tide (visual only; MapHub owns the disclaimer + badge). */
     tideDepthMode?: boolean;
@@ -694,6 +698,51 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 imagery with roads &amp; names — the public-page look
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && props.setOceanBaseVisible && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            props.setOceanBaseVisible?.(!props.oceanBaseVisible);
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.oceanBaseVisible
+                                                ? 'rgba(45, 212, 191, 0.20)'
+                                                : 'rgba(45, 212, 191, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(45, 212, 191, 0.3)',
+                                        }}
+                                        aria-label="Toggle bathymetric ocean base"
+                                        aria-pressed={props.oceanBaseVisible ?? false}
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#2dd4bf', fontSize: 14, lineHeight: 1 }}
+                                        >
+                                            🌊
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#2dd4bf', fontSize: 13 }}
+                                            >
+                                                Bathymetry {props.oceanBaseVisible ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                depth contours as the chart — no photo
                                             </span>
                                         </span>
                                     </button>
