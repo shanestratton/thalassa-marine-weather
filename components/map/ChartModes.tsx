@@ -63,6 +63,9 @@ interface ModeSpec {
         vesselTracking?: boolean;
     };
     mpa?: boolean;
+    /** ENC vector chart master toggle. Only enforced when the spec sets it AND
+     *  the encVisible prop is provided (see specMatches / applyMode) — audit #5. */
+    enc?: boolean;
 }
 
 // Order matters — picker shows them in this sequence.
@@ -74,6 +77,7 @@ export const MODE_SPECS: ModeSpec[] = [
         summary: 'Wind, AIS, marks, tides',
         sky: ['wind'],
         tactical: { ais: true, seamark: true, tides: true },
+        enc: true, // a coastal chart preset shows the ENC vector chart
     },
     {
         id: 'offshore',
@@ -98,6 +102,7 @@ export const MODE_SPECS: ModeSpec[] = [
         summary: 'Marks, AIS, tides — no weather',
         sky: [],
         tactical: { ais: true, seamark: true, tides: true },
+        enc: true, // the chart-centric preset MUST show the ENC vector chart
     },
     {
         id: 'clear',
@@ -106,6 +111,7 @@ export const MODE_SPECS: ModeSpec[] = [
         summary: 'Turn everything off',
         sky: [],
         tactical: {},
+        enc: false, // Clear All turns the chart off too, matching its contract
     },
 ];
 
@@ -141,6 +147,10 @@ interface ChartModesProps {
 
     mpaVisible?: boolean;
     setMpaVisible?: (v: boolean) => void;
+
+    /** ENC vector chart master toggle (audit #5 — presets can now reflect it). */
+    encVisible?: boolean;
+    setEncVisible?: (v: boolean) => void;
 
     /** Satellite BASE imagery under everything (routes/marks stay on top). */
     satelliteVisible?: boolean;
@@ -215,6 +225,9 @@ function specMatches(spec: ModeSpec, props: ChartModesProps, skyArr: string[]): 
     if (!!t.vesselTracking !== props.vesselTrackingVisible) return false;
 
     if (props.mpaVisible !== undefined && !!spec.mpa !== !!props.mpaVisible) return false;
+    // ENC guard (audit #5): only constrain presets that SET enc — the weather
+    // presets omit it and ENC defaults on, so an unguarded check would reject them.
+    if (props.encVisible !== undefined && spec.enc !== undefined && !!spec.enc !== !!props.encVisible) return false;
     return true;
 }
 
@@ -355,6 +368,9 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
 
             if (props.setMpaVisible && props.mpaVisible !== undefined) {
                 if (!!spec.mpa !== !!props.mpaVisible) props.setMpaVisible(!!spec.mpa);
+            }
+            if (props.setEncVisible && props.encVisible !== undefined && spec.enc !== undefined) {
+                if (!!spec.enc !== !!props.encVisible) props.setEncVisible(!!spec.enc);
             }
 
             try {

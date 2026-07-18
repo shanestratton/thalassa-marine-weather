@@ -3002,6 +3002,18 @@ export const MapHub: React.FC<MapHubProps> = ({
         } catch {
             /* style mid-swap — the next mapReady pass reapplies */
         }
+        // The dim div lives on document.body, so it leaks app-wide if MapHub
+        // unmounts while ON (cycle-5 audit #5). This cleanup also runs on every
+        // re-toggle (harmless: off-then-on nets to the correct state).
+        return () => {
+            const m = mapRef.current;
+            if (!m) return;
+            try {
+                setEncNightDim(m, false);
+            } catch {
+                /* map/style torn down */
+            }
+        };
     }, [nightDim, mapReady]);
     const [tideOffsetInfo, setTideOffsetInfo] = useState<TideOffsetRead | null>(null);
     const [showTideAck, setShowTideAck] = useState(false);
@@ -5955,38 +5967,38 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 )}
                                                 {SAIL_IT_BUTTON_VISIBLE &&
                                                     (() => {
-                                                    // No-go acknowledgment: with danger legs the
-                                                    // first tap arms a red "Sail anyway?" — the
-                                                    // skipper owns the line, but the green button
-                                                    // must not endorse a route this same screen
-                                                    // graded as crossing land. Never hard-blocks.
-                                                    const hasDanger = traceHealth(legVerdicts).danger > 0;
-                                                    const needsArm = hasDanger && !sailArmed;
-                                                    return (
-                                                        <button
-                                                            onClick={() => {
-                                                                if (needsArm) {
-                                                                    triggerHaptic('heavy');
-                                                                    setSailArmed(true);
-                                                                    return;
-                                                                }
-                                                                setSailArmed(false);
-                                                                void sailTrace();
-                                                            }}
-                                                            disabled={capturedCoords.length < 2}
-                                                            className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
-                                                                hasDanger
-                                                                    ? 'bg-red-500/25 text-red-300'
-                                                                    : 'bg-emerald-500/20 text-emerald-300'
-                                                            }`}
-                                                        >
-                                                            {needsArm
-                                                                ? 'Sail it'
-                                                                : hasDanger
-                                                                  ? 'Sail anyway?'
-                                                                  : 'Sail it'}
-                                                        </button>
-                                                    );
+                                                        // No-go acknowledgment: with danger legs the
+                                                        // first tap arms a red "Sail anyway?" — the
+                                                        // skipper owns the line, but the green button
+                                                        // must not endorse a route this same screen
+                                                        // graded as crossing land. Never hard-blocks.
+                                                        const hasDanger = traceHealth(legVerdicts).danger > 0;
+                                                        const needsArm = hasDanger && !sailArmed;
+                                                        return (
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (needsArm) {
+                                                                        triggerHaptic('heavy');
+                                                                        setSailArmed(true);
+                                                                        return;
+                                                                    }
+                                                                    setSailArmed(false);
+                                                                    void sailTrace();
+                                                                }}
+                                                                disabled={capturedCoords.length < 2}
+                                                                className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
+                                                                    hasDanger
+                                                                        ? 'bg-red-500/25 text-red-300'
+                                                                        : 'bg-emerald-500/20 text-emerald-300'
+                                                                }`}
+                                                            >
+                                                                {needsArm
+                                                                    ? 'Sail it'
+                                                                    : hasDanger
+                                                                      ? 'Sail anyway?'
+                                                                      : 'Sail it'}
+                                                            </button>
+                                                        );
                                                     })()}
                                             </div>
                                             {TRACER_CARD_LIBRARY_VISIBLE && (
@@ -6372,7 +6384,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Auto-opens once on first charted render; afterwards via
                     the ChartModes row. */}
                 {chartKeyOpen && !embedded && !pickerMode && !isPinView && (
-                    <div className="absolute bottom-44 right-2 z-[9992] w-64 rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl">
+                    <div className="absolute bottom-44 right-2 z-[9992] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl">
                         <div className="mb-2 flex items-center justify-between">
                             <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">
                                 Chart key
@@ -6457,7 +6469,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         // dashed zones had no legend entry).
                                         ['#c0209a', 'Restricted zone'],
                                         ['#7c3aed', 'Cable / pipeline'],
-                                        ['#d97706', 'TSS lane'],
+                                        // TSS lane + precautionary area deliberately share the amber
+                                        // TSS family colour on the chart, so ONE keyed row is honest.
+                                        ['#d97706', 'TSS lane / precautionary'],
                                         ['#c2410c', 'TSS keep-out zone'],
                                         ['#8a8a5a', 'Seabed type'],
                                         ['#2f6fd0', 'Anchorage'],
@@ -6469,7 +6483,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         // Closing audit: rendered since the
                                         // TSS-family batch but never keyed.
                                         ['#0e7490', 'Deep-water route'],
-                                        ['#d97706', 'Precautionary area'],
                                         ['#9a9a9a', 'Unknown mark'],
                                     ] as const
                                 ).map(([swatch, label]) => (
@@ -6567,6 +6580,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setVesselTrackingVisible={setVesselTrackingVisible}
                     mpaVisible={weather.mpaVisible}
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
+                    encVisible={encVisible}
+                    setEncVisible={setEncVisible}
                     satelliteVisible={satelliteVisible}
                     setSatelliteVisible={(v) => {
                         setSatelliteVisible(v);
