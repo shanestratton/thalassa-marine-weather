@@ -562,8 +562,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             <button
                                 aria-label="Anchor Watch"
                                 onClick={() => {
+                                    // 'compass', NOT 'anchor' — the Anchor Watch screen
+                                    // has always been routed under the compass key, and
+                                    // there is no 'anchor' route to fall back to, so the
+                                    // guess landed on a blank page.
                                     triggerHaptic('light');
-                                    onNavigate('anchor');
+                                    onNavigate('compass');
                                 }}
                                 style={GLASS.card}
                                 className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
