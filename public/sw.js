@@ -514,9 +514,12 @@
 // dangling half-name could never be finished. It is ours now, and a chained leg
 // geocodes only the DESTINATION, keeping the previous leg's recorded arrival
 // name as the FROM half.
-const CACHE_NAME = 'thalassa-v193-core';
-const TILE_CACHE = 'thalassa-v193-tiles';
-const DATA_CACHE = 'thalassa-v193-data';
+// v194: Vessel page — Atmosphere (Music) section removed, and Boat Binder opens
+// as its OWN SCREEN instead of unrolling ~170 lines of rows inline underneath
+// the pinned hero.
+const CACHE_NAME = 'thalassa-v194-core';
+const TILE_CACHE = 'thalassa-v194-tiles';
+const DATA_CACHE = 'thalassa-v194-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

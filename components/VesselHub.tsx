@@ -104,6 +104,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // expanded-state from localStorage referencing the old IDs is
     // harmless; the Set just won't match any current section.
     const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick', 'sharing']));
+    // Boat Binder is a SCREEN, not a section — see the row that opens it below.
+    const [binderOpen, setBinderOpen] = useState(false);
     const [_isAdmin, setIsAdmin] = useState(false);
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
@@ -448,6 +450,210 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const anchorLabelShort: string =
         anchorStatus === 'alarm' ? 'DRAGGING' : anchorStatus === 'armed' ? 'Armed' : 'Off';
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
+
+    // BOAT BINDER SCREEN. Rendered instead of the hub — same wrapper and scroll
+    // container, its own header, hardware-free back. Kept INSIDE VesselHub rather
+    // than extracted to a routed view because the rows below read a dozen pieces
+    // of this component's state (live counts, handlers, GLASS); lifting them out
+    // would mean threading all of that through props for no user-visible gain.
+    if (binderOpen) {
+        return (
+            <div
+                className="w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+                style={{
+                    paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
+                    backgroundImage: CONTOUR_BG,
+                    backgroundSize: '400px 400px',
+                }}
+            >
+                <div className="flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            setBinderOpen(false);
+                        }}
+                        aria-label="Back to Vessel"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-lg font-black text-gray-300 active:scale-95"
+                    >
+                        ‹
+                    </button>
+                    <span className="text-lg font-black tracking-wide text-white">Boat Binder</span>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
+                        {/* — Passage subgroup — */}
+                        <BinderSubLabel>Passage</BinderSubLabel>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<CrewIcon color="#cbd5e1" />}
+                                label="Passage Planning"
+                                status={
+                                    passageCrewCount > 0
+                                        ? `${passageCrewCount} crew`
+                                        : pendingCrewInvites > 0
+                                          ? `${pendingCrewInvites} Pending`
+                                          : 'Plan Your Voyage'
+                                }
+                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('crew');
+                                }}
+                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<GpxIcon color="#cbd5e1" />}
+                                label="Import GPX"
+                                status="OpenCPN • Navionics"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('gpx-import');
+                                }}
+                            />
+                        </div>
+
+                        {/* — Inventory & Stores subgroup — */}
+                        <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<BoxIcon color="#cbd5e1" />}
+                                label="Ship's Stores"
+                                status="Provisions & Spares"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('inventory');
+                                }}
+                            />
+                            <ListDivider />
+                            {/* Galley — orphan-audit fix 2026-05-17. The
+                                GalleyPage docstring claimed it was
+                                "accessible directly from VesselHub Ship's
+                                Office grid" but the tile had silently been
+                                removed (paying Skipper-tier users couldn't
+                                reach a feature they'd paid for). Slot it
+                                here because galley = meal-planning ABOVE
+                                Ship's Stores (you plan meals FROM stores).
+                                PaywallGate is auto-applied by viewRegistry
+                                via gatedFeature: 'galley', so free users
+                                hit an upgrade prompt — not a broken page. */}
+                            <OfficeRow
+                                icon={<GalleyIcon color="#cbd5e1" />}
+                                label="Galley"
+                                status="Meal Planning"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('galley');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<ClipboardIcon color="#cbd5e1" />}
+                                label="Equipment"
+                                status={expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'}
+                                statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('equipment');
+                                }}
+                                badge={expiringEquipCount > 0 ? expiringEquipCount : undefined}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
+                                label="Repairs & Maintenance"
+                                status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
+                                statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('maintenance');
+                                }}
+                                badge={overdueCount > 0 ? overdueCount : undefined}
+                                badgeUrgent={overdueCount > 0}
+                            />
+                        </div>
+
+                        {/* — Reference subgroup — */}
+                        <BinderSubLabel>Reference</BinderSubLabel>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<ChecklistIcon color="#cbd5e1" />}
+                                label="Checklists"
+                                status="Safety & Passage"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('checklists');
+                                }}
+                            />
+                            <ListDivider />
+                            {/* Relocated from Watch Status (Shane 2026-07-08) —
+                                planning/reference tools, not daily ops. */}
+                            <OfficeRow
+                                icon={<ChartIcon color="#34d399" />}
+                                label="Weather Window"
+                                status="Go / No-Go Score"
+                                statusColor="#34d399"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('weatherWindow');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<BookIcon color="#38bdf8" />}
+                                label="Skipper's Reference"
+                                status="GRIB · Synoptic · Squalls"
+                                statusColor="#38bdf8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('skipperReference');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<ChartIcon color="#cbd5e1" />}
+                                label="Polars"
+                                status={isObserver ? 'Vessel Required' : 'Tuning'}
+                                statusColor={isObserver ? '#6b7280' : '#94a3b8'}
+                                onClick={() => {
+                                    if (isObserver) return;
+                                    triggerHaptic('light');
+                                    onNavigate('polars');
+                                }}
+                                disabled={isObserver}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
+                                label="Documents"
+                                status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
+                                statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('documents');
+                                }}
+                                badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
+                                badgeUrgent={expiringDocsCount > 0}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<NoticeIcon color="#f59e0b" />}
+                                label="Notices to Mariners"
+                                status="NAVAREA • HYDRO"
+                                statusColor="#f59e0b"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('notices');
+                                }}
+                            />
+                        </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div
@@ -859,187 +1065,34 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* organised into 3 subgroups via small labels — */}
                 {/* no nested section chevrons.                   */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Boat Binder"
-                        id="binder"
-                        expanded={expanded.has('binder')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('binder')}>
-                        {/* — Passage subgroup — */}
-                        <BinderSubLabel>Passage</BinderSubLabel>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<CrewIcon color="#cbd5e1" />}
-                                label="Passage Planning"
-                                status={
-                                    passageCrewCount > 0
-                                        ? `${passageCrewCount} crew`
-                                        : pendingCrewInvites > 0
-                                          ? `${pendingCrewInvites} Pending`
-                                          : 'Plan Your Voyage'
-                                }
-                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('crew');
-                                }}
-                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<GpxIcon color="#cbd5e1" />}
-                                label="Import GPX"
-                                status="OpenCPN • Navionics"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('gpx-import');
-                                }}
-                            />
-                        </div>
-
-                        {/* — Inventory & Stores subgroup — */}
-                        <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<BoxIcon color="#cbd5e1" />}
-                                label="Ship's Stores"
-                                status="Provisions & Spares"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('inventory');
-                                }}
-                            />
-                            <ListDivider />
-                            {/* Galley — orphan-audit fix 2026-05-17. The
-                                GalleyPage docstring claimed it was
-                                "accessible directly from VesselHub Ship's
-                                Office grid" but the tile had silently been
-                                removed (paying Skipper-tier users couldn't
-                                reach a feature they'd paid for). Slot it
-                                here because galley = meal-planning ABOVE
-                                Ship's Stores (you plan meals FROM stores).
-                                PaywallGate is auto-applied by viewRegistry
-                                via gatedFeature: 'galley', so free users
-                                hit an upgrade prompt — not a broken page. */}
-                            <OfficeRow
-                                icon={<GalleyIcon color="#cbd5e1" />}
-                                label="Galley"
-                                status="Meal Planning"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('galley');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ClipboardIcon color="#cbd5e1" />}
-                                label="Equipment"
-                                status={expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'}
-                                statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('equipment');
-                                }}
-                                badge={expiringEquipCount > 0 ? expiringEquipCount : undefined}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
-                                label="Repairs & Maintenance"
-                                status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
-                                statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('maintenance');
-                                }}
-                                badge={overdueCount > 0 ? overdueCount : undefined}
-                                badgeUrgent={overdueCount > 0}
-                            />
-                        </div>
-
-                        {/* — Reference subgroup — */}
-                        <BinderSubLabel>Reference</BinderSubLabel>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<ChecklistIcon color="#cbd5e1" />}
-                                label="Checklists"
-                                status="Safety & Passage"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('checklists');
-                                }}
-                            />
-                            <ListDivider />
-                            {/* Relocated from Watch Status (Shane 2026-07-08) —
-                                planning/reference tools, not daily ops. */}
-                            <OfficeRow
-                                icon={<ChartIcon color="#34d399" />}
-                                label="Weather Window"
-                                status="Go / No-Go Score"
-                                statusColor="#34d399"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('weatherWindow');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<BookIcon color="#38bdf8" />}
-                                label="Skipper's Reference"
-                                status="GRIB · Synoptic · Squalls"
-                                statusColor="#38bdf8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('skipperReference');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ChartIcon color="#cbd5e1" />}
-                                label="Polars"
-                                status={isObserver ? 'Vessel Required' : 'Tuning'}
-                                statusColor={isObserver ? '#6b7280' : '#94a3b8'}
-                                onClick={() => {
-                                    if (isObserver) return;
-                                    triggerHaptic('light');
-                                    onNavigate('polars');
-                                }}
-                                disabled={isObserver}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
-                                label="Documents"
-                                status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
-                                statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('documents');
-                                }}
-                                badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
-                                badgeUrgent={expiringDocsCount > 0}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<NoticeIcon color="#f59e0b" />}
-                                label="Notices to Mariners"
-                                status="NAVAREA • HYDRO"
-                                statusColor="#f59e0b"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('notices');
-                                }}
-                            />
-                        </div>
-                    </CollapsibleContent>
-                </div>
+                {/* BOAT BINDER — its OWN SCREEN now (Shane 2026-07-19: "can boat
+                    binder be its own screen when you click on it. at the moment it
+                    scrolls up through the buttons at the top"). Expanding ~170 lines
+                    of rows inline pushed the page far past a screen, so opening it
+                    left the skipper mid-list with the pinned hero above and no sense
+                    of place. A row that opens a screen is the honest shape for a
+                    section this big. */}
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setBinderOpen(true);
+                    }}
+                    style={GLASS.card}
+                    className="mb-4 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/[0.03] active:scale-[0.99] card-lift"
+                >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ background: 'rgba(103, 232, 249, 0.12)' }}>
+                        <span aria-hidden className="text-base leading-none">📒</span>
+                    </div>
+                    <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-black tracking-wide text-white">Boat Binder</span>
+                        <span className="mt-0.5 block text-[11px] font-bold uppercase tracking-widest text-cyan-300">
+                            Passage · Inventory · Reference
+                        </span>
+                    </span>
+                    <span aria-hidden className="shrink-0 text-[13px] font-black text-gray-500">
+                        ›
+                    </span>
+                </button>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* WARDROOM — onboard comfort: music, etc.     */}
@@ -1054,40 +1107,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* features (ambient sounds for sleep, reading */}
                 {/* lists, podcasts) belong here too.           */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Atmosphere"
-                        id="wardroom"
-                        expanded={expanded.has('wardroom')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('wardroom')}>
-                        <div style={GLASS.listContainer}>
-                            {/* "Wardroom" → "Atmosphere" rename 2026-05-17.
-                                Scuttlebutt moved to the new Sharing section;
-                                Music is the only resident here. Section
-                                exists for "music on watch" — explicitly
-                                non-essential, accessible in 2 taps (open
-                                section, tap row) without claiming prime
-                                real estate. Future ambient sounds / podcast
-                                queue / Bosun voice-mode would land here
-                                without IA gymnastics. Section ID stays
-                                'wardroom' so persisted-expand state still
-                                matches. */}
-                            <OfficeRow
-                                icon={<MusicNoteIcon color="#cbd5e1" />}
-                                label="Music"
-                                status="Apple Music"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('music');
-                                }}
-                            />
-                        </div>
-                    </CollapsibleContent>
-                </div>
+                {/* ATMOSPHERE (Music) REMOVED — Shane 2026-07-19: "it is not
+                    really part of the app and it can be accessed via the mic at the
+                    top anyway". Verified before deleting: the voice orchestrator
+                    has play_music / pause_music / resume_music, so the mic really
+                    can start playback, and GlobalNowPlayingBar then routes to the
+                    Music page. The 'music' view stays registered — only this entry
+                    point goes. (This row and the now-playing bar were the ONLY two
+                    routes in, so it was worth checking rather than assuming.) */}
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* SETTINGS & CONNECT                          */}
