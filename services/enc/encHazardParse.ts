@@ -22,6 +22,9 @@ import type { Feature, FeatureCollection } from 'geojson';
 import { type EncCatzocZone, type EncCoastline, type EncCautionArea } from './EncSpatialIndex';
 import { ENC_HAZARD_DEPTH_M, isStructureClass } from './types';
 import type { EncCatzoc, EncConversionResult, EncHazard, EncLayer } from './types';
+import { createLogger } from '../../utils/createLogger';
+
+const parseLog = createLogger('encHazardParse');
 
 /** Max charted depth (m) at which a spot sounding is kept as a routing
  *  hazard. Deeper soundings can never ground any vessel we model and
@@ -207,11 +210,23 @@ export function buildCautionAreas(blob: EncConversionResult): EncCautionArea[] {
  */
 export function buildSoundingHazards(blob: EncConversionResult): EncHazard[] {
     const shoal: EncHazard[] = [];
-    for (const p of explodeSoundings(blob.layers.SOUNDG)) {
+    const stats = { dropped: 0, misaligned: 0 };
+    for (const p of explodeSoundings(blob.layers.SOUNDG, stats)) {
         const d = (p.properties as { _d?: number } | null)?._d;
         if (typeof d !== 'number' || !Number.isFinite(d)) continue;
         if (d >= SOUNDING_HAZARD_MAX_DEPTH_M) continue; // too deep to ever ground
         shoal.push({ layer: 'SOUNDG', geometry: p.geometry, minDepthM: d });
+    }
+    // SCHEMA-DRIFT ALARM (cycle-7 re-audit, safety): a SHORT depths[] strips
+    // soundings from the grounding model — exactly the isolated-shoal defence
+    // meant to catch a 1.8 m patch inside an otherwise-deep DEPARE band. It used
+    // to fail SILENTLY. warn(), not info(): createLogger silences info in prod.
+    if (stats.misaligned > 0) {
+        parseLog.warn(
+            `${blob.cellId}: ${stats.misaligned} sounding(s) lost their depth to a SHORT depths[] array ` +
+                `(${stats.dropped} dropped total) — extractor schema drift. The isolated-shoal defence is ` +
+                `DEGRADED for those points; re-extract this cell.`,
+        );
     }
     if (shoal.length > SOUNDING_HAZARD_CAP) {
         shoal.sort((a, b) => (a.minDepthM ?? 0) - (b.minDepthM ?? 0));
@@ -251,7 +266,15 @@ export function buildCoastlines(blob: EncConversionResult): EncCoastline[] {
  * Pure + testable; lifted verbatim out of the merge monolith (#2b) — the
  * caller pushes the result into merged.SOUNDG one feature at a time.
  */
-export function explodeSoundings(fc: FeatureCollection | undefined): Feature[] {
+export function explodeSoundings(
+    fc: FeatureCollection | undefined,
+    /** Optional DROP accumulator (cycle-7 re-audit, safety): a MultiPoint whose
+     *  `depths[]` is SHORTER than its coordinates loses its tail here — taking the
+     *  isolated-shoal defence that sits BENEATH the DEPARE floor with it. Extractor
+     *  schema drift is routine in this repo (manifest bumps), so the loss has to be
+     *  OBSERVABLE rather than silent. Mutated in place; callers that care warn. */
+    stats?: { dropped: number; misaligned: number },
+): Feature[] {
     const out: Feature[] = [];
     for (const feat of fc?.features ?? []) {
         const g = feat?.geometry;
@@ -279,7 +302,16 @@ export function explodeSoundings(fc: FeatureCollection | undefined): Feature[] {
             const raw =
                 depthsArr?.[i] ?? c[2] ?? (coords.length === 1 ? (featProps.VALSOU ?? featProps.DEPTH) : undefined);
             const d = typeof raw === 'number' ? raw : Number(raw);
-            if (!Number.isFinite(d)) continue;
+            if (!Number.isFinite(d)) {
+                if (stats) {
+                    stats.dropped++;
+                    // depths[] present but THIS index fell off its end → the
+                    // schema-drift signature (a short array), not a cell that
+                    // legitimately carries no per-point depths at all.
+                    if (depthsArr && i >= depthsArr.length) stats.misaligned++;
+                }
+                continue;
+            }
             const props: Record<string, unknown> = { _d: Math.round(d * 10) / 10 };
             if (minZoom !== undefined) props._minZoom = minZoom;
             out.push({

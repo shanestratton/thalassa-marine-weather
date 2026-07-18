@@ -387,3 +387,42 @@ describe('featuresToHazards — man-made allision structures, WATLEV-gated (audi
         );
     });
 });
+
+describe('explodeSoundings — schema-drift drops are OBSERVABLE, not silent (cycle-7 re-audit)', () => {
+    const multi = (coords: number[][], props: Record<string, unknown>): Feature => ({
+        type: 'Feature',
+        geometry: { type: 'MultiPoint', coordinates: coords },
+        properties: props,
+    });
+    const three = [
+        [153, -27],
+        [153.1, -27.1],
+        [153.2, -27.2],
+    ];
+
+    it('a SHORT depths[] drops the tail AND flags it as misaligned (the drift signature)', () => {
+        const stats = { dropped: 0, misaligned: 0 };
+        const out = explodeSoundings(fc([multi(three, { depths: [2.1] })]), stats);
+        expect(out).toHaveLength(1); // only the aligned point survives
+        expect(stats.dropped).toBe(2);
+        expect(stats.misaligned).toBe(2);
+    });
+
+    it('a feature-only MultiPoint (no depths[], no Z) drops but is NOT misaligned', () => {
+        const stats = { dropped: 0, misaligned: 0 };
+        const out = explodeSoundings(fc([multi(three.slice(0, 2), { VALSOU: 5 })]), stats);
+        expect(out).toHaveLength(0); // per-point depth only — never mass-relabel
+        expect(stats.dropped).toBe(2);
+        expect(stats.misaligned).toBe(0); // no depths[] → not the drift signal
+    });
+
+    it('an aligned cloud drops nothing', () => {
+        const stats = { dropped: 0, misaligned: 0 };
+        explodeSoundings(fc([multi(three, { depths: [2.1, 3.4, 9.9] })]), stats);
+        expect(stats).toEqual({ dropped: 0, misaligned: 0 });
+    });
+
+    it('the stats accumulator is optional — the old call signature still works', () => {
+        expect(explodeSoundings(fc([multi(three, { depths: [2.1, 3.4, 9.9] })]))).toHaveLength(3);
+    });
+});
