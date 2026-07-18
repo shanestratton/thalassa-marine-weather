@@ -371,9 +371,14 @@
 // drawer) so they can't disagree, and the persisted active-layer set filters
 // through it too — otherwise a saved 'waves' would restore ON with its control
 // gone. Layer keys and CMEMS plumbing stay wired; empty the list to restore.
-const CACHE_NAME = 'thalassa-v165-core';
-const TILE_CACHE = 'thalassa-v165-tiles';
-const DATA_CACHE = 'thalassa-v165-data';
+// v166: tracer card centres on the DEVICE only (web keeps the left rail), and
+// the half-moon night-dim button no longer hides itself. The moon was gated on
+// encVisible, so it vanished for anyone whose ENC master was off -- and since
+// the plotting keel floor force-shows the depth read regardless of that toggle,
+// it disappeared exactly when the chart it dims was on screen.
+const CACHE_NAME = 'thalassa-v166-core';
+const TILE_CACHE = 'thalassa-v166-tiles';
+const DATA_CACHE = 'thalassa-v166-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

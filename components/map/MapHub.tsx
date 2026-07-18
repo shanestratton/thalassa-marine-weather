@@ -17,6 +17,7 @@
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { CompassIcon, SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
@@ -331,6 +332,11 @@ const TIDE_ADOPT_FACTOR = 0.7;
 // now, so we can move on" — not deleted). The engine path (autoRouteLeg +
 // the tideDirect profile) stays wired and tested; flip this back to true to
 // re-expose the button.
+// Native (Capacitor iOS) vs the web build. Resolved ONCE at module load — the
+// platform cannot change mid-session, and calling it per render would run on
+// every tracer frame.
+const IS_NATIVE_APP = Capacitor.isNativePlatform();
+
 const AUTO_ROUTE_BUTTON_VISIBLE = false;
 // Copy-coords button PARKED (Shane 2026-07-17) — thinned the 6-button
 // controls row to 5 so the survivors get a fatter tap target on a phone.
@@ -5191,7 +5197,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     branch below is parked, not deleted. */}
                 {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
                     <div
-                        className="absolute left-3 z-[9995]"
+                        // DEVICE-ONLY CENTRING (Shane 2026-07-18: "can we make the
+                        // tracer card in the centre?? only on the device. not on the
+                        // webpage"). The card is a fixed w-72, so the container
+                        // shrink-wraps it and a half-width translate centres it
+                        // exactly. Web keeps the left rail, where there's room
+                        // beside it and a centred card would strand the chart.
+                        className={`absolute z-[9995] ${IS_NATIVE_APP ? 'left-1/2 -translate-x-1/2' : 'left-3'}`}
                         // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
                         // ~2.2rem tall) — it used to overlap it by ~24 px (Shane
                         // 2026-07-17). MINIMISED it lifts a further 2rem so the
@@ -6426,7 +6438,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     the charts page — it is for the planning page only"): gated
                     on coordCaptureMode so the bare browsing chart stays clean.
                     The ☾ row inside the chart-modes menu still covers it there. */}
-                {encVisible && coordCaptureMode && !embedded && !pickerMode && !isPinView && (
+                {/* NOT gated on encVisible (Shane 2026-07-18: "i have lost my half
+                    moon button"). It used to be, which meant the control vanished
+                    for anyone whose ENC master toggle was off — and since the
+                    plotting keel floor (e75104d0) force-shows the depth read while
+                    the tracer is up REGARDLESS of that toggle, the moon was
+                    disappearing exactly when the chart it dims was on screen.
+                    coordCaptureMode alone is the honest gate: if we're plotting,
+                    there is an ENC chart to dim. */}
+                {coordCaptureMode && !embedded && !pickerMode && !isPinView && (
                     <button
                         onClick={() => setNightDim(!nightDim)}
                         aria-label="Toggle night dim"
