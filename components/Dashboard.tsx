@@ -147,7 +147,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
-    const [_selectedTime, setSelectedTime] = useState<number | undefined>(undefined);
+    // Timestamp of the focused hero slide, or undefined when the slide stands
+    // for no single moment — the live card and a forecast day's overview. That
+    // undefined is load-bearing now (see getTimeLabel), not just bookkeeping.
+    const [selectedTime, setSelectedTime] = useState<number | undefined>(undefined);
 
     // Fixed header state management — refs + state for throttled updates
     // Refs hold the latest value instantly (no re-render). State triggers the UI update.
@@ -614,6 +617,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             const nextHour = (currentHour + 1) % 24;
             return `${String(currentHour).padStart(2, '0')}:00 - ${String(nextHour).padStart(2, '0')}:00`;
         }
+
+        // DAY-OVERVIEW slide: a forecast day opens on a whole-day summary, and
+        // that card is an AVERAGE — it stands for no particular hour, so an
+        // hour range on it is simply false (Shane 2026-07-18: "i get the next
+        // days forecast as an average, but the hero is getting 00:00 - 01:00").
+        //
+        // It cannot be spotted from activeHour: the summary reports hour 0 and
+        // so does the 00:00 card, so the two are indistinguishable there
+        // (Hero.tsx timeSelectHandlers sends 0 whenever no time is selected).
+        // selectedTime is the one signal that separates them — undefined for
+        // the summary, a real timestamp for 00:00. The live card is also
+        // undefined but returned above, where its range IS meaningful.
+        if (selectedTime === undefined) return '';
 
         // For other hours, calculate based on activeHour index
         // For TODAY: activeHour 0 = NOW, 1 = next hour, etc.
