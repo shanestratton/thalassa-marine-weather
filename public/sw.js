@@ -497,9 +497,15 @@
 // v190: PLAN page opens with a "plot on the big screen" modal naming the boat's
 // own planner URL, with a don't-show-again tick. Native only — telling someone
 // already on the web planner to use the web planner would be daft.
-const CACHE_NAME = 'thalassa-v190-core';
-const TILE_CACHE = 'thalassa-v190-tiles';
-const DATA_CACHE = 'thalassa-v190-data';
+// v191: CHART KEY safety corrections. It named the keel-limit contour by the
+// colour of the OTHER line ("slate" — that is the ordinary contours; the safety
+// contour is amber), told you white glaze meant draft+0.5m when white actually
+// begins at the router hazard depth of 1.5x draft+0.5, and kept saying "metres
+// at the lowest tide" while the live-tide toggle was on. The blue chart ramp no
+// longer shows over imagery, where those fills are not drawn at all.
+const CACHE_NAME = 'thalassa-v191-core';
+const TILE_CACHE = 'thalassa-v191-tiles';
+const DATA_CACHE = 'thalassa-v191-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
