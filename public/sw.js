@@ -450,9 +450,14 @@
 // so ENC goes translucent over it (otherwise the 0.95-opaque DEPARE ramp would
 // paint straight over the bathymetry), and drops under the ENC stack rather
 // than floating above it the way a tint does.
-const CACHE_NAME = 'thalassa-v179-core';
-const TILE_CACHE = 'thalassa-v179-tiles';
-const DATA_CACHE = 'thalassa-v179-data';
+// v180: no tracer furniture on the browsing chart again. Dropping a pin made the
+// 🧭 resume pill appear over on Charts; that pill was un-parked as a way back
+// from a stranded trace, but persisting the pins was the actual fix -- the Plan
+// page's slide already restores the trace whole -- so it was a redundant second
+// door costing the chart its cleanliness.
+const CACHE_NAME = 'thalassa-v180-core';
+const TILE_CACHE = 'thalassa-v180-tiles';
+const DATA_CACHE = 'thalassa-v180-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
