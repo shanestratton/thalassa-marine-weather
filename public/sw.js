@@ -390,9 +390,15 @@
 // does setPage('map'), so the bar lit CHARTS and contradicted the journey the
 // skipper was actually on. Both tabs now consult tracerActive (already
 // dispatched by MapHub), so plotting reads as Plan and the two can't both light.
-const CACHE_NAME = 'thalassa-v169-core';
-const TILE_CACHE = 'thalassa-v169-tiles';
-const DATA_CACHE = 'thalassa-v169-data';
+// v170: two Glass niggles. The hero's degree ring sat above the numerals (its
+// glyph rides high in its own em box, and the column pinned BOX top to BOX
+// top) -- dropped by the digits' cap-height inset, scaled per size class. And
+// a forecast day's overview card no longer claims "00:00 - 01:00": it is an
+// average standing for no hour, and only selectedTime could tell it apart from
+// the real 00:00 card (both report activeHour 0).
+const CACHE_NAME = 'thalassa-v170-core';
+const TILE_CACHE = 'thalassa-v170-tiles';
+const DATA_CACHE = 'thalassa-v170-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

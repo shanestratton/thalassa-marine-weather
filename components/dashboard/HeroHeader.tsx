@@ -202,6 +202,16 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     ).toString();
                                     const len = tempStr.length;
                                     const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
+                                    // The ° ring sits high inside its own em box — well
+                                    // above cap height — so pinning the column's BOX top
+                                    // to the digits' BOX top left the ring floating above
+                                    // the numerals (Shane 2026-07-18: "the degree symbol
+                                    // is too high, it needs to be in line with the top of
+                                    // the font for the temp"). Drop it by the digits'
+                                    // cap-height inset, which scales with the temp size —
+                                    // a fixed nudge would be right for one size class and
+                                    // wrong for the other two. Tune here if it reads low.
+                                    const ringDropPx = len > 3 ? 4 : len > 2 ? 5 : 6;
                                     return (
                                         <div className="flex items-stretch">
                                             <span
@@ -223,6 +233,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                             >
                                                 <span
                                                     className={`text-[22px] font-mono font-bold leading-none ${getTempColor()}`}
+                                                    style={{ transform: `translateY(${ringDropPx}px)` }}
                                                 >
                                                     °
                                                 </span>
