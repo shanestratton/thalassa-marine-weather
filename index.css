@@ -2015,6 +2015,54 @@ body,
     box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
 }
 
+/* Chart-detail scrubber (plan page) — sized for THUMBS, not cursors.
+   Shane 2026-07-18: "make the scrubber a little bigger, it is hard for my fat
+   fingers... not too much bigger". The old Tailwind `h-1` track made the whole
+   INPUT 4 px tall, so the grabbable area was a 4 px strip. Here the input is
+   26 px (the touch target is the full strip, thumb or not), while the visible
+   bar stays a slim 6 px so it still reads as chart furniture rather than a
+   control panel. The thumb does the heavy lifting at 22 px. */
+.detail-scrubber {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    height: 26px;
+}
+
+.detail-scrubber::-webkit-slider-runnable-track {
+    height: 6px;
+    background: rgba(71, 85, 105, 0.7);
+    border-radius: 999px;
+}
+
+.detail-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #38bdf8;
+    /* Centres the thumb on the track: (6 - 22) / 2 = -8 */
+    margin-top: -8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+/* Firefox — same geometry; it centres the thumb itself, so no margin hack. */
+.detail-scrubber::-moz-range-track {
+    height: 6px;
+    background: rgba(71, 85, 105, 0.7);
+    border-radius: 999px;
+}
+
+.detail-scrubber::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: #38bdf8;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
 /* WeatherMap Vessel Pulse Marker */
 .vessel-dot {
     width: 8px;

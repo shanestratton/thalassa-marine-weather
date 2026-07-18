@@ -381,9 +381,14 @@
 // Clear All -- which switches it OFF -- sits in the chart-modes menu. One tap
 // could strip the depth bands, contours, marks and hazards with no obvious way
 // back. Off and on now live in the same menu.
-const CACHE_NAME = 'thalassa-v167-core';
-const TILE_CACHE = 'thalassa-v167-tiles';
-const DATA_CACHE = 'thalassa-v167-data';
+// v168: the plan page's detail scrubber is sized for thumbs. The Tailwind h-1
+// track made the whole INPUT 4px tall, so the grabbable strip was 4px; it is
+// now a 26px input with a 22px thumb over a slim 6px bar, and w-72 for more
+// travel between detents. The tracer card's open offset rises 8.4 -> 9.5rem to
+// keep its clearance over the taller slider.
+const CACHE_NAME = 'thalassa-v168-core';
+const TILE_CACHE = 'thalassa-v168-tiles';
+const DATA_CACHE = 'thalassa-v168-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

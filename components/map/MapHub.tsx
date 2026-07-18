@@ -5157,8 +5157,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         className="absolute left-1/2 z-[9994] -translate-x-1/2"
                         style={{ bottom: 'calc(5.4rem + env(safe-area-inset-bottom))' }}
                     >
-                        <div className="flex w-64 items-center gap-2 rounded-full border border-white/10 bg-slate-900/85 px-3 py-1.5 shadow-lg backdrop-blur-sm">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-sky-300/90">
+                        {/* w-72 (was w-64) so the 7 detents sit further apart —
+                            more travel per step is half the fat-finger fix; the
+                            other half is the 26px-tall .detail-scrubber input
+                            (Shane 2026-07-18). Matches the tracer card's width. */}
+                        <div className="flex w-72 items-center gap-2.5 rounded-full border border-white/10 bg-slate-900/85 px-3.5 py-2 shadow-lg backdrop-blur-sm">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-sky-300/90">
                                 Full
                             </span>
                             <input
@@ -5173,9 +5177,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     setDeclutter(v);
                                 }}
                                 aria-label="Chart detail — full at left, minimal at right"
-                                className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-slate-600/70 accent-sky-400"
+                                className="detail-scrubber flex-1"
                             />
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                                 Clean
                             </span>
                         </div>
@@ -5226,8 +5230,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // FOLDED: no top — the card shrinks to its header strip
                             // (so Done visibly minimises).
                             top: panelFolded ? undefined : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
+                            // OPEN 8.4rem → 9.5rem: the scrubber grew ~18px taller
+                            // when it was resized for touch (2026-07-18), which ate
+                            // the card's clearance down to ~4px. 9.5rem restores the
+                            // ~22px gap it had before. FOLDED 10.4rem already clears
+                            // the taller slider with ~36px to spare, so it stands.
                             bottom: coordCaptureMode
-                                ? `calc(${panelFolded ? '10.4rem' : '8.4rem'} + env(safe-area-inset-bottom))`
+                                ? `calc(${panelFolded ? '10.4rem' : '9.5rem'} + env(safe-area-inset-bottom))`
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
                         }}
                     >
