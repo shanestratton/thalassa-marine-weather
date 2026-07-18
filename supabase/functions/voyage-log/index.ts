@@ -650,6 +650,16 @@ Deno.serve(async (req: Request) => {
                 .or('archived.is.null,archived.eq.false')
                 .not('latitude', 'is', null)
                 .not('longitude', 'is', null)
+                // PLANNED routes are stored as ship_logs rows whose timestamps are
+                // ETAs — i.e. in the FUTURE. Ordering by timestamp desc without
+                // this happily returned a waypoint the boat has not reached yet and
+                // presented it as "where we are" (caught 2026-07-19: the fallback
+                // resolved to a fix stamped six hours ahead of real time).
+                // NULL voyage_id must survive: `NOT (col LIKE …)` is NULL for NULL,
+                // which would silently drop those rows.
+                .or('voyage_id.is.null,voyage_id.not.like.planned_%')
+                // Belt and braces — any future stamp is not a position we hold.
+                .lte('timestamp', new Date().toISOString())
                 .order('timestamp', { ascending: false })
                 .limit(1);
             const f = (fallbackRows ?? [])[0] as Record<string, unknown> | undefined;
