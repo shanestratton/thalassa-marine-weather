@@ -64,6 +64,15 @@ export type EncLayer =
 /** Hazard points → the merged POINTS source (magenta symbols). */
 export const S57_HAZARD_POINT_CLASSES = ['OBSTRN', 'WRECKS', 'UWTROC'] as const;
 
+/** Man-made allision structures (cycle-5 audit #3) — ONE list consumed by the
+ *  parser WATLEV gate and the proximity report so a new class can't drift
+ *  between them. classifyHazard/segmentAreaGraze switch on these too and carry
+ *  a fail-safe default arm (an unenumerated hazard layer → obstruction). */
+export const S57_STRUCTURE_CLASSES = ['SLCONS', 'DAMCON', 'PILPNT'] as const;
+export function isStructureClass(layer: string): boolean {
+    return (S57_STRUCTURE_CLASSES as readonly string[]).includes(layer);
+}
+
 /** Lights + buoys/beacons → the merged NAVAIDS source (each _kind-tagged). */
 export const S57_NAVAID_CLASSES = [
     'LIGHTS',

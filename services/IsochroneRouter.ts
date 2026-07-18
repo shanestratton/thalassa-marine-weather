@@ -422,6 +422,12 @@ export async function computeIsochrones(
         if (closestThisStep < bestDistanceSoFar - STALL_PROGRESS_NM) {
             bestDistanceSoFar = closestThisStep;
             stepsWithoutProgress = 0;
+            // Re-arm the reef/shoal filter once the router escapes the stall
+            // (cycle-7 re-audit): the disable was a one-way latch, so a reef that
+            // unblocked the router kept the filter OFF for the REST of the run — a
+            // fail-open on every subsequent shoal. Land is unaffected (isLand is
+            // never gated), and the loud not-validated report still fires.
+            depthFilterDisabled = false;
         } else {
             stepsWithoutProgress++;
         }

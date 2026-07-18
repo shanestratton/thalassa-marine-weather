@@ -47,7 +47,7 @@ import * as cellMeta from './EncCellMetadata';
 import { getIndexForCell } from './EncHazardService';
 import type { EncCatzoc, EncHazard, EncHazardType } from './types';
 import type { BBoxEntry } from './types';
-import { ENC_HAZARD_DEPTH_M } from './types';
+import { ENC_HAZARD_DEPTH_M, isStructureClass } from './types';
 
 const log = createLogger('EncHazardReportService');
 
@@ -299,7 +299,7 @@ function reportableHazardType(hazard: EncHazard, shoalDepthM: number): EncHazard
     if (hazard.layer === 'OBSTRN') return 'obstruction';
     // Man-made allision structures (audit #3) — surfaced in the proximity
     // briefing with their OBJNAM descriptor, same as an obstruction.
-    if (hazard.layer === 'SLCONS' || hazard.layer === 'DAMCON' || hazard.layer === 'PILPNT') return 'obstruction';
+    if (isStructureClass(hazard.layer)) return 'obstruction';
     if (hazard.layer === 'WRECKS') return 'wreck';
     if (hazard.layer === 'UWTROC') return 'rock';
     // Shoal awareness (positive-metres S-57 depth, draft-aware). A depthless

@@ -436,8 +436,13 @@ export function buildFeaturePopupHtml(
             const cls = String(caution._caution ?? '');
             const label = CAUTION_LABELS[cls] ?? 'Charted area';
             const restrn = restrnNames(readS57(caution, 'RESTRN'));
-            const detail = restrn || (cls === 'CBLARE' || cls === 'PIPARE' ? 'No anchoring' : '');
-            body += `<div class="enc-popup-row"><span>⚠</span><b style="color:#e879f9">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
+            // Fall back to the plain-language note the STANDALONE popup carries
+            // (cycle-7 re-audit): a TSS lane / farm with no RESTRN used to fold in
+            // as a bare "⚠ Marine farm". Colour per class, not one flat fuchsia.
+            const detail =
+                restrn || (cls === 'CBLARE' || cls === 'PIPARE' ? 'No anchoring' : '') || CAUTION_NOTES[cls] || '';
+            const colour = CAUTION_CLASS_COLOURS[cls] ?? '#e879f9';
+            body += `<div class="enc-popup-row"><span>⚠</span><b style="color:${colour}">${esc(label)}${detail ? ` — ${esc(detail)}` : ''}</b></div>`;
         }
     } else if (layerId === ENC_VEC_LAYERS.LNDARE) {
         title = 'Land';

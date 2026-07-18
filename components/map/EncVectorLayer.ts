@@ -1562,6 +1562,14 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     // white wash "popping" at z10 is the thing the punter waits on
     // (2026-07-14); on the white chart it's an invisible no-op.
     const uploads: Array<() => void> = ENC_SOURCE_TABLE.map((row) => () => setData(row.id, row.build(data)));
+    // Seed the async-push dedup refs (cycle-7 re-audit): this staggered upload
+    // (also the mount's instant path, which calls here) already ships
+    // DEPARE_GLAZE + DEPCNT_DERIVED for THIS data, so the follow-up
+    // refreshEncAsyncLayers won't redundantly re-serialise the heaviest source on
+    // the first post-merge notify. A worker upgrade REPLACES .features (a new
+    // array), so the async path still re-pushes the genuinely-changed collection.
+    lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
+    lastPushedContourFeats = data.DEPCNT_DERIVED.features;
     // rAF with a WATCHDOG (2026-07-15, "your white layer is not showing…
     // just the old enc layer"): rAF only fires while the browser is
     // painting — an occluded/throttled tab (browser pane, PWA behind the

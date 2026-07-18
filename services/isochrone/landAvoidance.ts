@@ -18,6 +18,7 @@ import { GEBCO_MSL_TO_LAT_PESSIMISM_M, regionalGebcoDatumDeltaM } from '../Hazar
 import { CATZOC_LABELS, type EncAreaGraze, type EncCatzoc } from '../enc/types';
 import { cellsForBBox } from '../enc/EncCellMetadata';
 import { chartAgeYears, isChartStale } from '../enc/chartCurrency';
+import { grazeOutranks } from '../enc/hazardSeverity';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -759,17 +760,6 @@ export function describeCautionCrossings(areas: EncCautionArea[]): RouteAdvisory
  * louder `caution`; a shoal/obstruction near-miss is a `note`. Null when the
  * route grazes nothing. Pure + exported for unit testing.
  */
-/** True when graze `a` is more significant than `b` for the route-wide
- *  advisory: land (drying bank / islet) before shoal/obstruction, then the
- *  closest clearance. Mirrors the cross-cell foldGraze ranking so the pass
- *  accumulator and the per-cell pick agree on which graze surfaces. */
-function grazeOutranks(a: EncAreaGraze, b: EncAreaGraze): boolean {
-    const aLand = a.type === 'land';
-    const bLand = b.type === 'land';
-    if (aLand !== bLand) return aLand;
-    return a.clearanceM < b.clearanceM;
-}
-
 /**
  * Turn the oldest covering chart-edition age into a currency advisory
  * (closing audit 2026-07-18): a route validated wholly on a >5-yr edition
