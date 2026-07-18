@@ -58,6 +58,33 @@ function zoomToRadiusNm(zoom: number): number {
     return 200;
 }
 
+/** Keep only the AIS features whose position falls inside the current map
+ *  viewport, padded ~40% on each side so targets just off-screen don't pop in
+ *  and out while panning. Guarantees "vessels near where you're looking" no
+ *  matter the source (local NMEA store, internet fetch). No antimeridian
+ *  special-casing — irrelevant for AU/coastal use. */
+function clipFeaturesToView(map: mapboxgl.Map, features: GeoJSON.Feature[]): GeoJSON.FeatureCollection {
+    const bounds = map.getBounds();
+    if (!bounds) return { type: 'FeatureCollection', features };
+    const w = bounds.getWest();
+    const e = bounds.getEast();
+    const s = bounds.getSouth();
+    const n = bounds.getNorth();
+    const padLon = (e - w) * 0.4;
+    const padLat = (n - s) * 0.4;
+    const minLon = w - padLon;
+    const maxLon = e + padLon;
+    const minLat = s - padLat;
+    const maxLat = n + padLat;
+    const inView = features.filter((f) => {
+        const c = (f.geometry as GeoJSON.Point | undefined)?.coordinates;
+        if (!c || c.length < 2) return false;
+        const [lon, lat] = c as [number, number];
+        return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
+    });
+    return { type: 'FeatureCollection', features: inView };
+}
+
 /**
  * Map AIS navigational status code to a display colour.
  */
@@ -229,14 +256,23 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             ],
         };
 
+        // ── Vicinity clip (Shane 2026-07-17: "show boats in the vicinity of
+        // where we are, not randomly around the world — pan to the Whitsundays
+        // and see the yachts up there, none down here"). The internet fetch is
+        // already centre+radius, but AisStore.toGeoJSON() dumps EVERY local
+        // target regardless of the view. Clip the merged set to the current
+        // viewport, padded ~40% so targets just off-screen stay put while
+        // panning, so only vessels near where you're LOOKING ever render. ──
+        const clipped = clipFeaturesToView(map, merged.features);
+
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (source) {
-            source.setData(merged);
+            source.setData(clipped);
         }
 
         // ── Generate predicted track lines for moving vessels ──
         const trackFeatures: GeoJSON.Feature[] = [];
-        for (const feat of merged.features) {
+        for (const feat of clipped.features) {
             const p = feat.properties;
             if (!p) continue;
             const sog = Number(p.sog ?? 0);

@@ -329,9 +329,12 @@
 // categories (weather/tactical/nav). Reversible via CHARTS_FAB_CATEGORY_VISIBLE.
 // v155: Marks / Tides / No-Go / Window parked out of the radial FAB's
 // Tactical fan (wrong page). AIS, Anchor and Inspect stay.
-const CACHE_NAME = 'thalassa-v155-core';
-const TILE_CACHE = 'thalassa-v155-tiles';
-const DATA_CACHE = 'thalassa-v155-data';
+// v156: AIS shows only vessels in the CURRENT map view — the render is clipped
+// to the viewport (padded), so panning to the Whitsundays shows the yachts up
+// there and none from home (was: local store dumped every target everywhere).
+const CACHE_NAME = 'thalassa-v156-core';
+const TILE_CACHE = 'thalassa-v156-tiles';
+const DATA_CACHE = 'thalassa-v156-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
