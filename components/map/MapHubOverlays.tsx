@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { type WeatherLayer } from './mapConstants';
+import { type WeatherLayer, isParkedLayer } from './mapConstants';
 import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { type AvNavChart } from '../../services/AvNavService';
 import { type AvNavConnectionStatus } from '../../services/AvNavService';
@@ -780,7 +780,11 @@ export const LayerFABMenu: React.FC<{
                             icon: '📐',
                             hint: 'CMEMS · thermocline',
                         },
-                    ].map((layer) => {
+                    ]
+                        // Waves / Sea Ice / MLD parked — one shared list with the
+                        // radial helm fan, so the two pickers cannot disagree.
+                        .filter((layer) => !isParkedLayer(layer.key))
+                        .map((layer) => {
                         const isActive = activeLayers.has(layer.key);
                         return (
                             <button

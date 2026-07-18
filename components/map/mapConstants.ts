@@ -52,6 +52,20 @@ export type WeatherLayer =
 
 /** Sea State layers — mutual exclusion within group */
 export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst', 'chl', 'seaice', 'mld'];
+/**
+ * Sea-state layers PARKED from the chart page's layer pickers (Shane
+ * 2026-07-18: "remove MLD, sea ice, waves from the charts page"). Waves
+ * duplicate the sea-state read the passage tools already give; Sea Ice and MLD
+ * are polar/oceanographic and have no bearing on a Queensland coastal passage.
+ *
+ * ONE list, consumed by every picker — the pickers are duplicated (the radial
+ * helm fan and the overlay drawer both enumerate these), and hand-copied layer
+ * lists in this codebase have drifted twice this week. Empty it to restore.
+ * The layer keys and CMEMS plumbing stay wired; this only hides the controls.
+ */
+export const PARKED_SEA_LAYERS: WeatherLayer[] = ['waves', 'seaice', 'mld'];
+export const isParkedLayer = (k: WeatherLayer): boolean => PARKED_SEA_LAYERS.includes(k);
+
 /** Atmosphere layers — mutual exclusion within group */
 export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 'temperature', 'clouds', 'pressure'];
 

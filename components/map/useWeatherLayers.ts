@@ -20,7 +20,14 @@ import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { piCache } from '../../services/PiCacheService';
-import { type WeatherLayer, getTileUrl, getWindColor, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
+import {
+    type WeatherLayer,
+    getTileUrl,
+    getWindColor,
+    SEA_STATE_LAYERS,
+    ATMOSPHERE_LAYERS,
+    isParkedLayer,
+} from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
     initIsobarLayers,
@@ -53,8 +60,11 @@ export function useWeatherLayers(
             if (stored) {
                 const arr = JSON.parse(stored) as WeatherLayer[];
                 if (Array.isArray(arr) && arr.length > 0) {
-                    // Wind OFF by default — filter it out so satellite view is clean
-                    const filtered = arr.filter((l) => l !== 'wind' && l !== 'velocity');
+                    // Wind OFF by default — filter it out so satellite view is clean.
+                    // Parked layers drop too: their pickers are gone, so a
+                    // persisted 'waves'/'seaice'/'mld' would restore ON with no
+                    // control left to turn it back off (Shane 2026-07-18).
+                    const filtered = arr.filter((l) => l !== 'wind' && l !== 'velocity' && !isParkedLayer(l));
                     return filtered.length > 0 ? new Set(filtered) : new Set();
                 }
             }
