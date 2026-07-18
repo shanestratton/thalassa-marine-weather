@@ -29,7 +29,7 @@ import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { lazyRetry } from '../utils/lazyRetry';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
-import { AlertTriangleIcon, WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
+import { WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 const AdminPanel = lazyRetry(
@@ -434,17 +434,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // via Math.sqrt(rodeLength² - waterDepth²) * sensor-type factor —
     // i.e. naturally a long float. Clamp to 1 decimal so the nav-station
     // card reads "Armed — 50.0m" instead of "Armed — 50.000000000004m".
-    const anchorLabel: React.ReactNode =
-        anchorStatus === 'alarm' ? (
-            <span className="inline-flex items-center gap-1">
-                <AlertTriangleIcon className="w-3 h-3" />
-                <span>DRAG ALARM</span>
-            </span>
-        ) : anchorStatus === 'armed' ? (
-            `Armed — ${anchorRadius.toFixed(1)}m`
-        ) : (
-            'Disarmed'
-        );
+    // One word, because a quarter-width tile cannot hold more. This replaced a
+    // richer label ("Armed — 45.0m", plus a triangle icon on DRAG ALARM) when the
+    // tiles went four-across; the radius is one tap away on the Anchor screen,
+    // and the colour-coded dot — which pulses on alarm — does the shouting.
+    const anchorLabelShort: string =
+        anchorStatus === 'alarm' ? 'DRAGGING' : anchorStatus === 'armed' ? 'Armed' : 'Off';
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
 
     return (
@@ -550,44 +545,50 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     in the expanded set is vestigial. Reclaiming that row is what
                     makes pinning the grid affordable. */}
                     <div className="mt-3">
-                        {/* Row 1 — Anchor Watch + Guardian */}
-                        <div className="grid grid-cols-2 gap-3 mb-3">
+                        {/* FOUR ACROSS, one line (Shane 2026-07-19: "on the vessel
+                            page that we put the four boxes on one line"). These
+                            tiles are PINNED, so their height is permanent screen
+                            rather than something you scroll past — two rows cost
+                            ~172px of it, one row ~78px, and the ~95px goes back to
+                            the Boat Binder below.
+
+                            Quarter width is ~80px on a phone: still well over the
+                            44pt touch minimum, but far too narrow for the old
+                            icon-beside-text layout. So each tile stacks — chip over
+                            name over state — and the state shrinks to one word.
+                            The colour is what gets read at a glance anyway; the
+                            word is the confirmation. */}
+                        <div className="grid grid-cols-4 gap-2">
                             <button
                                 aria-label="Anchor Watch"
                                 onClick={() => {
                                     triggerHaptic('light');
-                                    onNavigate('compass');
+                                    onNavigate('anchor');
                                 }}
                                 style={GLASS.card}
-                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
                             >
-                                <div className="flex items-center gap-3">
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: `${anchorColor}1f` }}
+                                >
                                     <div
-                                        className="p-2.5 rounded-lg flex items-center justify-center"
-                                        style={{ background: `${anchorColor}1f` }}
-                                    >
-                                        <div
-                                            className="w-3 h-3 rounded-full"
-                                            style={{
-                                                backgroundColor: anchorColor,
-                                                boxShadow:
-                                                    anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
-                                                animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
-                                            }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">
-                                            Anchor Watch
-                                        </h4>
-                                        <p
-                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
-                                            style={{ color: anchorColor }}
-                                        >
-                                            {anchorLabel}
-                                        </p>
-                                    </div>
+                                        className="h-3 w-3 rounded-full"
+                                        style={{
+                                            backgroundColor: anchorColor,
+                                            boxShadow:
+                                                anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
+                                            animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                                        }}
+                                    />
                                 </div>
+                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
+                                <p
+                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                    style={{ color: anchorColor }}
+                                >
+                                    {anchorLabelShort}
+                                </p>
                             </button>
 
                             <button
@@ -597,34 +598,27 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('guardian');
                                 }}
                                 style={GLASS.card}
-                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
                             >
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(245, 158, 11, 0.12)' }}
-                                    >
-                                        <ShieldIcon color="#f59e0b" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">Guardian</h4>
-                                        <p
-                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
-                                            style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
-                                        >
-                                            {guardianArmed
-                                                ? guardianNearby > 0
-                                                    ? `Watching · ${guardianNearby} nearby`
-                                                    : 'Watching'
-                                                : 'Bay Safety'}
-                                        </p>
-                                    </div>
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                >
+                                    <ShieldIcon color="#f59e0b" />
                                 </div>
+                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    Guardian
+                                </h4>
+                                <p
+                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                    style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
+                                >
+                                    {/* The "· N nearby" suffix does not fit here; the
+                                        count replaces the word so it is not lost. */}
+                                    {guardianArmed ? (guardianNearby > 0 ? `${guardianNearby} near` : 'Watching') : 'Off'}
+                                </p>
                             </button>
-                        </div>
 
-                        {/* Row 2 — MOB + Radio Report */}
-                        <div className="grid grid-cols-2 gap-3">
                             <button
                                 aria-label="Man Overboard"
                                 onClick={() => {
@@ -637,19 +631,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         'linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(20,25,35,0.6) 100%)',
                                     borderColor: 'rgba(239,68,68,0.35)',
                                 }}
-                                className="p-4 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
+                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] card-lift"
                             >
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2.5 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.18)' }}>
-                                        <MobIcon color="#ef4444" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">MOB</h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-red-400 mt-0.5">
-                                            Person Overboard
-                                        </p>
-                                    </div>
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: 'rgba(239, 68, 68, 0.18)' }}
+                                >
+                                    <MobIcon color="#ef4444" />
                                 </div>
+                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">MOB</h4>
+                                <p className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide text-red-400">
+                                    Overboard
+                                </p>
                             </button>
 
                             <button
@@ -659,24 +652,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('radio');
                                 }}
                                 style={GLASS.card}
-                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
                             >
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
-                                    >
-                                        <SignalIcon color="#67E8F9" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">
-                                            Radio Report
-                                        </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
-                                            Position Broadcast
-                                        </p>
-                                    </div>
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: 'rgba(103, 232, 249, 0.12)' }}
+                                >
+                                    <SignalIcon color="#67E8F9" />
                                 </div>
+                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h4>
+                                <p className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide text-slate-400">
+                                    Position
+                                </p>
                             </button>
                         </div>
 

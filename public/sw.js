@@ -467,9 +467,14 @@
 // route, pin 1 returns to the previous leg's arrival.
 // v183: Trip box placeholder reads "New Trip or Route" (was "Continue a trip or
 // route…").
-const CACHE_NAME = 'thalassa-v183-core';
-const TILE_CACHE = 'thalassa-v183-tiles';
-const DATA_CACHE = 'thalassa-v183-data';
+// v184: Watch Status goes FOUR ACROSS on one line. These tiles are pinned, so
+// their height is permanent screen — two rows cost ~172px of it, one row ~78px,
+// and the ~95px goes back to the Boat Binder. Quarter width (~80px) still
+// clears the 44pt touch minimum but not the old icon-beside-text layout, so each
+// tile stacks chip/name/state and the state shrinks to one word.
+const CACHE_NAME = 'thalassa-v184-core';
+const TILE_CACHE = 'thalassa-v184-tiles';
+const DATA_CACHE = 'thalassa-v184-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
