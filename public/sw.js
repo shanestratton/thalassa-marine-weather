@@ -480,9 +480,12 @@
 // v186: public page — wind-barb toggle parked (a skipper's tool, not a
 // viewer's), and the no-track camera goes z10 -> z13 so "where are they" reads
 // as an anchorage rather than a region.
-const CACHE_NAME = 'thalassa-v186-core';
-const TILE_CACHE = 'thalassa-v186-tiles';
-const DATA_CACHE = 'thalassa-v186-data';
+// v187: Anchor Watch opens again. The four-across rewrite (v184) rebuilt the
+// tile and sent it to a route named 'anchor' that does not exist — the screen
+// has always lived under 'compass'. Blank page, my fault.
+const CACHE_NAME = 'thalassa-v187-core';
+const TILE_CACHE = 'thalassa-v187-tiles';
+const DATA_CACHE = 'thalassa-v187-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
