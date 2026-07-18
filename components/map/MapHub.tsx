@@ -4238,10 +4238,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     const tideStations = useTideStationLayer(mapRef, mapReady, tideStationsVisible);
     useAnchorageLayer(mapRef, mapReady, anchorageVisible);
 
-    // ── Notices to Mariners on the chart (📄 tap-to-read) ──
-    // Curated standing notices (MSQ-class, e.g. Mooloolah River bar) always
-    // show; broadcast NAVAREA warnings show viewport-scoped at zoom ≥ 6.
-    useNoticeLayer(mapRef, mapReady, true);
+    // ── Notices to Mariners + low bridges on the chart (📄 / 🌉 tap-to-read) ──
+    // Curated standing notices (MSQ-class, e.g. Mooloolah River bar); broadcast
+    // NAVAREA warnings viewport-scoped at zoom ≥ 6; plus the curated low-bridge
+    // clearances (this one hook owns BOTH — its `visible` flag gates the lot).
+    // PLOTTING-ONLY (Shane 2026-07-17: "remove the bridges and the notice to
+    // mariners from the chart page, not the plan page"): they're passage-
+    // planning furniture, so they ride with the tracer and leave the browsing
+    // chart clean.
+    useNoticeLayer(mapRef, mapReady, coordCaptureMode);
 
     // ── Lightning Strikes (Xweather GLD360) ──
     useLightningLayer(mapRef, mapReady, lightningVisible);
