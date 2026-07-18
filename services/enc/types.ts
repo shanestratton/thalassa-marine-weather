@@ -206,11 +206,14 @@ export function ialaRegionForSourceHO(sourceHO: string | undefined): IalaRegion 
  * region inversion in one place so the renderer doesn't have to
  * carry case expressions.
  *
- * CATLAM:
+ * CATLAM (IHO S-57 — the value NAMES the preferred channel side, which is
+ * the OPPOSITE of the hand the mark renders as):
  *   1 = port-hand
  *   2 = starboard-hand
- *   3 = preferred-channel-port (renders as port)
- *   4 = preferred-channel-starboard (renders as starboard)
+ *   3 = preferred channel to STARBOARD — a modified PORT mark, so it renders
+ *       port-side (red in region A); c===3 → the prefchan-STBD glyph below.
+ *   4 = preferred channel to PORT — a modified STARBOARD mark, renders
+ *       starboard-side (green in region A); c===4 → the prefchan-PORT glyph.
  *
  * Returns hex colour strings matched to the existing palette.
  */

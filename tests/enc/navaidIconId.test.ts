@@ -30,6 +30,24 @@ describe('encNavaidIconId unknown-attribute fallbacks', () => {
         expect(encNavaidIconId('BOYLAT', { CATLAM: 1 }, 'B')).toBe('sm-buoy-port-b');
         expect(encNavaidIconId('BOYLAT', { CATLAM: 2 }, 'A')).toBe('sm-buoy-starboard');
     });
+
+    // Preferred-channel marks (cycle-5 re-audit #6/#7): CATLAM value 3 =
+    // preferred channel to STARBOARD (a modified port mark), 4 = to PORT. This
+    // locks the mapping so a comment-driven "fix" can't silently ship the
+    // wrong-side glyph (the docstring used to invert 3/4).
+    it('CATLAM 3 = preferred-channel-to-starboard glyph, 4 = to-port, buoys + beacons', () => {
+        expect(encNavaidIconId('BOYLAT', { CATLAM: 3 }, 'A')).toBe('sm-buoy-prefchan-stbd');
+        expect(encNavaidIconId('BCNLAT', { CATLAM: 3 }, 'A')).toBe('sm-beacon-prefchan-stbd');
+        expect(encNavaidIconId('BOYLAT', { CATLAM: 4 }, 'A')).toBe('sm-buoy-prefchan-port');
+        expect(encNavaidIconId('BCNLAT', { CATLAM: 4 }, 'A')).toBe('sm-beacon-prefchan-port');
+    });
+
+    it('preferred-channel glyphs invert for IALA region B', () => {
+        expect(encNavaidIconId('BOYLAT', { CATLAM: 3 }, 'B')).toBe('sm-buoy-prefchan-stbd-b');
+        expect(encNavaidIconId('BCNLAT', { CATLAM: 3 }, 'B')).toBe('sm-beacon-prefchan-stbd-b');
+        expect(encNavaidIconId('BOYLAT', { CATLAM: 4 }, 'B')).toBe('sm-buoy-prefchan-port-b');
+        expect(encNavaidIconId('BCNLAT', { CATLAM: 4 }, 'B')).toBe('sm-beacon-prefchan-port-b');
+    });
 });
 
 describe('readS57 — case-defensive property read (audit: ~50 hand-repeated pairs)', () => {

@@ -79,15 +79,18 @@ export function featuresToHazards(layer: EncLayer, fc: FeatureCollection): EncHa
         if (!feat || !feat.geometry) continue;
         // Man-made allision structures (cycle-5 audit #3), WATLEV-gated so a
         // deep pontoon / always-dry breakwater doesn't over-warn:
-        //  - WATLEV 7 (floating) never grounds → drop.
-        //  - PILPNT is a POINT with a 150 m guard corridor, which would carpet a
-        //    piled marina; include ONLY submerged/awash piles (WATLEV 3/4/5).
+        //  - WATLEV 7 (floating) never grounds → drop (all classes).
+        //  - PILPNT is a POINT with a 150 m guard corridor, so a VISIBLE pile
+        //    (WATLEV 1 partly-submerged-at-HW, 2 always-dry) is dropped to keep a
+        //    piled marina from carpeting. A submerged (3/4/5) OR unknown-WATLEV
+        //    pile stays a hazard — fail-safe (cycle-5 re-audit #5: dropping null
+        //    inverted the null policy on the very next line).
         // Everything else kept as an allision hazard (classifyHazard → 'obstruction');
         // a missing WATLEV stays a hazard (fail-safe: assume it's there).
         if (layer === 'SLCONS' || layer === 'DAMCON' || layer === 'PILPNT') {
             const watlev = readNumber(feat, 'WATLEV');
             if (watlev === 7) continue;
-            if (layer === 'PILPNT' && !(watlev === 3 || watlev === 4 || watlev === 5)) continue;
+            if (layer === 'PILPNT' && (watlev === 1 || watlev === 2)) continue;
         }
         let minDepthM: number | null = null;
         if (layer === 'DEPARE' || layer === 'DRGARE') {
