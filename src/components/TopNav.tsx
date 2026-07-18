@@ -13,6 +13,20 @@ const VESSEL_TYPE_LABEL: Record<string, string> = {
     observer: 'Vessel',
 };
 
+/** Compact relative age: "2 min ago", "3 h ago", "2 d ago". Clamps a future
+ *  stamp to "just now" rather than rendering a negative age — clock skew and bad
+ *  rows exist, and "in 6 h ago" helps nobody. */
+function agoLabel(iso: string): string {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!Number.isFinite(ms)) return 'unknown';
+    if (ms < 90_000) return 'just now';
+    const mins = Math.floor(ms / 60_000);
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} h ago`;
+    return `${Math.floor(hours / 24)} d ago`;
+}
+
 export default function TopNav({ vessel, telemetry, entryCount }: TopNavProps) {
     const specs = [VESSEL_TYPE_LABEL[vessel.type] ?? 'Vessel', vessel.model].filter(Boolean).join(' · ');
 
@@ -52,11 +66,25 @@ export default function TopNav({ vessel, telemetry, entryCount }: TopNavProps) {
                 <span className="hidden sm:block text-[11px] font-mono text-slate-500">
                     {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
                 </span>
+                {/* LIVE vs LAST KNOWN. This used to read "Live" whenever telemetry
+                    existed at all — which became a lie the moment the page grew a
+                    last-known-position fallback, because telemetry then ALWAYS
+                    exists. A 21-hour-old berth fix under a pulsing green "Live" is
+                    worse than the blank it replaced: a viewer could plan around it.
+                    Under way pulses and says how fresh; moored is grey, still, and
+                    says when it was last seen. */}
                 {telemetry ? (
-                    <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Live
-                    </span>
+                    telemetry.is_last_known ? (
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                            Not tracking · {agoLabel(telemetry.updated_at)}
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            Live · {agoLabel(telemetry.updated_at)}
+                        </span>
+                    )
                 ) : (
                     <span className="text-[11px] font-mono text-slate-500">No telemetry yet</span>
                 )}

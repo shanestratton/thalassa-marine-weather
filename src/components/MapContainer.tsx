@@ -242,12 +242,12 @@ export default function MapContainer({
         // stay reachable — but it must not be what a moored boat looks like.
         if (allCoords.length === 0) {
             if (telemetry && Number.isFinite(telemetry.lat) && Number.isFinite(telemetry.lon)) {
-                // z13 ≈ a bay/marina view (Shane 2026-07-19: "a nice high zoom so
-                // the punter can see clearly where we are"). z10 framed the whole
-                // region, which answers "roughly Moreton Bay" when the question is
-                // "which anchorage". There is no track to frame here, so nothing
-                // is lost by going in close — and the base map still zooms out.
-                return { longitude: telemetry.lon, latitude: telemetry.lat, zoom: 13 };
+                // z12 — settled after z10 (a whole region: "roughly Moreton Bay"
+                // when the question is "which anchorage") and z13 (Shane: "the zoom
+                // is a bit high"). z12 shows the anchorage with enough coast around
+                // it to place it. There is no track to frame in this branch, and
+                // the viewer can still pinch out.
+                return { longitude: telemetry.lon, latitude: telemetry.lat, zoom: 12 };
             }
             return { longitude: 0, latitude: 20, zoom: 1.3 };
         }

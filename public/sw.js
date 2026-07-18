@@ -483,9 +483,14 @@
 // v187: Anchor Watch opens again. The four-across rewrite (v184) rebuilt the
 // tile and sent it to a route named 'anchor' that does not exist — the screen
 // has always lived under 'compass'. Blank page, my fault.
-const CACHE_NAME = 'thalassa-v187-core';
-const TILE_CACHE = 'thalassa-v187-tiles';
-const DATA_CACHE = 'thalassa-v187-data';
+// v188: public page — the header now distinguishes "Live · 2 min ago" from
+// "Not tracking · 21 h ago" (it said "Live" for ANY telemetry, which the
+// last-known fallback turned into a lie). No-track zoom z13 -> z12. And the
+// fallback no longer resolves to a PLANNED waypoint: those rows carry ETAs, so
+// ordering by timestamp desc was returning a position six hours in the future.
+const CACHE_NAME = 'thalassa-v188-core';
+const TILE_CACHE = 'thalassa-v188-tiles';
+const DATA_CACHE = 'thalassa-v188-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
