@@ -426,6 +426,8 @@ export async function enhanceVoyagePlanWithIsochrone(
                     // The field name says M — vessel.draft is FEET. Raw
                     // feet here was the "bathymetry is sometimes off" bug.
                     vesselDraftM: vesselDraftMetres(vessel),
+                    // Assumed default draft (no draft set) → surface the caution (audit #2).
+                    draftAssumed: !(Number(vessel?.draft) > 0),
                     departureTimeMs,
                     stillCurrent: () => !enhancerStale,
                 }),

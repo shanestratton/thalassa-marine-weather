@@ -480,6 +480,11 @@ export interface ValidateRouteOptions {
      */
     vesselDraftM?: number;
     /**
+     * True when `vesselDraftM` is the assumed default (no draft set), so the
+     * panel can surface a "using a default draft" caution (cycle-5 audit #2).
+     */
+    draftAssumed?: boolean;
+    /**
      * Static tide offset above chart datum, metres. Used as a
      * fallback when `departureTimeMs` isn't provided (or when the
      * tide service can't reach a station). Default 0 = worst-case
@@ -538,8 +543,37 @@ export function buildRouteAdvisories(
     vesselDraftM?: number,
     failedCellIds?: readonly string[],
     segmentTideConstrained = 0,
+    draftAssumed = false,
 ): RouteAdvisory[] {
     const advisories: RouteAdvisory[] = [];
+    // Draft plausibility (cycle-5 audit #2, safety). Two fail-quiet cases the
+    // green "no advisory" badge used to hide:
+    //  (a) no draft set → hazardDepthForDraft silently assumed a default 2.5 m.
+    //  (b) an implausibly-small draft (< 1 m for a keelboat) — the feet↔metres
+    //      landmine: a 2.4 m draft mis-stored in metres reads 0.73 m, finite and
+    //      > 0, so every guard passes and ~2 m of water validates CLEAR.
+    // Warn, don't block (a genuine shallow-draft boat can confirm). The value is
+    // already metres here (vesselDraftMetres converted upstream) — no reconvert.
+    const IMPLAUSIBLE_MIN_DRAFT_M = 1.0;
+    if (typeof vesselDraftM === 'number' && vesselDraftM > 0 && vesselDraftM < IMPLAUSIBLE_MIN_DRAFT_M) {
+        advisories.push({
+            severity: 'caution',
+            kind: 'draft-implausible',
+            text:
+                `Vessel draft reads ${vesselDraftM.toFixed(2)} m — implausibly shallow for a keelboat. ` +
+                `Depth clearances are checked against this value and may be far too optimistic. ` +
+                `Verify your draft in Settings (it may have been entered in the wrong units).`,
+        });
+    }
+    if (draftAssumed) {
+        advisories.push({
+            severity: 'caution',
+            kind: 'draft-assumed',
+            text:
+                `No vessel draft set — depth checks assume a default 2.5 m keel. ` +
+                `Set your draft in Settings; clearances may be wrong for your boat.`,
+        });
+    }
     // The depth-threshold model clamps draft to 5 m (hazardDepthForDraft) — a
     // deeper vessel silently got 5 m math. Say so (burn-down 2026-07-16).
     if (typeof vesselDraftM === 'number' && vesselDraftM > 5) {
@@ -1117,6 +1151,7 @@ export async function validateRouteSegments(
                 options.vesselDraftM,
                 failedCellIds(),
                 segTideConstrained,
+                options.draftAssumed,
             );
             if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
             // Lateral clearance: a clean leg that still grazes a charted AREA
@@ -1189,7 +1224,13 @@ export async function validateRouteSegments(
                     `${unresolvedAfterPasses} segment(s) still being detoured — the final revision was ` +
                     `NOT re-verified and may still cross charted land or shoal. Verify the drawn line visually.`,
             },
-            ...buildRouteAdvisories(lastAllResults, options.vesselDraftM, failedCellIds(), segTideConstrained),
+            ...buildRouteAdvisories(
+                lastAllResults,
+                options.vesselDraftM,
+                failedCellIds(),
+                segTideConstrained,
+                options.draftAssumed,
+            ),
         ];
         if (singleStationTideNote) routeAdvisories.push(singleStationTideNote);
         const currencyAdvisory = describeChartCurrency(worstChartAgeYears);

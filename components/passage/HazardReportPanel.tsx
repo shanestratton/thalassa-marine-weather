@@ -112,6 +112,8 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
         'not-validated': 'Route NOT verified',
         exhaustion: 'Route not fully verified',
         'draft-clamp': 'Draft exceeds depth model',
+        'draft-assumed': 'Using a default draft',
+        'draft-implausible': 'Draft looks mis-scaled',
         'caution-crossing': 'Route crosses a prohibited area',
         'tide-constrained': 'Tide-constrained leg',
         // Only ever the HEADLINE when the gebco-share advisory is CAUTION-grade
