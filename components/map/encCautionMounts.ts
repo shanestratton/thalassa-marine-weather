@@ -137,6 +137,10 @@ export function mountCautionAreaLayers(map: mapboxgl.Map, beforeIdFor: (id: stri
                 layout: {
                     'symbol-placement': 'point',
                     'text-field': '⇧',
+                    // U+21E7 needs a font that actually carries it — the style's
+                    // default glyph set can render tofu (cycle-6 re-audit). Arial
+                    // Unicode MS has it, matching the other ENC text layers.
+                    'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 11, 18, 15, 30],
                     'text-rotate': mapExpr(['to-number', ['coalesce', ['get', 'ORIENT'], ['get', 'orient'], 0]]),
                     'text-rotation-alignment': 'map',

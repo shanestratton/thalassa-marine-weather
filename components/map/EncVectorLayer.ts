@@ -929,6 +929,18 @@ function mountTrackAidLayers(
                         'sm-light-green',
                         '#f0e030',
                         'sm-light-white',
+                        // Full LIGHT_COLOUR_HEX palette (cycle-6 re-audit): a
+                        // blue/yellow/amber/orange sector light keeps its charted
+                        // colour instead of collapsing to the generic star, so
+                        // the glyph agrees with its LIGHTSEC arc.
+                        '#3b82f6',
+                        'sm-light-blue',
+                        '#fde047',
+                        'sm-light-yellow',
+                        '#f59e0b',
+                        'sm-light-amber',
+                        '#fb923c',
+                        'sm-light-orange',
                         ['case', ['==', ['get', '_lightTier'], 'major'], 'sm-light-major', 'sm-light-minor'],
                     ]),
                     'icon-size': ['interpolate', ['linear'], ['zoom'], 7, 0.28, 11, 0.42, 15, 0.6],
