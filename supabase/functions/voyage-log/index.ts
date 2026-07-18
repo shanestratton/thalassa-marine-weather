@@ -624,7 +624,68 @@ Deno.serve(async (req: Request) => {
         // 60-result cap keeps coastal density from cluttering. Returns
         // an empty list if no data / no current position / RPC error —
         // never blocks the rest of the response.
-        const last = track[track.length - 1] ?? null;
+        // LAST KNOWN POSITION fallback (Shane 2026-07-19: "we need it to default
+        // to our location if there is no track"). With no recent voyage the page
+        // had nothing to centre on and drew no boat at all — the map opened on
+        // nowhere in particular, which reads as broken rather than as "moored".
+        //
+        // Deliberately NOT a one-point track: a position is not a passage, and
+        // feeding it through the track array would put it inside the land-voyage
+        // vote — where a boat sitting at its berth can read as majority-land and
+        // get filtered out, i.e. the fix would delete itself. It rides as
+        // telemetry instead, which already carries lat/lon/updated_at, and the
+        // client centres on that when the track is empty.
+        //
+        // No new data flow and nothing extra from the phone: this is the last fix
+        // the device already recorded. It is also not window-limited — the whole
+        // point is that it answers when the 30-day track cannot.
+        let last = track[track.length - 1] ?? null;
+        let lastIsStale = false;
+        if (!last) {
+            const { data: fallbackRows } = await supabase
+                .from('ship_logs')
+                .select('latitude, longitude, timestamp, speed_kts, course_deg, pressure, wind_speed, ' +
+                    'wind_direction, air_temp, water_temp, wave_height')
+                .eq('user_id', ownerId)
+                .or('archived.is.null,archived.eq.false')
+                .not('latitude', 'is', null)
+                .not('longitude', 'is', null)
+                .order('timestamp', { ascending: false })
+                .limit(1);
+            const f = (fallbackRows ?? [])[0] as Record<string, unknown> | undefined;
+            const fLat = f?.latitude as number | undefined;
+            const fLon = f?.longitude as number | undefined;
+            // Same plausibility rules the track filter applies — a null-island
+            // row would otherwise park the public page in the Gulf of Guinea.
+            const plausible =
+                typeof fLat === 'number' &&
+                typeof fLon === 'number' &&
+                Math.abs(fLat) <= 90 &&
+                Math.abs(fLon) <= 180 &&
+                !(Math.abs(fLat) < 0.001 && Math.abs(fLon) < 0.001);
+            if (f && plausible) {
+                lastIsStale = true; // the page labels it rather than passing it off as live
+                last = {
+                    lat: fLat,
+                    lon: fLon,
+                    timestamp: f.timestamp,
+                    voyage_id: null,
+                    speed_kts: f.speed_kts ?? null,
+                    course_deg: f.course_deg ?? null,
+                    heading_deg: null,
+                    pressure: f.pressure ?? null,
+                    wind_speed_apparent: null,
+                    wind_angle_apparent: null,
+                    wind_speed_true: f.wind_speed ?? null,
+                    wind_direction_true: null,
+                    wind_direction: f.wind_direction ?? null,
+                    depth_m: null,
+                    air_temp: f.air_temp ?? null,
+                    water_temp: f.water_temp ?? null,
+                    wave_height: f.wave_height ?? null,
+                } as unknown as typeof last;
+            }
+        }
         let nearbyVessels: unknown[] = [];
         if (last) {
             const { data: aisData, error: aisErr } = await supabase.rpc('vessels_nearby', {
@@ -710,6 +771,11 @@ Deno.serve(async (req: Request) => {
                   lat: last.lat,
                   lon: last.lon,
                   updated_at: last.timestamp,
+                  // TRUE when this is the last-known-position fallback rather
+                  // than a live/recent track fix. The page must say so — a month
+                  // -old berth position presented as current is the kind of thing
+                  // someone could plan a rendezvous around.
+                  is_last_known: lastIsStale,
               }
             : null;
 

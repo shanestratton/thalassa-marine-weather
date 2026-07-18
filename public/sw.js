@@ -472,9 +472,14 @@
 // and the ~95px goes back to the Boat Binder. Quarter width (~80px) still
 // clears the 44pt touch minimum but not the old icon-beside-text layout, so each
 // tile stacks chip/name/state and the state shrinks to one word.
-const CACHE_NAME = 'thalassa-v184-core';
-const TILE_CACHE = 'thalassa-v184-tiles';
-const DATA_CACHE = 'thalassa-v184-data';
+// v185: the public page falls back to the boat's LAST KNOWN POSITION when there
+// is no recent track — it used to open on a globe view of nowhere. Rides as
+// telemetry, not a one-point track, so it cannot be swallowed by the
+// land-voyage vote (a boat at its berth can read as majority-land). Labelled
+// "Last known · Nd ago" and not pinging, so a stale fix never poses as live.
+const CACHE_NAME = 'thalassa-v185-core';
+const TILE_CACHE = 'thalassa-v185-tiles';
+const DATA_CACHE = 'thalassa-v185-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

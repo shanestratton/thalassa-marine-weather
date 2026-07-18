@@ -152,6 +152,7 @@ export default function ThalassaDashboard() {
                     } md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative`}
                 >
                     <MapContainer
+                        telemetry={telemetry}
                         track={track}
                         entries={entries}
                         passageLine={passage?.plan_line ?? null}
