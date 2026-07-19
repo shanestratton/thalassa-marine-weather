@@ -6842,7 +6842,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         ['swatch', '#f59e0b', 'Leading line / track'],
                                     ] as const
                                 ).map(([kind, key, label]) => (
-                                    <div key={label} className="flex items-center gap-1.5">
+                                    <div
+                                        key={label}
+                                        // The cardinals row carries FOUR glyphs; at
+                                        // half-width its nowrap label ran straight over
+                                        // "Safe water" in the next column (Shane
+                                        // 2026-07-19: "a small overlap of letters").
+                                        // It takes the full row instead of the symbols
+                                        // being shrunk — below ~18px a topmark stops
+                                        // reading, which is the whole point of them.
+                                        className={`flex min-w-0 items-center gap-1.5 ${
+                                            kind === 'icons4' ? 'col-span-2' : ''
+                                        }`}
+                                    >
                                         {kind === 'icon' ? (
                                             <img
                                                 src={seamarkIconDataUri(key) ?? ''}
@@ -6876,7 +6888,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 style={{ background: key }}
                                             />
                                         )}
-                                        <span className="whitespace-nowrap">{label}</span>
+                                        <span className="min-w-0 truncate">{label}</span>
                                     </div>
                                 ))}
                             </div>
