@@ -100,6 +100,70 @@ describe('windVsTide', () => {
         expect(r.windOverTide).toBe(false);
     });
 
+    // ---------------------------------------------------------------------
+    // Regression: a missing current speed must not read as "safe".
+    //
+    // The old implementation did `(currentKts ?? 0) >= 0.7`, so dropping the
+    // current feed coalesced to 0, failed the test, and silently killed the
+    // warning — with every test above still green, because they all supply a
+    // currentKts. These are the cases that were missing.
+    // ---------------------------------------------------------------------
+    describe('with no current speed available', () => {
+        it('STILL flags wind-over-tide when opposed and the wind is strong', () => {
+            const r = windVsTide({ windDeg: 0, streamDeg: 0, windKts: 25, currentKts: null, phase: 'flood' });
+            expect(r.relation).toBe('against');
+            expect(r.windOverTide).toBe(true);
+            expect(r.confidence).toBe('inferred');
+            expect(r.label).toMatch(/likely/i);
+        });
+
+        it('infers a running stream from a spring tide at moderate wind', () => {
+            const r = windVsTide({
+                windDeg: 0,
+                streamDeg: 0,
+                windKts: 14,
+                currentKts: null,
+                phase: 'ebb',
+                springNeapRatio: 1.3,
+            });
+            expect(r.windOverTide).toBe(true);
+            expect(r.confidence).toBe('inferred');
+        });
+
+        it('says so plainly rather than looking benign when strength is unknowable', () => {
+            const r = windVsTide({ windDeg: 0, streamDeg: 0, windKts: 14, currentKts: null, phase: 'flood' });
+            expect(r.relation).toBe('against');
+            expect(r.confidence).toBe('unknown');
+            expect(r.windOverTide).toBe(false);
+            // The point of the fix: the user is told the gap exists.
+            expect(r.label).toMatch(/unknown/i);
+        });
+
+        it('treats slack water as a positive finding of no stream', () => {
+            const r = windVsTide({ windDeg: 0, streamDeg: 0, windKts: 30, currentKts: null, phase: 'slack' });
+            expect(r.confidence).toBe('below');
+            expect(r.windOverTide).toBe(false);
+        });
+    });
+
+    it('still trusts a measured speed below the bar', () => {
+        const r = windVsTide({
+            windDeg: 0,
+            streamDeg: 0,
+            windKts: 30,
+            currentKts: WIND_OVER_TIDE_CURRENT_KTS - 0.1,
+            phase: 'flood',
+        });
+        expect(r.confidence).toBe('below');
+        expect(r.windOverTide).toBe(false);
+    });
+
+    it('reports measured confidence when a real speed clears the bar', () => {
+        const r = windVsTide({ windDeg: 0, streamDeg: 0, ...strong, phase: 'flood' });
+        expect(r.confidence).toBe('measured');
+        expect(r.label).not.toMatch(/likely/i);
+    });
+
     it('returns unknown when the stream direction is unavailable', () => {
         const r = windVsTide({ windDeg: 0, streamDeg: null, windKts: 20, currentKts: 2 });
         expect(r.relation).toBe('unknown');
