@@ -517,9 +517,12 @@
 // v194: Vessel page — Atmosphere (Music) section removed, and Boat Binder opens
 // as its OWN SCREEN instead of unrolling ~170 lines of rows inline underneath
 // the pinned hero.
-const CACHE_NAME = 'thalassa-v194-core';
-const TILE_CACHE = 'thalassa-v194-tiles';
-const DATA_CACHE = 'thalassa-v194-data';
+// v195: chart-key overlap. The new Cardinals row carries FOUR glyphs and its
+// nowrap label ran over "Safe water" in the next column — it takes the full row
+// now, and every label truncates instead of overrunning.
+const CACHE_NAME = 'thalassa-v195-core';
+const TILE_CACHE = 'thalassa-v195-tiles';
+const DATA_CACHE = 'thalassa-v195-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
