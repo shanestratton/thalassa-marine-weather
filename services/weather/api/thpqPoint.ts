@@ -108,6 +108,26 @@ function url(file: string): string {
     return `${API_BASE}/points/${file}`;
 }
 
+/**
+ * Assert the response is genuinely the slice we asked for.
+ *
+ * A server that ignores Range does NOT error — it returns 200 with the whole
+ * object. Tested against Python's http.server, which does exactly that: the
+ * client then decodes the file HEADER as if it were wave data and gets
+ * swh 18.52 m on a 550 deg bearing. Plausible-looking garbage, silently.
+ *
+ * So this checks the exact length, not merely "not too big". Anything other
+ * than precisely the requested span is a protocol failure, and a wrong wave
+ * height shown confidently is worse than no wave height at all.
+ */
+function assertExactSlice(got: number, expected: number, status: number): void {
+    if (got === expected) return;
+    throw new Error(
+        `THPQ_RANGE_UNSUPPORTED: asked ${expected} B, got ${got} B (HTTP ${status}). ` +
+            `The origin is ignoring Range headers — do not trust a decode from this.`,
+    );
+}
+
 async function rangeGet(u: string, start: number, end: number): Promise<ArrayBuffer> {
     const range = `bytes=${start}-${end}`;
     const expected = end - start + 1;
@@ -122,13 +142,15 @@ async function rangeGet(u: string, start: number, end: number): Promise<ArrayBuf
         if (res?.status !== 206 && res?.status !== 200) {
             throw new Error(`THPQ_HTTP_${res?.status}`);
         }
-        // CapacitorHttp returns arraybuffer responses base64-encoded.
+        // CapacitorHttp returns arraybuffer responses base64-encoded. Check the
+        // encoded length first — decoding a 517 MB base64 string to discover it
+        // is too long would already have cost the user the download.
         const b64 = res.data as unknown as string;
-        const bin = atob(b64);
-        if (bin.length > MAX_PARTIAL_BYTES) {
-            // Range was ignored and we are being sent the whole file.
-            throw new Error(`THPQ_RANGE_UNSUPPORTED: asked ${expected} B, got ${bin.length}+`);
+        if (b64.length > MAX_PARTIAL_BYTES) {
+            throw new Error(`THPQ_RANGE_UNSUPPORTED: asked ${expected} B, response is ${b64.length} B encoded`);
         }
+        const bin = atob(b64);
+        assertExactSlice(bin.length, expected, res.status);
         const buf = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
         return buf.buffer;
@@ -138,10 +160,13 @@ async function rangeGet(u: string, start: number, end: number): Promise<ArrayBuf
 
     const res = await fetch(u, { headers: { Range: range } });
     if (!res.ok) throw new Error(`THPQ_HTTP_${res.status}`);
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_PARTIAL_BYTES) {
-        throw new Error(`THPQ_RANGE_UNSUPPORTED: asked ${expected} B, got ${buf.byteLength}`);
+    // A 200 here means Range was ignored outright — bail before reading the
+    // body, or we download the entire file to then reject it.
+    if (res.status === 200) {
+        throw new Error(`THPQ_RANGE_UNSUPPORTED: origin returned 200 not 206 — Range ignored`);
     }
+    const buf = await res.arrayBuffer();
+    assertExactSlice(buf.byteLength, expected, res.status);
     return buf;
 }
 
