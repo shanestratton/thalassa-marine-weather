@@ -57,20 +57,26 @@ export const LocationStore = {
 
     /**
      * Set location from a map long-press pin drop.
-     * Triggers reverse geocoding for the name.
+     * Triggers reverse geocoding for the name, unless the caller already
+     * has one — the picker resolves the name itself, and geocoding the
+     * same coordinate twice is a wasted Mapbox call.
      */
-    async setFromMapPin(lat: number, lon: number) {
+    async setFromMapPin(lat: number, lon: number, name?: string) {
         // Immediately update coords (UI feels instant)
         state = {
             ...state,
             lat,
             lon,
-            name: `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`,
+            name:
+                name ||
+                `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`,
             source: 'map_pin',
             timestamp: Date.now(),
-            isReversGeocoding: true,
+            isReversGeocoding: !name,
         };
         notify();
+
+        if (name) return;
 
         // Reverse geocode
         try {

@@ -3,6 +3,7 @@ import { useEffect, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { createPinMarker } from '../../utils/createMarkerEl';
+import { LocationStore } from '../../stores/LocationStore';
 
 const log = createLogger('usePickerMode');
 
@@ -26,14 +27,25 @@ export function usePickerMode(
                 .setLngLat([lng, lat])
                 .addTo(map);
 
+            const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
+
+            // Claim the store as a user-placed pin BEFORE the geocode.
+            // useLiveLocationName re-stamps source:'gps' every 3s and only
+            // yields to 'map_pin', so without this the boat's own position
+            // overwrites the picked location's name on The Glass within
+            // seconds — the weather is fetched for the pick, but every
+            // label says where the boat is. Long-press already does this
+            // (useMapInit); the location-box picker never did.
+            void LocationStore.setFromMapPin(lat, lng, fallback);
+
             try {
                 const { reverseGeocode } = await import('../../services/weatherService');
                 const name = await reverseGeocode(lat, lng);
-                const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
-                onLocationSelect?.(lat, lng, name || fallback);
+                const display = name || fallback;
+                void LocationStore.setFromMapPin(lat, lng, display);
+                onLocationSelect?.(lat, lng, display);
             } catch (e) {
                 log.warn('[MapHub]', e);
-                const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, fallback);
             }
         };
