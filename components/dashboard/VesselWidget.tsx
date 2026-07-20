@@ -164,7 +164,7 @@ const VesselStatusWidgetComponent = ({
                         <div className="flex justify-between items-center text-xs">
                             <span className="text-gray-400 font-bold uppercase tracking-wider">Daylight Remaining</span>
                             <span className="text-white font-mono">
-                                {current.uvIndex > 0 ? 'High Visibility' : 'Night Mode'}
+                                {(current.uvIndex ?? 0) > 0 ? 'High Visibility' : 'Night Mode'}
                             </span>
                         </div>
                     </div>
