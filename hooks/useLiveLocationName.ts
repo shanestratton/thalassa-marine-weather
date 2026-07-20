@@ -15,9 +15,10 @@
  *     wrong-home-port label from onboarding gets corrected within a
  *     second of app open, not the 10-30s the pure-interval approach
  *     took). Subsequent fixes are debounced to the 10s polling cadence.
- *   - Only honours LocationStore.source === 'map_pin' as a strict
- *     override — everything else (gps / initial / search / favorite)
- *     gets live-updated.
+ *   - Honours LocationStore.source === 'map_pin' and 'favorite' as
+ *     strict overrides — everything else (gps / initial / search)
+ *     gets live-updated. 'search' stays soft on purpose: it's the
+ *     WeatherContext boot placeholder the first GPS fix should replace.
  *
  * Returns the current live name or null if no position is available yet.
  */
@@ -98,9 +99,10 @@ export function useLiveLocationName(): string | null {
         const tryReverseGeocode = async () => {
             if (cancelled || geocoding) return;
 
-            // Gate: only a user-placed map pin is a hard override.
+            // Gate: user-initiated picks are hard overrides. ('search' is
+            // deliberately soft — it's the WeatherContext boot placeholder.)
             const storeSource = LocationStore.getState().source;
-            if (storeSource === 'map_pin') return;
+            if (storeSource === 'map_pin' || storeSource === 'favorite') return;
 
             const latest = latestPosRef.current;
             if (!latest) return;

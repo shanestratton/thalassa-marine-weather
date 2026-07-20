@@ -112,15 +112,21 @@ export const LocationStore = {
     },
 
     /**
-     * Set location from search.
+     * Set location from a saved-favourite pick. This is a CLAIM:
+     * useLiveLocationName re-stamps the store with source:'gps' every
+     * 3s and only yields to 'map_pin' and 'favorite', so a favourite
+     * that doesn't claim the store gets its label — and every consumer
+     * reading coords off the store — reverted to the boat's position
+     * within seconds. ('search' is deliberately NOT a claim: it's the
+     * WeatherContext boot placeholder the first GPS fix should replace.)
      */
-    setFromSearch(lat: number, lon: number, name: string) {
+    setFromFavorite(lat: number, lon: number, name: string) {
         state = {
             ...state,
             lat,
             lon,
             name,
-            source: 'search',
+            source: 'favorite',
             timestamp: Date.now(),
             isReversGeocoding: false,
         };
