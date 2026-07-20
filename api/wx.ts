@@ -116,6 +116,8 @@ footer a{color:var(--ok)}
 <div class="sub" id="fcAsof">loading…</div>
 <div id="banner"></div>
 <div class="picker" id="picker"></div>
+<div class="picker"><select id="mdl" class="loc"></select>
+<span class="sub" id="cadence" style="align-self:center"></span></div>
 <div class="panel"><h3 id="hTitle">Hourly</h3><canvas id="hourly"></canvas>
 <div class="chips" id="chips"></div></div>
 <div class="tiles" id="curTiles"></div>
@@ -133,7 +135,6 @@ footer a{color:var(--ok)}
 <footer id="foot"></footer>
 <script>
 const $=id=>document.getElementById(id);
-// WMO weather code -> [day icon, night icon, label]
 const WMO={0:['☀️','🌙','Clear'],1:['🌤️','🌙','Mostly clear'],2:['⛅','☁️','Partly cloudy'],
 3:['☁️','☁️','Overcast'],45:['🌫️','🌫️','Fog'],48:['🌫️','🌫️','Rime fog'],
 51:['🌦️','🌧️','Drizzle'],53:['🌦️','🌧️','Drizzle'],55:['🌧️','🌧️','Drizzle'],
@@ -142,80 +143,93 @@ const WMO={0:['☀️','🌙','Clear'],1:['🌤️','🌙','Mostly clear'],2:['�
 71:['🌨️','🌨️','Snow'],73:['🌨️','🌨️','Snow'],75:['❄️','❄️','Heavy snow'],77:['🌨️','🌨️','Snow grains'],
 80:['🌦️','🌧️','Showers'],81:['🌧️','🌧️','Showers'],82:['⛈️','⛈️','Violent showers'],
 95:['⛈️','⛈️','Thunderstorm'],96:['⛈️','⛈️','Storm + hail'],99:['⛈️','⛈️','Storm + hail']};
-const icon=(code,isDay)=>{const e=WMO[code]||WMO[3];return e[isDay?0:1]};
+// Some models publish no WMO code — fall back to cloud+precip rather than
+// showing nothing or, worse, a wrong-but-confident icon.
+function ic(code,day,cloud,pr){
+  if(code!=null&&WMO[code])return WMO[code][day?0:1];
+  if(pr!=null&&pr>0.2)return '🌧️';
+  if(cloud!=null){if(cloud>=80)return '☁️';if(cloud>=40)return day?'⛅':'☁️'}
+  return day?'☀️':'🌙'}
 const label=code=>(WMO[code]||['','','—'])[2];
 const arrow=d=>d==null?'':['↓','↙','←','↖','↑','↗','→','↘'][Math.round(((d+180)%360)/45)%8];
-// local-naive helpers — NEVER new Date() on location-local strings
 const hh=t=>t.slice(11,13), dkey=t=>t.slice(0,10);
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const dow=t=>{const[y,m,d]=t.slice(0,10).split('-').map(Number);
   return DOW[new Date(Date.UTC(y,m-1,d)).getUTCDay()]+' '+d};
 
-let F=null,M=null,H=[],sel=localStorage.wxloc||'newport',metric='temp';
+let F=null,M=null,H=[],sel=localStorage.wxloc||'newport',
+    mdl=localStorage.wxmdl||'',metric='temp';
 
-function sunMap(loc){const m={};(loc.daily.time||[]).forEach((d,i)=>{
-  m[d]=[(loc.daily.sunrise||[])[i]||'',(loc.daily.sunset||[])[i]||'']});return m}
+function sunMap(loc){const m={};const s=loc.sun||{};
+  (s.time||[]).forEach((d,i)=>{m[d]=[(s.sunrise||[])[i]||'',(s.sunset||[])[i]||'']});return m}
 function isDay(t,sm){const s=sm[dkey(t)];if(!s||!s[0])return true;
   const x=t.slice(11,16);return x>=s[0].slice(11,16)&&x<s[1].slice(11,16)}
 
 const METRICS={
- temp:{title:'Temperature °C',get:l=>l.hourly.temperature_2m,kind:'line',color:'var(--curve)'},
- precip:{title:'Precipitation mm/h',get:l=>l.hourly.precipitation,kind:'bar',color:'var(--rain)'},
- wind:{title:'Wind kt (line) + gust',get:l=>l.hourly.wind_speed_10m,get2:l=>l.hourly.wind_gusts_10m,kind:'line',color:'var(--ok)'},
- pressure:{title:'Pressure hPa',get:l=>l.hourly.pressure_msl,kind:'line',color:'var(--dim)'}};
+ temp:{title:'Temperature °C',key:'temperature_2m',kind:'line',cvar:'--curve'},
+ precip:{title:'Precipitation mm/h',key:'precipitation',kind:'bar',cvar:'--rain'},
+ wind:{title:'Wind kt + gusts',key:'wind_speed_10m',key2:'wind_gusts_10m',kind:'line',cvar:'--ok'},
+ pressure:{title:'Pressure hPa',key:'pressure_msl',kind:'line',cvar:'--dim'}};
 
-function drawHourly(loc){
+function drawHourly(loc,mo){
   const c=$('hourly'),dpr=devicePixelRatio||1,W=c.clientWidth,Hh=c.clientHeight;
   c.width=W*dpr;c.height=Hh*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
-  const css=v=>getComputedStyle(document.body).getPropertyValue(v);
-  const m=METRICS[metric],vals=(m.get(loc)||[]).map(v=>v==null?null:+v);
-  const t=loc.hourly.time||[],n=Math.min(vals.length,48);if(!n)return;
+  const css=v=>getComputedStyle(document.body).getPropertyValue(v).trim();
+  const m=METRICS[metric],hr=mo.hourly,vals=(hr[m.key]||[]).map(v=>v==null?null:+v);
+  const t=hr.time||[],n=Math.min(vals.length,48);if(!n)return;
   const sm=sunMap(loc);
-  const v2=m.get2?(m.get2(loc)||[]):null;
-  const all=vals.slice(0,n).concat(v2?v2.slice(0,n):[]).filter(v=>v!=null);
+  const v2=m.key2?(hr[m.key2]||[]):null;
+  const all=vals.slice(0,n).concat(v2?v2.slice(0,n).filter(v=>v!=null):[]).filter(v=>v!=null);
+  if(!all.length)return;
   let lo=Math.min(...all),hi=Math.max(...all);
   if(metric==='precip'){lo=0;hi=Math.max(hi,1)}
   if(hi-lo<2){const c0=(hi+lo)/2;lo=c0-1;hi=c0+1}
   const pad=(hi-lo)*.18;lo-=metric==='precip'?0:pad;hi+=pad;
   const top=26,bot=44,ph=Hh-top-bot;
   const X=i=>i/(n-1)*(W-16)+8, Y=v=>top+ph-(v-lo)/(hi-lo)*ph;
-  // night shading
   x.fillStyle=css('--rule');
-  for(let i=0;i<n;i++)if(!isDay(t[i],sm))x.globalAlpha=.28,x.fillRect(X(i)-(W-16)/(n-1)/2,top,(W-16)/(n-1),ph),x.globalAlpha=1;
-  if(m.kind==='bar'){x.fillStyle=m.color.startsWith('var')?css(m.color.slice(4,-1)):m.color;
+  for(let i=0;i<n;i++)if(!isDay(t[i],sm)){x.globalAlpha=.28;
+    x.fillRect(X(i)-(W-16)/(n-1)/2,top,(W-16)/(n-1),ph);x.globalAlpha=1}
+  const col=css(m.cvar);
+  if(m.kind==='bar'){x.fillStyle=col;
     for(let i=0;i<n;i++){const v=vals[i];if(v==null)continue;
       x.fillRect(X(i)-2,Y(v),4,top+ph-Y(v))}}
-  else{const col=m.color.startsWith('var')?css(m.color.slice(4,-1)):m.color;
-    if(metric==='temp'){const g=x.createLinearGradient(0,top,0,top+ph);
+  else{if(metric==='temp'){const g=x.createLinearGradient(0,top,0,top+ph);
       g.addColorStop(0,col+'55');g.addColorStop(1,col+'00');x.fillStyle=g;x.beginPath();
       x.moveTo(X(0),top+ph);for(let i=0;i<n;i++)x.lineTo(X(i),Y(vals[i]??lo));
       x.lineTo(X(n-1),top+ph);x.fill()}
     x.strokeStyle=col;x.lineWidth=1.8;x.beginPath();
     for(let i=0;i<n;i++)vals[i]!=null&&(i?x.lineTo(X(i),Y(vals[i])):x.moveTo(X(i),Y(vals[i])));x.stroke();
-    if(v2){x.strokeStyle=col;x.setLineDash([3,3]);x.beginPath();
+    if(v2){x.setLineDash([3,3]);x.beginPath();
       for(let i=0;i<n;i++)v2[i]!=null&&(i?x.lineTo(X(i),Y(v2[i])):x.moveTo(X(i),Y(v2[i])));
       x.stroke();x.setLineDash([])}}
-  // labels every 3h, icons+hours every 4h
   x.fillStyle=css('--ink');x.font='10.5px ui-monospace,monospace';x.textAlign='center';
-  for(let i=0;i<n;i+=3)vals[i]!=null&&x.fillText(Math.round(vals[i])+(metric==='pressure'?'':'°').replace('°',metric==='temp'?'°':''),X(i),Y(vals[i])-6);
+  for(let i=0;i<n;i+=3)vals[i]!=null&&x.fillText(Math.round(vals[i])+(metric==='temp'?'°':''),X(i),Y(vals[i])-6);
   x.font='13px ui-monospace';x.textBaseline='top';
-  for(let i=0;i<n;i+=4)x.fillText(icon(loc.hourly.weather_code[i],isDay(t[i],sm)),X(i),Hh-30);
+  for(let i=0;i<n;i+=4)x.fillText(ic((hr.weather_code||[])[i],isDay(t[i],sm),
+    (hr.cloud_cover||[])[i],(hr.precipitation||[])[i]),X(i),Hh-30);
   x.fillStyle=css('--dim');x.font='9.5px ui-monospace';
   for(let i=0;i<n;i+=4)x.fillText(hh(t[i]),X(i),Hh-12);
 }
 
 function renderForecast(){
   const loc=F.locations[sel];if(!loc)return;
+  if(!loc.models[mdl])mdl=loc.models[F.primary]?F.primary:Object.keys(loc.models)[0];
+  const mo=loc.models[mdl];
   $('picker').innerHTML=Object.entries(F.locations).map(([k,l])=>
     '<button class="loc'+(k===sel?' sel':'')+'" data-k="'+k+'">'+l.name+'</button>').join('');
-  document.querySelectorAll('.loc').forEach(b=>b.onclick=()=>{sel=b.dataset.k;
+  document.querySelectorAll('.loc[data-k]').forEach(b=>b.onclick=()=>{sel=b.dataset.k;
     localStorage.wxloc=sel;renderForecast()});
-  $('hTitle').textContent='Hourly · '+loc.name+' ('+(loc.tz||'')+')';
+  $('mdl').innerHTML=Object.entries(loc.models).map(([k,m])=>
+    '<option value="'+k+'"'+(k===mdl?' selected':'')+'>'+m.label+'</option>').join('');
+  $('mdl').onchange=e=>{mdl=e.target.value;localStorage.wxmdl=mdl;renderForecast()};
+  $('cadence').textContent=mo.cadence+' · grid '+mo.grid.map(g=>(+g).toFixed(2)).join(', ');
+  $('hTitle').textContent='Hourly · '+loc.name+' · '+mo.label+' ('+(loc.tz||'')+')';
   $('chips').innerHTML=Object.entries(METRICS).map(([k,m])=>
     '<button class="chip'+(k===metric?' sel':'')+'" data-m="'+k+'">'+m.title.split(' ')[0]+'</button>').join('');
   document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{metric=b.dataset.m;renderForecast()});
-  drawHourly(loc);
-  const c=loc.current,tile=(k,v,u)=>'<div class="tile"><div class="k">'+k+
+  drawHourly(loc,mo);
+  const c=mo.current,tile=(k,v,u)=>'<div class="tile"><div class="k">'+k+
     '</div><div class="v">'+(v==null?'—':v)+' <span class="u">'+(u||'')+'</span></div></div>';
   $('curTiles').innerHTML=
     tile('Temperature',c.temperature_2m,'°C')+
@@ -227,18 +241,16 @@ function renderForecast(){
     tile('Pressure',c.pressure_msl&&Math.round(c.pressure_msl),'hPa')+
     tile('Humidity',c.relative_humidity_2m,'%')+
     tile('Dew point*',c.dew_point,'°C')+
-    tile('Sky',icon(c.weather_code,true),label(c.weather_code));
-  const d=loc.daily;
-  // ICON runs ~7 days; beyond its horizon the dailies are null. Skip those
-  // days entirely — Math.round(null) renders a confident 0 deg, which is a
-  // fabricated forecast, and this page does not show numbers it does not have.
+    tile('Sky',ic(c.weather_code,true,c.cloud_cover,c.precipitation),
+      c.weather_code!=null?label(c.weather_code):'derived');
+  const d=mo.daily;
   $('daily').innerHTML=(d.time||[]).map((t,i)=>{
     const mx=(d.temperature_2m_max||[])[i],mn=(d.temperature_2m_min||[])[i];
     if(mx==null||mn==null)return '';
     return '<div class="day"><div class="dow">'+dow(t)+'</div><div class="ico">'+
-    icon((d.weather_code||[])[i],true)+'</div><div class="hi">'+
-    Math.round(mx)+'°</div><div class="lo">'+
-    Math.round(mn)+'°</div><div class="pr">'+
+    ic((d.weather_code||[])[i],true,null,((d.precipitation_sum||[])[i]||0)/24)+
+    '</div><div class="hi">'+Math.round(mx)+'°</div><div class="lo">'+Math.round(mn)+
+    '°</div><div class="pr">'+
     (((d.precipitation_sum||[])[i]||0)>0.05?((d.precipitation_sum[i]).toFixed(1)+'mm'):'')+
     '</div></div>'}).join('');
   const td=loc.tides;
@@ -269,11 +281,10 @@ function renderMonitor(){
   const oh=c.om_health||{};
   const fails=(c.failed_units||[]).filter(u=>u!=='systemd-networkd-wait-online.service'
     &&u!=='residual-gate.service');
-  const resid=c.residual_verdict;
   $('health').innerHTML=
     pill('data '+(oh.status||'?'),oh.status==='ok'?'ok':'bad')+
     pill('api '+c.docker_om_api,c.docker_om_api==='running'?'ok':'bad')+
-    pill('residual '+resid,resid==='fresh'?'ok':'warn')+
+    pill('residual '+c.residual_verdict,c.residual_verdict==='fresh'?'ok':'warn')+
     pill(fails.length?fails.length+' failed unit(s)':'units clean',fails.length?'bad':'ok');
   const tile=(k,v,u)=>'<div class="tile"><div class="k">'+k+'</div><div class="v">'+
     (v==null?'—':v)+' <span class="u">'+(u||'')+'</span></div></div>';
@@ -287,13 +298,13 @@ function renderMonitor(){
   const specs=[['CPU %','cpu'],['CPU pkg W','w'],['CPU °C','tc'],['Net ↓ kB/s','rx']];
   $('charts').innerHTML=specs.map(([t],i)=>
     '<div class="chart"><h3>'+t+' · 24h</h3><canvas class="spark" id="sp'+i+'"></canvas></div>').join('');
-  const css=v=>getComputedStyle(document.body).getPropertyValue('--ok');
   specs.forEach(([,k],i)=>{const cv=$('sp'+i);const dpr=devicePixelRatio||1;
     const w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
     const x=cv.getContext('2d');x.scale(dpr,dpr);
     const pts=H.map(p=>p[k]),vals=pts.filter(v=>v!=null);if(vals.length<2)return;
     let lo=Math.min(...vals),hi=Math.max(...vals);if(hi-lo<1e-9){lo-=.5;hi+=.5}
-    x.strokeStyle=css();x.lineWidth=1.3;x.beginPath();let st=false;
+    x.strokeStyle=getComputedStyle(document.body).getPropertyValue('--ok').trim();
+    x.lineWidth=1.3;x.beginPath();let st=false;
     pts.forEach((v,j)=>{if(v==null){st=false;return}
       const px=j/(pts.length-1)*w,py=h-4-(v-lo)/(hi-lo)*(h-8);
       st?x.lineTo(px,py):x.moveTo(px,py);st=true});x.stroke();
@@ -305,7 +316,7 @@ function renderMonitor(){
       return '<tr><td>'+u+'</td><td>'+(t.last||'—').replace(/^\\w+ /,'')+
       '</td><td class="'+(bad?'bad':'ok')+'">'+(t.result||'—')+'</td></tr>'}).join('');
   $('foot').innerHTML=(c.power_note||'')+
-    ' · Model spread across five models: <a href="/api/spread">/api/spread</a>.'+
+    ' · Model spread scored side by side: <a href="/api/spread">/api/spread</a>.'+
     ' Read-only — the server pushes, this page renders.';
 }
 
@@ -313,13 +324,12 @@ async function load(){
   const r=await fetch('/api/wx?data=1');const d=await r.json();
   M=d.current;H=d.history||[];F=d.forecast;
   if(F){const age=(Date.now()-Date.parse(F.generated_at))/60000;
-    $('fcAsof').textContent='forecast built '+age.toFixed(0)+' min ago · model '+
-      (F.model||'')+' · auto-refreshes';
+    $('fcAsof').textContent='forecast built '+age.toFixed(0)+' min ago · auto-refreshes';
     if(!F.locations[sel])sel=Object.keys(F.locations)[0];
     renderForecast()}
   else $('fcAsof').textContent='no forecast payload found';
   renderMonitor();
 }
 load();setInterval(load,60000);
-addEventListener('resize',()=>{if(F)drawHourly(F.locations[sel])});
+addEventListener('resize',()=>{if(F)renderForecast()});
 </script></div></body></html>`;
