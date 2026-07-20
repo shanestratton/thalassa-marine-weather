@@ -6,7 +6,13 @@ import { useWeather } from '../../context/WeatherContext';
 import { piCache, type PiFetchStats } from '../../services/PiCacheService';
 import { triggerHaptic } from '../../utils/system';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { resolveForecastModel, getForecastModelInfo } from '../../services/weather/forecastModels';
+import {
+    resolveForecastModel,
+    getForecastModelInfo,
+    isSpitfire,
+    SPITFIRE_MODEL,
+} from '../../services/weather/forecastModels';
+import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
 
 interface StatusBadgesProps {
@@ -73,7 +79,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         isLive: _isLive = true,
         modelUsed: _modelUsed,
         generatedAt: _generatedAt,
-        coordinates: _coordinates,
+        coordinates,
         offshoreModelLabel,
         isOffshore: isOffshoreProp,
     }) => {
@@ -184,6 +190,13 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
         const modelInfo = getForecastModelInfo(glassModel);
         const [showModelSheet, setShowModelSheet] = useState(false);
+
+        // SPITFIRE only exists where the wx box computes it, so both the pill
+        // and the picker follow the boat's position.
+        const spitfireLoc = spitfireLocationFor(coordinates?.lat ?? null, coordinates?.lon ?? null);
+        const spitfireSelected = isSpitfire(glassModel);
+        const pillLabel = spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
+        const pillHex = spitfireSelected ? '#facc15' : modelInfo?.hex || '#94a3b8';
         const pickModel = (id: WeatherModel) => {
             void triggerHaptic('medium');
             updateSettings({ forecastModel: id });
@@ -251,12 +264,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                     />
                                 </span>
                             ) : (
-                                <span
-                                    className="w-2 h-2 rounded-full shrink-0"
-                                    style={{ backgroundColor: modelInfo?.hex || '#94a3b8' }}
-                                />
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pillHex }} />
                             )}
-                            {modelInfo?.label || 'AUTO'}
+                            {pillLabel}
                             {/* Chevron — signals this pill opens a picker */}
                             <svg
                                 className="w-2.5 h-2.5 opacity-60 shrink-0"
@@ -274,6 +284,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 <ModelPickerSheet
                     visible={showModelSheet}
                     currentModel={glassModel}
+                    spitfireAvailable={!!spitfireLoc}
+                    spitfireLocationName={spitfireLoc?.name}
                     onPick={pickModel}
                     onClose={() => setShowModelSheet(false)}
                     onRefresh={() => {

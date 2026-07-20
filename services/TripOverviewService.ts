@@ -432,7 +432,7 @@ export async function enrichTripWithLiveData(trip: TripOverview): Promise<Enrich
                     const windDir =
                         typeof dayAny.windDirection === 'string' && dayAny.windDirection ? dayAny.windDirection : '—';
                     const forecast: LegForecast = {
-                        windSpeedKt: Math.round(forecastDay.windSpeed),
+                        windSpeedKt: forecastDay.windSpeed != null ? Math.round(forecastDay.windSpeed) : 0,
                         windGustKt: forecastDay.windGust ? Math.round(forecastDay.windGust) : null,
                         windDirection: windDir,
                         waveHeightM:

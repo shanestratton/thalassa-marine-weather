@@ -61,12 +61,14 @@ export const HourlyWidget = ({
                             const chill =
                                 item.feelsLike !== undefined
                                     ? item.feelsLike
-                                    : calculateWindChill(item.temperature, item.windSpeed, units.temp);
+                                    : calculateWindChill(item.temperature, item.windSpeed ?? 0, units.temp);
                             const chillDisplay = chill ? convertTemp(chill, units.temp) : null;
                             const tempDisplay = convertTemp(item.temperature, units.temp);
-                            const gustDisplay = item.windGust
-                                ? convertSpeed(item.windGust, units.speed)
-                                : convertSpeed(item.windSpeed * 1.2, units.speed);
+                            // Real gusts only. This used to fall back to
+                            // windSpeed * 1.2 — a number no model forecast,
+                            // shown as "Gusting X" beside real readings.
+                            // AIFS and JMA publish no gust field at all.
+                            const gustDisplay = item.windGust != null ? convertSpeed(item.windGust, units.speed) : null;
                             const windSpeedDisplay = convertSpeed(item.windSpeed, units.speed);
                             const cloudCover = item.cloudCover;
                             const tideStatus = getTideStatus(idx, hourly);
@@ -255,9 +257,11 @@ export const HourlyWidget = ({
                                                 <span className="text-xl font-bold text-white">{windSpeedDisplay}</span>
                                                 <span className="text-xs text-gray-400">{units.speed}</span>
                                             </div>
-                                            <div className="text-xs text-amber-400 font-medium mt-1">
-                                                Gusting {gustDisplay}
-                                            </div>
+                                            {gustDisplay != null && (
+                                                <div className="text-xs text-amber-400 font-medium mt-1">
+                                                    Gusting {gustDisplay}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {waveCell}
@@ -317,9 +321,9 @@ export const DailyWidget = ({
                     // FREE TIER LIMIT: Lock days 4-10 (Index 3+)
                     const isLocked = !isPro && i > 2;
 
-                    const dayGust = day.windGust
-                        ? convertSpeed(day.windGust, units.speed)
-                        : convertSpeed(day.windSpeed * 1.3, units.speed);
+                    // Real gusts only — no windSpeed * 1.3 stand-in (see the
+                    // hourly gustDisplay note above).
+                    const dayGust = day.windGust != null ? convertSpeed(day.windGust, units.speed) : null;
                     const dayWind = convertSpeed(day.windSpeed, units.speed);
                     const dayWave = convertLength(day.waveHeight, units.length);
 
@@ -327,7 +331,7 @@ export const DailyWidget = ({
                     // when marine wave coverage is missing for this
                     // day so the score still computes a useful
                     // wind-only result instead of NaN-ing out.
-                    const score = calculateDailyScore(day.windSpeed, day.waveHeight ?? 0, vessel);
+                    const score = calculateDailyScore(day.windSpeed ?? 0, day.waveHeight ?? 0, vessel);
                     const scoreClass = getSailingScoreColor(score);
                     const condText = getSailingConditionText(score);
 
@@ -400,15 +404,17 @@ export const DailyWidget = ({
                                     </div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2">
                                         <div
-                                            className={`h-full rounded-full transition-all ${day.windSpeed > 20 ? 'bg-red-500' : day.windSpeed > 10 ? 'bg-emerald-400' : 'bg-sky-400'}`}
-                                            style={{ width: `${Math.min(day.windSpeed * 3, 100)}%` }}
+                                            className={`h-full rounded-full transition-all ${(day.windSpeed ?? 0) > 20 ? 'bg-red-500' : (day.windSpeed ?? 0) > 10 ? 'bg-emerald-400' : 'bg-sky-400'}`}
+                                            style={{ width: `${Math.min((day.windSpeed ?? 0) * 3, 100)}%` }}
                                         ></div>
                                     </div>
                                     <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                                         <span className="text-[11px] text-gray-400 uppercase tracking-wider font-bold">
                                             Gusts
                                         </span>
-                                        <span className="text-xs text-amber-300 font-mono font-bold">{dayGust}</span>
+                                        <span className="text-xs text-amber-300 font-mono font-bold">
+                                            {dayGust ?? '—'}
+                                        </span>
                                     </div>
                                 </div>
 

@@ -13,7 +13,12 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { WeatherModel } from '../../types';
-import { AUTO_MODEL, SELECTABLE_MODELS, MODEL_ATTRIBUTION_LINE } from '../../services/weather/forecastModels';
+import {
+    AUTO_MODEL,
+    SELECTABLE_MODELS,
+    MODEL_ATTRIBUTION_LINE,
+    SPITFIRE_MODEL,
+} from '../../services/weather/forecastModels';
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -23,6 +28,12 @@ interface ModelPickerSheetProps {
     /** Manual refresh escape hatch — refresh is automatic, but after an
      *  error the user needs a way to retry on their own schedule. */
     onRefresh: () => void;
+    /** SPITFIRE is only computed for a fixed list of locations, so it is
+     *  offered only when the boat is near one — it is a blend, not a grid,
+     *  and has nothing to say anywhere else. */
+    spitfireAvailable?: boolean;
+    /** Where it applies, for the row's helper line. */
+    spitfireLocationName?: string;
 }
 
 export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
@@ -31,6 +42,8 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     onPick,
     onClose,
     onRefresh,
+    spitfireAvailable = false,
+    spitfireLocationName,
 }) => {
     // ESC closes the sheet
     useEffect(() => {
@@ -124,6 +137,20 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
 
                 {/* Scrollable list */}
                 <div className="overflow-y-auto max-h-[60dvh] px-3 py-3 space-y-1.5">
+                    {/* SPITFIRE first when it applies here — it is the only
+                        entry scored against real observations. */}
+                    {spitfireAvailable && (
+                        <>
+                            {row(
+                                SPITFIRE_MODEL,
+                                'Spitfire',
+                                `Weighted blend of 5 models${spitfireLocationName ? ` · ${spitfireLocationName}` : ''}`,
+                                '#facc15',
+                            )}
+                            <div className="h-px bg-white/[0.06] my-2" />
+                        </>
+                    )}
+
                     {SELECTABLE_MODELS.map((m) => row(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
 
                     {/* Divider */}

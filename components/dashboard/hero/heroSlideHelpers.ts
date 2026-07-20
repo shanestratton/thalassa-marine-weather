@@ -108,10 +108,10 @@ export function computeCardDisplayValues(
             cardData.visibility && !isNaN(cardData.visibility)
                 ? convertDistance(cardData.visibility, units.visibility || 'nm')
                 : '--',
-        gusts:
-            cardData.windSpeed !== null
-                ? Math.round(convertSpeed(cardData.windGust ?? cardData.windSpeed * 1.3, units.speed)!)
-                : '--',
+        // Real gusts only. This used to fall back to windSpeed * 1.3, so a
+        // model with no gust field (ECMWF AIFS, JMA GSM) showed an invented
+        // gust in the hero beside genuine readings.
+        gusts: cardData.windGust != null ? Math.round(convertSpeed(cardData.windGust, units.speed)!) : '--',
         precip: (() => {
             if (!isHourly && index === 0) {
                 return convertPrecip(cardData.precipitation, units.length) ?? '0';
@@ -197,8 +197,8 @@ export interface DailySummary {
     highTemp?: number;
     lowTemp?: number;
     condition?: string;
-    windSpeed?: number;
-    windGust?: number;
+    windSpeed?: number | null;
+    windGust?: number | null;
     /** Day's general wind direction (deg FROM), circular-mean of the hourly. */
     windDegree?: number;
     waveHeight?: number | null;
@@ -229,8 +229,9 @@ export function buildSlides(
         sunrise?: string;
         sunset?: string;
         condition?: string;
-        windSpeed?: number;
-        windGust?: number;
+        windSpeed?: number | null;
+        /** Null where the model publishes no gust field (AIFS, JMA GSM). */
+        windGust?: number | null;
         waveHeight?: number | null;
         swellPeriod?: number;
         tideSummary?: string;
