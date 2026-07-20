@@ -1161,9 +1161,13 @@ async function buildMergedVectorData(
     // GLAZE only rides along when GLAZE_WORKER_ENABLED queued cells above.
     dispatchGeometryWork(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys, glazeCoverageLib);
 
-    if (missingBlobs.length > 0) {
+    if (missingBlobs.length > 0 && !hydrationPaused) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);
         void hydrateMissingCells(missingBlobs);
+    } else if (missingBlobs.length > 0) {
+        log.warn(
+            `merge painted ${merged.cellCount} local cells; ${missingBlobs.length} missing — hydration paused (picker)`,
+        );
     }
     logMergeSummary(merged);
     // warn, not info (info is silent in prod): the boot-speed ground truth.
@@ -1180,6 +1184,23 @@ async function buildMergedVectorData(
 
 /** Single-flight guard — one hydration walk at a time. */
 let hydrationRunning = false;
+
+/**
+ * Pause switch for the cloud-hydration walk — MapHub holds this true
+ * while the map is in picker mode. Panning the location picker from
+ * home water to an un-synced region (SE QLD → the GBR, 74 cells /
+ * 95 MB) otherwise files a 15-40-cell download walk whose every
+ * arrival bumps the registry version and forces a full wide-band
+ * re-merge — repeated multi-10-MB allocation spikes in exactly the
+ * 47-49-cell z6.7 merge regime that has produced a renderer OOM on
+ * device before (see the band-merge note above). The picker only
+ * needs a tappable map; already-local cells still render. The Charts
+ * page proper is unaffected.
+ */
+let hydrationPaused = false;
+export function setEncHydrationPaused(paused: boolean): void {
+    hydrationPaused = paused;
+}
 
 /** Failed downloads wait out a cooldown before another attempt —
  *  every window-escape pan used to re-run a doomed sequential fetch
@@ -1277,7 +1298,10 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         const queue = [...walk];
         await Promise.all(
             Array.from({ length: Math.min(3, queue.length) }, async () => {
-                for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+                // Pause check per cell: a walk already in flight when the
+                // picker opens stops after the current downloads instead of
+                // draining the remaining 40-cell coast.
+                for (let id = queue.shift(); id !== undefined && !hydrationPaused; id = queue.shift()) {
                     await runOne(id);
                 }
             }),
