@@ -191,6 +191,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // begin. Dropping it on the hero slot writes `settings.heroMetric`,
     // which the render-swap logic (shipped in Phase 1) already handles.
     const updateHeroSettings = useSettingsStore((s) => s.updateSettings);
+    // Long-press relay: a dnd hold that releases without displacement is
+    // treated as a long-press on that metric cell (see handleDndDragEnd) and
+    // opens the model convergence chart via HeroWidgets.
+    const [spreadMetric, setSpreadMetric] = useState<string | null>(null);
+    const handleSpreadHandled = useCallback(() => setSpreadMetric(null), []);
     const dndSensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: { delay: 250, tolerance: 8 },
@@ -231,8 +236,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         (event: DragEndEvent) => {
             // Reset haptic tracking for the next drag
             dragHapticRef.current = { startFired: false, lastOver: null };
-            const { active, over } = event;
-            if (!over || over.id !== 'hero-pin-slot') return;
+            const { active, over, delta } = event;
+            if (!over || over.id !== 'hero-pin-slot') {
+                // A hold that ended with no meaningful displacement is a
+                // LONG-PRESS, not an abandoned drag — open the model
+                // convergence chart pre-tabbed to that cell's metric. Real
+                // drags that miss the pin slot have travelled well past 10px.
+                const dist = Math.hypot(delta?.x ?? 0, delta?.y ?? 0);
+                if (dist < 10 && active?.id) {
+                    triggerHaptic('medium');
+                    setSpreadMetric(String(active.id));
+                }
+                return;
+            }
             const droppedMetric = String(active.id);
             // Valid drop IDs are the 10 grid metric IDs or 'temp' for reset
             const valid = [
@@ -942,6 +958,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         hourly={hourly}
                                         forecast={data.forecast}
                                         coordinates={data.coordinates}
+                                        spreadMetric={spreadMetric}
+                                        onSpreadHandled={handleSpreadHandled}
                                     />
                                 </div>
 

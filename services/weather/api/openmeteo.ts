@@ -2,6 +2,8 @@ import { CapacitorHttp } from '@capacitor/core';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
 import { getOpenMeteoKey } from '../keys';
+import { isWxServerAvailable, wxServerBase } from '../wxServer';
+import { isConcreteModel } from '../forecastModels';
 import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
@@ -167,14 +169,8 @@ export const fetchOpenMeteo = async (
     isFast: boolean,
     model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
-    const apiKey = getOpenMeteoKey();
-    const isCommercial = !!apiKey && apiKey.length > 5;
-
-    if (!isCommercial) {
-        throw new Error(
-            `STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`,
-        );
-    }
+    // Key presence is enforced in doFetchOpenMeteo once the host is known —
+    // the self-hosted wx server path needs no key at all.
 
     const key = cacheKey(lat, lon, model, isFast);
 
@@ -216,7 +212,21 @@ const doFetchOpenMeteo = async (
     const safeLat = Math.max(-90, Math.min(90, lat));
     const safeLon = ((((lon + 180) % 360) + 360) % 360) - 180;
 
-    const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
+    // ── Host selection ──
+    // Concrete model + tailnet wx server reachable → self-hosted (no key,
+    // no Pi indirection — it answers in single-digit ms and the Pi's cached
+    // /combined data isn't model-aware anyway). Everything else → commercial
+    // API exactly as before. 'best_match' can never use the wx server: it
+    // has no best_match domain and would answer HTTP 200 with all-null
+    // fields, which is worse than failing.
+    const useWxServer = isConcreteModel(model) && (await isWxServerAvailable());
+    const baseUrl = useWxServer ? `${wxServerBase()}/v1/forecast` : 'https://customer-api.open-meteo.com/v1/forecast';
+
+    if (!useWxServer && (!apiKey || apiKey.length <= 5)) {
+        throw new Error(
+            `STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`,
+        );
+    }
 
     const params = new URLSearchParams({
         latitude: safeLat.toFixed(4),
@@ -232,14 +242,18 @@ const doFetchOpenMeteo = async (
         // actually standard OM API returns it.
     });
 
-    if (apiKey) params.append('apikey', apiKey);
+    if (!useWxServer && apiKey) params.append('apikey', apiKey);
 
     // Fetch Weather — try Pi Cache combined endpoint first (instant if pre-fetched),
     // then fall back to direct API call
     const directUrl = `${baseUrl}?${params.toString()}`;
 
     const fetchDirect = async (): Promise<OMWeatherResponse> => {
-        const fetchUrl = piCache.passthroughUrl(directUrl, 15 * 60 * 1000, 'open-meteo') || directUrl;
+        // wx server: always direct — the Pi passthrough can't reach the
+        // tailnet and adds latency to a 1-3 ms origin.
+        const fetchUrl = useWxServer
+            ? directUrl
+            : piCache.passthroughUrl(directUrl, 15 * 60 * 1000, 'open-meteo') || directUrl;
         const res = await CapacitorHttp.get({ url: fetchUrl });
         if (!res || res.status !== 200) throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
         if (!res.data) throw new Error('OpenMeteo returned no data');
@@ -248,15 +262,20 @@ const doFetchOpenMeteo = async (
         return d;
     };
 
-    // Pi Cache combined endpoint — serves the full dataset pre-fetched by the scheduler.
-    // Cache key uses 2dp rounding so GPS drift on a moored boat still gets cache HITs.
-    const piResult = await piCache.fetch<OMWeatherResponse>(
-        '/api/weather/combined',
-        { lat: safeLat.toFixed(4), lon: safeLon.toFixed(4) },
-        fetchDirect,
-    );
-
-    const wData = piResult.data;
+    // Pi Cache combined endpoint — serves the full dataset pre-fetched by the
+    // scheduler. Cache key uses 2dp rounding so GPS drift on a moored boat
+    // still gets cache HITs. Skipped for concrete-model fetches: the Pi's
+    // pre-fetched dataset is best_match-shaped and would silently serve the
+    // wrong model's numbers.
+    const wData = isConcreteModel(model)
+        ? await fetchDirect()
+        : (
+              await piCache.fetch<OMWeatherResponse>(
+                  '/api/weather/combined',
+                  { lat: safeLat.toFixed(4), lon: safeLon.toFixed(4) },
+                  fetchDirect,
+              )
+          ).data;
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
     let waveData: OMMarineResponse | null = null;
@@ -504,7 +523,7 @@ const doFetchOpenMeteo = async (
         forecast: dailies,
         tides: [],
         tideHourly: [],
-        modelUsed: `openmeteo_${model}`,
+        modelUsed: useWxServer ? `wx_${model}` : `openmeteo_${model}`,
         boatingAdvice: advice,
         isLandlocked: false,
         alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),

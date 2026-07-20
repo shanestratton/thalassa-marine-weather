@@ -9,6 +9,8 @@ import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
 import { withDeadline } from '../../utils/deadline';
 import { useAuthStore } from '../../stores/authStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { resolveForecastModel, isConcreteModel } from './forecastModels';
 import { piCache } from '../PiCacheService';
 
 import { createLogger } from '../../utils/createLogger';
@@ -75,6 +77,14 @@ const _fetchWeatherByStrategyImpl = async (
     const needsStormGlass = locationType !== 'inland';
     const userId = useAuthStore.getState().user?.id;
 
+    // ── Glass forecast model (the model-picker pill) ──
+    // A concrete model makes the Open-Meteo fetch below THE atmospheric base
+    // of the merged report (self-hosted wx server when reachable, commercial
+    // API otherwise). 'best_match' (Auto) keeps the legacy WeatherKit-primary
+    // blend and OM stays a supplement.
+    const glassModel = resolveForecastModel(useSettingsStore.getState().settings.forecastModel);
+    const modelPinned = isConcreteModel(glassModel);
+
     // ── Wait for Pi Cache discovery to settle (boot race fix) ──
     // On cold start, the health check is still in flight when the dashboard
     // mounts and fires this fetch. Without this gate, every fetcher sees
@@ -119,8 +129,9 @@ const _fetchWeatherByStrategyImpl = async (
 
         // 4. OpenMeteo: atmospheric + CAPE. Always fetched so offshore
         //    users get convective-energy readings even when Unified
-        //    serves the primary data.
-        fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
+        //    serves the primary data. Carries the Glass model selection —
+        //    when a model is pinned this becomes the atmospheric base.
+        fetchOpenMeteo(lat, lon, name, false, glassModel).catch((e) => {
             log.warn('OpenMeteo failed:', e?.message || e);
             return null;
         }),
@@ -146,7 +157,14 @@ const _fetchWeatherByStrategyImpl = async (
     // --- BUILD BASE REPORT ---
     let report: MarineWeatherReport;
 
-    if (unifiedReport) {
+    if (modelPinned && openMeteoReport) {
+        // ✅ PINNED MODEL: the user chose a specific forecast model, so its
+        // report IS the atmospheric truth — no StormGlass current-override
+        // (that blend exists to paper over model uncertainty; here the model
+        // is the point). Marine enrichment, tides, and CAPE still merge in
+        // the shared pipeline below.
+        report = openMeteoReport;
+    } else if (unifiedReport) {
         // ✅ UNIFIED PATH: Single-endpoint response (premium or free)
         report = unifiedReport;
 
@@ -460,10 +478,16 @@ const _fetchWeatherByStrategyImpl = async (
 
     // --- MODEL TAG ---
     const sourcesParts: string[] = [];
-    if (unifiedReport) sourcesParts.push(unifiedReport.modelUsed.includes('rb') ? 'rb+om' : 'wk');
-    else if (weatherKitFull?.observation) sourcesParts.push('wk');
+    if (modelPinned && openMeteoReport) {
+        // e.g. "wx:dwd_icon" (self-hosted) or "om:dwd_icon" (commercial)
+        sourcesParts.push(`${openMeteoReport.modelUsed.startsWith('wx_') ? 'wx' : 'om'}:${glassModel}`);
+    } else if (unifiedReport) {
+        sourcesParts.push(unifiedReport.modelUsed.includes('rb') ? 'rb+om' : 'wk');
+    } else if (weatherKitFull?.observation) {
+        sourcesParts.push('wk');
+    }
     if (stormGlassReport) sourcesParts.push('sg');
-    if (!unifiedReport && openMeteoReport) sourcesParts.push('om');
+    if (!modelPinned && !unifiedReport && openMeteoReport) sourcesParts.push('om');
     report.modelUsed = sourcesParts.join('+') || report.modelUsed;
 
     report.locationName = name;

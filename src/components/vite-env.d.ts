@@ -44,6 +44,9 @@ interface ImportMetaEnv {
      *  Gmail integration. PKCE flow, no client secret. Falls back to
      *  empty string when undefined → integration shows "not configured". */
     readonly VITE_GOOGLE_OAUTH_CLIENT_ID: string;
+    /** Base URL override for the wx-server weather endpoints
+     *  (services/weather/wxServer.ts). Falls back to its DEFAULT_BASE. */
+    readonly VITE_WX_SERVER_BASE: string;
 
     // Standard Vite Environment Variables
     readonly BASE_URL: string;

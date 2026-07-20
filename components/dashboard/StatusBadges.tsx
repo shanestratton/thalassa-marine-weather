@@ -1,10 +1,13 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Countdown } from './Countdown';
+import React, { useState, useEffect } from 'react';
 import { useEnvironment } from '../../context/ThemeContext';
 import { MetricSource } from '../../types';
+import type { WeatherModel } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
 import { piCache, type PiFetchStats } from '../../services/PiCacheService';
 import { triggerHaptic } from '../../utils/system';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { resolveForecastModel, getForecastModelInfo } from '../../services/weather/forecastModels';
+import { ModelPickerSheet } from './ModelPickerSheet';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -45,36 +48,11 @@ interface StatusBadgesProps {
     coordinates?: { lat: number; lon: number };
 }
 
-/** Format cache age as human-readable relative time */
-function formatCacheAge(timestamp: number): string {
-    const ageMs = Date.now() - timestamp;
-    if (ageMs < 60_000) return 'just now';
-    if (ageMs < 3_600_000) return `${Math.round(ageMs / 60_000)}m ago`;
-    if (ageMs < 86_400_000) return `${Math.round(ageMs / 3_600_000)}h ago`;
-    return `${Math.round(ageMs / 86_400_000)}d ago`;
-}
-
-// Source display config — abbreviation, color, label
-const SOURCE_CONFIG: Record<string, { abbr: string; color: string; label: string }> = {
-    buoy: { abbr: '', color: 'text-emerald-400', label: 'BUOY' }, // Name used instead of abbr
-    beacon: { abbr: '', color: 'text-emerald-400', label: 'BEACON' }, // Name used instead of abbr
-    stormglass: { abbr: 'SG', color: 'text-amber-400', label: 'StormGlass API' },
-    openmeteo: { abbr: 'OM', color: 'text-sky-400', label: 'Open-Meteo' },
-    weatherkit: { abbr: 'WK', color: 'text-emerald-400', label: 'Apple Weather' },
-};
-
-// NOTE: the Data Sources modal was removed on 2026-04-23 — the per-metric
-// provenance shown there was frequently wrong (sources attribution isn't
-// reliably propagated by the API pipeline). Kept SOURCE_CONFIG /
-// SOURCE_DOT_COLORS above because they're still referenced by the pill
-// styling even with the modal gone.
-const SOURCE_DOT_COLORS: Record<string, string> = {
-    buoy: 'bg-emerald-400',
-    beacon: 'bg-emerald-400',
-    stormglass: 'bg-amber-400',
-    openmeteo: 'bg-sky-400',
-    weatherkit: 'bg-emerald-400',
-};
+// NOTE: the Data Sources modal was removed on 2026-04-23 (per-metric
+// provenance was frequently wrong), and the legacy source-config tables +
+// formatCacheAge helper that lingered afterwards were deleted 2026-07-20
+// when the timer/refresh pill was replaced by the model picker — nothing
+// referenced them any more.
 
 export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
     ({
@@ -84,7 +62,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // modal was removed (attribution was frequently wrong).
         locationName: _locationName,
         displaySource: _displaySource,
-        nextUpdate,
+        nextUpdate: _nextUpdate,
         fallbackInland,
         stationId: _stationId,
         locationType,
@@ -94,7 +72,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         activeData: _activeData,
         isLive: _isLive = true,
         modelUsed: _modelUsed,
-        generatedAt,
+        generatedAt: _generatedAt,
         coordinates: _coordinates,
         offshoreModelLabel,
         isOffshore: isOffshoreProp,
@@ -195,28 +173,22 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             );
         }
 
-        // Timer badge goes amber/red when the underlying data is past its
-        // refresh window so a tappable "retry" is visually obvious.
-        const dataAgeMin = useMemo(() => {
-            if (!generatedAt) return 0;
-            const ts = new Date(generatedAt).getTime();
-            if (Number.isNaN(ts)) return 0;
-            return Math.max(0, (Date.now() - ts) / 60_000);
-        }, [generatedAt]);
-        const isOffshoreForTimer = offshore;
-        const veryOldThresh = isOffshoreForTimer ? 240 : 120;
-        const oldThresh = isOffshoreForTimer ? 120 : 60;
-        let timerBadgeColor: string;
-        let staleLabel: string | null = null;
-        if (dataAgeMin >= veryOldThresh) {
-            timerBadgeColor = 'bg-red-500/20 text-red-300 border-red-500/30';
-            staleLabel = `${Math.round(dataAgeMin / 60)}H OLD`;
-        } else if (dataAgeMin >= oldThresh) {
-            timerBadgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-            staleLabel = `${Math.round(dataAgeMin)}M OLD`;
-        } else {
-            timerBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
-        }
+        // ── Forecast model pill ──
+        // Replaced the old timer/refresh pill (2026-07-20): refresh is fully
+        // automatic (30s scheduler + wake/reconnect handlers in
+        // WeatherContext), and stale/error states already surface in the
+        // StalenessBanner directly above this row — the pill was redundant.
+        // In its place: the forecast-model picker. A manual "Refresh now"
+        // escape hatch lives inside the sheet.
+        const updateSettings = useSettingsStore((s) => s.updateSettings);
+        const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+        const modelInfo = getForecastModelInfo(glassModel);
+        const [showModelSheet, setShowModelSheet] = useState(false);
+        const pickModel = (id: WeatherModel) => {
+            void triggerHaptic('medium');
+            updateSettings({ forecastModel: id });
+            setShowModelSheet(false);
+        };
 
         return (
             <>
@@ -242,93 +214,73 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             {statusBadgeLabel}
                         </div>
 
-                        {/* Timer Badge — tappable to force refresh, shows live
-                            sync state. Syncing now uses a sweeping highlight
-                            (status-badge-sweep) instead of the old
-                            animate-pulse fade — reads as an active 'loading
-                            bar' rather than a tired blinker. */}
+                        {/* Model Pill — opens the forecast-model picker sheet.
+                            Shows the pinned model's name with its chart colour;
+                            the triple-dot pulse plays while a (fully automatic)
+                            refresh is in flight, and the pill tints red when
+                            the last refresh failed (retry lives in the sheet
+                            and in the StalenessBanner above). */}
                         <button
                             onClick={() => {
                                 void triggerHaptic('light');
-                                refreshData();
+                                setShowModelSheet(true);
                             }}
-                            aria-label={hasError ? 'Retry failed refresh' : 'Refresh weather data'}
+                            aria-label="Choose forecast model"
+                            aria-haspopup="dialog"
                             className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
-                                isSyncing
-                                    ? 'bg-sky-500/25 text-sky-100 border-sky-400/50 status-badge-sweep shadow-[0_0_12px_-2px_rgba(56,189,248,0.5)]'
-                                    : hasError
-                                      ? 'bg-red-500/25 text-red-100 border-red-400/50 status-badge-glow-red'
-                                      : `${timerBadgeColor} ${staleLabel ? '' : 'status-badge-glow-sky'}`
+                                hasError
+                                    ? 'bg-red-500/25 text-red-100 border-red-400/50 status-badge-glow-red'
+                                    : isSyncing
+                                      ? 'bg-sky-500/25 text-sky-100 border-sky-400/50 status-badge-sweep shadow-[0_0_12px_-2px_rgba(56,189,248,0.5)]'
+                                      : 'bg-sky-500/20 text-sky-300 border-sky-500/30 status-badge-glow-sky'
                             }`}
                         >
                             {isSyncing ? (
-                                <>
-                                    {/* Triple-dot pulse — more energetic than a spinner */}
-                                    <span className="flex items-center gap-0.5 shrink-0">
-                                        <span
-                                            className="w-1 h-1 rounded-full bg-sky-200"
-                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0s infinite' }}
-                                        />
-                                        <span
-                                            className="w-1 h-1 rounded-full bg-sky-200"
-                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0.2s infinite' }}
-                                        />
-                                        <span
-                                            className="w-1 h-1 rounded-full bg-sky-200"
-                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0.4s infinite' }}
-                                        />
-                                    </span>
-                                    <span>Syncing</span>
-                                </>
-                            ) : hasError ? (
-                                <>
-                                    {/* Error state — show a warning glyph and
-                                        an explicit "RETRY" label so the user
-                                        knows (a) the data is stale, (b) the
-                                        last refresh failed, and (c) this
-                                        button is how to recover. */}
-                                    <svg
-                                        className="w-3 h-3 shrink-0"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-                                        />
-                                    </svg>
-                                    Retry
-                                </>
+                                <span className="flex items-center gap-0.5 shrink-0">
+                                    <span
+                                        className="w-1 h-1 rounded-full bg-sky-200"
+                                        style={{ animation: 'hh-pulse 1.2s ease-in-out 0s infinite' }}
+                                    />
+                                    <span
+                                        className="w-1 h-1 rounded-full bg-sky-200"
+                                        style={{ animation: 'hh-pulse 1.2s ease-in-out 0.2s infinite' }}
+                                    />
+                                    <span
+                                        className="w-1 h-1 rounded-full bg-sky-200"
+                                        style={{ animation: 'hh-pulse 1.2s ease-in-out 0.4s infinite' }}
+                                    />
+                                </span>
                             ) : (
-                                <>
-                                    <svg
-                                        className="w-3 h-3 opacity-60 shrink-0"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"
-                                        />
-                                    </svg>
-                                    {staleLabel ? (
-                                        staleLabel
-                                    ) : nextUpdate ? (
-                                        <Countdown targetTime={nextUpdate} />
-                                    ) : (
-                                        'LIVE'
-                                    )}
-                                </>
+                                <span
+                                    className="w-2 h-2 rounded-full shrink-0"
+                                    style={{ backgroundColor: modelInfo?.hex || '#94a3b8' }}
+                                />
                             )}
+                            {modelInfo?.label || 'AUTO'}
+                            {/* Chevron — signals this pill opens a picker */}
+                            <svg
+                                className="w-2.5 h-2.5 opacity-60 shrink-0"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={3}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
                         </button>
                     </div>
                 </div>
+
+                <ModelPickerSheet
+                    visible={showModelSheet}
+                    currentModel={glassModel}
+                    onPick={pickModel}
+                    onClose={() => setShowModelSheet(false)}
+                    onRefresh={() => {
+                        void triggerHaptic('light');
+                        refreshData();
+                    }}
+                />
 
                 {/* ── Removed 2026-04-23: Data Sources modal ───────────────
                     The portal-rendered modal that opened on tap of the
