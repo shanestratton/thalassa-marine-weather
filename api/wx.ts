@@ -229,13 +229,18 @@ function renderForecast(){
     tile('Dew point*',c.dew_point,'°C')+
     tile('Sky',icon(c.weather_code,true),label(c.weather_code));
   const d=loc.daily;
-  $('daily').innerHTML=(d.time||[]).map((t,i)=>
-    '<div class="day"><div class="dow">'+dow(t)+'</div><div class="ico">'+
+  // ICON runs ~7 days; beyond its horizon the dailies are null. Skip those
+  // days entirely — Math.round(null) renders a confident 0 deg, which is a
+  // fabricated forecast, and this page does not show numbers it does not have.
+  $('daily').innerHTML=(d.time||[]).map((t,i)=>{
+    const mx=(d.temperature_2m_max||[])[i],mn=(d.temperature_2m_min||[])[i];
+    if(mx==null||mn==null)return '';
+    return '<div class="day"><div class="dow">'+dow(t)+'</div><div class="ico">'+
     icon((d.weather_code||[])[i],true)+'</div><div class="hi">'+
-    Math.round((d.temperature_2m_max||[])[i])+'°</div><div class="lo">'+
-    Math.round((d.temperature_2m_min||[])[i])+'°</div><div class="pr">'+
+    Math.round(mx)+'°</div><div class="lo">'+
+    Math.round(mn)+'°</div><div class="pr">'+
     (((d.precipitation_sum||[])[i]||0)>0.05?((d.precipitation_sum[i]).toFixed(1)+'mm'):'')+
-    '</div></div>').join('');
+    '</div></div>'}).join('');
   const td=loc.tides;
   if(td&&td.events&&td.events.length){
     $('tidePanel').style.display='';
