@@ -192,8 +192,7 @@ let version = 0;
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
-function notify(): void {
-    version++;
+function emit(): void {
     for (const l of listeners) {
         try {
             l();
@@ -201,6 +200,48 @@ function notify(): void {
             log.warn('listener threw', err);
         }
     }
+}
+
+// ── Notification batching ─────────────────────────────────────────
+// A cloud-hydration walk lands 15-40 cells, and every arrival used to
+// emit a listener notify. The registry version is in the merge cache
+// key, so each one was a guaranteed miss → a full wide-band re-merge
+// plus a 14-source Mapbox re-upload, every 0.8-3 s for the whole walk.
+// That allocation churn is what OOM-killed the WebView on a long pan
+// into un-synced coast (2026-07-20, SE QLD → GBR).
+//
+// CRITICAL: suspending coalesces the LISTENER CALLBACKS only. `version`
+// still increments on every mutation — it invalidates the listCells
+// memo and the merge cache key, so freezing it would serve stale cell
+// lists and render the wrong chart. Correctness first, batching second.
+let notifyDepth = 0;
+let notifyPending = false;
+
+/** Begin coalescing listener notifications. Re-entrant; pair with resume. */
+export function suspendNotifications(): void {
+    notifyDepth++;
+}
+
+/** Emit now if anything was coalesced — lets a long walk paint in waves. */
+export function flushNotifications(): void {
+    if (!notifyPending) return;
+    notifyPending = false;
+    emit();
+}
+
+/** End one suspension. The outermost resume flushes what's pending. */
+export function resumeNotifications(): void {
+    notifyDepth = Math.max(0, notifyDepth - 1);
+    if (notifyDepth === 0) flushNotifications();
+}
+
+function notify(): void {
+    version++;
+    if (notifyDepth > 0) {
+        notifyPending = true;
+        return;
+    }
+    emit();
 }
 
 /**
