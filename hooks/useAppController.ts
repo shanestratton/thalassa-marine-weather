@@ -10,6 +10,7 @@ import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
 import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
+import { LocationStore } from '../stores/LocationStore';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { supabase } from '../services/supabase';
@@ -31,6 +32,10 @@ const DEFAULT_BACKGROUNDS = {
     night: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1080&fm=jpg&fit=crop',
     default: 'https://images.unsplash.com/photo-1478359844494-1092259d93e4?q=80&w=1080&fm=jpg&fit=crop',
 };
+
+// How long a name-only favourite pick may wait for its weather report
+// before the deferred LocationStore claim is abandoned.
+const PENDING_FAVORITE_CLAIM_MS = 60_000;
 
 const mapConditionToKey = (cond: string): WeatherConditionKey => {
     if (!cond) return 'default';
@@ -565,6 +570,38 @@ export const useAppController = () => {
         [setQuery, selectLocation, showToast, updateSettings],
     );
 
+    // Favourite picks must CLAIM LocationStore (same defect the map picker
+    // had, fixed in db802ae0): The Glass mounts useLiveLocationName, which
+    // re-stamps the store with source:'gps' + the boat's own place name
+    // every 3s and only yields to a user claim. App.tsx and Dashboard
+    // prefer that live name for their titles, and the model-comparison
+    // card reads coords straight off the store — so an unclaimed favourite
+    // gets the weather it asked for and then has every label (and the
+    // comparison card's fetches) quietly reverted to the boat within ~3s.
+    //
+    // Ocean-point favourites carry coords in the name and claim on tap.
+    // Named favourites are just a string — coords only exist once the
+    // weather report resolves, so the tap parks the name here and the
+    // effect below claims when the report for THAT name lands. Time-boxed
+    // so an abandoned pick (fetch died, user moved on) can't ambush a
+    // same-named report much later and freeze GPS tracking.
+    const pendingFavoriteClaimRef = React.useRef<{ name: string; at: number } | null>(null);
+
+    useEffect(() => {
+        const pending = pendingFavoriteClaimRef.current;
+        if (!pending || !weatherData) return;
+        if (Date.now() - pending.at > PENDING_FAVORITE_CLAIM_MS) {
+            pendingFavoriteClaimRef.current = null;
+            return;
+        }
+        if (weatherData.locationName !== pending.name) return;
+        const coords = weatherData.coordinates;
+        // (0,0) is the cold-start optimistic stub, not a real position.
+        if (!coords || (coords.lat === 0 && coords.lon === 0)) return;
+        pendingFavoriteClaimRef.current = null;
+        LocationStore.setFromFavorite(coords.lat, coords.lon, weatherData.locationName);
+    }, [weatherData]);
+
     const handleFavoriteSelect = useCallback(
         (loc: string) => {
             setQuery(loc);
@@ -576,8 +613,10 @@ export const useAppController = () => {
                 const lonDir = oceanMatch[4];
                 const lat = latDir === 'S' ? -rawLat : rawLat;
                 const lon = lonDir === 'W' ? -rawLon : rawLon;
+                LocationStore.setFromFavorite(lat, lon, loc);
                 selectLocation(loc, { lat, lon });
             } else {
+                pendingFavoriteClaimRef.current = { name: loc, at: Date.now() };
                 selectLocation(loc);
             }
             setPage('dashboard');
