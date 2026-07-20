@@ -1209,6 +1209,16 @@ export function setEncHydrationPaused(paused: boolean): void {
 const hydrationCooldownUntil = new Map<string, number>();
 const HYDRATION_RETRY_COOLDOWN_MS = 60_000;
 
+/** Cells per paint wave during a hydration walk. Each wave costs one
+ *  full wide-band re-merge + a 14-source Mapbox re-upload, so this is
+ *  the direct lever on the OOM: a 40-cell walk goes from ~40 merges to
+ *  ~6. Small enough that the chart still fills in visibly. */
+const HYDRATION_NOTIFY_BATCH = 8;
+
+/** …and a wave at least this often regardless, so a slow link (one cell
+ *  per 5 s) doesn't sit on a half-drawn chart waiting for the 8th cell. */
+const HYDRATION_NOTIFY_MAX_INTERVAL_MS = 10_000;
+
 // ── Hydration progress (2026-07-12 audit, UX MAJOR) ───────────────
 // Downloading was completely SILENT: a registered-but-not-yet-
 // downloaded cell rendered as the same dark shell as genuinely
@@ -1271,6 +1281,12 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         return;
     }
     setHydrationProgress({ remaining: walk.length, total: walk.length });
+    // Coalesce the registry notifies this walk will fire (see
+    // EncCellMetadata.suspendNotifications). Un-batched, a 40-cell walk
+    // forced ~40 full wide-band re-merges; batched it forces ~6.
+    cellMeta.suspendNotifications();
+    let flushedAt = Date.now();
+    let flushedCount = 0;
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
         // PARALLEL, pool of 3 (z10-boot audit #5): one-at-a-time downloads
@@ -1294,6 +1310,22 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
             }
             done++;
             setHydrationProgress({ remaining: walk.length - done, total: walk.length });
+            // Paint in waves, but in BATCHES. The first arrival flushes
+            // immediately — an early first wave is deliberate (z10-boot
+            // batch: trailing-only coalescing starved the cold boot and
+            // nothing painted until the whole walk finished). After that
+            // one wave per HYDRATION_NOTIFY_BATCH cells, with a max
+            // interval so a slow link still paints on a human timescale.
+            const sinceFlush = Date.now() - flushedAt;
+            if (
+                done === 1 ||
+                done - flushedCount >= HYDRATION_NOTIFY_BATCH ||
+                sinceFlush >= HYDRATION_NOTIFY_MAX_INTERVAL_MS
+            ) {
+                flushedAt = Date.now();
+                flushedCount = done;
+                cellMeta.flushNotifications();
+            }
         };
         const queue = [...walk];
         await Promise.all(
@@ -1311,6 +1343,9 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     } finally {
         hydrationRunning = false;
         setHydrationProgress({ remaining: 0, total: 0 });
+        // Outermost resume flushes the tail so the last cells to land
+        // always paint, walk completed or aborted.
+        cellMeta.resumeNotifications();
     }
 }
 
