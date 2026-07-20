@@ -10,7 +10,16 @@ export type WeatherModel =
     | 'gfs_seamless'
     | 'icon_seamless'
     | 'bom_access_global'
-    | 'gfs_global';
+    | 'gfs_global'
+    // Model-domain ids shared by the self-hosted wx server and the public /
+    // commercial Open-Meteo APIs (verified identical on both, 2026-07-20).
+    // These are what the Glass model picker offers.
+    | 'dwd_icon'
+    | 'ecmwf_ifs025'
+    | 'ecmwf_aifs025_single'
+    | 'ukmo_global_deterministic_10km'
+    | 'jma_gsm'
+    | 'ncep_gfs025';
 
 /**
  * Stormglass offshore model source parameter.

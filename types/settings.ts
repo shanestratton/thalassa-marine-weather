@@ -135,6 +135,17 @@ export interface UserSettings {
     timeDisplay: 'location' | 'device';
     displayMode: DisplayMode;
     preferredModel: WeatherModel;
+    /**
+     * Forecast model driving the Glass page's atmospheric data (the model
+     * picker pill next to the location-type badge). A concrete model id
+     * makes that model's Open-Meteo report the atmospheric base of the
+     * merged dashboard report; 'best_match' means Auto — the legacy
+     * WeatherKit-primary blend. Default: 'dwd_icon' (ICON).
+     *
+     * Distinct from `preferredModel` (route planner fast-fetch only) and
+     * `offshoreModel` (StormGlass source for offshore marine enrichment).
+     */
+    forecastModel?: WeatherModel;
     /** Stormglass source model for offshore (> 20 nm) fetches. Default: 'sg'. */
     offshoreModel?: OffshoreModel;
     mapboxToken?: string;

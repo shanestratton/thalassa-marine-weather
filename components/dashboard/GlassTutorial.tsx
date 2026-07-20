@@ -50,9 +50,9 @@ const SLIDES: Slide[] = [
         gradient: 'from-amber-500/20 to-orange-500/10',
     },
     {
-        title: 'Offshore Models',
+        title: 'Compare the Models',
         subtitle:
-            'Offshore? Tap anywhere on the metrics grid to compare Stormglass AI, ECMWF, GFS and ICON side-by-side. Switch between wind, gusts, waves and pressure with the tabs at the top.',
+            'Long-press any metric in the grid to see six global models — ICON, ECMWF, AIFS, UKMO, JMA and GFS — plotted side-by-side for that metric. Pick your preferred model with the pill at the bottom of the page.',
         visual: <OffshoreModelsVisual />,
         gradient: 'from-violet-500/20 to-fuchsia-500/10',
     },
@@ -292,10 +292,10 @@ function HorizontalSwipeVisual() {
  */
 function OffshoreModelsVisual() {
     const lines = [
-        { color: '#34d399', d: 'M6 38 Q30 24 60 26 T120 14 T180 8', label: 'SG' }, // emerald
+        { color: '#a78bfa', d: 'M6 38 Q30 24 60 26 T120 14 T180 8', label: 'ICON' }, // violet
         { color: '#38bdf8', d: 'M6 36 Q30 28 60 30 T120 22 T180 18', label: 'ECMWF' }, // sky
         { color: '#fbbf24', d: 'M6 40 Q30 30 60 34 T120 26 T180 24', label: 'GFS' }, // amber
-        { color: '#a78bfa', d: 'M6 34 Q30 22 60 28 T120 18 T180 12', label: 'ICON' }, // violet
+        { color: '#f472b6', d: 'M6 34 Q30 22 60 28 T120 18 T180 12', label: 'UKMO' }, // pink
     ];
     return (
         <div className="relative w-56 h-28 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">

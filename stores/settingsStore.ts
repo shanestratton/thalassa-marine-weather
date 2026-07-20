@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     timeDisplay: 'location',
     displayMode: 'dark',
     preferredModel: 'best_match',
+    forecastModel: 'dwd_icon',
     offshoreModel: 'sg',
     aiPersona: 50,
     heroWidgets: ['wind', 'wave', 'pressure'],

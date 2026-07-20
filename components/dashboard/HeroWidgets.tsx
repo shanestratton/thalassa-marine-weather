@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
-import { ModelComparisonMatrix } from './ModelComparisonMatrix';
+import { ModelComparisonMatrix, type MatrixParam } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast, ForecastDay } from '../../types';
-import type { OffshoreModel } from '../../types';
+import { resolveForecastModel } from '../../services/weather/forecastModels';
 import { MetricDeepDiveModal, type MetricKey } from './hero/MetricDeepDiveModal';
 import { convertTemp, convertSpeed, convertLength, convertDistance, convertPrecip } from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -91,6 +91,12 @@ interface HeroWidgetsProps {
     forecast?: ForecastDay[];
     /** Location — for the modal's WeatherKit historical (yesterday) fetch. */
     coordinates?: { lat: number; lon: number };
+    /** A grid metric the user long-pressed (detected at the DndContext level
+     *  in Dashboard — a hold that ends without displacement). Opens the model
+     *  convergence chart pre-tabbed to that metric. */
+    spreadMetric?: string | null;
+    /** Ack once the long-press request has been consumed. */
+    onSpreadHandled?: () => void;
 }
 
 // --- Trend Arrow Component ---
@@ -447,6 +453,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     hourly,
     forecast,
     coordinates,
+    spreadMetric,
+    onSpreadHandled,
 }) => {
     // Metric deep-dive modal — only armed on the live NOW card.
     const [deepDive, setDeepDive] = useState<MetricKey | null>(null);
@@ -548,9 +556,25 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // when switching between wx full/essential modes.
     const [_showCompass] = useState(false);
 
-    // Model comparison matrix — offshore only
+    // Model comparison matrix — offshore grid-tap opens it on WIND; a
+    // long-press on any cell (relayed via spreadMetric) opens it anywhere,
+    // pre-tabbed to that metric.
     const [showMatrix, setShowMatrix] = useState(false);
-    const offshoreModelCode = (useSettingsStore((s) => s.settings.offshoreModel) || 'sg') as OffshoreModel;
+    const [matrixParam, setMatrixParam] = useState<MatrixParam | undefined>(undefined);
+    const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+
+    // A long-press release can be followed by a browser-synthesised click on
+    // the same cell (iOS especially) — swallow taps briefly so the deep-dive
+    // modal / offshore grid-tap don't stack on top of the chart it opened.
+    const suppressTapUntilRef = useRef(0);
+
+    useEffect(() => {
+        if (!spreadMetric) return;
+        suppressTapUntilRef.current = Date.now() + 600;
+        setMatrixParam(spreadMetric as MatrixParam);
+        setShowMatrix(true);
+        onSpreadHandled?.();
+    }, [spreadMetric, onSpreadHandled]);
 
     // ── Pin-to-hero: pinned metric ID + temp display value ──
     // When the user pins a metric to the hero slot, THAT cell in the grid
@@ -566,10 +590,25 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
     // Offshore → entire grid is tappable to open the model matrix.
     // Previously only the Wind cell was — user had to hunt for it.
-    const gridOnClick = isOffshore ? () => setShowMatrix(true) : undefined;
+    const gridOnClick = isOffshore
+        ? () => {
+              if (Date.now() < suppressTapUntilRef.current) return;
+              setMatrixParam(undefined);
+              setShowMatrix(true);
+          }
+        : undefined;
 
     return (
-        <MetricTapContext.Provider value={isLive ? (id) => setDeepDive(id as MetricKey) : null}>
+        <MetricTapContext.Provider
+            value={
+                isLive
+                    ? (id) => {
+                          if (Date.now() < suppressTapUntilRef.current) return;
+                          setDeepDive(id as MetricKey);
+                      }
+                    : null
+            }
+        >
             <div
                 className={`w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
                 role="region"
@@ -804,11 +843,13 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     </DraggableMetricCell>
                 </div>
 
-                {/* Model Comparison Matrix — offshore only */}
+                {/* Model Comparison Matrix — offshore grid-tap or any-cell long-press */}
                 <ModelComparisonMatrix
                     visible={showMatrix}
                     onClose={() => setShowMatrix(false)}
-                    selectedModel={offshoreModelCode}
+                    selectedModel={glassModel}
+                    initialParam={matrixParam}
+                    coordinates={coordinates}
                 />
             </div>
             <MetricDeepDiveModal
