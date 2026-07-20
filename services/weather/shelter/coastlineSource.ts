@@ -27,6 +27,22 @@ const FETCH_TIMEOUT_MS = 9_000;
 const PERSIST_TTL_MS = 30 * 24 * 60 * 60 * 1000; // coastline is static — 30 days
 const DEG_LAT_KM = 110.54;
 
+/** Don't write giant blobs into Capacitor Preferences (NSUserDefaults on
+ *  iOS — the whole plist loads into memory). Measured: the Whitsundays
+ *  60 km box stringifies to 2.4 MB; Moreton is ~0.9 MB. Over-cap results
+ *  stay in memCache for the session and simply re-fetch next boot. */
+const PERSIST_MAX_CHARS = 1_500_000;
+
+/** Remember failures too. NQ boxes (Whitsundays) are heavy enough that
+ *  Overpass mirrors 504 server-side after 39-64 s — and with
+ *  CapacitorHttp's fetch patch ignoring AbortSignal on device, each
+ *  mirror attempt is an uncancellable native request. Without a
+ *  negative cache every pick in the same 11 km grid cell re-ran the
+ *  whole 3-mirror gauntlet (minutes of orphaned downloads on marine
+ *  LTE). Shorter TTL than success: mirrors do recover. */
+const FAILURE_TTL_MS = 6 * 60 * 60 * 1000;
+const failedAt = new Map<string, number>();
+
 interface MemEntry {
     ts: number;
     segs: Segment[];
@@ -79,7 +95,9 @@ async function loadPersisted(key: string): Promise<Segment[] | null> {
 
 async function persist(key: string, segs: Segment[]): Promise<void> {
     try {
-        await Preferences.set({ key, value: JSON.stringify({ ts: Date.now(), segs }) });
+        const value = JSON.stringify({ ts: Date.now(), segs });
+        if (value.length > PERSIST_MAX_CHARS) return; // session memCache only
+        await Preferences.set({ key, value });
     } catch {
         /* non-fatal */
     }
@@ -130,6 +148,9 @@ export async function fetchCoastlineSegments(lat: number, lon: number, radiusKm 
     const mem = memCache.get(key);
     if (mem) return mem.segs;
 
+    const lastFail = failedAt.get(key);
+    if (lastFail !== undefined && Date.now() - lastFail < FAILURE_TTL_MS) return null;
+
     const pending = inflight.get(key);
     if (pending) return pending;
 
@@ -141,8 +162,11 @@ export async function fetchCoastlineSegments(lat: number, lon: number, radiusKm 
         }
         const segs = await queryOverpass(lat, lon, radiusKm);
         if (segs) {
+            failedAt.delete(key);
             memCache.set(key, { ts: Date.now(), segs });
             void persist(key, segs);
+        } else {
+            failedAt.set(key, Date.now());
         }
         return segs;
     })().finally(() => inflight.delete(key));

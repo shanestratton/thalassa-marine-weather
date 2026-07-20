@@ -59,6 +59,35 @@ interface WeatherContextType {
 
 const WeatherContext = createContext<WeatherContextType | undefined>(undefined);
 
+/**
+ * What a location selection must persist — the NAME AND COORDS as a pair,
+ * or null when nothing changed.
+ *
+ * Persisting only the name (the old behaviour) left defaultLocationCoords
+ * frozen at the onboarding home port, so every boot after a pick re-fetched
+ * the new name against the OLD coordinates (triggerInitialFetch prefers
+ * saved coords over re-geocoding the name) — any crash or plain iOS
+ * eviction while viewing a picked location "came back to Newport".
+ *
+ * Rules this encodes:
+ * - coords provided → persist both, so a reboot lands where the user picked.
+ * - no coords (name-only search/favourite) → CLEAR the saved coords; boot
+ *   must resolve the name rather than trust coords for a different place.
+ * - same name, different coords → still write: two map picks can
+ *   reverse-geocode to the same suburb.
+ */
+export function locationPersistPatch(
+    prev: { defaultLocation?: string; defaultLocationCoords?: { lat: number; lon: number } },
+    location: string,
+    coords?: { lat: number; lon: number },
+): { defaultLocation: string; defaultLocationCoords: { lat: number; lon: number } | undefined } | null {
+    if (!location) return null;
+    const coordsChanged =
+        !!coords && (prev.defaultLocationCoords?.lat !== coords.lat || prev.defaultLocationCoords?.lon !== coords.lon);
+    if (location === prev.defaultLocation && !coordsChanged) return null;
+    return { defaultLocation: location, defaultLocationCoords: coords };
+}
+
 // ── Provider (thin React wrapper around WeatherOrchestrator) ─
 
 export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -314,10 +343,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setLocationMode(isCurrent ? 'gps' : 'selected');
             isTrackingCurrentLocation.current = isCurrent;
 
-            // Persist user intent
-            if (location && location !== settingsRef.current.defaultLocation) {
-                updateSettings({ defaultLocation: location });
-            }
+            const persistPatch = locationPersistPatch(settingsRef.current, location, coords);
+            if (persistPatch) updateSettings(persistPatch);
 
             // Smooth transition strategy
             const cache = historyCacheRef.current;
@@ -679,14 +706,17 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, []);
 
     // ── Model Change Effect ─────────────────────────────────
-    const prevModelRef = useRef(settings.preferredModel);
+    // Watches the Glass forecast-model picker (settings.forecastModel).
+    // The strategy layer reads the store directly at fetch time, so all
+    // this has to do is force a refetch when the choice changes.
+    const prevModelRef = useRef(settings.forecastModel);
     useEffect(() => {
-        if (prevModelRef.current !== settings.preferredModel) {
-            prevModelRef.current = settings.preferredModel;
+        if (prevModelRef.current !== settings.forecastModel) {
+            prevModelRef.current = settings.forecastModel;
             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
             if (loc) fetchWeather(loc, true);
         }
-    }, [settings.preferredModel, fetchWeather]);
+    }, [settings.forecastModel, fetchWeather]);
 
     // ── ZUSTAND SYNC BRIDGE ──────────────────────────────────
     // Syncs context state → Zustand store so components can use

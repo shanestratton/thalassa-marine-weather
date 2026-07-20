@@ -165,6 +165,7 @@ import {
     subscribeHydration as subscribeToEncHydration,
     getHydrationProgress as getEncHydrationProgress,
     hasCoverageFor as encHasCoverageFor,
+    setEncHydrationPaused,
 } from '../../services/enc/EncHazardService';
 // Legend swatches import the REAL glaze constants — they were hand-copied
 // hexes and went stale the moment the palette moved (same drift class as
@@ -2970,8 +2971,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Plotting forces hybrid ONLY when no other imagery base is already chosen —
     // ocean counts, or picking it would be silently overridden the moment the
     // tracer opened.
-    const hybridVisible =
-        coordCaptureMode && !satelliteVisible && !oceanBaseVisible ? true : hybridVisibleRaw;
+    const hybridVisible = coordCaptureMode && !satelliteVisible && !oceanBaseVisible ? true : hybridVisibleRaw;
     const imageryOn = satelliteVisible || hybridVisible || oceanBaseVisible;
     useEffect(() => {
         const map = mapRef.current;
@@ -3349,6 +3349,17 @@ export const MapHub: React.FC<MapHubProps> = ({
         setEncPopupSuppression(map, pickerMode || weatherInspectMode);
         return () => setEncPopupSuppression(map, false);
     }, [pickerMode, weatherInspectMode, mapReady]);
+    // Picker mode pauses the ENC cloud-hydration walk. Panning the
+    // location picker from home water to an un-synced coast (SE QLD →
+    // GBR: 74 cells / 95 MB, none on-device) otherwise downloads
+    // 15-40 cells whose arrivals each force a full wide-band re-merge —
+    // the allocation-spike regime that has OOM'd the WebView on device
+    // ("crash and back at Newport"). Local cells still render; Charts
+    // proper (pickerMode=false) hydrates as always.
+    useEffect(() => {
+        setEncHydrationPaused(pickerMode);
+        return () => setEncHydrationPaused(false);
+    }, [pickerMode]);
     // ── THE PURGE (Shane 2026-07-11: "full purge of all layers, except
     // our new one... speed is the key") ──
     // One-shot per device: the first main-surface mount strips the whole
@@ -6684,30 +6695,32 @@ export const MapHub: React.FC<MapHubProps> = ({
                             there taught a legend for something not on the screen
                             (audit 2026-07-19). */}
                         {!imageryOn && (
-                        <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
-                            {(
-                                [
-                                    [DEPARE_BAND_COLORS.drying, 'dries'],
-                                    [DEPARE_BAND_COLORS.b0to2, '0–2'],
-                                    [DEPARE_BAND_COLORS.b2to5, '2–5'],
-                                    [DEPARE_BAND_COLORS.b5to10, '5–10'],
-                                    [DEPARE_BAND_COLORS.b10to20, '10–20'],
-                                    [DEPARE_BAND_COLORS.b20to50, '20–50'],
-                                    [DEPARE_BAND_COLORS.b50plus, '50+'],
-                                ] as const
-                            ).map(([hex, label]) => (
-                                <div key={label} className="flex-1">
-                                    <div style={{ background: hex, height: 14 }} />
-                                    <div className="bg-slate-800 py-0.5 text-center text-[10px] font-bold text-gray-300">
-                                        {label}
+                            <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
+                                {(
+                                    [
+                                        [DEPARE_BAND_COLORS.drying, 'dries'],
+                                        [DEPARE_BAND_COLORS.b0to2, '0–2'],
+                                        [DEPARE_BAND_COLORS.b2to5, '2–5'],
+                                        [DEPARE_BAND_COLORS.b5to10, '5–10'],
+                                        [DEPARE_BAND_COLORS.b10to20, '10–20'],
+                                        [DEPARE_BAND_COLORS.b20to50, '20–50'],
+                                        [DEPARE_BAND_COLORS.b50plus, '50+'],
+                                    ] as const
+                                ).map(([hex, label]) => (
+                                    <div key={label} className="flex-1">
+                                        <div style={{ background: hex, height: 14 }} />
+                                        <div className="bg-slate-800 py-0.5 text-center text-[10px] font-bold text-gray-300">
+                                            {label}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
                         )}
                         <div className="space-y-1 text-[10px] leading-snug text-gray-300">
                             {!imageryOn && (
-                                <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
+                                <div>
+                                    Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.
+                                </div>
                             )}
                             {/* The datum flips with the tide toggle, so the sentence has
                                 to as well — while live tide is on these are NOT lowest-tide
@@ -6741,11 +6754,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     your keel (1½× draft + 0.5 m).
                                     {/* The two decision-relevant washes were unexplained (cycle-7 re-audit #8).
                                         Swatches use the real constants so they track the palette. */}
-                                    <span style={{ color: CAUTION_BAND_COLOR }}> Light amber</span> = margin-thin (clears
-                                    the keel but the router still flags it as a hazard);
+                                    <span style={{ color: CAUTION_BAND_COLOR }}> Light amber</span> = margin-thin
+                                    (clears the keel but the router still flags it as a hazard);
                                     <span style={{ color: SHALLOW_CAUTION_COLOR }}> amber</span> = too shallow;
-                                    <span style={{ color: DEPARE_BAND_COLORS.drying }}> khaki</span> = dries at low tide.
-                                    Bare imagery = no usable depth here — uncharted, unattributed, or surveyed too
+                                    <span style={{ color: DEPARE_BAND_COLORS.drying }}> khaki</span> = dries at low
+                                    tide. Bare imagery = no usable depth here — uncharted, unattributed, or surveyed too
                                     coarsely for this zoom. Treat it as unsurveyed.
                                 </div>
                             ) : (
@@ -6759,8 +6772,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 // "Slate" survived only in comments describing the value
                                 // that line USED to be.
                                 <div>
-                                    The <span className="font-bold text-orange-400">amber</span> contour is your keel&apos;s
-                                    limit; thin slate-grey lines join equal depths.
+                                    The <span className="font-bold text-orange-400">amber</span> contour is your
+                                    keel&apos;s limit; thin slate-grey lines join equal depths.
                                 </div>
                             )}
                             {!(Number(settings.vessel?.draft) > 0) && (
@@ -6833,7 +6846,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         // pipeline never paints the cable colour.
                                         ['swatch', CAUTION_CLASS_COLOURS.CBLARE ?? '#7c3aed', 'Submarine cable'],
                                         ['swatch', CAUTION_CLASS_COLOURS.PIPARE ?? '#5b21b6', 'Pipeline'],
-                                        ['swatch', CAUTION_CLASS_COLOURS.TSSLPT ?? '#d97706', 'TSS lane / precautionary'],
+                                        [
+                                            'swatch',
+                                            CAUTION_CLASS_COLOURS.TSSLPT ?? '#d97706',
+                                            'TSS lane / precautionary',
+                                        ],
                                         ['swatch', CAUTION_CLASS_COLOURS.TSEZNE ?? '#c2410c', 'TSS keep-out zone'],
                                         ['swatch', CAUTION_CLASS_COLOURS.MARCUL ?? '#5f7a3a', 'Marine farm'],
                                         ['swatch', CAUTION_CLASS_COLOURS.SBDARE ?? '#8a8a5a', 'Seabed type'],
