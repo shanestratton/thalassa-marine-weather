@@ -557,7 +557,7 @@ export const DetailedMetricsWidget = ({
         uv: (
             <DetailTile
                 label="UV Index"
-                value={`${current.uvIndex !== undefined ? Math.round(current.uvIndex) : '--'}`}
+                value={`${current.uvIndex != null ? Math.round(current.uvIndex) : '--'}`}
                 unit=""
                 colorClass="text-amber-400"
                 icon={<SunIcon className="w-4 h-4" />}

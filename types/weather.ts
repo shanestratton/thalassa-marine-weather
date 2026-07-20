@@ -107,7 +107,10 @@ export interface WeatherMetrics {
     moonPhaseValue?: number;
     moonIllumination?: number;
     tideTrend?: 'rising' | 'falling' | 'steady';
-    uvIndex: number;
+    /** Null when no source supplied it. NO forecast model publishes UV (it's
+     *  a CAMS product), so a pinned-model report has it only once gap-filled
+     *  from WeatherKit. Was `number`, which forced callers to invent a 0. */
+    uvIndex: number | null;
     pressure?: number | null;
     pressureTrend?: 'rising' | 'falling' | 'steady';
     feelsLike?: number | null;
@@ -169,7 +172,7 @@ export interface ForecastDay {
     precipChance?: number;
     cloudCover?: number;
     pressure?: number;
-    uvIndex?: number;
+    uvIndex?: number | null;
     sunrise?: string;
     sunset?: string;
     tideSummary?: string;
@@ -201,7 +204,7 @@ export interface HourlyForecast {
     precipitation?: number | null;
     cloudCover?: number | null;
     tideHeight?: number | null;
-    uvIndex?: number;
+    uvIndex?: number | null;
     pressure?: number;
     humidity?: number | null;
     visibility?: number | null;

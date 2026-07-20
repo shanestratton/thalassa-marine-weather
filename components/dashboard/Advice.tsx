@@ -14,7 +14,7 @@ interface AdviceWidgetProps {
     isAudioPreloading?: boolean;
     toggleBroadcast: () => void;
     handleShare: () => void;
-    uvIndex: number;
+    uvIndex: number | null;
     lockerItems: LockerItem[];
     isBackgroundUpdating?: boolean; // New Prop
 }
@@ -33,7 +33,21 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
         lockerItems,
         isBackgroundUpdating,
     }) => {
-        const UVBar = ({ value }: { value: number }) => {
+        const UVBar = ({ value }: { value: number | null }) => {
+            // No source supplied UV (no forecast model publishes it, and the
+            // WeatherKit gap-fill didn't land) — say so rather than rounding
+            // null to 0 and calling it "Low".
+            if (value == null) {
+                return (
+                    <div className="w-full space-y-1 mb-4">
+                        <div className="flex justify-between items-end">
+                            <span className="text-sm uppercase text-gray-400 font-bold tracking-widest">UV Rating</span>
+                            <span className="text-sm font-bold text-gray-500">No data</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden" />
+                    </div>
+                );
+            }
             const roundedValue = Math.round(value);
             const percentage = Math.min(Math.max((roundedValue / 11) * 100, 0), 100);
             let colorClass = 'bg-emerald-400';

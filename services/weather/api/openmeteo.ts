@@ -332,10 +332,18 @@ const doFetchOpenMeteo = async (
     // Use hourly fallback for Visibility (not in current)
     const currentHourIndex =
         wData.hourly?.time?.findIndex((t: string) => t.startsWith(now.toISOString().slice(0, 13))) || 0;
-    const curVis = wData.hourly?.visibility ? wData.hourly.visibility[currentHourIndex] : 10000; // meters
-    const curDew = wData.hourly?.dew_point_2m ? wData.hourly.dew_point_2m[currentHourIndex] : 0;
-    const curUV = wData.hourly?.uv_index ? wData.hourly.uv_index[currentHourIndex] : 0;
-    const curCAPE = wData.hourly?.cape ? wData.hourly.cape[currentHourIndex] : 0;
+    // NOTE: these arrays EXIST but are entirely null when the model domain
+    // doesn't publish the variable (visibility: only UKMO + GFS; cape: not
+    // AIFS/JMA; uv_index: NO forecast model publishes it — it comes from
+    // CAMS). Indexing therefore yields null, and null must stay null all the
+    // way to the UI so it renders "—". Coercing it into arithmetic turned a
+    // missing visibility into a confident "0 nm" — i.e. dense fog — on a
+    // marine dashboard. Keep every one of these null-safe.
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const curVis = num(wData.hourly?.visibility?.[currentHourIndex]); // metres
+    const curDew = num(wData.hourly?.dew_point_2m?.[currentHourIndex]);
+    const curUV = num(wData.hourly?.uv_index?.[currentHourIndex]);
+    const curCAPE = num(wData.hourly?.cape?.[currentHourIndex]);
 
     const _windKts = cur.wind_speed_10m * 1.94384; // km/h to knots? NO. OM uses km/h by default unless specified.
     // Wait, params didn't specify units. Default is km/h.
@@ -364,7 +372,7 @@ const doFetchOpenMeteo = async (
         waterTemperature: 0, // OM Marine doesn't give water temp easily in basic tier? actually 'hourly' has it in marine? No.
         pressure: cur.pressure_msl,
         cloudCover: cur.cloud_cover,
-        visibility: parseFloat((curVis / 1000).toFixed(1)), // m to km
+        visibility: curVis === null ? null : parseFloat((curVis / 1000).toFixed(1)), // m to km
         dewPoint: curDew,
         fogRisk: false, // Calculate later?
         precipitation: cur.precipitation,
@@ -495,14 +503,18 @@ const doFetchOpenMeteo = async (
         precipitation: hourlyArr.precipitation[i],
         cloudCover: hourlyArr.cloud_cover[i],
         condition: getWmo(hourlyArr.weather_code[i]),
-        visibility: (hourlyArr.visibility?.[i] ?? 10000) / 1000, // m to km
+        // Null-safe for the same reason as `current` above: a model that
+        // doesn't publish the variable returns an all-null array. `?? 10000`
+        // used to invent "10 km clear" and `?? 0` invented "no convective
+        // energy" — both read as real readings. Absent stays absent.
+        visibility: num(hourlyArr.visibility?.[i]) === null ? null : num(hourlyArr.visibility?.[i])! / 1000, // m to km
         humidity: hourlyArr.relative_humidity_2m[i],
         isEstimated: false,
         currentSpeed: 0,
         currentDirection: 0,
         waterTemperature: 0,
-        uvIndex: hourlyArr.uv_index[i],
-        cape: hourlyArr.cape?.[i] ?? 0,
+        uvIndex: num(hourlyArr.uv_index?.[i]),
+        cape: num(hourlyArr.cape?.[i]),
         dewPoint: hourlyArr.dew_point_2m?.[i] ?? null,
         feelsLike: calculateFeelsLike(
             hourlyArr.temperature_2m[i],

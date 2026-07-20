@@ -275,8 +275,7 @@ export const generateSafetyAlerts = (
     // UV alert — only during daylight hours (forecast data carries stale daytime UV at night)
     const currentHour = new Date().getHours();
     const isDaytime = currentHour >= 6 && currentHour < 19;
-    if (isDaytime && current.uvIndex !== undefined && current.uvIndex >= 8)
-        alerts.push(`HIGH UV ALERT: Protection Required`);
+    if (isDaytime && current.uvIndex != null && current.uvIndex >= 8) alerts.push(`HIGH UV ALERT: Protection Required`);
 
     return [...new Set(alerts)];
 };

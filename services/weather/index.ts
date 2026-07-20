@@ -51,6 +51,68 @@ export const fetchStormglassData = fetchStormGlassWeather;
 // Key granularity: ~1km (2 decimal places of lat/lon).
 const _inflight = new Map<string, Promise<MarineWeatherReport>>();
 
+/**
+ * Fill the holes a single forecast model physically cannot fill.
+ *
+ * When the user pins a model, that model's report becomes the atmospheric
+ * base — but no forecast model publishes `uv_index` at all (it's a CAMS
+ * product), and `visibility` exists upstream only for UKMO and GFS, so ICON
+ * (the default) and ECMWF will NEVER carry it. Rather than show "—" forever,
+ * borrow those two fields from the WeatherKit-backed report the pipeline has
+ * already fetched in parallel: no extra request, real data.
+ *
+ * Strictly gap-fill — the pinned model's own values always win where it has
+ * them, so this can never overwrite real model output. Mutates `report`.
+ *
+ * @returns true if anything was actually borrowed, so the caller can keep the
+ *          `modelUsed` tag honest about the blend.
+ */
+export function gapFillModelBlindSpots(report: MarineWeatherReport, supplement: MarineWeatherReport | null): boolean {
+    if (!supplement) return false;
+    let borrowed = false;
+
+    const current = { ...report.current };
+    if (current.uvIndex == null && supplement.current?.uvIndex != null) {
+        current.uvIndex = supplement.current.uvIndex;
+        borrowed = true;
+    }
+    if (current.visibility == null && supplement.current?.visibility != null) {
+        current.visibility = supplement.current.visibility;
+        borrowed = true;
+    }
+    report.current = current;
+
+    // Hourly series — matched on UTC epoch hour, because the two sources
+    // format their timestamps differently ("…T17:00:00Z" vs "…T17:00").
+    if (supplement.hourly?.length && report.hourly?.length) {
+        const toHourKey = (t: string) => Math.floor(new Date(t).getTime() / 3600000);
+        const supHourly = new Map(supplement.hourly.map((h) => [toHourKey(h.time), h]));
+        report.hourly = report.hourly.map((h) => {
+            if (h.uvIndex != null && h.visibility != null) return h;
+            const s = supHourly.get(toHourKey(h.time));
+            if (!s) return h;
+            const uvIndex = h.uvIndex ?? s.uvIndex ?? null;
+            const visibility = h.visibility ?? s.visibility ?? null;
+            if (uvIndex !== h.uvIndex || visibility !== h.visibility) borrowed = true;
+            return { ...h, uvIndex, visibility };
+        });
+    }
+
+    // Daily UV max — drives the forecast cards, same reasoning.
+    if (supplement.forecast?.length && report.forecast?.length) {
+        const supDaily = new Map(supplement.forecast.map((d) => [d.isoDate || d.date, d]));
+        report.forecast = report.forecast.map((d) => {
+            if (d.uvIndex != null) return d;
+            const s = supDaily.get(d.isoDate || d.date);
+            if (s?.uvIndex == null) return d;
+            borrowed = true;
+            return { ...d, uvIndex: s.uvIndex };
+        });
+    }
+
+    return borrowed;
+}
+
 export const fetchWeatherByStrategy = async (
     lat: number,
     lon: number,
@@ -156,6 +218,9 @@ const _fetchWeatherByStrategyImpl = async (
 
     // --- BUILD BASE REPORT ---
     let report: MarineWeatherReport;
+    /** Pinned-model path only: true once UV/visibility were gap-filled from
+     *  the WeatherKit-backed report, so the model tag can say so. */
+    let borrowedFromWeatherKit = false;
 
     if (modelPinned && openMeteoReport) {
         // ✅ PINNED MODEL: the user chose a specific forecast model, so its
@@ -164,6 +229,11 @@ const _fetchWeatherByStrategyImpl = async (
         // is the point). Marine enrichment, tides, and CAPE still merge in
         // the shared pipeline below.
         report = openMeteoReport;
+
+        // ── Gap-fill what a single model domain physically cannot supply ──
+        const supplement =
+            unifiedReport ?? (weatherKitFull ? buildReportFromWeatherKit(weatherKitFull, lat, lon, name) : null);
+        borrowedFromWeatherKit = gapFillModelBlindSpots(report, supplement);
     } else if (unifiedReport) {
         // ✅ UNIFIED PATH: Single-endpoint response (premium or free)
         report = unifiedReport;
@@ -481,6 +551,9 @@ const _fetchWeatherByStrategyImpl = async (
     if (modelPinned && openMeteoReport) {
         // e.g. "wx:dwd_icon" (self-hosted) or "om:dwd_icon" (commercial)
         sourcesParts.push(`${openMeteoReport.modelUsed.startsWith('wx_') ? 'wx' : 'om'}:${glassModel}`);
+        // UV / visibility borrowed from WeatherKit — the report is a blend,
+        // so don't let the tag claim it's pure model output.
+        if (borrowedFromWeatherKit) sourcesParts.push('wk');
     } else if (unifiedReport) {
         sourcesParts.push(unifiedReport.modelUsed.includes('rb') ? 'rb+om' : 'wk');
     } else if (weatherKitFull?.observation) {
