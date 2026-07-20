@@ -111,6 +111,11 @@ export interface WeatherMetrics {
      *  a CAMS product), so a pinned-model report has it only once gap-filled
      *  from WeatherKit. Was `number`, which forced callers to invent a 0. */
     uvIndex: number | null;
+    /** SPITFIRE only: the spread across the blend's members for this hour —
+     *  the band. Absent for single models, which have nothing to disagree
+     *  with. See services/weather/spitfire.ts. */
+    windSpeedMin?: number | null;
+    windSpeedMax?: number | null;
     pressure?: number | null;
     pressureTrend?: 'rising' | 'falling' | 'steady';
     feelsLike?: number | null;
@@ -160,8 +165,10 @@ export interface ForecastDay {
     isoDate?: string;
     highTemp: number;
     lowTemp: number;
-    windSpeed: number;
-    windGust?: number;
+    windSpeed: number | null;
+    /** Null where the model publishes no gust field at all (ECMWF AIFS, JMA
+     *  GSM). Never substitute a multiple of windSpeed — see advisory.ts. */
+    windGust?: number | null;
     /** Significant wave height. `null` when the marine API has no
      *  coverage for this day (inland points, beyond marine forecast
      *  horizon, etc.) — distinct from 0 which means "calm seas".
@@ -189,7 +196,7 @@ export interface ForecastDay {
 
 export interface HourlyForecast {
     time: string;
-    windSpeed: number;
+    windSpeed: number | null;
     windGust?: number | null;
     windDirection?: string;
     windDegree?: number;
@@ -216,6 +223,9 @@ export interface HourlyForecast {
     precipChance?: number;
     secondarySwellHeight?: number | null;
     secondarySwellPeriod?: number | null;
+    /** SPITFIRE only — per-hour spread across the blend's members. */
+    windSpeedMin?: number | null;
+    windSpeedMax?: number | null;
 }
 
 export interface Tide {
@@ -293,6 +303,20 @@ export interface MarineWeatherReport {
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     distToLandKm?: number;
     synopticMap?: GridPoint[];
+    /** Present only when the SPITFIRE consensus supplied the atmospherics —
+     *  live member weights, measured MAE and the honest scope of what those
+     *  weights were actually scored on. See services/weather/spitfire.ts. */
+    spitfire?: {
+        label: string;
+        cadence: string;
+        weights: Record<string, number>;
+        maeKt: Record<string, number>;
+        memberLabels: Record<string, string>;
+        weightsStatus: string;
+        weightsScope: string;
+        locationName: string;
+        generatedAt: string;
+    };
     tideGUIDetails?: {
         stationName: string;
         isSecondary: boolean;

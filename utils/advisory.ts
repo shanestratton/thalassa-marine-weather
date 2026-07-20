@@ -156,13 +156,19 @@ export const checkForecastThresholds = (
     const next24 = hourly.slice(0, 24);
 
     if (prefs.wind && prefs.wind.enabled) {
-        const maxWind = Math.max(...next24.map((h) => h.windSpeed));
-        if (maxWind >= prefs.wind.threshold)
+        const winds = next24.map((h) => h.windSpeed).filter((w): w is number => w != null);
+        const maxWind = winds.length ? Math.max(...winds) : null;
+        if (maxWind !== null && maxWind >= prefs.wind.threshold)
             alerts.push(`THRESHOLD ALERT: Sustained wind reaching ${maxWind.toFixed(1)}kts in next 24h`);
     }
     if (prefs.gusts && prefs.gusts.enabled) {
-        const maxGust = Math.max(...next24.map((h) => h.windGust || h.windSpeed * 1.2));
-        if (maxGust >= prefs.gusts.threshold)
+        // Only REAL gusts. This used to fall back to windSpeed * 1.2, which
+        // meant ECMWF AIFS and JMA GSM — which publish no gust field at all —
+        // produced a fabricated gust and could fire a threshold alert on a
+        // number no model ever forecast. If the model has no gusts, stay quiet.
+        const gusts = next24.map((h) => h.windGust).filter((g): g is number => g != null);
+        const maxGust = gusts.length ? Math.max(...gusts) : null;
+        if (maxGust !== null && maxGust >= prefs.gusts.threshold)
             alerts.push(`THRESHOLD ALERT: Gusts reaching ${maxGust.toFixed(1)}kts in next 24h`);
     }
     if (prefs.waves && prefs.waves.enabled) {
@@ -246,8 +252,8 @@ export const generateSafetyAlerts = (
         upcoming.forEach((day) => {
             const condLower = day.condition.toLowerCase();
             const isStormy = stormKeywords.some((k) => condLower.includes(k));
-            const isHighWind = day.windSpeed >= 34;
-            const isExtremeGust = (day.windGust || 0) > 45;
+            const isHighWind = (day.windSpeed ?? 0) >= 34;
+            const isExtremeGust = (day.windGust ?? 0) > 45;
             const isToday =
                 day.day === 'Today' ||
                 day.date === new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

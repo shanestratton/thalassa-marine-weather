@@ -10,7 +10,8 @@ import { assessShelter, dampReportWaves } from './shelter';
 import { withDeadline } from '../../utils/deadline';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { resolveForecastModel, isConcreteModel } from './forecastModels';
+import { resolveForecastModel, isConcreteModel, isSpitfire } from './forecastModels';
+import { fetchSpitfire, applySpitfireToReport } from './spitfire';
 import { piCache } from '../PiCacheService';
 
 import { createLogger } from '../../utils/createLogger';
@@ -146,6 +147,11 @@ const _fetchWeatherByStrategyImpl = async (
     // blend and OM stays a supplement.
     const glassModel = resolveForecastModel(useSettingsStore.getState().settings.forecastModel);
     const modelPinned = isConcreteModel(glassModel);
+    // SPITFIRE is a published blend, not a grid — it is fetched separately and
+    // only exists near the locations the wx box computes. Asking for it away
+    // from those returns null and we fall through to the normal path.
+    const spitfireWanted = isSpitfire(glassModel);
+    const spitfirePromise = spitfireWanted ? fetchSpitfire(lat, lon) : Promise.resolve(null);
 
     // ── Wait for Pi Cache discovery to settle (boot race fix) ──
     // On cold start, the health check is still in flight when the dashboard
@@ -546,9 +552,19 @@ const _fetchWeatherByStrategyImpl = async (
         });
     }
 
+    // --- SPITFIRE OVERLAY ---
+    // Applied late, on top of the fully-merged report, so the consensus owns
+    // the atmospherics while tides, waves and sun times survive from the
+    // normal pipeline. Returns null away from the locations the wx box
+    // computes, in which case nothing happens and the base report stands.
+    const spitfire = await spitfirePromise;
+    if (spitfire) applySpitfireToReport(report, spitfire);
+
     // --- MODEL TAG ---
     const sourcesParts: string[] = [];
-    if (modelPinned && openMeteoReport) {
+    if (spitfire) {
+        sourcesParts.push('spitfire');
+    } else if (modelPinned && openMeteoReport) {
         // e.g. "wx:dwd_icon" (self-hosted) or "om:dwd_icon" (commercial)
         sourcesParts.push(`${openMeteoReport.modelUsed.startsWith('wx_') ? 'wx' : 'om'}:${glassModel}`);
         // UV / visibility borrowed from WeatherKit — the report is a blend,

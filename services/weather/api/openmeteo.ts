@@ -360,9 +360,19 @@ const doFetchOpenMeteo = async (
 
     const waveH = (curWave.wave_height || 0) * 3.28084; // m to ft
 
+    // km/h → knots, null-safe. Not every model publishes every wind field:
+    // ECMWF AIFS and JMA GSM have NO wind_gusts_10m at all (absent from the
+    // open-data mirror entirely — no sync can add it). Multiplying that null
+    // by kFactor yielded 0, so those models rendered "GUST 0 kts" — which on
+    // a marine dashboard reads as dead calm rather than "not published".
+    const kn = (v: unknown): number | null => {
+        const n = num(v);
+        return n === null ? null : parseFloat((n * kFactor).toFixed(1));
+    };
+
     const currentMetrics = {
-        windSpeed: parseFloat((cur.wind_speed_10m * kFactor).toFixed(1)),
-        windGust: parseFloat((cur.wind_gusts_10m * kFactor).toFixed(1)),
+        windSpeed: kn(cur.wind_speed_10m),
+        windGust: kn(cur.wind_gusts_10m),
         windDirection: degreesToCardinal(cur.wind_direction_10m),
         windDegree: cur.wind_direction_10m,
         waveHeight: parseFloat(waveH.toFixed(1)),
@@ -424,8 +434,8 @@ const doFetchOpenMeteo = async (
             isoDate: t,
             highTemp: dailyArr.temperature_2m_max[i],
             lowTemp: dailyArr.temperature_2m_min[i],
-            windSpeed: parseFloat((dailyArr.wind_speed_10m_max[i] * kFactor).toFixed(1)),
-            windGust: parseFloat((dailyArr.wind_gusts_10m_max[i] * kFactor).toFixed(1)),
+            windSpeed: kn(dailyArr.wind_speed_10m_max?.[i]),
+            windGust: kn(dailyArr.wind_gusts_10m_max?.[i]),
             // Marine API can return null for individual days even when
             // the array exists (poor coverage, inland index, etc.). And
             // when the marine fetch returns fewer days than the weather
@@ -484,8 +494,8 @@ const doFetchOpenMeteo = async (
     const hourlyArr = wData.hourly || {};
     const hourly = (hourlyArr.time || []).map((t: string, i: number) => ({
         time: t,
-        windSpeed: hourlyArr.wind_speed_10m[i] * kFactor,
-        windGust: hourlyArr.wind_gusts_10m[i] * kFactor,
+        windSpeed: kn(hourlyArr.wind_speed_10m?.[i]),
+        windGust: kn(hourlyArr.wind_gusts_10m?.[i]),
         windDirection: degreesToCardinal(hourlyArr.wind_direction_10m?.[i] ?? 0),
         windDegree: hourlyArr.wind_direction_10m?.[i] ?? 0,
         waveHeight: ((): number | null => {
