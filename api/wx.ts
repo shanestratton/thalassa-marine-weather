@@ -119,7 +119,8 @@ footer a{color:var(--ok)}
 <div class="picker"><select id="mdl" class="loc"></select>
 <span class="sub" id="cadence" style="align-self:center"></span></div>
 <div class="panel"><h3 id="hTitle">Hourly</h3><canvas id="hourly"></canvas>
-<div class="chips" id="chips"></div></div>
+<div class="row" id="agree" style="margin:8px 0 0"></div>
+<div class="chips" id="chips"></div><div class="note" id="wts"></div></div>
 <div class="tiles" id="curTiles"></div>
 <div class="panel" style="margin-top:12px"><h3>10 days</h3><div class="daily" id="daily"></div></div>
 <div class="panel" id="tidePanel" style="display:none"><h3 id="tideTitle">Tides</h3>
@@ -179,7 +180,10 @@ function drawHourly(loc,mo){
   const t=hr.time||[],n=Math.min(vals.length,48);if(!n)return;
   const sm=sunMap(loc);
   const v2=m.key2?(hr[m.key2]||[]):null;
-  const all=vals.slice(0,n).concat(v2?v2.slice(0,n).filter(v=>v!=null):[]).filter(v=>v!=null);
+  const bmin=hr[m.key+'_min'],bmax=hr[m.key+'_max'];
+  const all=vals.slice(0,n).concat(v2?v2.slice(0,n).filter(v=>v!=null):[],
+    bmin?bmin.slice(0,n).filter(v=>v!=null):[],
+    bmax?bmax.slice(0,n).filter(v=>v!=null):[]).filter(v=>v!=null);
   if(!all.length)return;
   let lo=Math.min(...all),hi=Math.max(...all);
   if(metric==='precip'){lo=0;hi=Math.max(hi,1)}
@@ -194,7 +198,12 @@ function drawHourly(loc,mo){
   if(m.kind==='bar'){x.fillStyle=col;
     for(let i=0;i<n;i++){const v=vals[i];if(v==null)continue;
       x.fillRect(X(i)-2,Y(v),4,top+ph-Y(v))}}
-  else{if(metric==='temp'){const g=x.createLinearGradient(0,top,0,top+ph);
+  else{if(bmin&&bmax){x.fillStyle=col+'2b';x.beginPath();let st=false;
+    for(let i=0;i<n;i++){if(bmax[i]==null)continue;
+      st?x.lineTo(X(i),Y(bmax[i])):x.moveTo(X(i),Y(bmax[i]));st=true}
+    for(let i=n-1;i>=0;i--)bmin[i]!=null&&x.lineTo(X(i),Y(bmin[i]));
+    x.closePath();x.fill()}
+  if(metric==='temp'){const g=x.createLinearGradient(0,top,0,top+ph);
       g.addColorStop(0,col+'55');g.addColorStop(1,col+'00');x.fillStyle=g;x.beginPath();
       x.moveTo(X(0),top+ph);for(let i=0;i<n;i++)x.lineTo(X(i),Y(vals[i]??lo));
       x.lineTo(X(n-1),top+ph);x.fill()}
@@ -224,6 +233,18 @@ function renderForecast(){
     '<option value="'+k+'"'+(k===mdl?' selected':'')+'>'+m.label+'</option>').join('');
   $('mdl').onchange=e=>{mdl=e.target.value;localStorage.wxmdl=mdl;renderForecast()};
   $('cadence').textContent=mo.cadence+' · grid '+mo.grid.map(g=>(+g).toFixed(2)).join(', ');
+  const lo2=mo.current.wind_speed_10m_min,hi2=mo.current.wind_speed_10m_max;
+  if(lo2!=null&&hi2!=null){const spread=hi2-lo2;
+    $('agree').innerHTML=spread<=5
+      ?'<span class="pill ok">models agree · wind '+lo2+'–'+hi2+' kt</span>'
+      :'<span class="pill warn">models split · wind '+lo2+'–'+hi2+' kt — trust the band, not the line</span>';
+  } else $('agree').innerHTML='';
+  if(mo.weights){
+    $('wts').innerHTML='today&#39;s weights ('+(mo.weights_status||'')+'): '+
+      Object.entries(mo.weights).map(([k,w])=>
+        (mo.member_labels&&mo.member_labels[k]||k)+' '+(w*100).toFixed(0)+'%').join(' · ')+
+      '<br>'+(mo.weights_scope||'');
+  } else $('wts').textContent='';
   $('hTitle').textContent='Hourly · '+loc.name+' · '+mo.label+' ('+(loc.tz||'')+')';
   $('chips').innerHTML=Object.entries(METRICS).map(([k,m])=>
     '<button class="chip'+(k===metric?' sel':'')+'" data-m="'+k+'">'+m.title.split(' ')[0]+'</button>').join('');
