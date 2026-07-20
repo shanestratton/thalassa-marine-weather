@@ -27,12 +27,13 @@ export default async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.searchParams.get('data')) {
         const bust = `?t=${Math.floor(Date.now() / 30000)}`;
-        const [c, h, f] = await Promise.all([
+        const [c, h, f, rp] = await Promise.all([
             fetch(`${BASE}/current.json${bust}`).then((r) => (r.ok ? r.json() : null)),
             fetch(`${BASE}/history.json${bust}`).then((r) => (r.ok ? r.json() : [])),
             fetch(`${BASE}/forecast.json${bust}`).then((r) => (r.ok ? r.json() : null)),
+            fetch(`${BASE}/report.json${bust}`).then((r) => (r.ok ? r.json() : null)),
         ]);
-        return new Response(JSON.stringify({ current: c, history: h, forecast: f }), {
+        return new Response(JSON.stringify({ current: c, history: h, forecast: f, report: rp }), {
             headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
         });
     }
@@ -126,6 +127,10 @@ footer a{color:var(--ok)}
 <div class="panel" id="tidePanel" style="display:none"><h3 id="tideTitle">Tides</h3>
 <div class="tideband" id="tides"></div><div class="note" id="tideNote"></div></div>
 <div class="note" id="fcNote"></div>
+
+<h2>morning report</h2>
+<div class="sub" id="rpDate"></div>
+<div class="panel" id="rpPanel"><div id="rpBody" class="note" style="margin:0">loading…</div></div>
 
 <h2>server</h2>
 <div class="sub" id="asof"></div>
@@ -291,6 +296,46 @@ function renderForecast(){
   $('fcNote').textContent=F.model_note+' * feels-like and dew point are computed, not model output. '+F.attribution;
 }
 
+function renderReport(rp){
+  if(!rp){$('rpBody').textContent='no report yet — first one lands at 07:05 Brisbane';return}
+  $('rpDate').textContent='yesterday: '+rp.date_local+' · SPITFIRE skill review, Newport';
+  const L={dwd_icon:'ICON',ecmwf_ifs025:'IFS',ecmwf_aifs025_single:'AIFS',
+    ukmo_global_deterministic_10km:'UKMO',jma_gsm:'JMA'};
+  let h='';
+  const nc=rp.newport_nowcast||{};
+  if(nc.samples){
+    h+='<b>Wind at the beacons:</b> observed '+nc.obs_kt.min+'–'+nc.obs_kt.max+
+      ' kt (mean '+nc.obs_kt.mean+') across '+nc.samples+' half-hour checks.<br>';
+    const w=(rp.weights||{}).weights||{},dl=(rp.weights||{}).delta;
+    h+='<table style="margin-top:8px"><tr><th>model</th><th>MAE kt</th><th>weight</th><th>Δ</th></tr>'+
+      Object.entries(nc.mae_kt||{}).sort((a,b)=>a[1]-b[1]).map(([m,e])=>{
+        const d=dl&&dl[m];
+        const arrow=d==null?'—':d>0.002?'<span class="ok">▲'+(d*100).toFixed(1)+'%</span>'
+          :d<-0.002?'<span class="bad">▼'+(-d*100).toFixed(1)+'%</span>':'·';
+        return '<tr><td>'+(L[m]||m)+(m===nc.best?' <span class="ok">★ best</span>':'')+
+          '</td><td>'+e.toFixed(2)+'</td><td>'+((w[m]||0)*100).toFixed(0)+'%</td><td>'+arrow+'</td></tr>'}).join('')+
+      '</table>';
+    if(nc.spitfire_mae_kt!=null)h+='<div style="margin-top:6px">SPITFIRE blend MAE: <b>'+
+      nc.spitfire_mae_kt.toFixed(2)+' kt</b>'+
+      (nc.mae_kt[nc.best]!=null?(nc.spitfire_mae_kt<=nc.mae_kt[nc.best]
+        ?' — <span class="ok">beat every individual model</span>'
+        :' vs best single '+nc.mae_kt[nc.best].toFixed(2)+' ('+(L[nc.best]||nc.best)+')'):'')+'</div>';
+  } else h+='<b>Wind skill:</b> '+(nc.note||'no samples')+'<br>';
+  const f24=rp.newport_forecast24||{};
+  h+='<div style="margin-top:8px"><b>Day-ahead skill</b> (was the +24 h forecast right?): '+
+    (f24.available?('issued '+f24.issued+' — '+Object.entries(f24.mae_kt).sort((a,b)=>a[1]-b[1])
+      .map(([m,e])=>(L[m]||m)+' '+e.toFixed(1)+' kt').join(' · ')+
+      ' · best '+(L[f24.best]||f24.best)):(f24.note||''))+'</div>';
+  const sp=rp.model_spread||{};
+  if(sp.available&&sp.rows&&sp.rows.length){
+    h+='<div style="margin-top:8px"><b>Where the models argued</b> ('+sp.at+'):<br>'+
+      sp.rows.slice(0,6).map(r=>r.loc+' <span class="'+(r.spread_kt>8?'bad':r.spread_kt>4?'warn':'ok')+
+      '">'+r.min_kt+'–'+r.max_kt+' kt</span>').join(' · ')+'</div>';
+  } else if(sp.note) h+='<div style="margin-top:8px"><b>Model spread:</b> '+sp.note+'</div>';
+  h+='<div style="margin-top:8px;opacity:.8">'+(rp.truth_note||'')+'</div>';
+  $('rpBody').innerHTML=h;
+}
+
 function renderMonitor(){
   const c=M;if(!c){$('asof').textContent='no server snapshot';return}
   const age=(Date.now()-Date.parse(c.ts))/60000,b=$('banner');
@@ -343,7 +388,7 @@ function renderMonitor(){
 
 async function load(){
   const r=await fetch('/api/wx?data=1');const d=await r.json();
-  M=d.current;H=d.history||[];F=d.forecast;
+  M=d.current;H=d.history||[];F=d.forecast;renderReport(d.report);
   if(F){const age=(Date.now()-Date.parse(F.generated_at))/60000;
     $('fcAsof').textContent='forecast built '+age.toFixed(0)+' min ago · auto-refreshes';
     if(!F.locations[sel])sel=Object.keys(F.locations)[0];
