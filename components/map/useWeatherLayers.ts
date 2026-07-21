@@ -39,6 +39,40 @@ import {
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
 
 /**
+ * The animated wind field is the chart page's signature look, so it is what
+ * a first run opens on (Shane 2026-07-21: "that beautiful wind layer… i miss
+ * it"). Nothing about it was ever deleted — the renderer has been
+ * byte-identical since March. It went missing because the restore below used
+ * to strip it on EVERY launch, so even after switching it on the next open
+ * lost it again, and THE PURGE then wiped the layer set once per device.
+ */
+export const DEFAULT_LAYERS: WeatherLayer[] = ['wind'];
+
+/**
+ * Which layers a stored preference should restore.
+ *
+ * The three cases are deliberately distinct:
+ *   null / unparseable → first run, or pre-fix device → DEFAULT_LAYERS
+ *   "[]"               → the user turned everything off → honour it
+ *   ["wind", …]        → restore, minus any parked layer
+ *
+ * Parked layers drop because their pickers are gone: a persisted
+ * 'waves'/'seaice'/'mld' would restore ON with no control left to turn it
+ * off (Shane 2026-07-18). Wind is NOT filtered — it has a picker, and
+ * discarding the user's own choice every launch was the bug.
+ */
+export function restoreActiveLayers(stored: string | null): Set<WeatherLayer> {
+    if (stored === null) return new Set(DEFAULT_LAYERS);
+    try {
+        const arr = JSON.parse(stored) as WeatherLayer[];
+        if (!Array.isArray(arr)) return new Set(DEFAULT_LAYERS);
+        return new Set(arr.filter((l) => !isParkedLayer(l)));
+    } catch {
+        return new Set(DEFAULT_LAYERS);
+    }
+}
+
+/**
  * useWeatherLayers — all weather overlay state + side effects.
  */
 export function useWeatherLayers(
@@ -56,22 +90,10 @@ export function useWeatherLayers(
     const STORAGE_KEY = 'thalassa_active_layers';
     const [activeLayers, setActiveLayers] = useState<Set<WeatherLayer>>(() => {
         try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const arr = JSON.parse(stored) as WeatherLayer[];
-                if (Array.isArray(arr) && arr.length > 0) {
-                    // Wind OFF by default — filter it out so satellite view is clean.
-                    // Parked layers drop too: their pickers are gone, so a
-                    // persisted 'waves'/'seaice'/'mld' would restore ON with no
-                    // control left to turn it back off (Shane 2026-07-18).
-                    const filtered = arr.filter((l) => l !== 'wind' && l !== 'velocity' && !isParkedLayer(l));
-                    return filtered.length > 0 ? new Set(filtered) : new Set();
-                }
-            }
+            return restoreActiveLayers(localStorage.getItem(STORAGE_KEY));
         } catch {
-            /* ignore */
+            return new Set(DEFAULT_LAYERS);
         }
-        return new Set();
     });
     const [showLayerMenu, setShowLayerMenu] = useState(false);
 
@@ -130,12 +152,14 @@ export function useWeatherLayers(
         });
     }, []);
 
-    // Persist layer selection to localStorage whenever it changes
+    // Persist layer selection to localStorage whenever it changes.
+    // An empty selection WRITES "[]" rather than removing the key: with wind
+    // as the first-run default, "no key" and "user turned everything off"
+    // would otherwise be indistinguishable and every all-off would bounce
+    // back to wind on the next launch.
     useEffect(() => {
         try {
-            const arr = [...activeLayers];
-            if (arr.length > 0) localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
-            else localStorage.removeItem(STORAGE_KEY);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([...activeLayers]));
         } catch {
             /* ignore */
         }
