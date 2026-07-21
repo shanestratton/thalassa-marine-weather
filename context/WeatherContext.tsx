@@ -60,6 +60,23 @@ interface WeatherContextType {
 const WeatherContext = createContext<WeatherContextType | undefined>(undefined);
 
 /**
+ * Is the report currently on screen for a DIFFERENT place than the one just
+ * selected? If so the Glass must swap to a placeholder for the new name
+ * immediately rather than leave the previous location's report sitting there.
+ *
+ * App.tsx builds the header as `weatherData.locationName`, preferring it over
+ * the name the user tapped — so without this the title keeps showing the old
+ * place for the whole fetch. That was the 4-5 s of apparent dead air.
+ *
+ * Case-insensitive because the same place can arrive differently cased from a
+ * favourite, a geocode and a cache key.
+ */
+export function isShowingAnotherPlace(currentName: string | undefined | null, nextName: string): boolean {
+    if (!currentName) return false; // nothing on screen to contradict
+    return currentName.trim().toLowerCase() !== nextName.trim().toLowerCase();
+}
+
+/**
  * What a location selection must persist — the NAME AND COORDS as a pair,
  * or null when nothing changed.
  *
@@ -370,10 +387,23 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             if (needsBlur && weatherDataRef.current) setStaleRefresh(true);
 
+            // Does what's on screen belong to somewhere ELSE? App.tsx builds
+            // the Glass title as `weatherData.locationName`, preferring it
+            // over the name the user just tapped — so until the new report
+            // lands the header keeps showing the PREVIOUS place. That is the
+            // 4-5 s of "nothing happened" that has punters mashing buttons
+            // (Shane 2026-07-22), and it is not the network: the sources now
+            // return in 0.4-2.7 s.
+            const showingAnotherPlace = isShowingAnotherPlace(weatherDataRef.current?.locationName, location);
+
             if (isCacheValid) {
                 setWeatherData(cached);
-            } else if (!weatherDataRef.current) {
-                // Cold start stub
+            } else if (!weatherDataRef.current || showingAnotherPlace) {
+                // Cold start stub — ALSO used when switching location with no
+                // cached report. Swapping in a stub blanks the readings for a
+                // beat, which is the honest trade: the alternative is the
+                // PREVIOUS location's wind and tide sitting under the new
+                // name, which on a marine app is worse than a brief skeleton.
                 const optimisticData = {
                     locationName: location,
                     coordinates: coords || { lat: 0, lon: 0 },
