@@ -14,6 +14,7 @@
  */
 import React, { useRef, useCallback, useEffect, memo, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { WIND_GRADIENT } from './windRamp';
 
 // ── Layer definitions for the generic legend ──
 export type HelixLayer =
@@ -47,15 +48,19 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         label: 'Wind',
         lowLabel: 'Calm',
         highLabel: 'Storm',
-        gradient: 'linear-gradient(to top, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
+        gradient: WIND_GRADIENT,
         accentColor: '#38bdf8',
     },
+    // 'velocity' is a legacy ALIAS for the wind layer — MapHub drives the same
+    // MapboxVelocityOverlay from `has('velocity') || has('wind')`. It was
+    // captioned "Current" under a wave icon, which is a different layer
+    // entirely (see `currents` below, with its own ramp).
     velocity: {
-        icon: '🌊',
-        label: 'Current',
+        icon: '💨',
+        label: 'Wind',
         lowLabel: 'Calm',
         highLabel: 'Storm',
-        gradient: 'linear-gradient(to top, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
+        gradient: WIND_GRADIENT,
         accentColor: '#38bdf8',
     },
     currents: {

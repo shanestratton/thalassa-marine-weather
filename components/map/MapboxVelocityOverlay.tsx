@@ -16,6 +16,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createLogger } from '../../utils/createLogger';
+import { WIND_COLORS, WIND_MAX_MS } from './windRamp';
 
 const log = createLogger('MapboxVelocityOverlay');
 import L from 'leaflet';
@@ -76,15 +77,9 @@ interface MapboxVelocityOverlayProps {
     hideBadge?: boolean;
 }
 
-// Speed-based wind particle scale — steel blue → amber → coral
-const WIND_COLORS = [
-    '#8ca5c7', // 0-10 kts: Calm (steel blue)
-    '#a8b08c', // 10-15 kts: Moderate (muted sage)
-    '#d9bf80', // 15-20 kts: Fresh (warm amber)
-    '#d9a060', // 20-25 kts: Strong (deep amber)
-    '#cc6650', // 25-35 kts: Near Gale (burnt orange)
-    '#e05a50', // 35+ kts: Severe (coral red)
-];
+// Speed-graded wind particle scale — blue → cyan → green → orange → red →
+// pink → magenta → violet. Band table + bucket maths live in ./windRamp so the
+// legend shares one definition instead of a hand-mirrored copy.
 
 // ── Helper: Create velocity layer ─────────────────────────────
 
@@ -92,12 +87,17 @@ function createVelocityLayer(data: GribRecord[]): L.Layer {
     return (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
-        maxVelocity: 40,
+        maxVelocity: WIND_MAX_MS,
         velocityScale: 0.015,
         particleAge: 60,
         particleMultiplier: 1 / 150,
         frameRate: 15,
-        lineWidth: 3.5,
+        // The library option is `particlelineWidth` — lowercase 'l' in "line":
+        //   leaflet-velocity.js → `this.particleLineWidth = t.particlelineWidth || 1`
+        // The old `lineWidth: 3.5` matched nothing, so every particle has been
+        // drawing as a 1px hairline. The `L as unknown as Record<...>` cast
+        // below erases option typing, which is why the compiler never said so.
+        particlelineWidth: 3.5,
         colorScale: WIND_COLORS,
     });
 }
