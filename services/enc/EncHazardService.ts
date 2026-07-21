@@ -1188,10 +1188,16 @@ async function buildMergedVectorData(
     logMergeSummary(merged);
     // warn, not info (info is silent in prod): the boot-speed ground truth.
     const perfBytes = cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0);
+    // blobCache + merge-memo occupancy ride along so a long pan SHOWS whether
+    // the caches are the ratchet, instead of us inferring it. blobText is JSON
+    // text; parsed heap runs ~3× that, and an evicted cell is not freed while
+    // any cached merge still references its geometry.
+    const bc = cellStore.blobCacheStats();
     log.warn(
         `[perf] merge ${merged.cellCount} cells (${(perfBytes / 1024 / 1024).toFixed(1)} MB reg): ` +
             `load+parse=${Math.round(perfLoadMs)}ms, compute=${Math.round(performance.now() - perfT0 - perfLoadMs)}ms, ` +
-            `total=${Math.round(performance.now() - perfT0)}ms, missing=${missingBlobs.length}`,
+            `total=${Math.round(performance.now() - perfT0)}ms, missing=${missingBlobs.length}, ` +
+            `blobCache=${bc.entries} cells/${bc.textMB}MBtext`,
     );
     return merged;
 }

@@ -94,6 +94,16 @@ const BLOB_CACHE_MAX_BYTES = 48 * 1024 * 1024; // JSON text — heap ≈ few ×
 const BLOB_CACHE_MIN_KEEP = 4;
 let blobCacheBytes = 0;
 
+/** Cache occupancy, for the [perf] merge line. The byte figure is JSON TEXT
+ *  length — measured parsed heap runs ~3× it, so a full 48 MB cache is
+ *  ~150 MB resident, and eviction does NOT free a cell whose geometry a
+ *  cached merge still references (mergeFold pushes geometry by reference).
+ *  Logging it per merge is how we find out whether a long pan actually fills
+ *  this, rather than assuming. */
+export function blobCacheStats(): { entries: number; textMB: number } {
+    return { entries: blobCache.size, textMB: Math.round((blobCacheBytes / 1048576) * 10) / 10 };
+}
+
 /** Eviction decision for the blob LRU — pure so the caps interplay is
  *  unit-tested. Evict the oldest while over EITHER cap, but never below the
  *  min-keep floor (so a working set of a few cells can't thrash itself out
