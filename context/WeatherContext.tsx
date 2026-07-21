@@ -413,10 +413,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
 
             setBackgroundUpdating(true);
+            // force=TRUE. selectLocation is only ever reached from explicit
+            // user intent — a map pick, a favourite, a search. The
+            // orchestrator's concurrent-fetch guard drops any un-forced call
+            // while another fetch is in flight, silently, which left the
+            // PREVIOUS location's numbers on screen under the new name: pick
+            // Townsville, land back on the Glass looking at Newport. A
+            // background refresh may be dropped; a person tapping a place
+            // may not.
             if (cached) {
-                await fetchWeather(location, false, coords, false, true);
+                await fetchWeather(location, true, coords, false, true);
             } else {
-                await fetchWeather(location, false, coords, !weatherDataRef.current);
+                await fetchWeather(location, true, coords, !weatherDataRef.current);
             }
         },
         [fetchWeather, updateSettings, setWeatherData],

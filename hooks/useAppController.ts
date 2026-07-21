@@ -550,11 +550,35 @@ export const useAppController = () => {
             setPage('dashboard');
             crumb('pick:nav-glass');
 
-            // Fire-and-forget fetch
+            // Fire-and-forget fetch. Reported via Preferences as well as the
+            // crumb trail: the trail only surfaces after a CRASH, and this
+            // path turned out not to crash at all — it navigated, kept the
+            // old numbers, and said nothing. An outcome you can read in
+            // Xcode on every pick is what makes that visible.
+            void import('@capacitor/preferences')
+                .then(({ Preferences }) =>
+                    Preferences.set({ key: 'PICK_RESULT', value: `[PICK] ${locationQuery} @${nm}nm — fetching` }),
+                )
+                .catch(() => {});
             selectLocation(locationQuery, finalCoords)
-                .then(() => crumb('pick:fetch-ok'))
-                .catch(() => {
-                    crumb('pick:fetch-fail');
+                .then(() => {
+                    crumb('pick:fetch-ok');
+                    void import('@capacitor/preferences')
+                        .then(({ Preferences }) =>
+                            Preferences.set({ key: 'PICK_RESULT', value: `[PICK] ${locationQuery} — OK` }),
+                        )
+                        .catch(() => {});
+                })
+                .catch((e) => {
+                    crumb('pick:fetch-fail', String(e).slice(0, 60));
+                    void import('@capacitor/preferences')
+                        .then(({ Preferences }) =>
+                            Preferences.set({
+                                key: 'PICK_RESULT',
+                                value: `[PICK] ${locationQuery} — FAILED: ${String(e).slice(0, 200)}`,
+                            }),
+                        )
+                        .catch(() => {});
                     showToast('Location update failed, check network.');
                 });
         },
