@@ -3063,6 +3063,55 @@ export const MapHub: React.FC<MapHubProps> = ({
                         refreshOrder();
                     }
                 }
+
+                // PLACE NAMES OVER THE IMAGERY (Shane 2026-07-22: "we just
+                // need more place names on the land, so we know where we
+                // are"). The base style's settlement labels are added at
+                // style load, BEFORE the imagery raster — and the raster is
+                // opaque, so every town name was simply painted over. The
+                // ordering pass above only ever pushed imagery below the ENC
+                // stack; nothing raised the labels.
+                //
+                // Lift them above whichever imagery layer is on. Deliberately
+                // NOT to the very top: the ENC stack stays above, so marks,
+                // lights and leads still paint over a town name rather than
+                // the other way round.
+                //
+                // Conditional writes only — an unconditional moveLayer here
+                // would re-fire styledata forever (the ~8 Hz loop of the
+                // 2026-07-15 audit).
+                const litImagery = ['hybrid-base-layer', 'satellite-base-layer'].filter(
+                    (id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none',
+                );
+                if (litImagery.length > 0) {
+                    const imageryIdx = Math.max(...litImagery.map((id) => orderIds.indexOf(id)));
+                    // Settlement labels only. Country/state are minimalLabels'
+                    // business, and enc-* must never be reordered from here.
+                    // Decide every move against ONE order snapshot, then apply:
+                    // refreshing mid-loop would leave imageryIdx pointing at the
+                    // wrong row and make the decisions drift.
+                    const buried = orderIds.filter(
+                        (id, idx) =>
+                            idx < imageryIdx &&
+                            !id.startsWith('enc-') &&
+                            /settlement|place.?label|poi.?label|airport.?label|City|Town|Village/i.test(id) &&
+                            map.getLayer(id)?.type === 'symbol',
+                    );
+                    // In original order, each anchored before encBottom, so the
+                    // style's own label priority survives the lift.
+                    for (const id of buried) map.moveLayer(id, encBottom);
+                    if (buried.length > 0) {
+                        // Self-limiting: once lifted they sit above the
+                        // imagery, so this logs on the pass that fixes it and
+                        // then goes quiet. warn, not info — info is a no-op in
+                        // prod and this is the only evidence the lift happened.
+                        log.warn(
+                            `[labels] lifted ${buried.length} place-label layers above imagery: ${buried.join(', ')}`,
+                        );
+                        changed = true;
+                        refreshOrder();
+                    }
+                }
                 // The opaque LAND fills sit ABOVE the satellite base and
                 // blanket the imagery — satellite ON hides those. The DEPARE
                 // ramp is different since 2026-07-11 ("our layer sitting on
