@@ -329,6 +329,19 @@ export function useEncVectorLayer(
                 return;
             }
 
+            // Chart switched OFF: skip the whole pipeline, not just the paint.
+            // The toggle used to hide the layers at the END of this function
+            // while the merge, the 14-source setData and the cloud-hydration
+            // walk all still ran on every pan — so turning the chart off cost
+            // exactly as much memory as leaving it on, and was useless as a
+            // diagnostic lever. `visible` is in this effect's dep array, so
+            // switching back on re-enters here and merges immediately.
+            if (!visible) {
+                if (mountedRef.current) setEncVectorVisibility(map, false);
+                log.warn('[apply] skipped — ENC chart toggled off');
+                return;
+            }
+
             try {
                 const win = windowFor(map);
                 // warn, not info: info is silent in prod and this line is
