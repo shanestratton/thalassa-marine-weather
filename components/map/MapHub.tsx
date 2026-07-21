@@ -3391,7 +3391,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         } catch {
             return; // no storage — skip rather than clobber on every mount
         }
+        // Wind is exempt as of 2026-07-21: it is the chart page's signature
+        // look and is now the first-run default, so purging it would strip
+        // the very thing a new device is meant to open on. Everything else
+        // still goes — the purge's point was the clean white chart, and one
+        // animated field over it is that look, not the old layer pile.
         for (const layer of Array.from(weather.activeLayers as Set<string>)) {
+            if (layer === 'wind' || layer === 'velocity') continue;
             weather.toggleLayer(layer as never);
         }
         setAisVisible(false);
