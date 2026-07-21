@@ -5009,15 +5009,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
-                {/* Not while PLOTTING. The planning surface is this same map
-                    with the tracer up, so it inherits the Charts layer set —
-                    and since the wind field became a default (f39518f8) it
-                    turned up over route work uninvited. Laying a track wants a
-                    clean chart: the pins, the legs and the water, nothing
-                    animating over them (Shane 2026-07-21: "we need that page
-                    to stay clean"). The layer stays ON in state, so it is
-                    simply there again the moment plotting ends. */}
-                {!isPinView && !embedded && !coordCaptureMode && (
+                {!isPinView && !embedded && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
@@ -7645,13 +7637,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ THALASSA HELIX CONTROL ═══ */}
-                {/* Hidden while plotting, with the wind field itself — the
-                    legend bar and scrubber sit bottom-left/bottom-centre,
-                    exactly where the tracer's own controls and leg badges
-                    live, and a clean chart is the point of that mode. */}
                 {!isPinView &&
                     !embedded &&
-                    !coordCaptureMode &&
                     weather.activeLayers.size > 0 &&
                     !chartControlsHidden &&
                     (() => {
