@@ -680,12 +680,21 @@ export class WeatherOrchestrator {
                     data: { error: getErrorMessage(err) },
                 });
             } else {
-                if (!currentData2) this.cb.setError(getErrorMessage(err) || 'Weather Unavailable');
+                // Surface the failure when there is nothing to show OR when
+                // the user explicitly asked for THIS place (force). Keeping
+                // quiet because stale data happens to be on screen is how
+                // "I picked Townsville and got Newport" looked like a crash:
+                // the pick saved, the page navigated, and the previous
+                // location's numbers simply stayed put with no error at all.
+                // A silent background refresh may fail quietly; a tap may not.
+                if (!currentData2 || force) {
+                    this.cb.setError(getErrorMessage(err) || `Couldn't load weather for ${location}`);
+                }
                 addBreadcrumb({
                     category: 'weather',
                     message: 'Fetch failed, no fallback',
                     level: 'error',
-                    data: { error: getErrorMessage(err) },
+                    data: { error: getErrorMessage(err), force },
                 });
             }
             this.cb.setLoading(false);
