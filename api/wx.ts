@@ -177,6 +177,16 @@ const METRICS={
  wind:{title:'Wind kt + gusts',key:'wind_speed_10m',key2:'wind_gusts_10m',kind:'line',cvar:'--ok'},
  pressure:{title:'Pressure hPa',key:'pressure_msl',kind:'line',cvar:'--dim'}};
 
+// Gridline step: a multiple of the metric's natural unit, chosen so the chart
+// carries roughly half a dozen lines. Temperature's unit is 0.5 °C, so a normal
+// overnight range lands on half-degree lines and the band's top and bottom can
+// be READ rather than eyeballed. A wide range steps up (0.5 -> 1 -> 2 ...)
+// rather than drawing forty lines nobody can count.
+function niceStep(range,base){
+  for(const k of [1,2,4,5,10,20,50,100]){const s=base*k;if(range/s<=8)return s}
+  return base*200}
+function fmtTick(v,step){return v.toFixed(step<0.5?2:step<1?1:0)}
+
 function drawHourly(loc,mo){
   const c=$('hourly'),dpr=devicePixelRatio||1,W=c.clientWidth,Hh=c.clientHeight;
   c.width=W*dpr;c.height=Hh*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
@@ -194,11 +204,44 @@ function drawHourly(loc,mo){
   if(metric==='precip'){lo=0;hi=Math.max(hi,1)}
   if(hi-lo<2){const c0=(hi+lo)/2;lo=c0-1;hi=c0+1}
   const pad=(hi-lo)*.18;lo-=metric==='precip'?0:pad;hi+=pad;
+  // Snap the range outward to whole steps, so every gridline is a round number
+  // and the top/bottom of the band sit against readable values.
+  const base={temp:0.5,wind:1,precip:0.1,pressure:1}[metric]||1;
+  const step=niceStep(hi-lo,base);
+  lo=Math.floor(lo/step)*step;hi=Math.ceil(hi/step)*step;
+  if(hi-lo<step){hi=lo+step}
   const top=26,bot=44,ph=Hh-top-bot;
-  const X=i=>i/(n-1)*(W-16)+8, Y=v=>top+ph-(v-lo)/(hi-lo)*ph;
+  // Left gutter for the scale. The plot used to run edge to edge; it now starts
+  // after the labels so they never sit on top of the data.
+  const GUT=40,PW=Math.max(10,W-GUT-10);
+  const X=i=>GUT+i/(n-1)*PW, Y=v=>top+ph-(v-lo)/(hi-lo)*ph;
+  const cw=PW/(n-1);
   x.fillStyle=css('--rule');
   for(let i=0;i<n;i++)if(!isDay(t[i],sm)){x.globalAlpha=.28;
-    x.fillRect(X(i)-(W-16)/(n-1)/2,top,(W-16)/(n-1),ph);x.globalAlpha=1}
+    x.fillRect(X(i)-cw/2,top,cw,ph);x.globalAlpha=1}
+  // Horizontal rules + left scale. Drawn BEFORE the series so the data always
+  // sits on top of them, and kept faint so they read as a background grid.
+  // Two tick densities. MINOR lines carry the resolution you actually read the
+  // band against — half a degree for temperature — while LABELS sit on the
+  // coarser major step so the gutter stays legible. Labelling every 0.5 line
+  // over an 8 degree range would be seventeen numbers stacked on top of each
+  // other; drawing only the labelled ones would lose the resolution that is
+  // the whole point.
+  const minor=(hi-lo)/base<=26?base:step/2;
+  x.strokeStyle=css('--rule');x.lineWidth=1;
+  for(let v=lo;v<=hi+minor*1e-6;v+=minor){
+    if(Math.abs(v/step-Math.round(v/step))<1e-6)continue;   // major drawn below
+    const yy=Math.round(Y(v))+.5;
+    x.globalAlpha=.18;x.beginPath();x.moveTo(GUT,yy);x.lineTo(GUT+PW,yy);x.stroke();
+  }
+  x.fillStyle=css('--dim');x.font='9.5px ui-monospace,monospace';
+  x.textAlign='right';x.textBaseline='middle';
+  for(let v=lo;v<=hi+step*1e-6;v+=step){
+    const yy=Math.round(Y(v))+.5;                 // crisp 1px line, not a blur
+    x.globalAlpha=.45;x.beginPath();x.moveTo(GUT,yy);x.lineTo(GUT+PW,yy);x.stroke();
+    x.globalAlpha=.9;x.fillText(fmtTick(v,step),GUT-6,yy);
+  }
+  x.globalAlpha=1;x.textBaseline='alphabetic';   // restore for the value labels
   const col=css(m.cvar);
   if(m.kind==='bar'){x.fillStyle=col;
     for(let i=0;i<n;i++){const v=vals[i];if(v==null)continue;
