@@ -356,7 +356,11 @@ export function useEncVectorLayer(
                     `[apply] merge done: ${
                         data
                             ? `${data.cellCount} cells, depare=${data.DEPARE.features.length}, glaze=${data.DEPARE_GLAZE.features.length}, cancelled=${cancelled}`
-                            : 'NULL (no cells in window/floor)'
+                            : // null means EITHER no cells in the window OR the merge
+                              // was superseded by a newer one — and while panning it
+                              // is nearly always the latter. Saying "no cells" for
+                              // both actively misleads anyone reading a pan log.
+                              'NULL (no cells in window, or superseded)'
                     }`,
                 );
                 if (cancelled || !data) return;
