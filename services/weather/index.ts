@@ -7,6 +7,7 @@ import { fetchUnifiedWeather } from './api/unified';
 import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
+import { crumb } from '../../utils/flightRecorder';
 import { withDeadline } from '../../utils/deadline';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -590,7 +591,9 @@ const _fetchWeatherByStrategyImpl = async (
     // the model values untouched. Time-boxed so it can't stall the load — on a
     // cache miss the Overpass fetch still populates the cache for next time.
     try {
+        crumb('shelter:start');
         const shelter = await withDeadline(assessShelter(lat, lon), 4_500, 'shelter-assess');
+        crumb('shelter:done');
         if (shelter?.enclosed) {
             const adjusted = dampReportWaves(report, shelter);
             if (adjusted) log.info(`shelter: capped waves (fetch ${report.shelterFetchKm} km) for ${name}`);

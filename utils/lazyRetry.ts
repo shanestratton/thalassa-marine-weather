@@ -8,6 +8,7 @@
  * Uses a per-module sessionStorage key to prevent infinite reload loops.
  */
 import React from 'react';
+import { crumb } from './flightRecorder';
 
 /**
  * Global reload throttle. The per-module keys alone allowed a reload
@@ -37,6 +38,10 @@ export function lazyRetry<T extends React.ComponentType<any>>(
             if (!sessionStorage.getItem(key) && cooledDown) {
                 sessionStorage.setItem(key, '1');
                 sessionStorage.setItem(GLOBAL_COOLDOWN_KEY, String(Date.now()));
+                // This reload was previously silent — it lands the punter back
+                // on the default page looking exactly like a crash. Leave a
+                // trace so the two are never confused again.
+                crumb('lazyRetry:reload', moduleName ?? 'default');
                 window.location.reload();
                 // Return a never-resolving promise to stop React rendering during reload
                 return new Promise<{ default: T }>(() => {});

@@ -1,5 +1,6 @@
 // Sentry must be imported FIRST — before any other app code
 import { captureException } from './services/sentry';
+import { crumb, startFlightRecorder } from './utils/flightRecorder';
 
 // JS BUILD-MARKER — landed via Preferences so it appears in Xcode
 // console (console.warn from WKWebView is invisible to Xcode's
@@ -372,6 +373,24 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
         return this.props.children;
     }
 }
+
+// Black box for crashes that only happen on the boat. Must run before
+// anything heavy so it can classify how the PREVIOUS run ended and report it
+// where Xcode can see it. log.warn, not info — info is a no-op in prod.
+const flight = startFlightRecorder();
+if (flight.verdict !== 'clean-start') {
+    const trail = flight.trail.map((c) => `${c.tag}${c.info ? `(${c.info})` : ''}@${c.t}`).join(' → ');
+    // Via Preferences, NOT console — see the BOOT DIAGNOSTIC note above:
+    // console output from WKWebView never reaches Xcode's native console,
+    // but a Preferences.set surfaces as '⚡️  TO JS {"value":"..."}'. A report
+    // nobody can read is not an instrument.
+    Preferences.set({
+        key: 'FLIGHT_VERDICT',
+        value: `[FLIGHT] ${flight.verdict.toUpperCase()} — ${flight.summary}`,
+    }).catch(() => {});
+    Preferences.set({ key: 'FLIGHT_TRAIL', value: `[FLIGHT-TRAIL] ${trail}` }).catch(() => {});
+}
+crumb('boot');
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

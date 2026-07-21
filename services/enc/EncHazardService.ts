@@ -63,6 +63,7 @@ import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults, grazeOutranks } from './hazardSeverity';
 import { ENC_HAZARD_DEPTH_M } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
+import { crumb } from '../../utils/flightRecorder';
 
 const log = createLogger('EncHazardService');
 
@@ -1060,6 +1061,15 @@ async function buildMergedVectorData(
 
     const merged = createEmptyMergedVectorData();
 
+    // Sampled at the START, because a wide merge takes seconds and the queue
+    // decision at the bottom of this function happens after every await. The
+    // picker sets hydrationPaused=false the instant a location is COMMITTED,
+    // so a merge begun over an un-synced coast while paused would otherwise
+    // land just after the commit and file its 15-40 cell walk anyway — the
+    // download storm arriving exactly as the Glass mounts. Both this and the
+    // live flag must allow it (see the queue site below).
+    const hydrationAllowedAtStart = !hydrationPaused;
+
     // Scale-shadow de-confliction (the Tangalooma tan wall): an overview cell's
     // crude island/land polygons bulge over water a finer cell charts correctly.
     // Coarse-cell area geometry fully inside a much-finer cell's bbox is dropped
@@ -1161,9 +1171,15 @@ async function buildMergedVectorData(
     // GLAZE only rides along when GLAZE_WORKER_ENABLED queued cells above.
     dispatchGeometryWork(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys, glazeCoverageLib);
 
-    if (missingBlobs.length > 0 && !hydrationPaused) {
+    // BOTH gates: unpaused when this merge STARTED and still unpaused now. A
+    // wide merge takes seconds, and the picker unpauses the instant a location
+    // is committed — without the start gate, a merge begun over an un-synced
+    // coast lands just after the commit and files its 15-40 cell walk anyway,
+    // so the download storm arrives exactly as the Glass mounts.
+    if (missingBlobs.length > 0 && hydrationAllowedAtStart && !hydrationPaused) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);
-        void hydrateMissingCells(missingBlobs);
+        crumb('enc:walk-start', `${missingBlobs.length}cells`);
+        void hydrateMissingCells(missingBlobs).then(() => crumb('enc:walk-done'));
     } else if (missingBlobs.length > 0) {
         log.warn(
             `merge painted ${merged.cellCount} local cells; ${missingBlobs.length} missing — hydration paused (picker)`,
