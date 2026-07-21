@@ -146,6 +146,8 @@ vi.mock('../../services/enc/EncCellStore', () => ({
     parseAndCacheCellText: (_id: string, text: string) => JSON.parse(text),
     saveCellGeoJSON: async () => undefined,
     deleteCellGeoJSON: async () => undefined,
+    // The [perf] merge line reports cache occupancy; the fixture has no cache.
+    blobCacheStats: () => ({ entries: 0, textMB: 0 }),
 }));
 
 import { getMergedVectorData, type EncMergedVectorData } from '../../services/enc/EncHazardService';
