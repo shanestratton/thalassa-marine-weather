@@ -97,6 +97,15 @@ background:var(--panel)}
 .tide .th{font-size:12px;color:var(--dim)}
 .tide.hw .th b{color:var(--ok)}.tide.lw .th b{color:var(--rain)}
 .note{color:var(--dim);font-size:11px;line-height:1.6;margin-top:9px}
+/* Chart key. The shading and the dashed line were unexplained marks — a reader
+   had to guess that grey meant night and that the dotted trace was gusts. */
+.hkey{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:6px}
+.hkey i{display:inline-block;vertical-align:middle;margin-right:5px}
+.hkey .sw-night{width:13px;height:11px;background:var(--rule);opacity:.55;border-radius:2px}
+.hkey .sw-band{width:13px;height:11px;border-radius:2px}
+.hkey .sw-dash{width:16px;height:0;border-top:1.6px dashed;opacity:.9}
+.hkey .sw-line{width:16px;height:0;border-top:2px solid}
+.hkey .sw-bar{width:4px;height:11px;border-radius:1px}
 .row{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
 .pill{padding:4px 12px;border:1px solid currentColor;font-size:11px;
 text-transform:uppercase;letter-spacing:.06em}
@@ -120,6 +129,7 @@ footer a{color:var(--ok)}
 <div class="picker"><select id="mdl" class="loc"></select>
 <span class="sub" id="cadence" style="align-self:center"></span></div>
 <div class="panel"><h3 id="hTitle">Hourly</h3><canvas id="hourly"></canvas>
+<div class="note hkey" id="hkey"></div>
 <div class="row" id="agree" style="margin:8px 0 0"></div>
 <div class="chips" id="chips"></div><div class="note" id="wts"></div></div>
 <div class="tiles" id="curTiles"></div>
@@ -267,6 +277,31 @@ function drawHourly(loc,mo){
     (hr.cloud_cover||[])[i],(hr.precipitation||[])[i]),X(i),Hh-30);
   x.fillStyle=css('--dim');x.font='9.5px ui-monospace';
   for(let i=0;i<n;i+=4)x.fillText(hh(t[i]),X(i),Hh-12);
+
+  // KEY. Every mark above was otherwise unexplained: a reader had to infer that
+  // the shaded columns meant night and that the dashed trace meant gusts.
+  // Built from what was ACTUALLY drawn on this pass, so it can never advertise
+  // a mark that is not on the chart — the night blocks only appear when the
+  // window contains darkness, and gusts only exist on the wind metric.
+  // NOTE: string concatenation, not template literals. This whole page is a
+  // server-side template literal, so a backtick here closes it early — the
+  // reason no client code in this file uses them.
+  const K=[];
+  if(t.slice(0,n).some(tt=>!isDay(tt,sm)))
+    K.push('<span><i class="sw-night"></i>shaded = night</span>');
+  if(m.kind==='bar')
+    K.push('<span><i class="sw-bar" style="background:'+col+'"></i>bar = '
+      +m.title.split(' ').pop()+'</span>');
+  else{
+    if(bmin&&bmax)
+      K.push('<span><i class="sw-band" style="background:'+col+'2b;border:1px solid '
+        +col+'55"></i>band = model spread</span>');
+    K.push('<span><i class="sw-line" style="border-top-color:'+col
+      +'"></i>line = forecast</span>');
+    if(v2)K.push('<span><i class="sw-dash" style="border-top-color:'+col
+      +'"></i>dotted = gusts</span>');
+  }
+  const kel=$('hkey');if(kel)kel.innerHTML=K.join('');
 }
 
 function renderForecast(){
