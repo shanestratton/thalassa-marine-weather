@@ -361,21 +361,66 @@ function renderMonitor(){
     tile('Disk wx',c.disk_weather&&c.disk_weather.used_gb,'/'+(c.disk_weather&&c.disk_weather.total_gb)+'G')+
     tile('Uptime',c.uptime_h,'h')+
     Object.entries(c.net||{}).map(([i,n])=>tile(i+' ↓↑',n.rx_kbs+'/'+n.tx_kbs,'kB/s')).join('');
-  const specs=[['CPU %','cpu'],['CPU pkg W','w'],['CPU °C','tc'],['Net ↓ kB/s','rx']];
-  $('charts').innerHTML=specs.map(([t],i)=>
-    '<div class="chart"><h3>'+t+' · 24h</h3><canvas class="spark" id="sp'+i+'"></canvas></div>').join('');
-  specs.forEach(([,k],i)=>{const cv=$('sp'+i);const dpr=devicePixelRatio||1;
+  // Net traffic spans ~400,000x (idle 0.3 kB/s vs an 82 MB/s om-sync burst),
+  // so on a linear axis ~87% of samples sit in the bottom pixel row and the
+  // chart says nothing except "syncs happened". Net is drawn on a LOG axis
+  // with decade gridlines; CPU/power/temp keep linear, where it reads better.
+  const specs=[{t:'CPU %',k:'cpu'},{t:'CPU pkg W',k:'w'},{t:'CPU °C',k:'tc'},
+               {t:'Net ↓ kB/s',k:'rx',log:true,vol:true},
+               {t:'Net ↑ kB/s',k:'tx',log:true,vol:true}];
+  const fmtB=function(kb){return kb>=1048576?(kb/1048576).toFixed(1)+' GB':
+    kb>=1024?(kb/1024).toFixed(1)+' MB':kb.toFixed(0)+' kB'};
+  // Sub-heading carries what the shape cannot: total moved, typical idle rate,
+  // and the peak with the time it happened — the spike is only interesting if
+  // you can line it up against the timer table below.
+  const sub=specs.map(function(s){
+    const v=H.map(function(p){return p[s.k]}).filter(function(z){return z!=null});
+    if(!v.length)return '';
+    const sorted=v.slice().sort(function(a,b){return a-b});
+    const med=sorted[Math.floor(sorted.length/2)];
+    let pk=-1,pi=0;H.forEach(function(p,j){if(p[s.k]!=null&&p[s.k]>pk){pk=p[s.k];pi=j}});
+    const pt=H[pi]&&H[pi].t?new Date(H[pi].t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+    // Samples are 2 min apart, so kB/s * 120 = kB moved in that interval.
+    const tot=v.reduce(function(a,b){return a+b},0)*120;
+    return (s.vol?fmtB(tot)+' total · ':'')+'median '+med.toFixed(1)+
+           ' · peak '+pk.toFixed(0)+(pt?' at '+pt:'')});
+  $('charts').innerHTML=specs.map(function(s,i){
+    return '<div class="chart"><h3>'+s.t+' · 24h</h3>'+
+      '<div style="font-size:10px;color:var(--dim);margin:-2px 0 3px">'+(sub[i]||'')+'</div>'+
+      '<canvas class="spark" id="sp'+i+'"></canvas></div>'}).join('');
+  specs.forEach(function(s,i){const cv=$('sp'+i);if(!cv)return;const dpr=devicePixelRatio||1;
     const w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
     const x=cv.getContext('2d');x.scale(dpr,dpr);
-    const pts=H.map(p=>p[k]),vals=pts.filter(v=>v!=null);if(vals.length<2)return;
-    let lo=Math.min(...vals),hi=Math.max(...vals);if(hi-lo<1e-9){lo-=.5;hi+=.5}
+    const pts=H.map(function(p){return p[s.k]}),vals=pts.filter(function(v){return v!=null});
+    if(vals.length<2)return;
+    // Log axis floors at 0.1 kB/s: log10(0) is -Infinity, and a genuinely idle
+    // interface reports 0, which would otherwise blank the whole line.
+    const FL=0.1;
+    const tr=function(v){return s.log?Math.log10(Math.max(v,FL)):v};
+    let lo=Math.min.apply(null,vals.map(tr)),hi=Math.max.apply(null,vals.map(tr));
+    if(s.log){lo=Math.floor(lo);hi=Math.ceil(hi)}
+    if(hi-lo<1e-9){lo-=.5;hi+=.5}
+    const dim=getComputedStyle(document.body).getPropertyValue('--dim').trim();
+    const py=function(v){return h-4-(tr(v)-lo)/(hi-lo)*(h-8)};
+    if(s.log){x.strokeStyle=dim;x.globalAlpha=.22;x.lineWidth=1;
+      for(let d=lo;d<=hi;d++){const yy=h-4-(d-lo)/(hi-lo)*(h-8);
+        x.beginPath();x.moveTo(0,yy);x.lineTo(w,yy);x.stroke()}
+      x.globalAlpha=1;x.fillStyle=dim;x.font='8px ui-monospace';
+      // A 58px canvas spanning 7 decades cannot carry a label per gridline —
+      // they collide and become unreadable, which is the problem this chart
+      // was meant to solve. Label every Nth decade so they stay ~11px apart.
+      const per=(h-8)/(hi-lo),step=Math.max(1,Math.ceil(11/per));
+      for(let d=lo;d<=hi;d+=step){const yy=h-4-(d-lo)/(hi-lo)*(h-8);
+        const p10=Math.pow(10,d);
+        const lbl=p10>=1000?(p10/1000)+'k':(p10>=1?String(p10):p10.toFixed(1));
+        x.fillText(lbl,2,Math.max(7,Math.min(h-1,yy-1)))}}
     x.strokeStyle=getComputedStyle(document.body).getPropertyValue('--ok').trim();
     x.lineWidth=1.3;x.beginPath();let st=false;
-    pts.forEach((v,j)=>{if(v==null){st=false;return}
-      const px=j/(pts.length-1)*w,py=h-4-(v-lo)/(hi-lo)*(h-8);
-      st?x.lineTo(px,py):x.moveTo(px,py);st=true});x.stroke();
-    x.fillStyle=getComputedStyle(document.body).getPropertyValue('--dim');
-    x.font='9px ui-monospace';x.fillText(hi.toFixed(1),2,9);x.fillText(lo.toFixed(1),2,h-2)});
+    pts.forEach(function(v,j){if(v==null){st=false;return}
+      const px=j/(pts.length-1)*w;
+      st?x.lineTo(px,py(v)):x.moveTo(px,py(v));st=true});x.stroke();
+    if(!s.log){x.fillStyle=dim;x.font='9px ui-monospace';
+      x.fillText(hi.toFixed(1),2,9);x.fillText(lo.toFixed(1),2,h-2)}});
   $('timers').innerHTML='<tr><th>timer</th><th>last</th><th>result</th></tr>'+
     Object.entries(c.timers||{}).map(([u,t])=>{
       const bad=t.result&&t.result!=='success'&&u!=='residual-gate';
