@@ -874,6 +874,10 @@ async function loadCellBlobsAndExtents(
     depareExtent: Map<string, [number, number, number, number]>,
     missingBlobs: string[],
     yieldIfNeeded: () => Promise<void>,
+    /** Throws MergeSupersededError if a newer merge has claimed the slot.
+     *  Unlike yieldIfNeeded this is NOT time-gated — it is an integer compare,
+     *  so it can be called every iteration and aborts promptly. */
+    throwIfSuperseded: () => void = () => {},
 ): Promise<void> {
     // READ-AHEAD PIPELINE (z10-boot audit #11): the Capacitor bridge read is
     // true async IO, so up to 3 cell reads run ahead of the SERIAL parse +
@@ -894,6 +898,17 @@ async function loadCellBlobsAndExtents(
     };
     pump();
     for (const cell of cellsCoarseToFine) {
+        // Bail BEFORE paying for this cell. Panning supersedes merges
+        // constantly (device log 2026-07-22: ~45 aborts to ~7 completions).
+        // The load phase's only previous check was the yieldIfNeeded() below,
+        // which sits INSIDE the per-cell try whose catch swallowed everything
+        // — so no abort could escape the load loop at all, and every doomed
+        // merge read and parsed its ENTIRE cell list before dying in the
+        // compute phase. This is CPU and transient-allocation churn (the
+        // parse itself is off-thread in encParseWorker; the main thread pays
+        // the bridge read and the structured clone), not a retained-memory
+        // leak — both caches downstream are bounded.
+        throwIfSuperseded();
         try {
             const raw0 = await (reads.get(cell.id) ?? cellStore.readCellRaw(cell.id));
             reads.delete(cell.id);
@@ -959,6 +974,12 @@ async function loadCellBlobsAndExtents(
                 ]);
             }
         } catch (err) {
+            // A supersede is not a load failure — let it out. yieldIfNeeded()
+            // below throws MergeSupersededError from INSIDE this try, so
+            // without this rethrow every abandoned merge would file a bogus
+            // "failed to load cell" warning into the device log that is
+            // currently the only reliable window into this bug.
+            if (err instanceof MergeSupersededError) throw err;
             log.warn(`getMergedVectorData: failed to load cell ${cell.id}`, err);
         }
     }
@@ -1044,8 +1065,18 @@ async function buildMergedVectorData(
     // bails at its next slice boundary (getMergedVectorData converts the
     // throw to the callers' established null-means-cancelled contract).
     const myWindowGen = zoom != null ? ++windowedMergeGen : null;
+    /** Cheap, un-gated supersede check — an integer compare, safe to call in
+     *  a tight loop. yieldIfNeeded only reaches its own check once a slice has
+     *  run 12 ms, which is far too late when the expensive step is a single
+     *  multi-MB parse. */
+    const throwIfSuperseded = (): void => {
+        if (myWindowGen != null && myWindowGen !== windowedMergeGen) throw new MergeSupersededError();
+    };
     let sliceStart = performance.now();
     const yieldIfNeeded = async (): Promise<void> => {
+        // Un-gated first: a stale merge should die at the next call site, not
+        // wait for a 12 ms slice to elapse.
+        throwIfSuperseded();
         if (performance.now() - sliceStart < 12) return;
         // macroYield (MessageChannel) dodges iOS's 1–4 ms setTimeout clamp;
         // the 80 ms gesture-park naps below stay real timers on purpose.
@@ -1100,7 +1131,14 @@ async function buildMergedVectorData(
     // Perf split (z10-boot audit #2): read+parse vs merge compute, measured —
     // the one warn line at the tail turns boot-speed guesses into numbers.
     const perfT0 = performance.now();
-    await loadCellBlobsAndExtents(cellsCoarseToFine, loadedBlobs, depareExtent, missingBlobs, yieldIfNeeded);
+    await loadCellBlobsAndExtents(
+        cellsCoarseToFine,
+        loadedBlobs,
+        depareExtent,
+        missingBlobs,
+        yieldIfNeeded,
+        throwIfSuperseded,
+    );
     const perfLoadMs = performance.now() - perfT0;
 
     // ring-assembly: the per-merge clip-geometry memoisers (charted-shallow
