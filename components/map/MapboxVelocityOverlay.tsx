@@ -81,6 +81,30 @@ interface MapboxVelocityOverlayProps {
 // pink → magenta → violet. Band table + bucket maths live in ./windRamp so the
 // legend shares one definition instead of a hand-mirrored copy.
 
+/**
+ * Particle stroke width, in px. THE DIAL — change this one number if the wind
+ * field wants more or less presence.
+ *
+ * Keep it thin, and know why. This canvas is a DOM overlay at z-index 400
+ * spanning the whole map (see the container style below), so it draws over
+ * LAND as well as water — and it sits above the Mapbox canvas that renders
+ * place names. The library also composites additively ('lighter'), so trails
+ * accumulate toward white where they cross.
+ *
+ * The option key is `particlelineWidth` — lowercase 'l' in "line":
+ *   leaflet-velocity.js → `this.particleLineWidth = t.particlelineWidth || 1`
+ * The code passed `lineWidth: 3.5` for months, which matched nothing, so it
+ * silently rendered at the library default of 1. Correcting the key to the
+ * literal 3.5 tripled the stroke and swamped every land label (Shane
+ * 2026-07-21: "i have lost all of my names from the land area").
+ *
+ * So 1 is not a fallback here, it is the CHOSEN value: it is what the chart
+ * looked like in the screenshot Shane asked to have restored, and it lets the
+ * place names read through. The vivid speed ramp is what makes the wind stand
+ * out now; the stroke does not have to.
+ */
+const PARTICLE_LINE_WIDTH = 1;
+
 // ── Helper: Create velocity layer ─────────────────────────────
 
 function createVelocityLayer(data: GribRecord[]): L.Layer {
@@ -92,12 +116,7 @@ function createVelocityLayer(data: GribRecord[]): L.Layer {
         particleAge: 60,
         particleMultiplier: 1 / 150,
         frameRate: 15,
-        // The library option is `particlelineWidth` — lowercase 'l' in "line":
-        //   leaflet-velocity.js → `this.particleLineWidth = t.particlelineWidth || 1`
-        // The old `lineWidth: 3.5` matched nothing, so every particle has been
-        // drawing as a 1px hairline. The `L as unknown as Record<...>` cast
-        // below erases option typing, which is why the compiler never said so.
-        particlelineWidth: 3.5,
+        particlelineWidth: PARTICLE_LINE_WIDTH,
         colorScale: WIND_COLORS,
     });
 }
