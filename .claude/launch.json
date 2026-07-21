@@ -18,6 +18,12 @@
             "runtimeExecutable": "npm",
             "runtimeArgs": ["run", "preview"],
             "port": 4173
+        },
+        {
+            "name": "shorepower",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["--prefix", "/Users/shanestratton/Projects/shorepower", "run", "dev"],
+            "port": 4100
         }
     ]
 }
