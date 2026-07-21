@@ -32,12 +32,7 @@ import { SystemStatusButton } from './components/SystemStatusButton';
 import { canAccess } from './services/SubscriptionService';
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
-import {
-    hasBeenDisplaced,
-    holdsClaim,
-    readRememberedHeld,
-    rememberHeld,
-} from './services/skipperDevice';
+import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { checkDisclaimerAccepted } from './modules/LegalGuard';
@@ -654,7 +649,7 @@ const App: React.FC = () => {
                                             type="text"
                                             value={query}
                                             readOnly
-                                            placeholder="Select via Map..."
+                                            placeholder="Saved locations ★"
                                             aria-label="Current location"
                                             // Offline styling kept at the same contrast as online —
                                             // a deliberate but subtle ring change instead of the
@@ -663,11 +658,6 @@ const App: React.FC = () => {
                                             // the amber wifi-off chip on the left, so the bar
                                             // itself doesn't need to shout.
                                             className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
-                                            onClick={() => {
-                                                mapFromWxRef.current = true;
-                                                setMapPickerActive(true);
-                                                setPage('map');
-                                            }}
                                         />
                                         {/* Left adornment: swap between the usual search icon
                                             and a wifi-off glyph when offline. Keeps the layout
@@ -702,21 +692,14 @@ const App: React.FC = () => {
                                                 <SearchIcon className="w-4 h-4" />
                                             </div>
                                         )}
+                                        {/* Map picker REMOVED from the location box (Shane
+                                            2026-07-21). Locations are saved from the chart's
+                                            inspect popup and recalled from the ★ menu — the box
+                                            itself is now a read-only display of where you are.
+                                            The whole box used to open the picker too, not just
+                                            the icon, so both went. */}
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                             <LocationStarMenu />
-                                            <div className="w-px h-4 bg-white/20 mx-1"></div>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    mapFromWxRef.current = true;
-                                                    setMapPickerActive(true);
-                                                    setPage('map');
-                                                }}
-                                                className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
-                                                aria-label="Open map"
-                                            >
-                                                <MapIcon className="w-4 h-4" />
-                                            </button>
                                         </div>
                                     </form>
                                 </div>
