@@ -10,7 +10,7 @@
  * coordinates and "came back to Newport".
  */
 import { describe, expect, it } from 'vitest';
-import { locationPersistPatch } from '../context/WeatherContext';
+import { isShowingAnotherPlace, locationPersistPatch } from '../context/WeatherContext';
 
 const NEWPORT = { lat: -27.06, lon: 153.1 };
 const AIRLIE = { lat: -20.267, lon: 148.718 };
@@ -62,5 +62,34 @@ describe('locationPersistPatch', () => {
             defaultLocation: 'Airlie Beach, QLD',
             defaultLocationCoords: AIRLIE,
         });
+    });
+});
+
+/**
+ * The Glass header reads `weatherData.locationName`, NOT the name the punter
+ * just tapped — so while a fetch is in flight the previous location's report
+ * keeps the header. That read as 4-5 seconds of nothing happening, and had
+ * people pressing buttons again (Shane 2026-07-22). Sources return in
+ * 0.4-2.7s, so this was never the network.
+ */
+describe('isShowingAnotherPlace', () => {
+    it('is false on a cold start — nothing on screen to contradict', () => {
+        expect(isShowingAnotherPlace(undefined, 'Airlie Beach, QLD')).toBe(false);
+        expect(isShowingAnotherPlace(null, 'Airlie Beach, QLD')).toBe(false);
+        expect(isShowingAnotherPlace('', 'Airlie Beach, QLD')).toBe(false);
+    });
+
+    it('is TRUE when the report on screen belongs elsewhere — swap immediately', () => {
+        expect(isShowingAnotherPlace('Newport, QLD', 'Airlie Beach, QLD')).toBe(true);
+    });
+
+    it('is false for a refresh of the SAME place — no needless blank', () => {
+        expect(isShowingAnotherPlace('Newport, QLD', 'Newport, QLD')).toBe(false);
+    });
+
+    it('ignores case and padding — one place, three spellings across the app', () => {
+        // A favourite, a geocode and a cache key can disagree on casing.
+        expect(isShowingAnotherPlace('newport, qld', 'Newport, QLD')).toBe(false);
+        expect(isShowingAnotherPlace('  Newport, QLD  ', 'Newport, QLD')).toBe(false);
     });
 });
