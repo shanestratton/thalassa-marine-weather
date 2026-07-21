@@ -15,6 +15,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
+import { crumb } from '../utils/flightRecorder';
 // Sample/dummy location data removed 2026-05-17 — painting Sydney
 // weather for a Brisbane user (or Newport for a Boston user) is
 // actively misleading on a marine app, where mistaking demo
@@ -524,15 +525,38 @@ export const useAppController = () => {
             setQuery(locationQuery);
             setSheetOpen(false);
 
+            // Distance from the saved home port is the variable that separates
+            // a working pick from the crash — stamp it so one trail shows it.
+            const home = settings.defaultLocationCoords;
+            const nm = home
+                ? Math.round(
+                      3440.065 *
+                          Math.acos(
+                              Math.min(
+                                  1,
+                                  Math.sin((home.lat * Math.PI) / 180) * Math.sin((lat * Math.PI) / 180) +
+                                      Math.cos((home.lat * Math.PI) / 180) *
+                                          Math.cos((lat * Math.PI) / 180) *
+                                          Math.cos(((normalizedLon - home.lon) * Math.PI) / 180),
+                              ),
+                          ),
+                  )
+                : -1;
+            crumb('pick:commit', `${nm}nm`);
+
             // NAVIGATION FIRST (Optimistic UI)
             // Default to full dashboard — inland locations are auto-forced to essential by Dashboard
             updateSettings({ dashboardMode: 'full' });
             setPage('dashboard');
+            crumb('pick:nav-glass');
 
             // Fire-and-forget fetch
-            selectLocation(locationQuery, finalCoords).catch((e) => {
-                showToast('Location update failed, check network.');
-            });
+            selectLocation(locationQuery, finalCoords)
+                .then(() => crumb('pick:fetch-ok'))
+                .catch(() => {
+                    crumb('pick:fetch-fail');
+                    showToast('Location update failed, check network.');
+                });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [setQuery, selectLocation, setPage, showToast],
