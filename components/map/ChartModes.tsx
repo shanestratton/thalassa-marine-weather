@@ -83,8 +83,14 @@ export const MODE_SPECS: ModeSpec[] = [
         id: 'offshore',
         Icon: (props) => <CompassIcon {...props} rotation={0} />,
         label: 'Offshore',
-        summary: 'Wind, waves, currents, pressure',
-        sky: ['wind', 'waves', 'currents', 'pressure'],
+        // 'waves' dropped 2026-07-21: it is PARKED (mapConstants
+        // PARKED_SEA_LAYERS) and has no picker, so switching it on here left
+        // the user with a layer they could not switch off — exactly the
+        // stuck-on failure the 2026-07-18 parking existed to prevent. It only
+        // self-healed because restoreActiveLayers drops parked layers on
+        // relaunch. Never list a parked layer in a preset.
+        summary: 'Wind, currents, pressure',
+        sky: ['wind', 'currents', 'pressure'],
         tactical: { ais: true },
     },
     {
