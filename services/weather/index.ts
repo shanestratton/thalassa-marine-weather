@@ -8,7 +8,7 @@ import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
 import { crumb } from '../../utils/flightRecorder';
-import { withDeadline } from '../../utils/deadline';
+import { withTimeout } from '../../utils/deadline';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveForecastModel, isConcreteModel, isSpitfire } from './forecastModels';
@@ -175,36 +175,67 @@ const _fetchWeatherByStrategyImpl = async (
     // call also gives us distToLandKm, isLandlocked, and timezone data
     // for free. OpenMeteo is free + unlimited so the parallel cost is
     // just one extra network round-trip that overlaps the others.
+    // Each source is BOUNDED and TIMED. Promise.allSettled waits for the
+    // slowest member, and .catch() only handles a REJECTION, not a stall —
+    // so before this, one slow endpoint held the whole report hostage.
+    // AbortSignal is a no-op under CapacitorHttp (utils/deadline.ts), so the
+    // native floor is 600 s: a single stuck socket could hang the Glass
+    // indefinitely. Shane 2026-07-22: "selecting a saved location takes ages,
+    // like 20 seconds".
+    //
+    // A source that misses its deadline degrades to null and the report is
+    // built from whatever DID arrive — the same path an outright failure
+    // already took. The per-source timings say which one is slow instead of
+    // us guessing.
+    // Start the sheltered-water assessment NOW so it overlaps the source
+    // fetches instead of queueing behind them — it needs only lat/lon, and
+    // its Overpass call was adding up to 4.5 s of dead time to the critical
+    // path. Awaited (already-resolved, usually) at the damping step below.
+    // .catch here so an early rejection can't surface as an unhandled one
+    // while nothing is awaiting it yet.
+    const shelterPromise = assessShelter(lat, lon).catch(() => null);
+
+    const SOURCE_BUDGET_MS = 8_000;
+    const t0 = Date.now();
+    const timings: string[] = [];
+    const bounded = <T>(label: string, p: Promise<T>): Promise<T | null> => {
+        const started = Date.now();
+        return withTimeout<T | null>(
+            p.catch((e) => {
+                log.warn(`${label} failed:`, (e as Error)?.message || e);
+                return null;
+            }),
+            null,
+            SOURCE_BUDGET_MS,
+        ).then((v) => {
+            const ms = Date.now() - started;
+            timings.push(`${label}=${ms}${v === null ? '!' : ''}`);
+            return v;
+        });
+    };
+
     const [unifiedResult, sgResult, tideResult, omResult] = await Promise.allSettled([
         // 1. Unified get-weather: single endpoint, subscription-routed
-        fetchUnifiedWeather(lat, lon, name, userId).catch((e) => {
-            log.warn('Unified weather failed:', e?.message || e);
-            return null;
-        }),
+        bounded('unified', fetchUnifiedWeather(lat, lon, name, userId)),
 
         // 2. StormGlass: Marine data (waves, swell, water temp, currents)
         needsStormGlass
-            ? fetchStormGlassWeather(lat, lon, name, locationType).catch((e) => {
-                  log.warn('StormGlass failed:', e?.message || e);
-                  return null;
-              })
+            ? bounded('stormglass', fetchStormGlassWeather(lat, lon, name, locationType))
             : Promise.resolve(null),
 
         // 3. WorldTides: Direct tide fetch (24h cached — always fires)
-        fetchRealTides(lat, lon).catch((e) => {
-            log.warn('Tides failed:', e?.message || e);
-            return null;
-        }),
+        bounded('tides', fetchRealTides(lat, lon)),
 
         // 4. OpenMeteo: atmospheric + CAPE. Always fetched so offshore
         //    users get convective-energy readings even when Unified
         //    serves the primary data. Carries the Glass model selection —
         //    when a model is pinned this becomes the atmospheric base.
-        fetchOpenMeteo(lat, lon, name, false, glassModel).catch((e) => {
-            log.warn('OpenMeteo failed:', e?.message || e);
-            return null;
-        }),
+        bounded('openmeteo', fetchOpenMeteo(lat, lon, name, false, glassModel)),
     ]);
+
+    // warn, not info — info is silenced in prod, and this line is the whole
+    // point of the exercise. A trailing "!" marks a source that timed out.
+    log.warn(`[perf] wx sources ${Date.now() - t0}ms total: ${timings.join(' ')}`);
 
     const unifiedReport = unifiedResult.status === 'fulfilled' ? unifiedResult.value : null;
     const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
@@ -592,7 +623,13 @@ const _fetchWeatherByStrategyImpl = async (
     // cache miss the Overpass fetch still populates the cache for next time.
     try {
         crumb('shelter:start');
-        const shelter = await withDeadline(assessShelter(lat, lon), 4_500, 'shelter-assess');
+        // Awaiting a promise STARTED EARLIER (see shelterPromise, kicked off
+        // before the source fetches) — it has had the whole source window to
+        // run, so this is usually already resolved. It used to start here,
+        // adding its full 4.5 s budget to the critical path AFTER the
+        // fetches had finished. Nothing about the result changes; it just
+        // overlaps instead of queueing.
+        const shelter = await withTimeout(shelterPromise, null, 4_500);
         crumb('shelter:done');
         if (shelter?.enclosed) {
             const adjusted = dampReportWaves(report, shelter);
