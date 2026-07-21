@@ -23,6 +23,29 @@ const cache = new Map<string, EncMergedVectorData>();
 // that were about to be re-requested. 4 holds a realistic excursion;
 // entries are feature-collection references, not copies.
 const MAX_ENTRIES = 4;
+
+/**
+ * Cell ids each cached merge holds geometry for.
+ *
+ * "References, not copies" is exactly the problem: mergeFold pushes feature
+ * geometry BY REFERENCE, so a cached merge PINS its source cells' parsed
+ * GeoJSON. That retention is invisible to EncCellStore's byte budget, which
+ * only counts cells still in its own LRU.
+ *
+ * Device measurement (Shane, 2026-07-22, Moreton Bay): ONE 14-cell viewport
+ * merge pinned 43.8 MB of cell text — the blob LRU's whole 48 MB cap, at ~3×
+ * that once parsed. Four such merges over DISJOINT cell sets, which is
+ * precisely what a long pan up the coast produces, pin ~175 MB of text and
+ * roughly half a gigabyte of heap. That is the ceiling the WebView dies at.
+ *
+ * The count cap alone can't tell the two cases apart: a zoom excursion over
+ * the SAME water holds 4 keys that share nearly all their cells (pinning is
+ * shared, so it is almost free — the case MAX_ENTRIES=4 was raised for),
+ * while panning holds 4 keys with nothing in common. So evict on OVERLAP
+ * rather than on age: a merge that shares no cell with the newest one is
+ * geometry we have panned away from and will not come back to soon.
+ */
+const cellSets = new Map<string, ReadonlySet<string>>();
 const inflight = new Map<string, Promise<EncMergedVectorData | null>>();
 
 /** The cached merge for a key, or undefined. Returns the LIVE object — the
@@ -31,19 +54,68 @@ export function getMergedData(key: string): EncMergedVectorData | undefined {
     return cache.get(key);
 }
 
-/** Store a merge, evicting the oldest beyond the (small) MAX_ENTRIES. */
-export function putMergedData(key: string, merged: EncMergedVectorData): void {
+/**
+ * Which cached merges to keep once `key` lands. Pure so the eviction policy
+ * is testable without a map.
+ *
+ * Order: newest first. Entries sharing at least one cell with the newest are
+ * candidates to keep (a zoom excursion over the same water); entries sharing
+ * NOTHING are dropped outright, however recent — that is geometry we have
+ * panned away from, and it is what pins half a gigabyte on a long coastal
+ * pan. The MAX_ENTRIES cap still applies to whatever survives.
+ */
+export function planMergeEviction(
+    orderedKeys: readonly string[],
+    cellsOf: (key: string) => ReadonlySet<string> | undefined,
+    newestKey: string,
+    maxEntries = MAX_ENTRIES,
+): string[] {
+    const newest = cellsOf(newestKey);
+    const keep: string[] = [newestKey];
+    // Walk newest-to-oldest so the cap keeps the most recent overlappers.
+    for (let i = orderedKeys.length - 1; i >= 0; i--) {
+        const k = orderedKeys[i];
+        if (k === newestKey || keep.length >= maxEntries) continue;
+        const set = cellsOf(k);
+        // Unknown cell set on either side → we cannot tell a pan from a zoom
+        // excursion, so degrade to the previous age-based behaviour and keep
+        // it (subject to the cap). Callers that pass cellIds opt in to the
+        // tighter policy; a caller that doesn't is no worse off than before.
+        if (!set || !newest) {
+            keep.push(k);
+            continue;
+        }
+        let overlaps = false;
+        for (const id of set) {
+            if (newest.has(id)) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (overlaps) keep.push(k);
+    }
+    return orderedKeys.filter((k) => !keep.includes(k));
+}
+
+/**
+ * Store a merge. `cellIds` are the cells whose geometry this merge PINS —
+ * see the cellSets note above; without them eviction cannot tell a cheap
+ * zoom excursion from an expensive pan.
+ */
+export function putMergedData(key: string, merged: EncMergedVectorData, cellIds?: readonly string[]): void {
     cache.set(key, merged);
-    while (cache.size > MAX_ENTRIES) {
-        const oldest = cache.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        cache.delete(oldest);
+    if (cellIds) cellSets.set(key, new Set(cellIds));
+
+    for (const dead of planMergeEviction([...cache.keys()], (k) => cellSets.get(k), key)) {
+        cache.delete(dead);
+        cellSets.delete(dead);
     }
 }
 
 /** Drop every cached merge (registry version change / reset). */
 export function clearMergedData(): void {
     cache.clear();
+    cellSets.clear();
 }
 
 /** The in-flight build promise for a key, or undefined (single-flight). */

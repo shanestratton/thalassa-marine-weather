@@ -1201,7 +1201,14 @@ async function buildMergedVectorData(
     // heap — see mergeFold.applySoundingLod.
     await applySoundingLod(merged, zoom, yieldIfNeeded);
 
-    putMergedData(cacheKey, merged);
+    // Pass the cell set: this merge PINS these cells' geometry by reference,
+    // and eviction needs to know that to tell a zoom excursion (shares cells,
+    // nearly free) from a pan (shares nothing, pins a whole second viewport).
+    putMergedData(
+        cacheKey,
+        merged,
+        cells.map((c) => c.id),
+    );
 
     // Hand the heavy geometry (contours + optional glaze upgrade) to the
     // worker; answers swap into this cached merge via the geometry-upgrade
