@@ -6,14 +6,40 @@
  * when over water.
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import { mToFt } from '../../utils/units';
+
+/**
+ * Save affordance. The popup renders in its OWN React root (MapHub calls
+ * createRoot on a detached node), so it sits outside the app's context
+ * providers — it cannot reach useSettings itself. MapHub owns the
+ * settings write and hands the behaviour down.
+ */
+export interface InspectSaveProps {
+    /** Reverse-geocoded place name, or a coord string until one lands. */
+    suggestedName: string;
+    /** Name this exact point is already saved under, if it is. */
+    savedAs: string | null;
+    /** Persist under the (possibly user-edited) name. */
+    onSave: (name: string) => void;
+    /** Drop the saved entry. */
+    onUnsave: (name: string) => void;
+    /**
+     * Called when the user opens the name editor. Reverse geocoding is
+     * deferred to here rather than run on popup open: this popup appears
+     * on EVERY inspect tap, the name is only ever shown in the editor,
+     * and each lookup is a billed, on-device-unbounded request.
+     */
+    onRequestName?: () => void;
+}
 
 interface Props {
     data: PointWeatherData | null;
     loading: boolean;
     onClose: () => void;
+    /** Omitted where saving makes no sense (e.g. no settings owner). */
+    save?: InspectSaveProps;
 }
 
 // ── Direction helpers ──
@@ -81,9 +107,116 @@ const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
     </svg>
 );
 
+// ── Save row ──
+
+/**
+ * Save-this-spot footer. Collapsed it's one button; naming is behind an
+ * explicit tap so the iOS keyboard never ambushes a punter who only
+ * wanted to read the conditions (this popup opens on EVERY inspect tap).
+ */
+const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
+    const [editing, setEditing] = useState(false);
+    const [name, setName] = useState(save.suggestedName);
+    /** Has the punter typed? Once they have, nothing overwrites them. */
+    const [dirty, setDirty] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // Follow the suggested name until the user types. The geocode is
+    // kicked off when the editor opens, so it lands WHILE the field is
+    // showing the coord fallback — this is what upgrades it in place to
+    // "Airlie Beach, QLD, AU" without stomping anything they've typed.
+    useEffect(() => {
+        if (!dirty) setName(save.suggestedName);
+    }, [save.suggestedName, dirty]);
+
+    useEffect(() => {
+        if (!editing) return;
+        inputRef.current?.focus();
+        inputRef.current?.select();
+    }, [editing]);
+
+    const commit = () => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        save.onSave(trimmed);
+        setEditing(false);
+    };
+
+    if (save.savedAs) {
+        return (
+            <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-white/[0.06]">
+                <span className="text-emerald-400 text-xs shrink-0">✓</span>
+                <span className="flex-1 min-w-0 truncate text-[11px] text-white/60">
+                    Saved as <span className="text-white/90 font-semibold">{save.savedAs}</span>
+                </span>
+                <button
+                    type="button"
+                    onClick={() => save.onUnsave(save.savedAs!)}
+                    className="shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                    Remove
+                </button>
+            </div>
+        );
+    }
+
+    if (!editing) {
+        return (
+            <button
+                type="button"
+                onClick={() => {
+                    save.onRequestName?.();
+                    setEditing(true);
+                }}
+                className="w-full flex items-center justify-center gap-1.5 mt-2 pt-2 border-t border-white/[0.06] py-2 text-amber-300 hover:text-amber-200 transition-colors"
+            >
+                <span className="text-sm">★</span>
+                <span className="text-[12px] font-bold">Save this spot</span>
+            </button>
+        );
+    }
+
+    return (
+        <div className="mt-2 pt-2 border-t border-white/[0.06]">
+            <input
+                ref={inputRef}
+                value={name}
+                onChange={(e) => {
+                    setDirty(true);
+                    setName(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') commit();
+                    if (e.key === 'Escape') setEditing(false);
+                }}
+                aria-label="Location name"
+                placeholder="Name this spot"
+                className="w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[12px] text-white placeholder-white/30 outline-none focus:border-amber-400/50"
+            />
+            <div className="flex gap-1.5 mt-1.5">
+                <button
+                    type="button"
+                    onClick={commit}
+                    disabled={!name.trim()}
+                    className="flex-1 py-1.5 rounded-lg bg-amber-500/20 text-amber-200 text-[12px] font-bold hover:bg-amber-500/30 disabled:opacity-40 transition-colors"
+                >
+                    Save
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setEditing(false)}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white/40 hover:text-white/70 transition-colors"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
+    );
+};
+
 // ── Main component ──
 
-export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose }) => {
+export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose, save }) => {
     const hasMarine = data && data.waveHeightM != null && data.waveHeightM > 0;
 
     return (
@@ -276,6 +409,11 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose })
                         )}
                     </div>
                 )}
+
+                {/* Outside the data block on purpose: the spot is worth
+                    saving whether or not its weather loaded (offshore on a
+                    flaky link, the fetch is exactly what fails). */}
+                {save && <SaveRow save={save} />}
             </div>
             {/* Inline keyframes for fade-in animation */}
             <style>{`
