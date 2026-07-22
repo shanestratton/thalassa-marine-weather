@@ -4743,24 +4743,53 @@ export const MapHub: React.FC<MapHubProps> = ({
      * re-renders ~10x/second as the hour advances) it was rebuilding those
      * callbacks on every frame for no reason.
      */
-    const windOnGuards = useCallback(
-        (layer: string) => {
-            // Wind and lightning are mutually exclusive (see the boot-time
-            // resolver below) — enforced on BOTH edges, because a one-sided
-            // guard just means whichever you tap second wins.
-            setLightningVisible(false);
-            const m = mapRef.current;
-            if (m && m.getZoom() < WIND_DEFAULT_ZOOM) {
-                try {
-                    m.easeTo({ zoom: WIND_DEFAULT_ZOOM, duration: 600 });
-                } catch {
-                    /* map mid-teardown */
-                }
-            }
-            void layer;
-        },
-        [WIND_DEFAULT_ZOOM],
-    );
+    const windOnGuards = useCallback((layer: string) => {
+        // Wind and lightning are mutually exclusive (see the boot-time
+        // resolver below) — enforced on BOTH edges, because a one-sided
+        // guard just means whichever you tap second wins.
+        setLightningVisible(false);
+        void layer;
+    }, []);
+
+    /**
+     * Ease to WIND_DEFAULT_ZOOM on the OFF -> ON edge of the wind layer.
+     *
+     * This lived inside the tap handlers and behaved backwards (Shane
+     * 2026-07-22: "when i turn off the wind, it zooms to 7.5, but when i turn
+     * it on, it doesnt change"). Two reasons, and the effect fixes both:
+     *
+     *  1. helmSelectInGroup had NO on/off test — the radial menu drives wind
+     *     through selectInGroup, and selecting the already-active layer turns
+     *     it OFF, so every tap zoomed, including the one that killed the layer.
+     *  2. helmToggleLayer's test read activeLayers BEFORE its own toggle had
+     *     been applied, and the ease then raced the grid fetch that activation
+     *     kicks off.
+     *
+     * Reacting to the STATE TRANSITION instead of the tap removes both
+     * questions: by the time this runs the set is authoritative, and comparing
+     * against the previous value means it can only fire when wind actually
+     * came on. 'velocity' is the legacy alias for the same overlay, so both
+     * keys count — missing it would make the edge undetectable when the layer
+     * is stored under the older name.
+     */
+    const windWasOnRef = useRef(false);
+    useEffect(() => {
+        const windOn = weather.activeLayers.has('wind') || weather.activeLayers.has('velocity');
+        const wasOn = windWasOnRef.current;
+        windWasOnRef.current = windOn;
+        if (!windOn || wasOn) return; // only the off -> on edge
+        const m = mapRef.current;
+        if (!m) return;
+        try {
+            // A FLOOR, not a snap: already zoomed in stays put. Wind is
+            // sampled for the visible viewport, so below this the grid
+            // coarsens to whole degrees and the particles stop describing
+            // anything local.
+            if (m.getZoom() < WIND_DEFAULT_ZOOM) m.easeTo({ zoom: WIND_DEFAULT_ZOOM, duration: 600 });
+        } catch {
+            /* map mid-teardown */
+        }
+    }, [weather.activeLayers]);
 
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
