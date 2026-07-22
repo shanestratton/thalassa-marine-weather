@@ -228,22 +228,19 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         const lastAppliedRef = useRef(-1);
         const rafRef = useRef<number | null>(null);
         const lastTapRef = useRef(0); // For double-tap detection
-        // COLLAPSED BY DEFAULT (Shane 2026-07-22: opening the weather controls
-        // made the bottom "an absolute shit show ... everything is on top of
-        // each other ... we are losing the actual screen real estate").
+        // OPEN by default, and anchored MID-LEFT rather than in the bottom
+        // corner (Shane 2026-07-22: "the wind legend should stay open and be
+        // just above the chevron on the left hand side of the screen").
         //
-        // Expanded, this bar is ~160px tall and sits in the bottom-LEFT column
-        // anchored at 80px — so it reaches up to ~240px, which is exactly where
-        // MapHub parks the lightning/squall stack (MapHub.tsx, bottom 240px
-        // once any weather layer is active). The two were guaranteed to touch,
-        // and with the model selector occupying 132-222px centred, the whole
-        // corner became three panels fighting for the same 160px.
+        // It was briefly collapsed-by-default earlier the same day to stop it
+        // colliding with the lightning stack and the model chips — all three
+        // were fighting for the same 160px above the tab bar. Moving it out of
+        // that corner fixes the collision without hiding anything, which is
+        // the better answer: the colour ramp is what makes the overlay
+        // readable, so defaulting it shut was solving the wrong half.
         //
-        // Collapsed it is a 44px icon chip, so the column ends at ~124px and
-        // nothing collides. One tap brings the ramp back for the rare moment
-        // someone wants to read exact colours — which is not while they are
-        // scrubbing a forecast, and not on first open.
-        const [showLegend, setShowLegend] = useState(false);
+        // Tapping the layer icon still collapses it to a 44px chip in place.
+        const [showLegend, setShowLegend] = useState(true);
 
         const config = activeLayer ? LAYER_CONFIGS[activeLayer] : null;
         const maxFrame = Math.max(0, totalFrames - 1);
@@ -369,222 +366,233 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         if (!activeLayer || !config) return null;
 
         return (
-            <div
-                className="absolute z-[500] flex items-end gap-2"
-                style={{
-                    left: 12,
-                    bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
-                    maxWidth: '90vw',
-                }}
-            >
+            <>
                 {/* ═══ VERTICAL LEGEND BAR ═══ */}
-                {showLegend && (
-                    <div
-                        className="flex flex-col items-center gap-1 animate-in fade-in duration-200"
-                        style={{
-                            background: 'rgba(15, 23, 42, 0.75)',
-                            backdropFilter: 'blur(16px)',
-                            WebkitBackdropFilter: 'blur(16px)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            borderRadius: 14,
-                            padding: '8px 6px',
-                        }}
-                    >
-                        {/* High indicator */}
-                        <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
-                        <span className="text-[7px] font-bold text-white/40 uppercase">{config.highLabel}</span>
-
-                        {/* Color bar */}
+                {/* Own anchor, mid-left, sitting just above App.tsx's back
+                    chevron (top:50%, 40px tall, left ~12px) — so bottom is
+                    half the viewport plus the chevron's half-height plus a
+                    gap. Deliberately NOT in the bottom row with the scrubber:
+                    that corner already carries the model chips and the
+                    lightning stack. */}
+                <div className="absolute z-[500]" style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}>
+                    {showLegend && (
                         <div
-                            className="rounded-full"
+                            className="flex flex-col items-center gap-1 animate-in fade-in duration-200"
                             style={{
-                                width: 6,
-                                height: 64,
-                                background: config.gradient,
+                                background: 'rgba(15, 23, 42, 0.75)',
+                                backdropFilter: 'blur(16px)',
+                                WebkitBackdropFilter: 'blur(16px)',
+                                border: '1px solid rgba(255,255,255,0.08)',
+                                borderRadius: 14,
+                                padding: '8px 6px',
                             }}
-                        />
+                        >
+                            {/* High indicator */}
+                            <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
+                            <span className="text-[7px] font-bold text-white/40 uppercase">{config.highLabel}</span>
 
-                        {/* Low indicator */}
-                        <span className="text-[7px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
-                        <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
+                            {/* Color bar */}
+                            <div
+                                className="rounded-full"
+                                style={{
+                                    width: 6,
+                                    height: 64,
+                                    background: config.gradient,
+                                }}
+                            />
 
-                        {/* Layer icon */}
+                            {/* Low indicator */}
+                            <span className="text-[7px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
+                            <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
+
+                            {/* Layer icon */}
+                            <button
+                                onClick={() => setShowLegend(false)}
+                                className="mt-1 w-11 h-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+                                aria-label={`${config.label} layer`}
+                            >
+                                <span className="text-sm">{config.icon}</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Collapsed chip — same anchor, so hiding and showing the
+                        legend does not make it jump across the screen. */}
+                    {!showLegend && (
                         <button
-                            onClick={() => setShowLegend(false)}
-                            className="mt-1 w-11 h-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
-                            aria-label={`${config.label} layer`}
+                            onClick={() => setShowLegend(true)}
+                            className="w-11 h-11 flex items-center justify-center rounded-xl transition-colors"
+                            style={{
+                                background: 'rgba(15, 23, 42, 0.75)',
+                                backdropFilter: 'blur(16px)',
+                                WebkitBackdropFilter: 'blur(16px)',
+                                border: '1px solid rgba(255,255,255,0.08)',
+                            }}
+                            aria-label="Show legend"
                         >
                             <span className="text-sm">{config.icon}</span>
                         </button>
-                    </div>
-                )}
-
-                {/* ═══ MAIN CONTROL — SCRUBBER + TIME ═══ */}
-                <div
-                    style={{
-                        background: 'rgba(15, 23, 42, 0.80)',
-                        backdropFilter: 'blur(20px)',
-                        WebkitBackdropFilter: 'blur(20px)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 16,
-                        padding: hasScrubber ? '8px 12px' : '6px 12px',
-                        minWidth: hasScrubber ? 200 : 120,
-                        maxWidth: 280,
-                    }}
-                >
-                    {/* Loading state */}
-                    {isLoading && (
-                        <div className="flex items-center justify-center gap-2 py-1">
-                            <div
-                                className="w-3 h-3 border-2 rounded-full animate-spin"
-                                style={{
-                                    borderColor: `${accent}40`,
-                                    borderTopColor: accent,
-                                }}
-                            />
-                            <span className="text-[11px] font-bold" style={{ color: `${accent}cc` }}>
-                                Loading…
-                            </span>
-                        </div>
-                    )}
-
-                    {/* Scrubber row */}
-                    {hasScrubber && !isLoading && (
-                        <div className="flex items-center gap-2">
-                            {/* Play/Pause */}
-                            <button
-                                aria-label={isPlaying ? 'Pause' : 'Play'}
-                                onClick={() => {
-                                    onPlayToggle();
-                                    triggerHaptic('light');
-                                }}
-                                className="w-11 h-11 flex items-center justify-center rounded-lg shrink-0 active:scale-90 transition-transform"
-                                style={{
-                                    background: `${accent}20`,
-                                    border: `1px solid ${accent}30`,
-                                }}
-                            >
-                                <span className="text-xs">{isPlaying ? '⏸' : '▶️'}</span>
-                            </button>
-
-                            {/* Track */}
-                            <div
-                                ref={trackRef}
-                                className="flex-1 relative h-9 flex items-center cursor-pointer"
-                                style={{ touchAction: 'none' }}
-                                onPointerDown={handlePointerDown}
-                                onPointerMove={handlePointerMove}
-                                onPointerUp={handlePointerUp}
-                                onPointerCancel={handlePointerUp}
-                            >
-                                {/* Track background */}
-                                <div className="w-full h-1 bg-white/10 rounded-full relative overflow-hidden">
-                                    {/* Fill */}
-                                    <div
-                                        ref={fillRef}
-                                        className="absolute inset-y-0 left-0 rounded-full"
-                                        style={{
-                                            width: `${frameToPercent(frameIndex)}%`,
-                                            background:
-                                                dualColor && nowIndex !== undefined && frameIndex > nowIndex
-                                                    ? forecastAccent
-                                                    : `${accent}60`,
-                                            willChange: 'width',
-                                        }}
-                                    />
-                                </div>
-
-                                {/* NOW marker (diamond) */}
-                                {nowIndex !== undefined && nowIndex > 0 && nowIndex < maxFrame && (
-                                    <div
-                                        className="absolute top-1/2 pointer-events-none"
-                                        style={{
-                                            left: `${frameToPercent(nowIndex)}%`,
-                                            transform: 'translate(-50%, -50%)',
-                                        }}
-                                    >
-                                        <div className="w-2 h-2 bg-white rounded-sm rotate-45 shadow-sm border border-white/60" />
-                                    </div>
-                                )}
-
-                                {/* Thumb */}
-                                <div
-                                    ref={thumbRef}
-                                    className="absolute top-1/2 w-4 h-4 rounded-full shadow-lg border-2 border-white/40 pointer-events-none"
-                                    style={{
-                                        left: `${frameToPercent(frameIndex)}%`,
-                                        transform: 'translate(-50%, -50%) scale(1)',
-                                        background: accent,
-                                        boxShadow: `0 3px 10px ${accent}40`,
-                                        transition: isDraggingRef.current ? 'none' : 'transform 0.15s ease-out',
-                                        willChange: 'left, transform',
-                                    }}
-                                />
-
-                                {/* Loading progress */}
-                                {framesReady !== undefined && framesReady < totalFrames && (
-                                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/5 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full rounded-full transition-all duration-200"
-                                            style={{
-                                                width: `${(framesReady / totalFrames) * 100}%`,
-                                                background: `${accent}50`,
-                                            }}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Time label */}
-                            <div className="shrink-0 text-right min-w-[44px]">
-                                <p className="text-[11px] font-black text-white leading-tight">{frameLabel}</p>
-                                <p
-                                    className="text-[11px] font-bold uppercase tracking-widest leading-tight"
-                                    style={{
-                                        color:
-                                            frameLabel === 'Now' || frameLabel === 'Live'
-                                                ? `${accent}90`
-                                                : `${forecastAccent}`,
-                                    }}
-                                >
-                                    {sublabel}
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* No-scrubber mode: just show layer + live status */}
-                    {!hasScrubber && !isLoading && (
-                        <div className="flex items-center gap-2 py-0.5">
-                            <span className="text-sm">{config.icon}</span>
-                            <span className="text-[11px] font-black text-white">{config.label}</span>
-                            <span
-                                className="ml-auto text-[11px] font-bold uppercase tracking-widest"
-                                style={{ color: `${accent}90` }}
-                            >
-                                ● Live
-                            </span>
-                        </div>
                     )}
                 </div>
 
-                {/* Collapsed legend toggle (when legend hidden) */}
-                {!showLegend && (
-                    <button
-                        onClick={() => setShowLegend(true)}
-                        className="w-11 h-11 flex items-center justify-center rounded-xl transition-colors"
+                {/* ═══ MAIN CONTROL — SCRUBBER + TIME ═══ */}
+                <div
+                    className="absolute z-[500] flex items-end gap-2"
+                    style={{
+                        left: 12,
+                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
+                        maxWidth: '90vw',
+                    }}
+                >
+                    <div
                         style={{
-                            background: 'rgba(15, 23, 42, 0.75)',
-                            backdropFilter: 'blur(16px)',
-                            WebkitBackdropFilter: 'blur(16px)',
+                            background: 'rgba(15, 23, 42, 0.80)',
+                            backdropFilter: 'blur(20px)',
+                            WebkitBackdropFilter: 'blur(20px)',
                             border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: 16,
+                            padding: hasScrubber ? '8px 12px' : '6px 12px',
+                            minWidth: hasScrubber ? 200 : 120,
+                            maxWidth: 280,
                         }}
-                        aria-label="Show legend"
                     >
-                        <span className="text-sm">{config.icon}</span>
-                    </button>
-                )}
-            </div>
+                        {/* Loading state */}
+                        {isLoading && (
+                            <div className="flex items-center justify-center gap-2 py-1">
+                                <div
+                                    className="w-3 h-3 border-2 rounded-full animate-spin"
+                                    style={{
+                                        borderColor: `${accent}40`,
+                                        borderTopColor: accent,
+                                    }}
+                                />
+                                <span className="text-[11px] font-bold" style={{ color: `${accent}cc` }}>
+                                    Loading…
+                                </span>
+                            </div>
+                        )}
+
+                        {/* Scrubber row */}
+                        {hasScrubber && !isLoading && (
+                            <div className="flex items-center gap-2">
+                                {/* Play/Pause */}
+                                <button
+                                    aria-label={isPlaying ? 'Pause' : 'Play'}
+                                    onClick={() => {
+                                        onPlayToggle();
+                                        triggerHaptic('light');
+                                    }}
+                                    className="w-11 h-11 flex items-center justify-center rounded-lg shrink-0 active:scale-90 transition-transform"
+                                    style={{
+                                        background: `${accent}20`,
+                                        border: `1px solid ${accent}30`,
+                                    }}
+                                >
+                                    <span className="text-xs">{isPlaying ? '⏸' : '▶️'}</span>
+                                </button>
+
+                                {/* Track */}
+                                <div
+                                    ref={trackRef}
+                                    className="flex-1 relative h-9 flex items-center cursor-pointer"
+                                    style={{ touchAction: 'none' }}
+                                    onPointerDown={handlePointerDown}
+                                    onPointerMove={handlePointerMove}
+                                    onPointerUp={handlePointerUp}
+                                    onPointerCancel={handlePointerUp}
+                                >
+                                    {/* Track background */}
+                                    <div className="w-full h-1 bg-white/10 rounded-full relative overflow-hidden">
+                                        {/* Fill */}
+                                        <div
+                                            ref={fillRef}
+                                            className="absolute inset-y-0 left-0 rounded-full"
+                                            style={{
+                                                width: `${frameToPercent(frameIndex)}%`,
+                                                background:
+                                                    dualColor && nowIndex !== undefined && frameIndex > nowIndex
+                                                        ? forecastAccent
+                                                        : `${accent}60`,
+                                                willChange: 'width',
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* NOW marker (diamond) */}
+                                    {nowIndex !== undefined && nowIndex > 0 && nowIndex < maxFrame && (
+                                        <div
+                                            className="absolute top-1/2 pointer-events-none"
+                                            style={{
+                                                left: `${frameToPercent(nowIndex)}%`,
+                                                transform: 'translate(-50%, -50%)',
+                                            }}
+                                        >
+                                            <div className="w-2 h-2 bg-white rounded-sm rotate-45 shadow-sm border border-white/60" />
+                                        </div>
+                                    )}
+
+                                    {/* Thumb */}
+                                    <div
+                                        ref={thumbRef}
+                                        className="absolute top-1/2 w-4 h-4 rounded-full shadow-lg border-2 border-white/40 pointer-events-none"
+                                        style={{
+                                            left: `${frameToPercent(frameIndex)}%`,
+                                            transform: 'translate(-50%, -50%) scale(1)',
+                                            background: accent,
+                                            boxShadow: `0 3px 10px ${accent}40`,
+                                            transition: isDraggingRef.current ? 'none' : 'transform 0.15s ease-out',
+                                            willChange: 'left, transform',
+                                        }}
+                                    />
+
+                                    {/* Loading progress */}
+                                    {framesReady !== undefined && framesReady < totalFrames && (
+                                        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/5 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full rounded-full transition-all duration-200"
+                                                style={{
+                                                    width: `${(framesReady / totalFrames) * 100}%`,
+                                                    background: `${accent}50`,
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Time label */}
+                                <div className="shrink-0 text-right min-w-[44px]">
+                                    <p className="text-[11px] font-black text-white leading-tight">{frameLabel}</p>
+                                    <p
+                                        className="text-[11px] font-bold uppercase tracking-widest leading-tight"
+                                        style={{
+                                            color:
+                                                frameLabel === 'Now' || frameLabel === 'Live'
+                                                    ? `${accent}90`
+                                                    : `${forecastAccent}`,
+                                        }}
+                                    >
+                                        {sublabel}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* No-scrubber mode: just show layer + live status */}
+                        {!hasScrubber && !isLoading && (
+                            <div className="flex items-center gap-2 py-0.5">
+                                <span className="text-sm">{config.icon}</span>
+                                <span className="text-[11px] font-black text-white">{config.label}</span>
+                                <span
+                                    className="ml-auto text-[11px] font-bold uppercase tracking-widest"
+                                    style={{ color: `${accent}90` }}
+                                >
+                                    ● Live
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </>
         );
     },
 );

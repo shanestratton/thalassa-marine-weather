@@ -5157,8 +5157,25 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!passage.showPassage && !embedded && !isPinView && !coordCaptureMode && (
                     <RadialHelmMenu
                         activeLayers={weather.activeLayers}
-                        toggleLayer={weather.toggleLayer}
-                        selectInGroup={weather.selectInGroup}
+                        // WIND AND LIGHTNING ARE MUTUALLY EXCLUSIVE (Shane
+                        // 2026-07-22: "we should not have wind and lightning on
+                        // the same screen"). Wind draws thousands of moving
+                        // particles across the whole viewport; strike glyphs
+                        // land on top of them and neither reads. Enforced on
+                        // BOTH edges — here when wind goes on, and in
+                        // onToggleLightning below when lightning does — because
+                        // a one-sided guard just means whichever you tap second
+                        // wins, which is the bug rather than the fix.
+                        toggleLayer={(layer) => {
+                            if ((layer === 'wind' || layer === 'velocity') && !weather.activeLayers.has(layer)) {
+                                setLightningVisible(false);
+                            }
+                            weather.toggleLayer(layer);
+                        }}
+                        selectInGroup={(layer, group) => {
+                            if (layer === 'wind' || layer === 'velocity') setLightningVisible(false);
+                            weather.selectInGroup(layer, group);
+                        }}
                         tacticalState={{
                             aisVisible,
                             onToggleAis: () => {
@@ -5221,7 +5238,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 }
                             },
                             lightningVisible,
-                            onToggleLightning: () => setLightningVisible((v) => !v),
+                            onToggleLightning: () => {
+                                const next = !lightningVisible;
+                                // The other half of the wind/lightning exclusion
+                                // wired on toggleLayer above. 'velocity' is a
+                                // legacy alias for the same overlay, so both
+                                // keys have to be cleared or the particles
+                                // survive under a different name.
+                                if (next) {
+                                    if (weather.activeLayers.has('wind')) weather.toggleLayer('wind');
+                                    if (weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
+                                }
+                                setLightningVisible(next);
+                            },
                             weatherInspectMode,
                             onToggleWeatherInspect: () => {
                                 setWeatherInspectMode((v) => {
@@ -7146,11 +7175,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                     wasteful because 240px was reserved even for layers that
                     show no model selector at all.
 
-                    Now the legends collapse to 44px chips by default
-                    (ThalassaHelixControl / LegendDock), so the only tall thing
-                    left down there is WindModelFieldSelector — and that renders
-                    for WIND only, at 132px rising to ~222px. So: clear it when
-                    wind is up, otherwise sit just above the collapsed chip.
+                    The single-layer legend has since MOVED OUT of this corner
+                    entirely — it now sits mid-left above the back chevron
+                    (ThalassaHelixControl), which is what actually fixed the
+                    pile-up. LegendDock (2+ layers) still lives here but
+                    collapses to 44px chips.
+
+                    So the only tall thing left below is WindModelFieldSelector,
+                    and it renders for WIND only: clear it when wind is up,
+                    otherwise sit just above the scrubber. Note lightning can no
+                    longer coexist with wind (they are mutually exclusive as of
+                    2026-07-22), so in practice the 240px branch is reached by
+                    the SQUALL legend rather than the lightning one.
                     Shane 2026-07-22, on the pile-up and the lost real estate. */}
                 {(lightningVisible || squallVisible) && (
                     <div
@@ -7766,9 +7802,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 {activeLayerKey === 'wind' && (
                                     <WindModelFieldSelector
                                         model={weather.windModel}
-                                        field={weather.windField}
                                         onModelChange={weather.setWindModel}
-                                        onFieldChange={weather.setWindField}
                                         loading={weather.windState.loading}
                                         embedded={embedded}
                                     />

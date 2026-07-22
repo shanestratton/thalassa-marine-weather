@@ -27,7 +27,7 @@ const log = createLogger('MultiModelWeatherService');
 
 // ── Types ─────────────────────────────────────────────────────────
 
-export type WeatherModelId = 'gfs' | 'ecmwf' | 'icon' | 'access_g' | 'gem';
+export type WeatherModelId = 'gfs' | 'ecmwf' | 'icon' | 'access_g' | 'gem' | 'aifs' | 'ukmo' | 'jma';
 
 export interface WeatherModelInfo {
     id: WeatherModelId;
@@ -65,7 +65,12 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
         resolution: '0.125°',
         description: "Germany's Icosahedral model — strong for Atlantic/Med",
         bestFor: 'European waters, Mediterranean, North Atlantic',
-        openMeteoModel: 'icon_seamless',
+        // dwd_icon, NOT icon_seamless — the Glass picker fetches dwd_icon
+        // (forecastModels.ts), and a chip labelled ICON on one page must not
+        // quietly mean a different domain on the other. icon_seamless blends
+        // the global/EU/D2 nests; dwd_icon is the global run the Glass grades
+        // against, so the two surfaces now agree (2026-07-22).
+        openMeteoModel: 'dwd_icon',
     },
     {
         id: 'access_g',
@@ -85,7 +90,54 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
         bestFor: 'Pacific crossings, North Pacific, high latitude',
         openMeteoModel: 'gem_seamless',
     },
+    // ── Added 2026-07-22 so the chart's wind overlay can offer the SAME set
+    // the Glass offers (Shane: "the models do not match our models in the
+    // glass page"). Their ids are the Open-Meteo model-domain names, which is
+    // exactly what SELECTABLE_MODELS in forecastModels.ts uses — so the two
+    // pickers now name the same physics.
+    {
+        id: 'aifs',
+        name: 'AIFS',
+        provider: 'ECMWF',
+        resolution: '0.25°',
+        description: 'ECMWF AI model',
+        bestFor: 'A fast second opinion against IFS',
+        openMeteoModel: 'ecmwf_aifs025_single',
+    },
+    {
+        id: 'ukmo',
+        name: 'UKMO',
+        provider: 'UK Met Office',
+        resolution: '0.09°',
+        description: 'UK Met Office global deterministic — finest grid of the set',
+        bestFor: 'Coastal detail, European and Atlantic waters',
+        openMeteoModel: 'ukmo_global_deterministic_10km',
+    },
+    {
+        id: 'jma',
+        name: 'JMA',
+        provider: 'JMA',
+        resolution: '0.5°',
+        description: 'Japan Meteorological Agency global spectral model',
+        bestFor: 'Western Pacific',
+        openMeteoModel: 'jma_gsm',
+    },
 ];
+
+/**
+ * The models the CHART's wind overlay offers — deliberately the same five,
+ * in the same order and under the same names, as the Glass model picker
+ * (SELECTABLE_MODELS, services/weather/forecastModels.ts).
+ *
+ * Kept as a separate list rather than reordering AVAILABLE_MODELS because
+ * that array feeds recommendModels() and the ensemble/routing paths, which
+ * legitimately still want GFS, ACCESS-G and GEM.
+ *
+ * GFS is absent ON PURPOSE and must not be added back: it was dropped from
+ * the Glass on 2026-07-21 because `ncep_gfs025` carries no 10 m wind on the
+ * open-data mirror — precisely the field this overlay draws.
+ */
+export const WIND_OVERLAY_MODELS: WeatherModelId[] = ['icon', 'ecmwf', 'aifs', 'ukmo', 'jma'];
 
 export interface ModelForecastPoint {
     time: string; // ISO

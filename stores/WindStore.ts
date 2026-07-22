@@ -54,7 +54,13 @@ const DEFAULT_STATE: WindState = {
     localGribPath: null,
     hour: 0,
     totalHours: 0,
-    model: 'gfs',
+    // ECMWF, not GFS, since 2026-07-22. The chart's model chips now offer the
+    // same five as the Glass (WIND_OVERLAY_MODELS) and GFS is deliberately not
+    // among them — it was dropped from the Glass on 07-21 because ncep_gfs025
+    // publishes no 10 m wind on the open-data mirror. Leaving the default at
+    // 'gfs' would have booted the overlay on a model with no chip to show it
+    // as selected and no way to select it again.
+    model: 'ecmwf',
     field: 'wind',
 };
 
