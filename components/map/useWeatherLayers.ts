@@ -13,6 +13,42 @@ import { useState, useRef, useEffect, useCallback, useMemo, type MutableRefObjec
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WeatherLayers');
+
+/** Opacity of the one rain frame on show. */
+const RAIN_FRAME_OPACITY = 0.75;
+
+/**
+ * Show / hide ONE rain frame.
+ *
+ * `visibility`, not `raster-opacity: 0`. The frames used to be parked at zero
+ * opacity, and the comments called that "toggle visibility" — but Mapbox's
+ * StyleLayer.isHidden() consults minzoom, maxzoom and layout.visibility and
+ * NEVER paint opacity, so an opacity-0 raster still marks its source used and
+ * still downloads the whole viewport. With ~29 frames on the timeline that is
+ * every frame fetching tiles at once on activation, which is most of why rain
+ * took so long to appear. Same trap as the glaze layers ("two hide channels").
+ *
+ * Opacity stays put and carries the 200ms cross-fade; visibility is what gates
+ * the download.
+ */
+function showRainFrame(map: mapboxgl.Map, id: string): void {
+    try {
+        if (!map.getLayer(id)) return;
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        map.setPaintProperty(id, 'raster-opacity', RAIN_FRAME_OPACITY);
+    } catch (_) {
+        log.warn('[rain] show failed', _);
+    }
+}
+
+function hideRainFrame(map: mapboxgl.Map, id: string): void {
+    try {
+        if (!map.getLayer(id)) return;
+        map.setLayoutProperty(id, 'visibility', 'none');
+    } catch (_) {
+        log.warn('[rain] hide failed', _);
+    }
+}
 import mapboxgl from 'mapbox-gl';
 import { generateIsobars, generateIsobarsFromGrid, FORECAST_HOURS } from '../../services/weather/isobars';
 import { WindStore, useWindStore } from '../../stores/WindStore';
@@ -1184,77 +1220,31 @@ export function useWeatherLayers(
         }
 
         if (frame.type === 'radar' && frame.radarPath) {
-            // Pre-loaded radar — just toggle visibility
             const radarFrames = frames.filter((f) => f.type === 'radar');
             const rdIdx = radarFrames.indexOf(frame);
             const prevRdIdx = visibleRadarIdxRef.current;
 
-            // Hide any visible forecast layer
             if (visibleForecastIdxRef.current !== null) {
-                const fcId = `rainbow-fc-${visibleForecastIdxRef.current}`;
-                try {
-                    if (m.getLayer(fcId)) m.setPaintProperty(fcId, 'raster-opacity', 0);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
+                hideRainFrame(m, `rainbow-fc-${visibleForecastIdxRef.current}`);
                 visibleForecastIdxRef.current = null;
             }
-
-            // Hide previous radar layer
-            if (prevRdIdx !== null && prevRdIdx !== rdIdx) {
-                const prevId = `radar-${prevRdIdx}`;
-                try {
-                    if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
-            }
-
-            // Show current radar layer
+            if (prevRdIdx !== null && prevRdIdx !== rdIdx) hideRainFrame(m, `radar-${prevRdIdx}`);
             if (rdIdx >= 0) {
-                const layerId = `radar-${rdIdx}`;
-                try {
-                    if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
+                showRainFrame(m, `radar-${rdIdx}`);
                 visibleRadarIdxRef.current = rdIdx;
             }
         } else if (frame.type === 'forecast' && frame.forecastTileUrl) {
-            // Pre-loaded forecast — just toggle visibility
             const forecastFrames = frames.filter((f) => f.type === 'forecast');
             const fcIdx = forecastFrames.indexOf(frame);
             const prevFcIdx = visibleForecastIdxRef.current;
 
-            // Hide any visible radar layer
             if (visibleRadarIdxRef.current !== null) {
-                const rdId = `radar-${visibleRadarIdxRef.current}`;
-                try {
-                    if (m.getLayer(rdId)) m.setPaintProperty(rdId, 'raster-opacity', 0);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
+                hideRainFrame(m, `radar-${visibleRadarIdxRef.current}`);
                 visibleRadarIdxRef.current = null;
             }
-
-            // Hide previous forecast layer
-            if (prevFcIdx !== null && prevFcIdx !== fcIdx) {
-                const prevId = `rainbow-fc-${prevFcIdx}`;
-                try {
-                    if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
-            }
-
-            // Show current forecast layer
+            if (prevFcIdx !== null && prevFcIdx !== fcIdx) hideRainFrame(m, `rainbow-fc-${prevFcIdx}`);
             if (fcIdx >= 0) {
-                const layerId = `rainbow-fc-${fcIdx}`;
-                try {
-                    if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
+                showRainFrame(m, `rainbow-fc-${fcIdx}`);
                 visibleForecastIdxRef.current = fcIdx;
             }
         }
@@ -1284,8 +1274,32 @@ export function useWeatherLayers(
                     }
                 });
             }
+            // ABORT THE IN-FLIGHT LOAD. This is the important line.
+            //
+            // The teardown used to remove the layers and reset the refs without
+            // ever telling the running load to stop — rainCleanupRef, which is
+            // what sets `stale` and aborts, is only ever called on UNMOUNT, and
+            // is overwritten by each new session. So a load in flight survived
+            // its own teardown, then finished into a torn-down world: it either
+            // re-added layers after everything had been removed, or raced a
+            // second activation into "there is already a source with ID
+            // radar-0", whose catch sets rainReady(false). Either way rain went
+            // dead until an app restart, with tiles sometimes still painted.
+            //
+            // This was always latent — it needed two fast hand-toggles. Then
+            // 6714c58c made the plan page empty activeLayers, so every
+            // chart -> plan -> chart round trip runs this teardown and the race
+            // became something you hit by using the app normally. That is the
+            // "rain does not seem to be working" report.
+            rainCleanupRef.current?.();
+            rainCleanupRef.current = null;
             unifiedFramesRef.current = [];
             rainFetchedAtRef.current = 0; // Next activation gets a fresh fetch
+            // Stale indices would otherwise hide a freshly-created frame on the
+            // next activation — harmless while frames were parked at opacity 0,
+            // a real blank frame now that hiding is a layout write.
+            visibleRadarIdxRef.current = null;
+            visibleForecastIdxRef.current = null;
             setRainFrameCount(0);
             setRainFrameIndex(0);
             setRainReady(false);
@@ -1596,41 +1610,98 @@ export function useWeatherLayers(
                         return;
                     }
 
-                    // Insert rain layers ABOVE the satellite base layer but
-                    // BELOW labels. Anchor by first symbol so rain stacks
-                    // directly above satellite in the visual z-order.
+                    // NOTHING TO DRAW. The index fetch returning null (offline,
+                    // a stalled Pi hop, RainViewer down) used to fall straight
+                    // through to setRainReady(true) over an empty map, and
+                    // stamp rainFetchedAtRef so the staleness gate treated the
+                    // empty result as a good load — a rain layer that reports
+                    // healthy and never paints, with nothing in the console.
+                    if (allRadar.length === 0) {
+                        log.warn('[rain] radar index empty — leaving rain unready so it retries');
+                        rainFetchedAtRef.current = 0;
+                        setRainLoading(false);
+                        return;
+                    }
+
+                    // Insert rain ABOVE the chart, BELOW the labels.
+                    //
+                    // This used to anchor at the style's FIRST symbol layer,
+                    // which was right when it was written (d74e3c81) — imagery
+                    // sat at the bottom of the stack then. It does not survive
+                    // what came later: the hybrid imagery is now moved up to
+                    // just below the ENC stack, and ENC anchors at
+                    // settlement-major-label, which is far ABOVE the first
+                    // symbol. So rain was painting and then being covered by
+                    // the opaque imagery and the ENC depth fills — the layer
+                    // worked perfectly and was simply underneath the chart
+                    // (Shane 2026-07-23: "my rain layer does not seem to be
+                    // working").
+                    //
+                    // Anchoring on the SAME candidates ENC uses puts rain
+                    // immediately below that anchor and therefore above the ENC
+                    // layers already inserted before it, while still leaving
+                    // the place labels on top.
                     const rainBeforeId = (() => {
                         const layers = m.getStyle()?.layers ?? [];
-                        const firstSymbol = layers.find((l) => l.type === 'symbol');
-                        return firstSymbol?.id;
+                        for (const id of [
+                            'settlement-major-label',
+                            'place-city',
+                            'country-label',
+                            'admin-0-boundary',
+                        ]) {
+                            if (layers.some((l) => l.id === id)) return id;
+                        }
+                        return layers.find((l) => l.type === 'symbol')?.id;
                     })();
 
-                    // Pre-create radar layers (hidden except the Now frame).
-                    const radarFrames = unified.filter((f) => f.type === 'radar');
-                    for (let i = 0; i < radarFrames.length; i++) {
-                        const rf = radarFrames[i];
-                        if (!rf.radarPath) continue;
+                    const addRadarFrame = (i: number, rf: UnifiedRainFrame): void => {
+                        if (!rf.radarPath) return;
                         const srcId = `radar-${i}`;
+                        // Duplicate guard, mirroring the Phase-2 loop below.
+                        // Without it a second activation racing the first threw
+                        // "already a source with ID", which the outer catch
+                        // turned into setRainReady(false) — leaving painted
+                        // tiles, no scrubber and no way to swap frames for the
+                        // rest of the mount.
+                        if (m.getSource(srcId)) return;
                         m.addSource(srcId, {
                             type: 'raster',
                             tiles: [`https://tilecache.rainviewer.com${rf.radarPath}/256/{z}/{x}/{y}/4/1_1.png`],
                             tileSize: 256,
                             minzoom: 2,
-                            maxzoom: 7,
+                            // Was 7, which at the z7.5 rain framing zoom put the
+                            // layer at the edge of its native resolution and
+                            // turned any zoom into your own water into stretched
+                            // colour blocks.
+                            maxzoom: 10,
                         });
                         m.addLayer(
                             {
                                 id: srcId,
                                 type: 'raster',
+                                // visibility, not opacity — see showRainFrame.
+                                // This is what stops 29 frames fetching at once.
+                                layout: { visibility: i === nowIdx ? 'visible' : 'none' },
                                 source: srcId,
                                 paint: {
-                                    'raster-opacity': i === nowIdx ? 0.75 : 0,
+                                    'raster-opacity': RAIN_FRAME_OPACITY,
                                     'raster-opacity-transition': { duration: 200, delay: 0 },
                                     'raster-fade-duration': 0,
                                 },
                             },
                             rainBeforeId,
                         );
+                    };
+
+                    // THE VISIBLE FRAME FIRST. It is the last past frame, so in
+                    // creation order it landed ~13th and its tiles queued behind
+                    // every earlier frame's. It is the only one anyone is
+                    // waiting on, so it goes to the front of the queue.
+                    const radarFrames = unified.filter((f) => f.type === 'radar');
+                    if (radarFrames[nowIdx]) addRadarFrame(nowIdx, radarFrames[nowIdx]);
+                    visibleRadarIdxRef.current = nowIdx;
+                    for (let i = 0; i < radarFrames.length; i++) {
+                        if (i !== nowIdx) addRadarFrame(i, radarFrames[i]);
                     }
                     log.info(`Pre-created ${radarFrames.length} radar layers`);
 
@@ -1662,9 +1733,6 @@ export function useWeatherLayers(
                             const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&layer=precip-global&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
                             appended.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
-                        unifiedFramesRef.current = appended;
-                        setRainFrameCount(appended.length);
-
                         // Pre-create forecast layers (all hidden initially).
                         for (let i = 0; i < RAINBOW_FORECAST_MINUTES.length; i++) {
                             const ff = appended[forecastAppendStart + i];
@@ -1690,9 +1758,12 @@ export function useWeatherLayers(
                                 {
                                     id: srcId,
                                     type: 'raster',
+                                    // Hidden by LAYOUT so it costs no tiles
+                                    // until scrubbed to — see showRainFrame.
+                                    layout: { visibility: 'none' },
                                     source: srcId,
                                     paint: {
-                                        'raster-opacity': 0,
+                                        'raster-opacity': RAIN_FRAME_OPACITY,
                                         'raster-opacity-transition': { duration: 200, delay: 0 },
                                         'raster-fade-duration': 0,
                                         'raster-color': RAINVIEWER_COLOR_RAMP,
@@ -1703,10 +1774,20 @@ export function useWeatherLayers(
                                 rainBeforeId,
                             );
                         }
+                        // PUBLISH LAST. These two lines used to run BEFORE the
+                        // loop above, so the moment they landed the scrubber
+                        // advertised 13 forecast frames — and if the loop then
+                        // threw (it has no try/catch of its own, unlike Phase 1)
+                        // those frames had no layers behind them. Scrubbing or
+                        // autoplaying into one painted nothing, which reads as
+                        // rain flickering to blank mid-loop. Advertise only what
+                        // actually exists.
+                        unifiedFramesRef.current = appended;
+                        setRainFrameCount(appended.length);
                         log.info(
                             `Rainbow forecast ready: ${RAINBOW_FORECAST_MINUTES.length} frames appended (timeline now ${appended.length}).`,
                         );
-                    })();
+                    })().catch((e) => log.warn('[rain] forecast phase failed — radar still usable', e));
                 } catch (err) {
                     log.error('Error loading unified rain data:', err);
                     setRainReady(false);
