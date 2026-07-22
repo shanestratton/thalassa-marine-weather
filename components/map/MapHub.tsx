@@ -4771,6 +4771,10 @@ export const MapHub: React.FC<MapHubProps> = ({
      * came on. 'velocity' is the legacy alias for the same overlay, so both
      * keys count — missing it would make the edge undetectable when the layer
      * is stored under the older name.
+     *
+     * Fires ONLY on that edge, which is what keeps an unconditional easeTo
+     * tolerable: it cannot fight you while you are working, because merely
+     * panning or zooming with wind already on never re-triggers it.
      */
     const windWasOnRef = useRef(false);
     useEffect(() => {
@@ -4781,11 +4785,15 @@ export const MapHub: React.FC<MapHubProps> = ({
         const m = mapRef.current;
         if (!m) return;
         try {
-            // A FLOOR, not a snap: already zoomed in stays put. Wind is
-            // sampled for the visible viewport, so below this the grid
-            // coarsens to whole degrees and the particles stop describing
-            // anything local.
-            if (m.getZoom() < WIND_DEFAULT_ZOOM) m.easeTo({ zoom: WIND_DEFAULT_ZOOM, duration: 600 });
+            // A SNAP, not a floor (Shane 2026-07-22: "even if you are above
+            // zoom 7.5, that it still goes to 7.5 — they can zoom in from
+            // there if they wish"). Switching wind on is a deliberate change
+            // of task, so it gets a known starting frame every time rather
+            // than one that depends on where you happened to be. Zoomed OUT
+            // it fixes the grid resolution; zoomed IN it pulls back to a
+            // viewport where a wind field is worth reading at all — a few
+            // particles across a marina say nothing.
+            m.easeTo({ zoom: WIND_DEFAULT_ZOOM, duration: 600 });
         } catch {
             /* map mid-teardown */
         }
