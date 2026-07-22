@@ -408,6 +408,26 @@ export const NAV_LAYER_IDS = [
     'route-core',
     'waypoint-circles',
     'waypoint-labels',
+    // ── The TRACER's own render (MapHub coordCaptureMode) ──
+    // These were missing, and the omission was invisible because the ids look
+    // like the passage planner's. They are not: `route-*` belongs to
+    // usePassagePlanner, `trace-*` to the tracer, and the tracer adds every one
+    // of them with NO beforeId — so they sit wherever the top of the style
+    // happened to be at creation. Any weather raster added afterwards went
+    // straight over the route line (the `sea` tiles run at raster-opacity 1.0,
+    // which hides it completely), while the waypoint PINS stayed visible because
+    // they are DOM markers on their own effect and live above the canvas
+    // entirely. That asymmetry is the whole "waypoints but no line between them"
+    // symptom (Shane 2026-07-22, again 2026-07-23).
+    //
+    // Order matters: moveLayer with no beforeId moves to the TOP, so the last id
+    // listed ends up highest. Glow under core under arrows.
+    'trace-ghost-line',
+    'trace-dest-hint-line',
+    'trace-line-glow',
+    'trace-line-core',
+    'trace-line-arrows',
+    'trace-issues-icons',
 ] as const;
 
 /**
