@@ -17,6 +17,7 @@ import {
 import { getUpdateInterval, alignToNextInterval, LIVE_OVERLAY_INTERVAL } from '../services/WeatherScheduler';
 import {
     WeatherOrchestrator,
+    STALE_THRESHOLD_MS,
     type OrchestratorCallbacks,
     type FetchWeatherOptions as _FetchWeatherOptions,
 } from '../services/WeatherOrchestrator';
@@ -378,6 +379,35 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             // return in 0.4-2.7 s.
             const showingAnotherPlace = isShowingAnotherPlace(weatherDataRef.current?.locationName, location);
 
+            const ageOf = (iso?: string) => (iso ? Date.now() - new Date(iso).getTime() : Infinity);
+
+            // ── FRESH CACHE? THEN DON'T FETCH AT ALL ────────────────────
+            // Shane 2026-07-22: "if the data is fresh, it does not need to be
+            // re-freshed, we have a rule somewhere". The rule is
+            // STALE_THRESHOLD_MS (30 min) and the orchestrator ALREADY honours
+            // it on boot — "Cache fresh (Nm old) — skipping fetch". Picking a
+            // location did not, because selectLocation forces every fetch, so
+            // reopening a port you looked at two minutes ago cost a full round
+            // of sources for numbers that could not have changed.
+            //
+            // Returns BEFORE the blur decision on purpose. Raising the blur and
+            // then skipping the fetch would leave it up until the 25 s
+            // watchdog: the orchestrator's `finally` is what lowers it, and
+            // there is no orchestrator call on this path.
+            //
+            // force is untouched on the OTHER branches — a stale cache still
+            // forces, because that guard exists so a concurrent background
+            // fetch cannot swallow an explicit tap.
+            if (isCacheValid && ageOf(cached?.generatedAt) < STALE_THRESHOLD_MS) {
+                log.info(
+                    `[WeatherContext] ${location}: cache ${Math.round(ageOf(cached?.generatedAt) / 60000)}m old — fresh, no fetch`,
+                );
+                setWeatherData(cached);
+                setStaleRefresh(false);
+                setBackgroundUpdating(false);
+                return;
+            }
+
             // ── BLUR DECISION ───────────────────────────────────────────
             // Ask what will be ON SCREEN WHILE THE FETCH RUNS, not merely
             // what was there before it started. Those differ, and the gap
@@ -398,7 +428,6 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             //    with no blur to explain it — exactly the state reported.
             //    One constant now drives both, so they cannot disagree.
             const BLUR_THRESHOLD_MS = 60 * 60 * 1000;
-            const ageOf = (iso?: string) => (iso ? Date.now() - new Date(iso).getTime() : Infinity);
             const onScreenAge = isCacheValid
                 ? ageOf(cached?.generatedAt) // the cache we are about to show
                 : showingAnotherPlace
