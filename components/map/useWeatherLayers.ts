@@ -95,7 +95,6 @@ export function useWeatherLayers(
             return new Set(DEFAULT_LAYERS);
         }
     });
-    const [showLayerMenu, setShowLayerMenu] = useState(false);
 
     // Toggle a layer on/off. 'none' clears all layers.
     const toggleLayer = useCallback((layer: WeatherLayer) => {
@@ -1789,8 +1788,6 @@ export function useWeatherLayers(
         activeLayers,
         toggleLayer,
         selectInGroup,
-        showLayerMenu,
-        setShowLayerMenu,
         // Wind
         windEngineRef,
         windGridRef,

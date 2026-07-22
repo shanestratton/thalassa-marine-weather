@@ -318,20 +318,13 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
         };
     }, [open]);
 
-    // Mutual exclusion with the right-rail Layer menu — when this picker
-    // opens we dispatch an event the Layer menu listens for (and vice
-    // versa), so only one of the two big dropdowns can be visible at a
-    // time. Stops the "half under" overlap on narrow phones where the
-    // centred dropdown's right edge collides with the right-rail expanded
-    // menu's left edge.
-    useEffect(() => {
-        if (open) window.dispatchEvent(new CustomEvent('thalassa:chart-modes-open'));
-    }, [open]);
-    useEffect(() => {
-        const onLayerOpen = () => setOpen(false);
-        window.addEventListener('thalassa:layer-menu-open', onLayerOpen);
-        return () => window.removeEventListener('thalassa:layer-menu-open', onLayerOpen);
-    }, []);
+    // The mutual-exclusion handshake with the right-rail Layer menu lived
+    // here: this picker dispatched 'thalassa:chart-modes-open' and listened
+    // for 'thalassa:layer-menu-open', so only one of the two big dropdowns
+    // could be open at once. Both halves went 2026-07-22 with the legacy
+    // LayerFABMenu — it was the sole listener for the first event and the
+    // sole dispatcher of the second, so the pair had become a conversation
+    // with nobody. There is no longer a second dropdown to collide with.
 
     const applyMode = useCallback(
         (spec: ModeSpec) => {
