@@ -4727,25 +4727,33 @@ export const MapHub: React.FC<MapHubProps> = ({
     useNoticeLayer(mapRef, mapReady, coordCaptureMode);
 
     /**
-     * The framing zoom for the viewport-sampled forecast overlays.
+     * The framing zoom each forecast overlay claims when switched on.
      *
-     * Wind, currents and rain are all fetched for the VISIBLE viewport, so at
-     * world zoom the sampler coarsens to whole degrees and the field stops
-     * describing anything local. 7.5 is also past WindDataController's
-     * `currentZoom > 6` branch, so wind drops to 0.5 deg spacing instead of
-     * the wide-viewport fallback.
+     * PER LAYER, because these fields are not read at the same scale. Wind,
+     * currents and rain are sampled for the VISIBLE viewport and describe
+     * local conditions, so they want a regional frame — 7.5 is also past
+     * WindDataController's `currentZoom > 6` branch, where wind drops to
+     * 0.5 deg spacing instead of the wide-viewport fallback.
      *
-     * Shane 2026-07-22: wind first, then "can we default the current to zoom
-     * 7.5 as well, also the rain".
+     * PRESSURE is the exception and gets 2.0 (Shane 2026-07-22). Isobars are
+     * a SYNOPTIC read: the useful question is where the high and the low sit
+     * and which way the gradient runs across a whole sea area. At 7.5 you are
+     * inside one isobar band looking at a couple of parallel lines, which
+     * tells you nothing a wind arrow does not.
+     *
+     * 'velocity' is the legacy alias for wind — both keys must appear or the
+     * edge is undetectable whenever the layer is stored under the older name.
      */
-    const FORECAST_LAYER_ZOOM = 7.5;
-
-    /**
-     * Layers that claim the framing zoom when switched on. 'velocity' is the
-     * legacy alias for wind — both keys must be listed or the edge is
-     * undetectable whenever the layer is stored under the older name.
-     */
-    const SNAP_ZOOM_LAYERS = useMemo<WeatherLayer[]>(() => ['wind', 'velocity', 'currents', 'rain'], []);
+    const LAYER_FRAME_ZOOM = useMemo<Partial<Record<WeatherLayer, number>>>(
+        () => ({
+            wind: 7.5,
+            velocity: 7.5,
+            currents: 7.5,
+            rain: 7.5,
+            pressure: 2.0,
+        }),
+        [],
+    );
 
     /**
      * Stable identities — these used to be inline arrows in the RadialHelmMenu
@@ -4763,8 +4771,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
 
     /**
-     * Ease to FORECAST_LAYER_ZOOM on the OFF -> ON edge of wind, currents or
-     * rain.
+     * Ease to the layer's own framing zoom on its OFF -> ON edge.
      *
      * This lived inside the tap handlers and behaved backwards (Shane
      * 2026-07-22: "when i turn off the wind, it zooms to 7.5, but when i turn
@@ -4790,31 +4797,31 @@ export const MapHub: React.FC<MapHubProps> = ({
      */
     const prevSnapLayersRef = useRef<Set<string>>(new Set());
     useEffect(() => {
-        const on = new Set(SNAP_ZOOM_LAYERS.filter((k) => weather.activeLayers.has(k)));
+        const framed = Object.keys(LAYER_FRAME_ZOOM) as WeatherLayer[];
+        const on = new Set(framed.filter((k) => weather.activeLayers.has(k)));
         const prev = prevSnapLayersRef.current;
         prevSnapLayersRef.current = on;
-        // Fire only when one of them NEWLY appears. Comparing sets (rather
-        // than a single boolean) also catches a SWITCH between two of these
-        // layers — picking rain while wind is up is a fresh framing decision,
-        // not a continuation, and selectInGroup makes that a single tap.
-        const newlyOn = [...on].some((k) => !prev.has(k));
+        // Fire only for a layer that NEWLY appears. Comparing sets (rather
+        // than a single boolean) also catches a SWITCH between two framed
+        // layers — picking pressure while wind is up is a fresh framing
+        // decision, not a continuation, and selectInGroup makes that one tap.
+        const newlyOn = [...on].find((k) => !prev.has(k)) as WeatherLayer | undefined;
         if (!newlyOn) return;
+        const zoom = LAYER_FRAME_ZOOM[newlyOn];
+        if (zoom === undefined) return;
         const m = mapRef.current;
         if (!m) return;
         try {
             // A SNAP, not a floor (Shane 2026-07-22: "even if you are above
             // zoom 7.5, that it still goes to 7.5 — they can zoom in from
             // there if they wish"). Switching one of these on is a deliberate
-            // change of task, so it gets a known starting frame every time
-            // rather than one that depends on where you happened to be.
-            // Zoomed OUT it fixes the grid resolution; zoomed IN it pulls back
-            // to a viewport where a forecast field is worth reading at all — a
-            // few particles across a marina say nothing.
-            m.easeTo({ zoom: FORECAST_LAYER_ZOOM, duration: 600 });
+            // change of task, so it gets a known frame every time rather than
+            // one that depends on where you happened to be.
+            m.easeTo({ zoom, duration: 600 });
         } catch {
             /* map mid-teardown */
         }
-    }, [weather.activeLayers, SNAP_ZOOM_LAYERS, FORECAST_LAYER_ZOOM]);
+    }, [weather.activeLayers, LAYER_FRAME_ZOOM]);
 
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
