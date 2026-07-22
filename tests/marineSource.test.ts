@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { isLocalReading, mapMarine } from '../services/weather/api/marine';
+import { isLocalReading, mapMarine, maxLegitimateSnapKm } from '../services/weather/api/marine';
 
 /** The real Newport response, coordinates and all. */
 const NEWPORT_SNAPPED = {
@@ -81,11 +81,31 @@ describe('mapMarine — the snap guard', () => {
         expect(isLocalReading(r)).toBe(false);
     });
 
-    it('accepts an offshore point the grid barely moves', () => {
-        const offshore = { ...NEWPORT_SNAPPED, latitude: -26.5, longitude: 153.4 };
-        const r = mapMarine(offshore, -26.5, 153.402, 'pi');
-        expect(r!.snappedKm).toBeLessThan(1);
+    it('ACCEPTS the real offshore probe that snapped 5.3 km', () => {
+        // Live response for a request at -26.50,153.40. A flat 2 km threshold
+        // refused this — i.e. it would have thrown away nearly every genuine
+        // reading and left the app with no marine data at all. The grid is
+        // 1/12 deg, so several km of snap is normal in open water.
+        const offshore = {
+            ...NEWPORT_SNAPPED,
+            latitude: -26.458336,
+            longitude: 153.37502,
+        };
+        const r = mapMarine(offshore, -26.5, 153.4, 'pi')!;
+        expect(r.snappedKm).toBeGreaterThan(5);
+        expect(r.snappedKm).toBeLessThan(5.5);
         expect(isLocalReading(r)).toBe(true);
+    });
+
+    it('the threshold is half the grid diagonal, and shrinks toward the poles', () => {
+        // Every open-water point is within half a cell diagonal of some centre,
+        // so a bigger snap proves the nearest cell was DRY.
+        expect(maxLegitimateSnapKm(0)).toBeGreaterThan(7);
+        expect(maxLegitimateSnapKm(0)).toBeLessThan(8);
+        expect(maxLegitimateSnapKm(-60)).toBeLessThan(maxLegitimateSnapKm(-26.5));
+        // Both measured cases must fall the right side of it at Moreton's latitude.
+        expect(5.26).toBeLessThan(maxLegitimateSnapKm(-26.5));
+        expect(10.7).toBeGreaterThan(maxLegitimateSnapKm(-26.5));
     });
 
     it('refuses a reading with no echoed coordinate — unprovable is not local', () => {
