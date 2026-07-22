@@ -2948,14 +2948,21 @@ export const MapHub: React.FC<MapHubProps> = ({
     // exists (no tiles = dark under the glaze) but the Chart toggle is
     // one tap and the owner asked. Still never persisted — the toggle
     // owns it per session, so no state can haunt a later boot.
-    // BOOT DEFAULT is SATELLITE (Shane 2026-07-19: "can we try the satellite
-    // image as the default layer?"), replacing the clean-dark boot of 2026-07-17.
-    // Worth knowing what this turns back on: satellite is imagery, so satOn is
-    // true from the first frame and the chart boots with the FULL satellite ENC
+    // BOOT DEFAULT is HYBRID as of 2026-07-22 (Shane: "can we have the charts
+    // page utilising the hybrid chart as default"). Plain satellite held the
+    // boot from 2026-07-19; clean-dark had it from 07-17; hybrid had it before
+    // that on 07-15. This has now flipped four times — the ONLY reliable
+    // reading of the current default is these two useState initialisers, so
+    // treat any prose elsewhere claiming otherwise as stale.
+    //
+    // What does NOT change: hybrid is imagery, so satOn is still true from the
+    // first frame and the chart still boots with the full satellite ENC
     // treatment — white keel glaze, hidden land fills, amber safety contour —
-    // rather than the dark ECDIS look. Still session-only, never persisted, so
-    // it is a default and not a setting that can haunt a later boot.
-    const [satelliteVisible, setSatelliteVisible] = useState(true);
+    // rather than the dark ECDIS look. Hybrid just adds roads and place names
+    // over the same photograph, which is the public voyage-page look.
+    // Session-only, never persisted, so this is a default and not a setting
+    // that can haunt a later boot.
+    const [satelliteVisible, setSatelliteVisible] = useState(false);
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
@@ -2965,12 +2972,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // mutually exclusive with satellite via the ChartModes setters, and
     // it gets the FULL satellite ENC treatment (glaze, hidden land
     // fills, bathy tint) via imageryOn below.
-    // Hybrid boots OFF — SATELLITE is the boot base as of 2026-07-19 (see its
-    // declaration above; the clean-dark boot of 2026-07-17 lasted two days).
-    // The two imagery bases are mutually exclusive via the ChartModes setters,
-    // so hybrid starting false is what lets satellite be the one that shows.
-    // Both remain one tap away on the base toggle. Session-only.
-    const [hybridVisibleRaw, setHybridVisible] = useState(false);
+    // HYBRID BOOTS ON as of 2026-07-22 — this is the boot base (see the
+    // satelliteVisible declaration above for the full history). The two
+    // imagery bases are mutually exclusive via the ChartModes setters, so
+    // satellite starting false is what lets hybrid be the one that shows;
+    // these two initialisers must always disagree. Plain satellite stays one
+    // tap away on the base toggle. Session-only.
+    const [hybridVisibleRaw, setHybridVisible] = useState(true);
     // OCEAN BASE (Shane 2026-07-19: "we used to have one that had a bit of
     // bathymetry with it" → make it its own base). The MapTiler Ocean raster has
     // always existed, but only as a 0.45 tint ON TOP of satellite. As a BASE it
@@ -7003,29 +7011,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // deserves a clean sheet; Done brings it back.
                     visible={!passage.showPassage && !embedded && !isPinView && !coordCaptureMode}
                     onOpenSettings={() => setLayerSettingsOpen(true)}
-                    activeSkyLayers={weather.activeLayers as Set<string>}
-                    toggleSkyLayer={(layer) => weather.toggleLayer(layer as never)}
-                    setActiveSkyLayer={(layer) =>
-                        weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer)
-                    }
-                    aisVisible={aisVisible}
-                    setAisVisible={setAisVisible}
-                    lightningVisible={lightningVisible}
-                    setLightningVisible={setLightningVisible}
-                    cycloneVisible={cycloneVisible}
-                    setCycloneVisible={setCycloneVisible}
-                    squallVisible={squallVisible}
-                    setSquallVisible={setSquallVisible}
-                    seamarkVisible={seamarkVisible}
-                    setSeamarkVisible={setSeamarkVisible}
-                    tideStationsVisible={tideStationsVisible}
-                    setTideStationsVisible={setTideStationsVisible}
-                    chokepointVisible={chokepointVisible}
-                    setChokepointVisible={setChokepointVisible}
-                    vesselTrackingVisible={vesselTrackingVisible}
-                    setVesselTrackingVisible={setVesselTrackingVisible}
-                    mpaVisible={weather.mpaVisible}
-                    setMpaVisible={(v) => weather.setMpaVisible(v)}
                     encVisible={encVisible}
                     setEncVisible={setEncVisible}
                     satelliteVisible={satelliteVisible}
@@ -7060,24 +7045,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encCellCount={encCellCount}
                     seawayDebugVisible={seawayDebugVisible}
                     onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}
-                    onClearRouteInk={() => {
-                        // Route ink that outlives layer toggles: the follow-
-                        // route persists in localStorage by design (SAIL IT
-                        // survives restarts), and the chart route/track picks
-                        // live in session state. "Clear All" kills the lot —
-                        // including the Seaway Graph debug overlay, twice now
-                        // the true identity of "the blue spaghetti".
-                        void import('../../stores/followRouteStore').then(({ useFollowRouteStore }) =>
-                            useFollowRouteStore.getState().stopFollowing(),
-                        );
-                        setActiveChartRoute(null);
-                        setActiveChartTrack(null);
-                        setSeawayDebugVisible(false);
-                        // Closing audit: the ENC test route was UNCLEARABLE —
-                        // its route-focus mode stripped DEPARE/glaze/land for
-                        // the whole session once planned.
-                        setEncTestRoute(null);
-                    }}
                     onPlanEncRoute={async () => {
                         // Demo waypoints — hardcoded Newport → Rivergate
                         // until the full two-tap workflow lands. Draft comes
