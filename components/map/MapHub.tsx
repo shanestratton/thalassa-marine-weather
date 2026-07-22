@@ -42,6 +42,7 @@ import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
 import { MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
+import { promoteTraceLayers } from './isobarLayerSetup';
 
 import {
     type MapHubProps,
@@ -1111,6 +1112,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                 .catch(() => {});
         }
     }, [coordCaptureMode]);
+    // One pending idle-promote at a time — see the use site in sync().
+    const traceIdlePromoteRef = useRef(false);
     // Draw the graded legs on a dedicated source ('route-line' belongs to the
     // passage planner). Idempotent ensure() re-adds after a basemap style
     // switch drops custom layers; styledata re-syncs.
@@ -1379,6 +1382,52 @@ export const MapHub: React.FC<MapHubProps> = ({
                           ]
                         : []) as never,
                 });
+                // ── Lift the trace to the top, EVERY sync ──
+                // The line was never buried by one specific layer; it was
+                // buried by whatever happened to be added after it, because
+                // NOTHING maintained its z-order. The one promoter that exists
+                // (promoteNavLayers) is called only from the weather effect,
+                // which early-returns on `activeLayers.size === 0` before it —
+                // so with no weather layer up, which is now always the case on
+                // the plan page, ordering was simply never enforced. The tracer
+                // adds all six layers with no beforeId, so they sat wherever
+                // the top of the style was at creation time and every ENC and
+                // imagery layer added afterwards went over them. The pins are
+                // DOM markers above the canvas, so they never showed the
+                // problem — hence "waypoints but no line".
+                //
+                // Cheap and idempotent: six guarded moveLayer calls, run once
+                // per pin edit, not on a timer.
+                const buried = promoteTraceLayers(map);
+                if (coordCaptureMode && feats.length > 0 && buried.length > 0) {
+                    // Silent once the promotion works. If this ever fires, it
+                    // names exactly what is still sitting on top — the evidence
+                    // that was missing every previous time this was diagnosed.
+                    log.warn(
+                        `[trace] ${feats.length} leg(s) pushed but ${buried.length} layer(s) still above the line:`,
+                        buried.slice(0, 8).join(', '),
+                    );
+                }
+                // ENC cells and imagery mount ASYNCHRONOUSLY and land on top,
+                // so promoting only during sync() leaves the line buried again
+                // whenever a merge finishes after the last pin edit — the
+                // "open a saved route and the line never appears" shape.
+                // 'idle' is the natural "everything for this view has landed"
+                // moment. One-shot and latched: the promote itself repaints,
+                // which would re-fire idle, and re-arming there is how you get
+                // the self-feeding loop this effect was already burned by
+                // (2026-07-15). Only sync() ever re-arms it.
+                if (!traceIdlePromoteRef.current) {
+                    traceIdlePromoteRef.current = true;
+                    map.once('idle', () => {
+                        traceIdlePromoteRef.current = false;
+                        try {
+                            promoteTraceLayers(map);
+                        } catch {
+                            /* map mid-teardown */
+                        }
+                    });
+                }
             } catch (e) {
                 // Usually benign: addSource/addLayer throw while the style is
                 // still doing its initial load, and the retry timer lands it.

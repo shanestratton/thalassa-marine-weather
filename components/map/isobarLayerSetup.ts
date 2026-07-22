@@ -431,6 +431,51 @@ export const NAV_LAYER_IDS = [
 ] as const;
 
 /**
+ * The TRACER's own layers, bottom-first (moveLayer with no beforeId moves to
+ * the top, so the last id listed ends up highest).
+ */
+export const TRACE_LAYER_IDS = [
+    'trace-ghost-line',
+    'trace-dest-hint-line',
+    'trace-line-glow',
+    'trace-line-core',
+    'trace-line-arrows',
+    'trace-issues-icons',
+] as const;
+
+/**
+ * Lift the tracer's render to the top of the style.
+ *
+ * SEPARATE FROM promoteNavLayers ON PURPOSE. That one is only ever called from
+ * the weather effect, which early-returns on `activeLayers.size === 0` BEFORE
+ * reaching it — so the moment no weather layer is up (which is every moment on
+ * the plan page) nothing maintains z-order at all, and the trace line sits
+ * wherever it was appended, under any ENC/imagery layer added later. The tracer
+ * has to own its own ordering rather than borrow it from a weather code path.
+ *
+ * Returns the ids left above `trace-line-core`, so the caller can tell the
+ * difference between "promoted, still buried" and "never promoted".
+ */
+export function promoteTraceLayers(map: mapboxgl.Map): string[] {
+    for (const id of TRACE_LAYER_IDS) {
+        try {
+            if (map.getLayer(id)) map.moveLayer(id);
+        } catch (_) {
+            /* layer not present — skip */
+        }
+    }
+    try {
+        const order = map.getStyle().layers.map((l) => l.id);
+        const coreAt = order.indexOf('trace-line-core');
+        if (coreAt < 0) return [];
+        const trace = new Set<string>(TRACE_LAYER_IDS);
+        return order.slice(coreAt + 1).filter((id) => !trace.has(id));
+    } catch (_) {
+        return [];
+    }
+}
+
+/**
  * Promote navigation layers above all weather layers.
  */
 export function promoteNavLayers(map: mapboxgl.Map) {
