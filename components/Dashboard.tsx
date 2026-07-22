@@ -1062,13 +1062,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     className="fixed left-0 right-0 z-[125] px-4"
                                     style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
                                 >
-                                    {/* Data-staleness / offline warning — self-hides when fresh + online */}
+                                    {/* Data-staleness / offline warning — self-hides when fresh
+                                        + online, and while any fetch is in flight.
+                                        isSyncing is staleRefresh OR isRefreshing, not
+                                        staleRefresh alone: staleRefresh only rises past the 2 h
+                                        blur threshold, so on its own it left the strip visible
+                                        for exactly the common case — switching to a saved
+                                        location whose cached report is an hour or two old. */}
                                     <StalenessBanner
                                         generatedAt={data.generatedAt}
                                         locationType={data.locationType}
                                         isOffline={isOffline}
                                         onRefresh={refreshData}
-                                        isSyncing={staleRefresh}
+                                        isSyncing={staleRefresh || !!props.isRefreshing}
                                     />
                                     <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                         <StatusBadges

@@ -33,7 +33,8 @@ interface StalenessBannerProps {
      *  them. Wiring this prop in surfaces the offline state immediately. */
     isOffline?: boolean;
     onRefresh?: () => void;
-    /** Disables the button while a refresh is in flight. */
+    /** A fetch is in flight. Hides the strip entirely (the blur is the signal
+     *  for that state) — not merely disabling the retry button as it once did. */
     isSyncing?: boolean;
 }
 
@@ -125,6 +126,26 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
 
         const isOffshore = locationType === 'offshore';
         const severity = pickSeverity(ageMin, stale, error, isOffline, isOffshore);
+
+        // While a fetch is in flight, say nothing — the blur already means
+        // "these numbers are being replaced", and two simultaneous signals for
+        // one event is what made switching locations feel broken (Shane
+        // 2026-07-22: "we still have the stale toast at the bottom ... just
+        // have the standard update blur").
+        //
+        // Switching to a saved location LOADS ITS CACHED REPORT first
+        // (WeatherContext ~line 399), and that cache is routinely over the
+        // 60-minute threshold — so the banner fired on the age of data that
+        // was already being thrown away, announcing a problem that was
+        // resolving itself.
+        //
+        // Deliberately a suppression and not a deletion: when the fetch
+        // finishes this returns, so a FAILED refresh still gets its warning,
+        // and no-network / genuinely-old data still surfaces while idle. On a
+        // boat that signal is the whole point of the strip — it is the only
+        // thing that says "you are looking at old weather and it is not
+        // getting better". The blur cannot say that; it always ends.
+        if (isSyncing) return null;
 
         if (!severity) return null;
 
