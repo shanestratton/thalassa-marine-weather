@@ -4726,6 +4726,60 @@ export const MapHub: React.FC<MapHubProps> = ({
     // chart clean.
     useNoticeLayer(mapRef, mapReady, coordCaptureMode);
 
+    /**
+     * Wind is drawn from a grid fetched for the VISIBLE viewport, so at world
+     * zoom the sampler coarsens to whole degrees and the particles stop
+     * describing anything local. Switching wind on below this now eases to it
+     * (Shane 2026-07-22: "can we make the wind layer default to zoom 7.5?").
+     * 7.5 is also past WindDataController's `currentZoom > 6` branch, so the
+     * fetch drops to 0.5 deg spacing instead of the wide-viewport fallback.
+     */
+    const WIND_DEFAULT_ZOOM = 7.5;
+
+    /**
+     * Stable identities — these used to be inline arrows in the RadialHelmMenu
+     * props, minted fresh on EVERY render. RadialHelmMenu lists both in the
+     * dependency arrays of its drag callbacks, so during wind playback (which
+     * re-renders ~10x/second as the hour advances) it was rebuilding those
+     * callbacks on every frame for no reason.
+     */
+    const windOnGuards = useCallback(
+        (layer: string) => {
+            // Wind and lightning are mutually exclusive (see the boot-time
+            // resolver below) — enforced on BOTH edges, because a one-sided
+            // guard just means whichever you tap second wins.
+            setLightningVisible(false);
+            const m = mapRef.current;
+            if (m && m.getZoom() < WIND_DEFAULT_ZOOM) {
+                try {
+                    m.easeTo({ zoom: WIND_DEFAULT_ZOOM, duration: 600 });
+                } catch {
+                    /* map mid-teardown */
+                }
+            }
+            void layer;
+        },
+        [WIND_DEFAULT_ZOOM],
+    );
+
+    const helmToggleLayer = useCallback(
+        (layer: WeatherLayer) => {
+            if ((layer === 'wind' || layer === 'velocity') && !weather.activeLayers.has(layer)) {
+                windOnGuards(layer);
+            }
+            weather.toggleLayer(layer);
+        },
+        [weather, windOnGuards],
+    );
+
+    const helmSelectInGroup = useCallback(
+        (layer: WeatherLayer, group: WeatherLayer[]) => {
+            if (layer === 'wind' || layer === 'velocity') windOnGuards(layer);
+            weather.selectInGroup(layer, group);
+        },
+        [weather, windOnGuards],
+    );
+
     // ── Lightning Strikes (Xweather GLD360) ──
     useLightningLayer(mapRef, mapReady, lightningVisible);
 
@@ -5276,16 +5330,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // onToggleLightning below when lightning does — because
                         // a one-sided guard just means whichever you tap second
                         // wins, which is the bug rather than the fix.
-                        toggleLayer={(layer) => {
-                            if ((layer === 'wind' || layer === 'velocity') && !weather.activeLayers.has(layer)) {
-                                setLightningVisible(false);
-                            }
-                            weather.toggleLayer(layer);
-                        }}
-                        selectInGroup={(layer, group) => {
-                            if (layer === 'wind' || layer === 'velocity') setLightningVisible(false);
-                            weather.selectInGroup(layer, group);
-                        }}
+                        toggleLayer={helmToggleLayer}
+                        selectInGroup={helmSelectInGroup}
                         tacticalState={{
                             aisVisible,
                             onToggleAis: () => {
