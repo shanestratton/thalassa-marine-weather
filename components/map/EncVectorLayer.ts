@@ -1656,9 +1656,31 @@ export function applyEncVisibility(map: mapboxgl.Map): void {
         if (want && st.routeFocused && (ROUTE_FOCUS_HIDE_LAYERS as readonly string[]).includes(id)) want = false;
         if (want && !st.detailed && (CHART_DETAIL_HIDE_LAYERS as readonly string[]).includes(id)) want = false;
         if (want && satOn && SATELLITE_HIDE_LAYERS.includes(id)) want = false;
+        // CLEAN OCEAN while BROWSING over imagery (Shane 2026-07-22: "the
+        // hybrid map should not show all of the bathymetry from the planning
+        // page. it should be a nice clean ocean").
+        //
+        // The glaze exists to paint keel-keyed depth bands over a photograph.
+        // That is the right answer on the PLOTTING surface, where you are
+        // choosing water to sail through, and the wrong one on the browsing
+        // chart, where it washes the whole bay white and buries the imagery
+        // the base was chosen for.
+        //
+        // Deliberately NOT added to SATELLITE_HIDE_LAYERS: that list means
+        // "chart furniture that reads as scribble over photos" (land fills,
+        // coastline) and MapHub mirrors it by import. The glaze is hidden here
+        // for a different reason and on a different condition, so it gets its
+        // own line rather than quietly changing what that list means.
+        //
+        // Depth is NOT lost on the browsing chart — soundings, the thin depth
+        // contours and the amber safety contour all still draw. What goes is
+        // the white wash, not the numbers.
+        if (want && satOn && id === ENC_VEC_LAYERS.DEPARE_GLAZE) want = false;
         if (want && isScrubHidden(id)) want = false;
         // FLOOR LAST so it outranks every subtraction above, master included:
-        // while the tracer is up, the depth read is not furniture.
+        // while the tracer is up, the depth read is not furniture. This is what
+        // hands the glaze straight back the moment plotting starts — see
+        // PLOTTING_KEEL_SAT, which is exactly [DEPARE_GLAZE].
         if (!want && st.plotting && isPlottingKeelLayer(id, satOn)) want = true;
         map.setLayoutProperty(id, 'visibility', want ? 'visible' : 'none');
     }
