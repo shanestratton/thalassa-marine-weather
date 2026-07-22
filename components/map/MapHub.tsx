@@ -2792,7 +2792,21 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the user ever touched the toggle — flipping the default alone would
     // no-op on existing devices. The bump resets everyone to ON once; new
     // toggles persist under the v2 key as usual.
-    const [encChartDetail, setEncChartDetail] = usePersistedState('thalassa_map_enc_chart_detail_v2', true);
+    //
+    // PINNED ON 2026-07-22. The only writer of this state was the legacy layer
+    // FAB's onToggleEncChartDetail, deleted in 8044e434 — so the React setter
+    // now has no callers and a persisted `false` could never be undone. That
+    // is a trap, not a preference: with detailed=false, CHART_DETAIL_HIDE_LAYERS
+    // (EncVectorLayer.ts:1657) hides DEPARE, i.e. no white water, with no UI
+    // anywhere to bring it back.
+    //
+    // Reading the stored value would strand exactly those devices. The FAB had
+    // been unreachable long before it was deleted (its own catch-22 gate), so
+    // any surviving `false` was written by a build old enough that honouring it
+    // is meaningless. Pinned to true until a real clean-chart control exists;
+    // restore usePersistedState('thalassa_map_enc_chart_detail_v2', true) at
+    // that point and give it a writer in the same commit.
+    const encChartDetail = true;
     // Live cell-count so the layer FAB shows the right "N cells imported" caption
     // and surfaces the toggle the moment the first cell lands.
     const [encCellCount, setEncCellCount] = useState(() => listEncCells().length);
@@ -4668,7 +4682,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // obstruction/wreck/rock symbols. Depth-graduated blues so
     // the user can read shoals at a glance. Mounts at zoom 7+
     // (lower zooms get the dashed coverage overlay above).
-    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM, encHazardDepthM);
+    // coordCaptureMode last: with the chart toggled off, the pipeline still
+    // has to MOUNT while the tracer is up, or the plotting keel floor has no
+    // layers to raise and the plot surface loses its depth read entirely.
+    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM, encHazardDepthM, coordCaptureMode);
     // Tracer WYSIWYG (Shane 2026-07-09 "show markers, leads, laterals
     // and cardinals"): while tracing, every mark the grader checks
     // must be ON SCREEN — laterals, cardinals, specials, lights and
@@ -5056,7 +5073,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
-                {!isPinView && !embedded && (
+                {/* Hidden while plotting: wind particles animate straight over
+                    the surface you are trying to draw a route on, and the
+                    plotting chart has to stay legible (Shane 2026-07-22, twice).
+                    coordCaptureMode is the established plotting flag (declared
+                    :426, used ~40 places).
+
+                    NARROW ON PURPOSE. 799dc4d0 gated this same line and was
+                    reverted in a484571b — not because gating wind was wrong,
+                    but because it ALSO gated the ThalassaHelixControl blocks
+                    (:7553, :7572, :7841), which stripped the legend and
+                    scrubber for EVERY weather layer and took the planning
+                    chart with it. Those three sites must stay untouched;
+                    this one line is the whole fix. */}
+                {!isPinView && !embedded && !coordCaptureMode && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}

@@ -135,6 +135,12 @@ export function useEncVectorLayer(
      *  [safety, hazard) caution band so the hand-piloting surface agrees with
      *  the router (cycle-5 re-audit). Omitted → the two-band glaze look. */
     hazardDepthM?: number,
+    /**
+     * Tracer is up. Forces the pipeline to MOUNT even with the chart toggled
+     * off, because the plotting keel floor cannot work on layers that do not
+     * exist — see the `!visible` early-return below.
+     */
+    plotting: boolean = false,
 ): void {
     const mountedRef = useRef(false);
     const [bumpCounter, setBumpCounter] = useState(0);
@@ -336,7 +342,23 @@ export function useEncVectorLayer(
             // exactly as much memory as leaving it on, and was useless as a
             // diagnostic lever. `visible` is in this effect's dep array, so
             // switching back on re-enters here and merges immediately.
-            if (!visible) {
+            // ...UNLESS the tracer is up. The plotting keel floor
+            // (EncVectorLayer.ts:1662) exists precisely so no furniture toggle
+            // can strip the depth read you are plotting against — but the
+            // composer skips layers that do not exist (`if (!map.getLayer(id))
+            // continue`, :1654), so skipping the MOUNT here silently voided
+            // that guarantee rather than merely hiding pixels.
+            //
+            // How it surfaced: ChartModes' "Clear All" preset sets enc:false
+            // and persists it, so one tap at any point in the past left the
+            // planner with no white water for good (Shane 2026-07-22: "I have
+            // lost my white areas in the water"). Worse than cosmetic — while
+            // plotting, the imagery base is forced on (MapHub.tsx:2989) and
+            // syncDepareBaseTreatment then drives the paper DEPARE to
+            // fill-opacity 0, so the glaze is the ONLY depth painter and there
+            // is no fallback. The mark re-assert kept buoys on screen, so the
+            // chart still looked populated while the soundings were gone.
+            if (!visible && !plotting) {
                 if (mountedRef.current) setEncVectorVisibility(map, false);
                 log.warn('[apply] skipped — ENC chart toggled off');
                 return;
@@ -421,7 +443,7 @@ export function useEncVectorLayer(
             if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
             else clearTimeout(handle);
         };
-    }, [mapRef, mapReady, bumpCounter, visible, chartDetail]);
+    }, [mapRef, mapReady, bumpCounter, visible, chartDetail, plotting]);
 
     // Live draft changes: re-band the depth fills + move the safety contour
     // in place (setPaintProperty/setFilter), no re-mount or re-upload. Mount
