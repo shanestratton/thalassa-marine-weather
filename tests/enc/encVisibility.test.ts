@@ -91,6 +91,67 @@ describe('ENC visibility state machine', () => {
 });
 
 /**
+ * CLEAN OCEAN vs KEEL READ — the glaze is hidden while BROWSING over imagery
+ * and handed straight back while PLOTTING. Two asks from the same day that
+ * pull in opposite directions, so the pair is pinned together:
+ *
+ *   "I have lost my white areas in the water"        (planning page — needs it)
+ *   "it should be a nice clean ocean"                (charts page — must not)
+ *
+ * Getting this backwards on either surface is a real bug: a washed-out
+ * browsing chart, or a plotting surface with no depth to plot against.
+ */
+describe('glaze over imagery: clean while browsing, present while plotting', () => {
+    beforeEach(() => localStorage.clear());
+
+    /** satelliteBaseOn() reads this key; hybrid counts as imagery via imageryOn. */
+    const imageryOn = () => localStorage.setItem('thalassa_satellite_base_v2', 'true');
+
+    it('hides the glaze on the browsing chart — the clean ocean', () => {
+        const { map, vis } = stubMap();
+        imageryOn();
+        applyEncVisibility(map);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE_GLAZE)).toBe('none');
+    });
+
+    it('keeps soundings and contours — only the white wash goes, not the numbers', () => {
+        const { map, vis } = stubMap();
+        imageryOn();
+        applyEncVisibility(map);
+        expect(vis.get(ENC_VEC_LAYERS.DEPCNT_SAFETY)).toBe('visible');
+        expect(vis.get(ENC_VEC_LAYERS.WRECKS)).toBe('visible');
+    });
+
+    it('hands the glaze BACK the moment plotting starts', () => {
+        const { map, vis } = stubMap();
+        imageryOn();
+        applyEncVisibility(map);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE_GLAZE)).toBe('none');
+        setEncPlottingMode(map, true);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE_GLAZE)).toBe('visible');
+    });
+
+    it('goes clean again on exit from plotting', () => {
+        const { map, vis } = stubMap();
+        imageryOn();
+        setEncPlottingMode(map, true);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE_GLAZE)).toBe('visible');
+        setEncPlottingMode(map, false);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE_GLAZE)).toBe('none');
+    });
+
+    it('does NOT touch the glaze on the paper chart — this rule is imagery-only', () => {
+        // With no imagery the glaze is already opacity-0 by
+        // syncDepareBaseTreatment and DEPARE carries the bands, so the
+        // visibility rule must not fire and confuse that arrangement.
+        const { map, vis } = stubMap();
+        applyEncVisibility(map);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE_GLAZE)).toBe('visible');
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('visible');
+    });
+});
+
+/**
  * The PLOTTING KEEL FLOOR — previously untested, which is how it came to be
  * silently defeated (Shane 2026-07-22: "I have lost my white areas in the
  * water" on the planning page).
