@@ -9,6 +9,7 @@ import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
 import { crumb } from '../../utils/flightRecorder';
 import { withTimeout } from '../../utils/deadline';
+import { fetchMarine, isLocalReading } from './api/marine';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveForecastModel, isConcreteModel, isSpitfire } from './forecastModels';
@@ -214,7 +215,7 @@ const _fetchWeatherByStrategyImpl = async (
         });
     };
 
-    const [unifiedResult, sgResult, tideResult, omResult] = await Promise.allSettled([
+    const [unifiedResult, sgResult, tideResult, omResult, marineResult] = await Promise.allSettled([
         // 1. Unified get-weather: single endpoint, subscription-routed
         bounded('unified', fetchUnifiedWeather(lat, lon, name, userId)),
 
@@ -231,11 +232,42 @@ const _fetchWeatherByStrategyImpl = async (
         //    serves the primary data. Carries the Glass model selection —
         //    when a model is pinned this becomes the atmospheric base.
         bounded('openmeteo', fetchOpenMeteo(lat, lon, name, false, glassModel)),
+
+        // 5. Marine from OUR OWN infra — Pi first, then Supabase. Running
+        //    ALONGSIDE StormGlass on purpose: this is the parity stage of
+        //    retiring it (Shane 2026-07-22). Nothing consumes this yet; it
+        //    only logs how the two compare, so the numbers can be checked at
+        //    sea before anything depends on them. Removing a marine source
+        //    on a boat app because the code looked right is not good enough.
+        bounded('marine', fetchMarine(lat, lon)),
     ]);
 
     // warn, not info — info is silenced in prod, and this line is the whole
     // point of the exercise. A trailing "!" marks a source that timed out.
     log.warn(`[perf] wx sources ${Date.now() - t0}ms total: ${timings.join(' ')}`);
+
+    // ── MARINE PARITY (temporary, until StormGlass is cut) ──
+    // Both sources are live; this compares them so the switch is made on
+    // measured agreement rather than on the code reading correctly. Waves are
+    // in FEET on both sides here. `snap` is how far Open-Meteo's ocean-only
+    // grid moved the request — anything over ~2 km is a reading about
+    // somewhere else and is refused as local (see isLocalReading).
+    try {
+        const mr = marineResult.status === 'fulfilled' ? marineResult.value : null;
+        const sgc = (sgResult.status === 'fulfilled' ? sgResult.value : null)?.current;
+        if (mr || sgc) {
+            const f = (v: number | null | undefined) => (v == null ? '—' : Number(v).toFixed(1));
+            log.warn(
+                `[parity] marine via=${mr?.via ?? 'none'} snap=${mr ? `${mr.snappedKm}km` : '—'}` +
+                    `${mr && !isLocalReading(mr) ? ' REFUSED(too-far)' : ''} | ` +
+                    `wave ours=${f(mr?.waveHeight)}ft sg=${f(sgc?.waveHeight)}ft | ` +
+                    `swellP ours=${f(mr?.swellPeriod)}s sg=${f(sgc?.swellPeriod)}s | ` +
+                    `sea ours=${f(mr?.waterTemperature)}C sg=${f(sgc?.waterTemperature)}C`,
+            );
+        }
+    } catch {
+        /* parity logging must never affect the report */
+    }
 
     const unifiedReport = unifiedResult.status === 'fulfilled' ? unifiedResult.value : null;
     const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
