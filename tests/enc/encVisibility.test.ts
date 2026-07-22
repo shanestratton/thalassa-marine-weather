@@ -21,6 +21,7 @@ vi.mock('../../services/enc/EncCellStore', () => ({
 import {
     applyEncVisibility,
     setEncChartDetail,
+    setEncPlottingMode,
     setEncRouteFocusMode,
     setEncVectorVisibility,
 } from '../../components/map/EncVectorLayer';
@@ -86,5 +87,72 @@ describe('ENC visibility state machine', () => {
         const { map, vis } = stubMap();
         applyEncVisibility(map);
         expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('visible');
+    });
+});
+
+/**
+ * The PLOTTING KEEL FLOOR — previously untested, which is how it came to be
+ * silently defeated (Shane 2026-07-22: "I have lost my white areas in the
+ * water" on the planning page).
+ *
+ * The floor's whole promise is that while the tracer is up, no furniture
+ * toggle may strip the depth you are plotting against. It outranks master.
+ */
+describe('plotting keel floor', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('outranks the master toggle — depth survives a chart-off plot', () => {
+        const { map, vis } = stubMap();
+        setEncVectorVisibility(map, false); // "Clear All" turns the chart off
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('none');
+        setEncPlottingMode(map, true);
+        // On the paper chart the bands live on DEPARE; the floor forces it back.
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('visible');
+        // ...along with the three that actually sink you.
+        expect(vis.get(ENC_VEC_LAYERS.WRECKS)).toBe('visible');
+        expect(vis.get(ENC_VEC_LAYERS.UWTROC)).toBe('visible');
+        expect(vis.get(ENC_VEC_LAYERS.OBSTRN)).toBe('visible');
+    });
+
+    it('lowers again on exit, handing the chart back to the user toggles', () => {
+        const { map, vis } = stubMap();
+        setEncVectorVisibility(map, false);
+        setEncPlottingMode(map, true);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('visible');
+        setEncPlottingMode(map, false);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('none'); // master is honoured again
+    });
+
+    it('outranks clean-chart too', () => {
+        const { map, vis } = stubMap();
+        setEncChartDetail(map, false); // CHART_DETAIL_HIDE_LAYERS drops DEPARE
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('none');
+        setEncPlottingMode(map, true);
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('visible');
+    });
+
+    it('CANNOT raise a layer that was never mounted — the actual regression', () => {
+        // This is the shape of the bug, and the reason the floor failed while
+        // every assertion above would still have passed. The composer skips
+        // layers that do not exist (`if (!map.getLayer(id)) continue`), so
+        // when the pipeline declined to MOUNT with the chart toggled off, the
+        // floor became a silent no-op. Hiding pixels and never creating them
+        // are not the same thing, and only the second breaks this promise.
+        //
+        // The fix is upstream in useEncVectorLayer (mount while plotting even
+        // when !visible); this pins WHY that is required, so nobody
+        // reintroduces the early return believing the floor still protects them.
+        const vis = new Map<string, string>();
+        const emptyMap = {
+            getLayer: () => undefined, // nothing mounted
+            setLayoutProperty: (id: string, _p: string, v: string) => void vis.set(id, v),
+            setPaintProperty: () => {},
+            setFilter: () => {},
+            getLayoutProperty: () => 'visible',
+        } as unknown as mapboxgl.Map;
+
+        setEncPlottingMode(emptyMap, true);
+        expect(vis.size).toBe(0); // no writes at all — the floor is powerless
+        expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBeUndefined();
     });
 });
