@@ -48,7 +48,15 @@ export const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
 //   the blur made the app feel like it was loading twice on every
 //   cold start. Lift to 2h — below that we background-refresh silently
 //   (the sync badge at the bottom already indicates the fetch).
-const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 min — refetch trigger
+/**
+ * THE staleness rule: how old a cached report may be before it is worth
+ * fetching again. Exported so the Glass's location switch answers the same
+ * question the same way — before, boot honoured this and picking a location
+ * ignored it, so tapping a port you had opened two minutes earlier still cost
+ * a full fetch (Shane 2026-07-22: "if the data is fresh, it does not need to
+ * be re-freshed, we have a rule somewhere").
+ */
+export const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 min — refetch trigger
 const BLUR_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 h — UI blur trigger
 
 export interface Coords {

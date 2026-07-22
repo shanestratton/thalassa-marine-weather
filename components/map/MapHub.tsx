@@ -3283,8 +3283,29 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // authority in stops the scrubber's restore side from fighting
                 // them every pass, which with Hybrid-default was an ~8 Hz
                 // background styledata loop over LNDARE_ISLET (audit rank 8).
+                // BROWSING FLOOR (Shane 2026-07-22: "we do not need all of the
+                // soundings, hazards etc in the chart page, too much noise").
+                //
+                // The declutter scrubber is the RIGHT lever for this — it is
+                // tiered decorative-first and carries an explicit safety floor
+                // (encDetailScrubber: depth bands, glaze, land, coastline, the
+                // safety contour, every hazard layer and the isolated-danger
+                // marks are never cut at ANY level). So a floor here cannot
+                // take away anything that sinks you; it takes labels, badges,
+                // minor marks and — via the SCAMIN bias, ~0.9 virtual zoom per
+                // step — thins the sounding field smoothly rather than
+                // blinking it off.
+                //
+                // A FLOOR, not a new default, and only while BROWSING. The
+                // scrubber only renders with the plotting card
+                // (coordCaptureMode), so raising the stored value would leave
+                // the browsing chart's density behind a control you cannot see
+                // there. This leaves the slider alone: plotting gets exactly
+                // what the skipper set, browsing never goes below the floor.
+                const BROWSE_DECLUTTER_FLOOR = 3;
+                const effectiveDeclutter = coordCaptureMode ? declutter : Math.max(declutter, BROWSE_DECLUTTER_FLOOR);
                 if (
-                    applyChartDetailLevel(map, declutter, {
+                    applyChartDetailLevel(map, effectiveDeclutter, {
                         encMasterOff: !encVisible,
                         imageryHidden: imageryOn ? IMAGERY_SCRUB_OWNED : undefined,
                     })
@@ -3335,7 +3356,17 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [satelliteVisible, hybridVisible, oceanBaseVisible, imageryOn, declutter, mapReady, encVisible, encChartDetail]);
+    }, [
+        satelliteVisible,
+        hybridVisible,
+        oceanBaseVisible,
+        imageryOn,
+        declutter,
+        mapReady,
+        encVisible,
+        encChartDetail,
+        coordCaptureMode,
+    ]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
