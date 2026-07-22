@@ -802,22 +802,24 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
                     {' '}
                     {/* Flex Root */}
-                    {/* ── STALE DATA BLUR OVERLAY ── */}
-                    {/* Triggers when data is >1hr stale (e.g. waking from overnight sleep).
-                    Blurs the entire dashboard so the punter doesn't act on outdated info. */}
+                    {/* ── STALE DATA BLUR ── */}
+                    {/* Blurs the dashboard while numbers are being replaced, so
+                        nobody reads a value that is about to change. The card
+                        ("Updating / Fetching latest conditions…") was removed
+                        2026-07-22: the fetch now lands in under 3 s, so a modal
+                        announcing itself was on screen longer than the wait it
+                        described, and it covered the very numbers it was
+                        guarding. The blur alone says "not yet" without
+                        interrupting — and it clears the instant data arrives.
+
+                        pointer-events-none throughout: the blur must never eat
+                        a tap. Nothing here is interactive any more. */}
                     {staleRefresh && (
                         <div
-                            className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none transition-all duration-300"
+                            className="absolute inset-0 z-[200] pointer-events-none transition-all duration-300"
                             style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-                        >
-                            <div className="bg-black/60 rounded-2xl px-6 py-4 flex flex-col items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
-                                <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-sm font-bold text-white/80 uppercase tracking-widest">
-                                    Updating
-                                </span>
-                                <span className="text-xs text-white/50">Fetching latest conditions…</span>
-                            </div>
-                        </div>
+                            aria-hidden="true"
+                        />
                     )}
                     {/* 2. Main Content Area */}
                     <div className="flex-1 relative w-full min-h-0">
