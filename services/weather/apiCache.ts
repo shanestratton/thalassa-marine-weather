@@ -31,6 +31,50 @@ const TTL = {
 
 export type ApiCacheProvider = keyof typeof TTL;
 
+/**
+ * Providers whose data is published on the 6-hourly synoptic model cycle
+ * (00/06/12/18Z). For these, a wall-clock TTL is the wrong shape: it either
+ * refetches data that has not changed, or sits on an old run after a new one
+ * lands. Expiring on the CYCLE instead does strictly better on both counts.
+ *
+ * StormGlass is metered and its quota is worth real money (Shane 2026-07-22:
+ * "cut the quota for stormglass as much as possible"). At the old 3 h TTL a
+ * boat sitting in one spot pulled up to 8 fetches a day for a model that only
+ * moves 4 times — so roughly half of every bill bought byte-identical data.
+ */
+const CYCLE_ALIGNED: ReadonlySet<ApiCacheProvider> = new Set(['stormglass', 'noaa_gfs']);
+
+/** Model cycle length, and how long after the cycle hour the run is available. */
+const CYCLE_MS = 6 * 60 * 60 * 1000;
+const PUBLISH_LAG_MS = 90 * 60 * 1000;
+
+/**
+ * The newest model run that could plausibly have been published by `now`.
+ * An entry stored before this is stale; an entry stored after it is the
+ * current run and cannot be improved on by refetching.
+ */
+export function currentCycleStart(now: number): number {
+    return Math.floor((now - PUBLISH_LAG_MS) / CYCLE_MS) * CYCLE_MS;
+}
+
+/**
+ * Is a cycle-aligned entry still current? True while it holds the newest run.
+ *
+ * Compares WHICH RUN the entry captured against which run is current, rather
+ * than asking whether storedAt is past the current run's hour. Those differ:
+ * an entry written at 07:24 was fetched before the 06Z run published (90 min
+ * lag) so it still holds 00Z data, even though 07:24 is "after 06:00". The
+ * naive comparison called that fresh and would have pinned yesterday's swell
+ * through the whole next cycle.
+ *
+ * Note this is FRESHER than the old 3 h TTL in the worst case — a new run is
+ * picked up as soon as it publishes rather than up to 3 h later — while
+ * costing one fetch per run instead of two.
+ */
+export function isCycleEntryFresh(storedAt: number, now: number): boolean {
+    return currentCycleStart(storedAt) === currentCycleStart(now);
+}
+
 // ── Location Key ──────────────────────────────────────────────
 
 // v2 (2026-04-24): bumped to invalidate stale tide entries that were
@@ -67,10 +111,19 @@ export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: num
         if (!raw) return null;
 
         const entry: CacheEntry<T> = JSON.parse(raw);
-        const ageMs = Date.now() - entry.storedAt;
+        const now = Date.now();
+        const ageMs = now - entry.storedAt;
         const ttl = TTL[provider];
 
-        if (ageMs > ttl) {
+        // Cycle-aligned providers ignore the wall-clock TTL: they are current
+        // until a NEWER model run publishes. The TTL above stays as a hard
+        // backstop so a clock jump or a bad storedAt can't pin an entry
+        // forever.
+        const expired = CYCLE_ALIGNED.has(provider)
+            ? !isCycleEntryFresh(entry.storedAt, now) || ageMs > CYCLE_MS + PUBLISH_LAG_MS
+            : ageMs > ttl;
+
+        if (expired) {
             localStorage.removeItem(key);
             return null;
         }
