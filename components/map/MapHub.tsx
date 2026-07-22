@@ -6067,22 +6067,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </button>
                                             </div>
                                         )}
-                                        {/* Colour key — green/amber/red were never defined
-                                anywhere (audit: punters can't tell if amber
-                                means "fine, watch it" or "don't go"). */}
-                                        {capturedCoords.length > 0 && (
-                                            <div className="flex gap-2 border-b border-white/10 px-3 py-1 text-[10px] text-gray-400">
-                                                <span>
-                                                    <span className="text-emerald-300">●</span> good water
-                                                </span>
-                                                <span>
-                                                    <span className="text-amber-300">●</span> check it
-                                                </span>
-                                                <span>
-                                                    <span className="text-red-400">●</span> no-go at low tide
-                                                </span>
-                                            </div>
-                                        )}
+                                        {/* Colour key REMOVED once pins exist (Shane 2026-07-23:
+                                "not necessary as each waypoint also tells us if we
+                                are able to go somewhere"). It was added because the
+                                colours were undefined anywhere — but that argument
+                                only held while the rows themselves said nothing.
+                                They now carry their own verdict text, so the key was
+                                restating in the abstract what the row below states in
+                                the concrete, and costing a strip of the card's
+                                scarcest asset — vertical space on a phone. The
+                                empty-state copy still carries the key, because with
+                                no pins yet there is no row to read it from. */}
                                         {/* Selected-pin editor: tap a numbered pin on the
                                 chart → delete it or splice a new pin after it
                                 (fixing pin 5 of 29 no longer costs 24 Undos). */}
