@@ -36,9 +36,32 @@ import { createLogger } from '../../../utils/createLogger';
 
 const log = createLogger('Marine');
 
-/** Beyond this the returned cell is somewhere else, not here. ~1 grid cell of
- *  slack for a legitimately coastal point; Newport's 10.7 km snap is refused. */
-const SNAP_MAX_KM = 2;
+/**
+ * Open-Meteo's marine grid spacing, degrees. Measured from live responses:
+ * a request at -26.50,153.40 answered from -26.458336,153.37502 — cell centres
+ * land on odd multiples of 1/24°, i.e. a 1/12° (~9.3 km) grid.
+ */
+const GRID_DEG = 1 / 12;
+
+/** 15% over the theoretical maximum, for grid-spacing drift and rounding. */
+const SNAP_TOLERANCE = 1.15;
+
+/**
+ * The furthest a request can legitimately be snapped: half the grid diagonal.
+ * Every point in open water is within that of some cell centre, so a LARGER
+ * snap proves the nearest cell was DRY and Open-Meteo had to reach past it —
+ * which is precisely the signal that the request was inshore.
+ *
+ * This started life as a flat 2 km and was wrong: an offshore probe legitimately
+ * snapped 5.26 km, so a flat 2 km would have refused nearly every real reading
+ * and left the app with no marine data at all. Scaled by latitude because a
+ * degree of longitude shrinks toward the poles.
+ */
+export function maxLegitimateSnapKm(lat: number): number {
+    const ns = 0.5 * GRID_DEG * 111.32;
+    const ew = ns * Math.cos((lat * Math.PI) / 180);
+    return Math.hypot(ns, ew) * SNAP_TOLERANCE;
+}
 
 /** Per-hop budget. AbortSignal is a no-op under CapacitorHttp, so this is the
  *  only thing that actually bounds these calls on device. */
@@ -67,6 +90,11 @@ export interface MarineReading {
     currentDirection: number | null;
     /** How far the answering grid cell is from the point asked for. */
     snappedKm: number;
+    /** The cell Open-Meteo actually answered from — kept so the legitimacy
+     *  threshold can be scaled to the right latitude, and so a refusal can
+     *  say WHERE the data came from. */
+    gridLat: number;
+    gridLon: number;
     /** Which machine served it — for the [perf]/parity lines. */
     via: 'pi' | 'supabase';
 }
@@ -129,13 +157,22 @@ export function mapMarine(
         })(),
         currentDirection: num(c.ocean_current_direction),
         snappedKm: parseFloat(haversineKm(reqLat, reqLon, gotLat, gotLon).toFixed(2)),
+        gridLat: gotLat,
+        gridLon: gotLon,
         via,
     };
 }
 
-/** Is this reading actually about the place that was asked for? */
-export function isLocalReading(r: MarineReading | null, maxKm = SNAP_MAX_KM): boolean {
-    return !!r && r.snappedKm <= maxKm;
+/**
+ * Is this reading actually about the place that was asked for?
+ *
+ * Compares the snap against what the grid could legitimately have done at that
+ * latitude — see maxLegitimateSnapKm. Anything further means Open-Meteo reached
+ * past a dry cell to answer, so the numbers describe open water somewhere else.
+ */
+export function isLocalReading(r: MarineReading | null, atLat?: number): boolean {
+    if (!r) return false;
+    return r.snappedKm <= maxLegitimateSnapKm(atLat ?? r.gridLat);
 }
 
 async function hop(url: string, reqLat: number, reqLon: number, via: 'pi' | 'supabase'): Promise<MarineReading | null> {
