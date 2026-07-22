@@ -14,7 +14,6 @@
  *   - useMapInit.ts        (map creation, layers, pin drop, location dot, picker)
  *   - useWeatherLayers.ts  (weather overlays, isobars, rain/wind scrubbers)
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
- *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { CompassIcon, SearchIcon } from '../Icons';
@@ -191,7 +190,6 @@ import { useDestinationFlag } from './useDestinationFlag';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
 import { RouteTrackPicker } from './RouteTrackPicker';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
-import { LayerFABMenu } from './MapHubOverlays';
 import { RadialHelmMenu } from './RadialHelmMenu';
 import { StormPicker } from './StormPicker';
 import { MapActionFabs } from './MapActionFabs';
@@ -5296,166 +5294,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     The floating top-left pill was easily missed and crowded
                     the FAB column. */}
 
-                {/* ═══ LEGACY LAYER MENU (kept for chart/SK/vessel controls not yet in radial) ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && weather.showLayerMenu && (
-                    <LayerFABMenu
-                        activeLayers={weather.activeLayers}
-                        showLayerMenu={weather.showLayerMenu}
-                        embedded={embedded}
-                        location={location}
-                        initialZoom={initialZoom}
-                        center={center}
-                        mapRef={mapRef}
-                        toggleLayer={weather.toggleLayer}
-                        onSelectSeaState={(layer) => {
-                            setSquallVisible(false);
-                            setCycloneVisible(false);
-                            weather.selectInGroup(layer, SEA_STATE_LAYERS);
-                        }}
-                        onSelectAtmosphere={(layer) => {
-                            setSquallVisible(false);
-                            setCycloneVisible(false);
-                            weather.selectInGroup(layer, ATMOSPHERE_LAYERS);
-                        }}
-                        setShowLayerMenu={weather.setShowLayerMenu}
-                        encVisible={encVisible}
-                        onToggleEnc={() => setEncVisible(!encVisible)}
-                        encCellCount={encCellCount}
-                        encChartDetail={encChartDetail}
-                        onToggleEncChartDetail={() => setEncChartDetail(!encChartDetail)}
-                        aisVisible={aisVisible}
-                        onToggleAis={() => {
-                            setAisVisible((v) => {
-                                if (!v) {
-                                    setSquallVisible(false);
-                                    setCycloneVisible(false);
-                                }
-                                return !v;
-                            });
-                        }}
-                        chokepointVisible={chokepointVisible}
-                        onToggleChokepoint={() => {
-                            setChokepointVisible((v) => {
-                                if (!v) {
-                                    setSquallVisible(false);
-                                    setCycloneVisible(false);
-                                }
-                                return !v;
-                            });
-                        }}
-                        weatherInspectMode={weatherInspectMode}
-                        onToggleWeatherInspect={() => {
-                            setWeatherInspectMode((v) => {
-                                if (!v) {
-                                    setSquallVisible(false);
-                                    setCycloneVisible(false);
-                                }
-                                return !v;
-                            });
-                            weather.setShowLayerMenu(false);
-                        }}
-                        cycloneVisible={cycloneVisible}
-                        onToggleCyclones={() => {
-                            const willBeVisible = !cycloneVisible;
-                            setCycloneVisible(willBeVisible);
-                            if (willBeVisible) {
-                                setSquallVisible(false);
-                                setAisVisible(false);
-                                setChokepointVisible(false);
-                                setSeamarkVisible(false);
-                                setTideStationsVisible(false);
-                                setWeatherInspectMode(false);
-                                weather.setActiveLayer('none');
-                            }
-                        }}
-                        cycloneStormName={closestStorm?.name ?? null}
-                        allCyclones={allCyclones}
-                        userLat={location.lat}
-                        userLon={location.lon}
-                        onSelectStorm={handleSelectStorm}
-                        squallVisible={squallVisible}
-                        onToggleSquall={() => {
-                            const willBeVisible = !squallVisible;
-                            setSquallVisible(willBeVisible);
-                            if (willBeVisible) {
-                                setCycloneVisible(false);
-                                setAisVisible(false);
-                                setChokepointVisible(false);
-                                setSeamarkVisible(false);
-                                setTideStationsVisible(false);
-                                setWeatherInspectMode(false);
-                                weather.setActiveLayer('none');
-                            }
-                        }}
-                        lightningVisible={lightningVisible}
-                        onToggleLightning={() => {
-                            setLightningVisible((v) => !v);
-                        }}
-                        vesselTrackingVisible={vesselTrackingVisible}
-                        onToggleVesselTracking={() => {
-                            setVesselTrackingVisible((v) => {
-                                if (!v) {
-                                    setSquallVisible(false);
-                                    setCycloneVisible(false);
-                                }
-                                return !v;
-                            });
-                        }}
-                        onLocateVessel={flyToVessel}
-                        skCharts={skCharts.availableCharts}
-                        skChartIds={skChartIds}
-                        skChartOpacity={skChartOpacity}
-                        skConnectionStatus={skCharts.connectionStatus}
-                        onToggleSkChart={(id: string) => selectChartExclusive('sk', id)}
-                        onSkChartOpacityChange={setSkChartOpacity}
-                        onFlyToChart={skCharts.flyToChart}
-                        seamarkVisible={seamarkVisible}
-                        onToggleSeamark={() => {
-                            setSeamarkVisible((v) => {
-                                if (!v) {
-                                    setSquallVisible(false);
-                                    setCycloneVisible(false);
-                                }
-                                return !v;
-                            });
-                        }}
-                        seamarkFeatureCount={seamark.featureCount}
-                        seamarkLoading={seamark.loading}
-                        chartsActive={chartsActive}
-                        seamarkMode={seamarkMode}
-                        tideStationsVisible={tideStationsVisible}
-                        onToggleTideStations={() => {
-                            setTideStationsVisible((v) => {
-                                if (!v) {
-                                    setSquallVisible(false);
-                                    setCycloneVisible(false);
-                                }
-                                return !v;
-                            });
-                        }}
-                        tideStationCount={tideStations.stationCount}
-                        tideStationLoading={tideStations.loading}
-                        {...(isMpaEnabled()
-                            ? {
-                                  mpaVisible: weather.mpaVisible,
-                                  onToggleMpa: () => weather.setMpaVisible(!weather.mpaVisible),
-                              }
-                            : {})}
-                        chartCatalogSources={chartCatalog.sources}
-                        onToggleChartSource={(id) => selectChartExclusive('catalog', id)}
-                        onChartSourceOpacity={chartCatalog.setOpacity}
-                        onFlyToChartSource={chartCatalog.flyToSource}
-                        onUpdateLinzKey={chartCatalog.updateLinzKey}
-                        localCharts={localCharts.availableCharts}
-                        localChartIds={localChartIds}
-                        localChartOpacity={localChartOpacity}
-                        localChartsLoading={localCharts.loading}
-                        onToggleLocalChart={(fileName: string) => selectChartExclusive('local', fileName)}
-                        onLocalChartOpacityChange={setLocalChartOpacity}
-                        onFlyToLocalChart={localCharts.flyToChart}
-                    />
-                )}
-
                 {/* Compass rose — tracer's hand tool, same surface gates. */}
                 {/* Compass rose ALWAYS shows while tracing (Shane 2026-07-17:
                     "we don't need to hide the compass" — the header toggle is
@@ -7281,33 +7119,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             initialDelayMs={2000}
                             message="The legend in the bottom-left explains every colour you see on the chart."
                         />
-                        {/* Layer-menu surface — fires the FIRST time the
-                            radial menu is opened (which sets
-                            weather.showLayerMenu=true). Explains the
-                            three category structure so users don't have
-                            to discover Sky / Tactical / Charts by tapping
-                            blindly. */}
-                        <CoachMark
-                            seenKey="thalassa_coach_layer_menu"
-                            visibleWhen={mapReady && weather.showLayerMenu}
-                            anchor="center"
-                            arrow="up"
-                            initialDelayMs={400}
-                            message="Sky for weather. Tactical for safety. Charts for navigation. Tap to switch."
-                        />
-                        {/* Chart-library hint — when the user enters the
-                            chart catalog tab specifically. They might
-                            not realise that tapping a chart enables it
-                            and tapping again switches to a different one
-                            (single-select, no hidden multi-toggle). */}
-                        <CoachMark
-                            seenKey="thalassa_coach_chart_catalog"
-                            visibleWhen={mapReady && weather.showLayerMenu && chartCatalog.sources.length > 0}
-                            anchor="bottom-left"
-                            arrow="up"
-                            initialDelayMs={2200}
-                            message="Tap any chart to load it. Tap a different one to switch — only one chart shows at a time."
-                        />
+                        {/* Two CoachMarks lived here — "Sky / Tactical / Charts"
+                            and a chart-library hint — both gated on
+                            weather.showLayerMenu. Removed 2026-07-22 with the
+                            legacy LayerFABMenu they described: that flag could
+                            never become true (its only setter was inside the
+                            menu the flag gated), so neither mark had ever
+                            fired. Their comments claimed the radial menu set
+                            the flag, which was never so — RadialHelmMenu is a
+                            separate surface. If the radial menu ever wants an
+                            intro mark, write a fresh one against ITS state. */}
                     </>
                 )}
 

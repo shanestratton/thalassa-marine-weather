@@ -7,9 +7,10 @@
  * system active but broke as soon as (say) three concurrent cyclones were
  * being tracked.
  *
- * Keeps the same styling as the legacy LayerFABMenu storm section — category
- * colour badges, wind/pressure readout, distance — so users see a consistent
- * storm chooser regardless of which FAB path they open it from.
+ * Styling — category colour badges, wind/pressure readout, distance — was
+ * inherited from the legacy LayerFABMenu's storm section, which was deleted
+ * 2026-07-22 (it had become unreachable). This is now the only storm chooser,
+ * so the look is defined here rather than matched to anything else.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
