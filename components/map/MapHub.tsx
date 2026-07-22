@@ -422,6 +422,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // turned Shane's 29 Mooloolaba taps into the shipped fairway. A ref
     // mirrors the flag so the map tap closure never reads a stale value.
     const [coordCaptureMode, setCoordCaptureMode] = useState(false);
+    /**
+     * Re-entry ticket for the trace-layer sync effect when it ran before the
+     * Mapbox object existed (cold PLAN -> map open of a saved route). Declared
+     * HERE, above that effect, because `mapReady` lives ~1300 lines further
+     * down and cannot be named in a dep array evaluated during this render.
+     * Incremented by the effect's own wait-for-map poll; never read elsewhere.
+     */
+    const [traceLayerNudge, setTraceLayerNudge] = useState(0);
     // Work-in-progress pins survive a page reload (Shane 2026-07-09: a
     // service-worker reload storm ate his half-traced route — the storm
     // is fixed, but a mid-trace deploy or crash must never cost the work
@@ -1101,8 +1109,33 @@ export const MapHub: React.FC<MapHubProps> = ({
     // passage planner). Idempotent ensure() re-adds after a basemap style
     // switch drops custom layers; styledata re-syncs.
     useEffect(() => {
+        // WAIT FOR THE MAP, don't just bail.
+        //
+        // NOT the cause of the missing trace line — that was the layer-vs-
+        // source readiness check further down, and this effect runs BEFORE the
+        // pin-marker effect, so a null map would have cost the waypoints too.
+        // A latent hole closed while in here: `return` on a null map is
+        // permanent, because the deps are all trace data and none of them
+        // change again once a saved route has loaded.
+        //
+        // It cannot simply depend on mapReady — that state is declared far
+        // BELOW this effect (~line 2790), so naming it in a dep array
+        // evaluated during render is a temporal-dead-zone reference. Hence a
+        // poll: cheap, self-cancelling, and it makes the effect correct
+        // regardless of which side of the race the map lands on.
+        //
+        // The pins survived this because they are DOM markers reconciled by a
+        // separate effect, which is exactly why the bug reads as "waypoints
+        // but no line" rather than "nothing drew".
         const map = mapRef.current;
-        if (!map) return;
+        if (!map) {
+            const waitForMap = window.setInterval(() => {
+                if (!mapRef.current) return;
+                window.clearInterval(waitForMap);
+                setTraceLayerNudge((n) => n + 1); // re-enter with a live map
+            }, 200);
+            return () => window.clearInterval(waitForMap);
+        }
         const sync = (): void => {
             try {
                 // No isStyleLoaded() gate: it idles FALSE on a quiet map
@@ -1338,15 +1371,38 @@ export const MapHub: React.FC<MapHubProps> = ({
         // ("the more waypoints I add, the slower the page becomes",
         // 2026-07-15). The listener now only re-runs sync when a basemap
         // swap actually DROPPED the sources.
+        // READINESS IS THE LAYERS, NOT THE SOURCE. This is the bug behind
+        // "pull up an already made plan, it shows the waypoints but not the
+        // line between them" (Shane 2026-07-22).
+        //
+        // sync() adds the source first and the layers second. addSource
+        // succeeds even while the style is still initialising; addLayer THROWS,
+        // and the try/catch above swallows it. Both guards below used to ask
+        // `!map.getSource('trace-line')` — which by then was FALSE. So no retry
+        // was armed, styledata never healed anything, and the trace data sat in
+        // a source with no layer to draw it. Permanently, for that mount.
+        //
+        // The pins are DOM markers on a separate effect and so were untouched,
+        // which is precisely why the symptom reads as "waypoints but no line"
+        // instead of "the trace didn't load".
+        //
+        // Checking the layers keeps the anti-churn property the source check
+        // was there for: once they exist, layersUp() is true and styledata
+        // stops triggering work, so the ~8 Hz self-feeding loop of 2026-07-15
+        // does not come back.
+        const layersUp = (): boolean =>
+            !!map.getLayer('trace-line-core') &&
+            !!map.getLayer('trace-line-glow') &&
+            !!map.getLayer('trace-issues-icons');
         const heal = (): void => {
-            if (!map.getSource('trace-line')) sync();
+            if (!layersUp()) sync();
         };
         map.on('styledata', heal);
-        // First-paint retry: if the style wasn't ready at effect time,
-        // poll briefly until the sources land, then stop.
-        const firstTry = !map.getSource('trace-line')
+        // First-paint retry: if the style wasn't ready at effect time, poll
+        // briefly until the LAYERS land, then stop.
+        const firstTry = !layersUp()
             ? window.setInterval(() => {
-                  if (map.getSource('trace-line')) {
+                  if (layersUp()) {
                       window.clearInterval(firstTry as number);
                       return;
                   }
@@ -1357,7 +1413,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.off('styledata', heal);
             if (firstTry !== null) window.clearInterval(firstTry);
         };
-    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest]);
+    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest, traceLayerNudge]);
     // START / 🏁 ghost markers for the course frame — DOM markers (they
     // survive basemap style switches), hollow rings so they can never be
     // mistaken for trace pins. Rebuilt whole on any frame change.
