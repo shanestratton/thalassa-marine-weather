@@ -4727,14 +4727,25 @@ export const MapHub: React.FC<MapHubProps> = ({
     useNoticeLayer(mapRef, mapReady, coordCaptureMode);
 
     /**
-     * Wind is drawn from a grid fetched for the VISIBLE viewport, so at world
-     * zoom the sampler coarsens to whole degrees and the particles stop
-     * describing anything local. Switching wind on below this now eases to it
-     * (Shane 2026-07-22: "can we make the wind layer default to zoom 7.5?").
-     * 7.5 is also past WindDataController's `currentZoom > 6` branch, so the
-     * fetch drops to 0.5 deg spacing instead of the wide-viewport fallback.
+     * The framing zoom for the viewport-sampled forecast overlays.
+     *
+     * Wind, currents and rain are all fetched for the VISIBLE viewport, so at
+     * world zoom the sampler coarsens to whole degrees and the field stops
+     * describing anything local. 7.5 is also past WindDataController's
+     * `currentZoom > 6` branch, so wind drops to 0.5 deg spacing instead of
+     * the wide-viewport fallback.
+     *
+     * Shane 2026-07-22: wind first, then "can we default the current to zoom
+     * 7.5 as well, also the rain".
      */
-    const WIND_DEFAULT_ZOOM = 7.5;
+    const FORECAST_LAYER_ZOOM = 7.5;
+
+    /**
+     * Layers that claim the framing zoom when switched on. 'velocity' is the
+     * legacy alias for wind — both keys must be listed or the edge is
+     * undetectable whenever the layer is stored under the older name.
+     */
+    const SNAP_ZOOM_LAYERS = useMemo<WeatherLayer[]>(() => ['wind', 'velocity', 'currents', 'rain'], []);
 
     /**
      * Stable identities — these used to be inline arrows in the RadialHelmMenu
@@ -4752,13 +4763,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
 
     /**
-     * Ease to WIND_DEFAULT_ZOOM on the OFF -> ON edge of the wind layer.
+     * Ease to FORECAST_LAYER_ZOOM on the OFF -> ON edge of wind, currents or
+     * rain.
      *
      * This lived inside the tap handlers and behaved backwards (Shane
      * 2026-07-22: "when i turn off the wind, it zooms to 7.5, but when i turn
      * it on, it doesnt change"). Two reasons, and the effect fixes both:
      *
-     *  1. helmSelectInGroup had NO on/off test — the radial menu drives wind
+     *  1. helmSelectInGroup had NO on/off test — the radial menu drives these
      *     through selectInGroup, and selecting the already-active layer turns
      *     it OFF, so every tap zoomed, including the one that killed the layer.
      *  2. helmToggleLayer's test read activeLayers BEFORE its own toggle had
@@ -4776,28 +4788,33 @@ export const MapHub: React.FC<MapHubProps> = ({
      * tolerable: it cannot fight you while you are working, because merely
      * panning or zooming with wind already on never re-triggers it.
      */
-    const windWasOnRef = useRef(false);
+    const prevSnapLayersRef = useRef<Set<string>>(new Set());
     useEffect(() => {
-        const windOn = weather.activeLayers.has('wind') || weather.activeLayers.has('velocity');
-        const wasOn = windWasOnRef.current;
-        windWasOnRef.current = windOn;
-        if (!windOn || wasOn) return; // only the off -> on edge
+        const on = new Set(SNAP_ZOOM_LAYERS.filter((k) => weather.activeLayers.has(k)));
+        const prev = prevSnapLayersRef.current;
+        prevSnapLayersRef.current = on;
+        // Fire only when one of them NEWLY appears. Comparing sets (rather
+        // than a single boolean) also catches a SWITCH between two of these
+        // layers — picking rain while wind is up is a fresh framing decision,
+        // not a continuation, and selectInGroup makes that a single tap.
+        const newlyOn = [...on].some((k) => !prev.has(k));
+        if (!newlyOn) return;
         const m = mapRef.current;
         if (!m) return;
         try {
             // A SNAP, not a floor (Shane 2026-07-22: "even if you are above
             // zoom 7.5, that it still goes to 7.5 — they can zoom in from
-            // there if they wish"). Switching wind on is a deliberate change
-            // of task, so it gets a known starting frame every time rather
-            // than one that depends on where you happened to be. Zoomed OUT
-            // it fixes the grid resolution; zoomed IN it pulls back to a
-            // viewport where a wind field is worth reading at all — a few
-            // particles across a marina say nothing.
-            m.easeTo({ zoom: WIND_DEFAULT_ZOOM, duration: 600 });
+            // there if they wish"). Switching one of these on is a deliberate
+            // change of task, so it gets a known starting frame every time
+            // rather than one that depends on where you happened to be.
+            // Zoomed OUT it fixes the grid resolution; zoomed IN it pulls back
+            // to a viewport where a forecast field is worth reading at all — a
+            // few particles across a marina say nothing.
+            m.easeTo({ zoom: FORECAST_LAYER_ZOOM, duration: 600 });
         } catch {
             /* map mid-teardown */
         }
-    }, [weather.activeLayers]);
+    }, [weather.activeLayers, SNAP_ZOOM_LAYERS, FORECAST_LAYER_ZOOM]);
 
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
