@@ -634,6 +634,40 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
     }, [fetchWeather, locationMode]);
 
+    // ── BLUR WATCHDOG ──────────────────────────────────────────
+    // The blur is only ever cleared by the orchestrator's `finally`, which
+    // means it clears only if a fetch actually STARTS. Both handlers above
+    // raise it and then defer to a setTimeout that can return without
+    // fetching — already-fetching, no location resolved, or a null GPS fix
+    // on a path with no fallback. Those leave the blur up with nothing left
+    // running to take it down.
+    //
+    // That was survivable while the overlay showed a spinner and "Updating":
+    // a stuck one still read as BUSY, which tells the punter to pull-to-
+    // refresh. A bare blur (2026-07-22, message removed at Shane's request)
+    // reads as a broken screen instead — so the failure mode got worse
+    // exactly as the affordance disappeared, and it needs a floor.
+    //
+    // Deliberately at the STATE and not at the four call sites: it also
+    // covers whatever raises the blur next.
+    //
+    // 25 s is sized off the SLOWEST LEGITIMATE path, not off a typical
+    // fetch: waking on GPS costs a 2 s settle, then getCurrentPosition at
+    // timeoutSec 10, then sources bounded at 8 s — about 20 s before a good
+    // fetch resolves. A tighter watchdog (12 s was the first guess) fires
+    // mid-flight on exactly that path and drops the blur while the numbers
+    // are still being replaced, which is the thing it exists to prevent.
+    // Late is the safe direction to err here: a stuck blur self-heals,
+    // whereas lifting early re-exposes stale numbers as if they were good.
+    useEffect(() => {
+        if (!staleRefresh) return;
+        const t = setTimeout(() => {
+            log.warn('[WeatherContext] Blur watchdog fired — clearing after 25s with no fetch completion');
+            setStaleRefresh(false);
+        }, 25_000);
+        return () => clearTimeout(t);
+    }, [staleRefresh]);
+
     // ── GPS FOLLOW — live position every 5 s, weather every 30 NM ──
     // While defaultLocation is 'Current Location' the Glass page FOLLOWS
     // the boat: position checked every 5 s; once you've drifted ≥0.5 NM
