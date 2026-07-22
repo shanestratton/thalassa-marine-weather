@@ -27,6 +27,7 @@ import {
     SEA_STATE_LAYERS,
     ATMOSPHERE_LAYERS,
     isParkedLayer,
+    LAYER_FRAME_ZOOM,
 } from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
@@ -1070,9 +1071,16 @@ export function useWeatherLayers(
         const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
 
         if (hasPressureLayer) {
-            // Pressure/synoptic — only makes sense at synoptic scale, so clamp
-            // tight around the AU+NZ view.
-            map.setMinZoom(Math.max(ausNzMin, 3));
+            // Pressure/synoptic — only makes sense at synoptic scale, so the
+            // ceiling stays tight. The FLOOR is pressure's own framing zoom
+            // (2.0), NOT the AU+NZ fit: this floor and MapHub's framing ease
+            // are two halves of one decision, and when they disagreed the
+            // floor silently won. Mapbox clamps easeTo at call time, so the
+            // old `max(ausNzMin, 3)` swallowed the 2.0 ease and tapping the
+            // pressure FAB landed at 3 — indistinguishable from the framing
+            // never firing (Shane 2026-07-23). Derived, so they cannot drift
+            // apart again.
+            map.setMinZoom(LAYER_FRAME_ZOOM.pressure ?? 2);
             map.setMaxZoom(7);
             map.setMaxBounds(undefined!);
         } else if (hasWind) {
@@ -1103,7 +1111,7 @@ export function useWeatherLayers(
         }
         prevLayerCountRef.current = layerCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapReady, embedded, activeLayers.size]);
+    }, [mapReady, embedded, activeKey]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {

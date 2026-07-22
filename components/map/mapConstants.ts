@@ -69,6 +69,38 @@ export const isParkedLayer = (k: WeatherLayer): boolean => PARKED_SEA_LAYERS.inc
 /** Atmosphere layers — mutual exclusion within group */
 export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 'temperature', 'clouds', 'pressure'];
 
+/**
+ * The framing zoom each forecast overlay claims when switched on.
+ *
+ * PER LAYER, because these fields are not read at the same scale. Wind,
+ * currents and rain are sampled for the VISIBLE viewport and describe local
+ * conditions, so they want a regional frame — 7.5 is also past
+ * WindDataController's `currentZoom > 6` branch, where wind drops to 0.5 deg
+ * spacing instead of the wide-viewport fallback.
+ *
+ * PRESSURE is the exception and gets 2.0 (Shane 2026-07-22). Isobars are a
+ * SYNOPTIC read: the useful question is where the high and the low sit and
+ * which way the gradient runs across a whole sea area. At 7.5 you are inside
+ * one isobar band looking at a couple of parallel lines, which tells you
+ * nothing a wind arrow does not.
+ *
+ * 'velocity' is the legacy alias for wind — both keys must appear or the edge
+ * is undetectable whenever the layer is stored under the older name.
+ *
+ * LIVES HERE, not in MapHub, because it has TWO consumers that must agree:
+ * MapHub eases to this zoom on the layer's off->on edge, and useWeatherLayers
+ * sets the map's minZoom floor while the layer is up. When they disagreed the
+ * floor silently won — Mapbox clamps easeTo at call time, so pressure's 2.0
+ * ease landed at the old floor of 3 and the tap looked like it did nothing.
+ */
+export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
+    wind: 7.5,
+    velocity: 7.5,
+    currents: 7.5,
+    rain: 7.5,
+    pressure: 2.0,
+};
+
 // ── Tile sources ──
 function getOwmKey(): string {
     try {

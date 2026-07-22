@@ -43,7 +43,13 @@ import { piCache } from '../../services/PiCacheService';
 import { MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 
-import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
+import {
+    type MapHubProps,
+    type WeatherLayer,
+    SEA_STATE_LAYERS,
+    ATMOSPHERE_LAYERS,
+    LAYER_FRAME_ZOOM,
+} from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
@@ -4727,35 +4733,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     useNoticeLayer(mapRef, mapReady, coordCaptureMode);
 
     /**
-     * The framing zoom each forecast overlay claims when switched on.
-     *
-     * PER LAYER, because these fields are not read at the same scale. Wind,
-     * currents and rain are sampled for the VISIBLE viewport and describe
-     * local conditions, so they want a regional frame — 7.5 is also past
-     * WindDataController's `currentZoom > 6` branch, where wind drops to
-     * 0.5 deg spacing instead of the wide-viewport fallback.
-     *
-     * PRESSURE is the exception and gets 2.0 (Shane 2026-07-22). Isobars are
-     * a SYNOPTIC read: the useful question is where the high and the low sit
-     * and which way the gradient runs across a whole sea area. At 7.5 you are
-     * inside one isobar band looking at a couple of parallel lines, which
-     * tells you nothing a wind arrow does not.
-     *
-     * 'velocity' is the legacy alias for wind — both keys must appear or the
-     * edge is undetectable whenever the layer is stored under the older name.
-     */
-    const LAYER_FRAME_ZOOM = useMemo<Partial<Record<WeatherLayer, number>>>(
-        () => ({
-            wind: 7.5,
-            velocity: 7.5,
-            currents: 7.5,
-            rain: 7.5,
-            pressure: 2.0,
-        }),
-        [],
-    );
-
-    /**
      * Stable identities — these used to be inline arrows in the RadialHelmMenu
      * props, minted fresh on EVERY render. RadialHelmMenu lists both in the
      * dependency arrays of its drag callbacks, so during wind playback (which
@@ -4821,7 +4798,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         } catch {
             /* map mid-teardown */
         }
-    }, [weather.activeLayers, LAYER_FRAME_ZOOM]);
+        // LAYER_FRAME_ZOOM is a module constant now (mapConstants) — shared
+        // with useWeatherLayers' minZoom floor, and not a valid dependency.
+    }, [weather.activeLayers]);
 
     const helmToggleLayer = useCallback(
         (layer: WeatherLayer) => {
