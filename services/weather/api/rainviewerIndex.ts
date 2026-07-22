@@ -21,6 +21,10 @@
  *     decoding inline
  */
 import { piCache } from '../../PiCacheService';
+import { withTimeout } from '../../../utils/deadline';
+import { createLogger } from '../../../utils/createLogger';
+
+const log = createLogger('rainviewerIndex');
 
 export interface RainViewerFrame {
     path: string;
@@ -69,12 +73,33 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
             const fetchUrl = piUrl ?? URL;
             // 'default' lets the browser do its own conditional GET if
             // RainViewer's response carries cache-control headers.
-            const res = await fetch(fetchUrl, { cache: 'default' });
-            if (!res.ok) return null;
+            //
+            // BOUNDED. This is the fetch the whole rain layer waits on before
+            // it can paint anything, and it had no timeout and no signal — and
+            // per utils/deadline.ts, CapacitorHttp ignores AbortSignal on the
+            // native build, so the effective ceiling was the native default of
+            // ten minutes. A stalled marine-LTE socket, or a Pi that probed
+            // reachable and then went out of range, pinned rain on "loading"
+            // for the rest of the passage. 6s is generous for a small JSON and
+            // still short enough to feel like a failure rather than a hang.
+            const res = await withTimeout(fetch(fetchUrl, { cache: 'default' }), null, 6000);
+            if (!res) {
+                log.warn('[rainviewer] index timed out — no radar frames this pass');
+                return null;
+            }
+            if (!res.ok) {
+                log.warn(`[rainviewer] index HTTP ${res.status} — no radar frames this pass`);
+                return null;
+            }
             const data = (await res.json()) as RainViewerIndex;
             memo = { at: Date.now(), data };
             return data;
-        } catch {
+        } catch (e) {
+            // Was a bare `return null`. The caller then drew an empty rain
+            // layer and reported it healthy, so a dead radar feed looked
+            // exactly like clear skies with nothing in the console to say
+            // otherwise. warn(), not info() — info is a no-op in prod builds.
+            log.warn('[rainviewer] index fetch failed', e);
             return null;
         } finally {
             inflight = null;
