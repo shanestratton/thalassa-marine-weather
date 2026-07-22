@@ -169,6 +169,28 @@ export const mapStormGlassToReport = (
         return typeof val === 'number' ? val : null;
     };
 
+    // ── Unit conversion that PRESERVES ABSENCE ──────────────────────────
+    // Marine fields used `?? 0` before a unit multiply, which turned "the
+    // provider has no coverage here" into a confident 0.0 — flat seas and
+    // slack water on a go/no-go screen. types/weather.ts:172-176 already
+    // spells out the contract these violated: null "is distinct from 0 which
+    // means 'calm seas'. UIs should render '—' for null, never coerce to 0."
+    //
+    // The fabricated 0 also travelled: it passes the `!= null` merge guards
+    // in services/weather/index.ts, so it OVERWROTE real WeatherKit wave data
+    // with zero and then stamped the source as StormGlass — the UI attributed
+    // an invented reading to a named provider. openmeteo.ts:448-452 already
+    // returns null here for exactly this reason; this file was the outlier.
+    //
+    // Two variants only because the call sites rounded inconsistently, and
+    // matching each keeps this change null-handling ONLY, with no shift in
+    // any displayed precision.
+    /** Scale, rounded to 1dp. null in → null out. */
+    const scale1 = (v: number | null, factor: number): number | null =>
+        v === null ? null : parseFloat((v * factor).toFixed(1));
+    /** Scale, unrounded. null in → null out. */
+    const scale = (v: number | null, factor: number): number | null => (v === null ? null : v * factor);
+
     // Cast properties to compatible types for helpers
     // StormGlassHour keys are string | number | StormGlassValue...
     const wSpeed = getBest(currentHour.windSpeed as MultiSourceField) * 1.94384;
@@ -212,8 +234,8 @@ export const mapStormGlassToReport = (
         windGust: parseFloat(wGust.toFixed(1)),
         windDirection: degreesToCardinal(wDir),
         windDegree: wDir,
-        waveHeight: parseFloat(((getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084).toFixed(1)),
-        swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField) ?? 0,
+        waveHeight: scale1(getVal(currentHour.waveHeight as MultiSourceField), 3.28084),
+        swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField),
         swellDirection: degreesToCardinal(getVal(currentHour.waveDirection as MultiSourceField) ?? 0),
         secondarySwellHeight: (() => {
             const v = getVal(currentHour.secondarySwellHeight as MultiSourceField);
@@ -231,7 +253,11 @@ export const mapStormGlassToReport = (
         humidity: hum,
         uvIndex: curUV,
         condition: finalCondition,
-        description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(getVal(currentHour.windDirection as MultiSourceField) ?? 0), (getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084)}  `,
+        // Wave passed as null-when-absent: generateDescription's 4th parameter
+        // is already `number | null` and guards on it, so `?? 0` was fighting
+        // its own signature. Same text either way (0 fails its `> 2` gate),
+        // but it no longer claims a measurement it does not have.
+        description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(getVal(currentHour.windDirection as MultiSourceField) ?? 0), scale(getVal(currentHour.waveHeight as MultiSourceField), 3.28084))}  `,
         day: 'Today',
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
@@ -244,7 +270,7 @@ export const mapStormGlassToReport = (
         moonPhase: astro?.[0]?.moonPhase?.current?.text,
         moonPhaseValue: astro?.[0]?.moonPhase?.current?.value,
         moonIllumination: astro?.[0]?.moonFraction,
-        currentSpeed: parseFloat(((getVal(currentHour.currentSpeed as MultiSourceField) ?? 0) * 1.94384).toFixed(1)),
+        currentSpeed: scale1(getVal(currentHour.currentSpeed as MultiSourceField), 1.94384),
         currentDirection: (() => {
             const val = getVal(currentHour.currentDirection as MultiSourceField);
             if (val === null || val === 0) return undefined;
@@ -266,7 +292,7 @@ export const mapStormGlassToReport = (
             windSpeed: windKts,
             windDirection: degreesToCardinal(windDeg),
             windDegree: windDeg,
-            currentSpeed: parseFloat(((getVal(h.currentSpeed as MultiSourceField) ?? 0) * 1.94384).toFixed(1)),
+            currentSpeed: scale1(getVal(h.currentSpeed as MultiSourceField), 1.94384),
             currentDirection: (() => {
                 const val = getVal(h.currentDirection as MultiSourceField);
                 if (val === null || val === 0) return undefined;
@@ -276,7 +302,7 @@ export const mapStormGlassToReport = (
             visibility: (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957,
             humidity: getVal(h.humidity as MultiSourceField) ?? 0,
             windGust: (getVal(h.gust as MultiSourceField) ?? 0) * 1.94384,
-            waveHeight: (getVal(h.waveHeight as MultiSourceField) ?? 0) * 3.28084,
+            waveHeight: scale(getVal(h.waveHeight as MultiSourceField), 3.28084),
             temperature: getVal(h.airTemperature as MultiSourceField) ?? 0,
             pressure: getVal(h.pressure as MultiSourceField) ?? 0,
             precipitation: getVal(h.precipitation as MultiSourceField) ?? 0,
@@ -287,7 +313,8 @@ export const mapStormGlassToReport = (
                 checkIsDay(new Date(h.time), lat, lon),
             ),
             isEstimated: false,
-            swellPeriod: getVal(h.wavePeriod as MultiSourceField) ?? 0,
+            // null, not 0 — a "0 second" swell period is not a reading.
+            swellPeriod: getVal(h.wavePeriod as MultiSourceField),
             secondarySwellHeight: (() => {
                 const v = getVal(h.secondarySwellHeight as MultiSourceField);
                 return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
@@ -323,6 +350,14 @@ export const mapStormGlassToReport = (
             let maxWind = 0,
                 maxGust = 0,
                 maxWave = 0;
+            // Counted, not null-seeded: 0 is a REAL reading ("calm"), so a day
+            // where no hour carried a wave figure must report absence rather
+            // than flat seas. A `number | null` accumulator reads better but
+            // TypeScript narrows it to `null` here — assignment happens inside
+            // the forEach callback below, which its control-flow analysis does
+            // not track — making the emit branch `never`. The count matches
+            // the waterTempCount idiom already used a few lines down.
+            let waveCount = 0;
             let totalPrecip = 0,
                 totalCloud = 0,
                 totalPress = 0;
@@ -330,7 +365,8 @@ export const mapStormGlassToReport = (
                 totalVis = 0;
             let totalWaterTemp = 0,
                 waterTempCount = 0;
-            let maxCurrentSpeed = 0;
+            let maxCurrentSpeed = 0,
+                currentSpeedCount = 0;
             let currentDirVectorX = 0,
                 currentDirVectorY = 0,
                 currentDirCount = 0;
@@ -358,8 +394,11 @@ export const mapStormGlassToReport = (
                     _windDirCount++;
                 }
 
-                const wh = (getVal(h.waveHeight as MultiSourceField) ?? 0) * 3.28084;
-                if (wh > maxWave) maxWave = wh;
+                const wh = scale(getVal(h.waveHeight as MultiSourceField), 3.28084);
+                if (wh !== null) {
+                    waveCount++;
+                    if (wh > maxWave) maxWave = wh;
+                }
 
                 totalPrecip += getVal(h.precipitation as MultiSourceField) ?? 0;
                 totalCloud += getVal(h.cloudCover as MultiSourceField) ?? 0;
@@ -373,8 +412,11 @@ export const mapStormGlassToReport = (
                     waterTempCount++;
                 }
 
-                const cs = (getVal(h.currentSpeed as MultiSourceField) ?? 0) * 1.94384;
-                if (cs > maxCurrentSpeed) maxCurrentSpeed = cs;
+                const cs = scale(getVal(h.currentSpeed as MultiSourceField), 1.94384);
+                if (cs !== null) {
+                    currentSpeedCount++;
+                    if (cs > maxCurrentSpeed) maxCurrentSpeed = cs;
+                }
 
                 const cd = getVal(h.currentDirection as MultiSourceField);
                 if (cd) {
@@ -420,7 +462,7 @@ export const mapStormGlassToReport = (
                 lowTemp: parseFloat(minT.toFixed(1)),
                 windSpeed: parseFloat(maxWind.toFixed(1)),
                 windGust: parseFloat(maxGust.toFixed(1)),
-                waveHeight: parseFloat(maxWave.toFixed(1)),
+                waveHeight: waveCount > 0 ? parseFloat(maxWave.toFixed(1)) : null,
                 condition: getCondition(avgCloud, totalPrecip, true),
                 precipitation: parseFloat(totalPrecip.toFixed(1)),
                 uvIndex: maxUV,
@@ -433,7 +475,10 @@ export const mapStormGlassToReport = (
                 visibility: parseFloat((totalVis / dayHours.length).toFixed(1)),
                 waterTemperature:
                     waterTempCount > 0 ? parseFloat((totalWaterTemp / waterTempCount).toFixed(1)) : undefined,
-                currentSpeed: parseFloat(maxCurrentSpeed.toFixed(1)),
+                // undefined, not null: ForecastDay.currentSpeed is `number?`
+                // (types/weather.ts:190) while waveHeight above is `number | null`.
+                // Both read as absent at every consumer, which checks `!= null`.
+                currentSpeed: currentSpeedCount > 0 ? parseFloat(maxCurrentSpeed.toFixed(1)) : undefined,
                 currentDirection: Math.round(avgCurrentDir),
                 precipLabel: getPrecipitationLabelV2(null, totalPrecip).label,
                 precipValue: getPrecipitationLabelV2(null, totalPrecip).value,

@@ -369,24 +369,6 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const isCacheValid =
                 cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
-            // Blur decision is based on what's CURRENTLY on screen, not
-            // whether historyCache has an entry for this location string.
-            // The old logic was firing the blur on every cold start
-            // because the location name re-derived from GPS often didn't
-            // match the historyCache key → cache "miss" → needsBlur=true
-            // → big "Updating" overlay on top of perfectly-fresh data.
-            //
-            // New logic: if the user is seeing weather < 2h old, silent
-            // background refresh (no blur). Only blur if what's on
-            // screen is genuinely stale enough to be dangerous to act on.
-            const BLUR_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
-            const currentAge = weatherDataRef.current?.generatedAt
-                ? Date.now() - new Date(weatherDataRef.current.generatedAt).getTime()
-                : Infinity;
-            const needsBlur = currentAge >= BLUR_THRESHOLD_MS;
-
-            if (needsBlur && weatherDataRef.current) setStaleRefresh(true);
-
             // Does what's on screen belong to somewhere ELSE? App.tsx builds
             // the Glass title as `weatherData.locationName`, preferring it
             // over the name the user just tapped — so until the new report
@@ -395,6 +377,41 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             // (Shane 2026-07-22), and it is not the network: the sources now
             // return in 0.4-2.7 s.
             const showingAnotherPlace = isShowingAnotherPlace(weatherDataRef.current?.locationName, location);
+
+            // ── BLUR DECISION ───────────────────────────────────────────
+            // Ask what will be ON SCREEN WHILE THE FETCH RUNS, not merely
+            // what was there before it started. Those differ, and the gap
+            // was the bug (Shane 2026-07-22: a new location and a stale
+            // saved one both updated with no blur, and the stale one kept
+            // its toast).
+            //
+            // Two things were wrong:
+            //
+            // 1. It measured `weatherDataRef.current` — the OUTGOING report.
+            //    Selecting a saved location immediately swaps in that
+            //    location's CACHED report (just below), which can be far
+            //    older than what it replaced. A fresh screen plus a stale
+            //    cache scored "no blur" and then displayed stale numbers.
+            //
+            // 2. The threshold was 2 h while StalenessBanner warns from
+            //    60 min (coastal). Everything in between showed the toast
+            //    with no blur to explain it — exactly the state reported.
+            //    One constant now drives both, so they cannot disagree.
+            const BLUR_THRESHOLD_MS = 60 * 60 * 1000;
+            const ageOf = (iso?: string) => (iso ? Date.now() - new Date(iso).getTime() : Infinity);
+            const onScreenAge = isCacheValid
+                ? ageOf(cached?.generatedAt) // the cache we are about to show
+                : showingAnotherPlace
+                  ? Infinity // stub/skeleton — no reading for this place yet
+                  : ageOf(weatherDataRef.current?.generatedAt);
+
+            // Switching place ALWAYS blurs, however fresh the cache: those
+            // numbers describe somewhere else until the new report lands.
+            const needsBlur = showingAnotherPlace || onScreenAge >= BLUR_THRESHOLD_MS;
+
+            // Guard stays: with nothing on screen there is nothing to blur,
+            // and cold boot has its own full-screen loader.
+            if (needsBlur && weatherDataRef.current) setStaleRefresh(true);
 
             if (isCacheValid) {
                 setWeatherData(cached);
