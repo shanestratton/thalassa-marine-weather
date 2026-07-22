@@ -7136,19 +7136,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <ConnectivityChip visible={!passage.showPassage && !embedded && !isPinView} />
 
                 {/* Bottom-left legend stack. flex-col-reverse → first child
-                    sits at the bottom of the column. When any weather layer
-                    is active, ThalassaHelixControl / LegendDock occupies the
-                    bottom-left corner with a ~140px-tall vertical legend bar;
-                    lift the stack above that whole control to keep both
-                    readable. */}
+                    sits at the bottom of the column.
+
+                    The offset clears whatever the weather controls are
+                    occupying below. It used to be a flat 240px for ANY active
+                    layer, which was both wrong and wasteful: wrong because the
+                    legend bar (expanded, ~160px on top of an 80px anchor)
+                    reached 240px itself and the stack landed right on it, and
+                    wasteful because 240px was reserved even for layers that
+                    show no model selector at all.
+
+                    Now the legends collapse to 44px chips by default
+                    (ThalassaHelixControl / LegendDock), so the only tall thing
+                    left down there is WindModelFieldSelector — and that renders
+                    for WIND only, at 132px rising to ~222px. So: clear it when
+                    wind is up, otherwise sit just above the collapsed chip.
+                    Shane 2026-07-22, on the pile-up and the lost real estate. */}
                 {(lightningVisible || squallVisible) && (
                     <div
                         className="fixed left-2 z-[140] flex flex-col-reverse gap-2 pointer-events-none"
                         style={{
-                            bottom:
-                                weather.activeLayers.size > 0
-                                    ? 'calc(env(safe-area-inset-bottom) + 240px)'
-                                    : 'max(96px, calc(env(safe-area-inset-bottom) + 80px))',
+                            bottom: weather.activeLayers.has('wind')
+                                ? 'calc(env(safe-area-inset-bottom) + 240px)'
+                                : weather.activeLayers.size > 0
+                                  ? 'calc(env(safe-area-inset-bottom) + 140px)'
+                                  : 'max(96px, calc(env(safe-area-inset-bottom) + 80px))',
                         }}
                     >
                         <BlitzortungAttribution visible={lightningVisible} />

@@ -228,7 +228,22 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         const lastAppliedRef = useRef(-1);
         const rafRef = useRef<number | null>(null);
         const lastTapRef = useRef(0); // For double-tap detection
-        const [showLegend, setShowLegend] = useState(true);
+        // COLLAPSED BY DEFAULT (Shane 2026-07-22: opening the weather controls
+        // made the bottom "an absolute shit show ... everything is on top of
+        // each other ... we are losing the actual screen real estate").
+        //
+        // Expanded, this bar is ~160px tall and sits in the bottom-LEFT column
+        // anchored at 80px — so it reaches up to ~240px, which is exactly where
+        // MapHub parks the lightning/squall stack (MapHub.tsx, bottom 240px
+        // once any weather layer is active). The two were guaranteed to touch,
+        // and with the model selector occupying 132-222px centred, the whole
+        // corner became three panels fighting for the same 160px.
+        //
+        // Collapsed it is a 44px icon chip, so the column ends at ~124px and
+        // nothing collides. One tap brings the ramp back for the rare moment
+        // someone wants to read exact colours — which is not while they are
+        // scrubbing a forecast, and not on first open.
+        const [showLegend, setShowLegend] = useState(false);
 
         const config = activeLayer ? LAYER_CONFIGS[activeLayer] : null;
         const maxFrame = Math.max(0, totalFrames - 1);
@@ -584,8 +599,40 @@ export interface LegendDockProps {
 }
 
 export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded }) => {
+    // Collapsed by default, matching ThalassaHelixControl's legend — and more
+    // important here, because this renders ONE ~160px bar PER LAYER. With two
+    // layers up it filled the bottom-left corner twice over, directly under
+    // the lightning/squall stack and beside the model selector. That is the
+    // pile-up reported on 2026-07-22.
+    const [expanded, setExpanded] = useState(false);
     const validLayers = layers.filter((l): l is NonNullable<HelixLayer> => !!l && !!LAYER_CONFIGS[l]);
     if (validLayers.length === 0) return null;
+
+    if (!expanded) {
+        return (
+            <div
+                className="absolute z-[500] flex items-end gap-2 animate-in fade-in duration-200"
+                style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+            >
+                {validLayers.map((layer) => (
+                    <button
+                        key={layer}
+                        onClick={() => setExpanded(true)}
+                        className="w-11 h-11 flex items-center justify-center rounded-xl transition-colors"
+                        style={{
+                            background: 'rgba(15, 23, 42, 0.75)',
+                            backdropFilter: 'blur(16px)',
+                            WebkitBackdropFilter: 'blur(16px)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                        aria-label={`Show ${LAYER_CONFIGS[layer]?.label ?? layer} legend`}
+                    >
+                        <span className="text-sm">{LAYER_CONFIGS[layer]?.icon}</span>
+                    </button>
+                ))}
+            </div>
+        );
+    }
 
     return (
         <div
@@ -599,8 +646,10 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
                 const config = LAYER_CONFIGS[layer];
                 if (!config) return null;
                 return (
-                    <div
+                    <button
                         key={layer}
+                        onClick={() => setExpanded(false)}
+                        aria-label={`Hide ${config.label} legend`}
                         className="flex flex-col items-center gap-1"
                         style={{
                             background: 'rgba(15, 23, 42, 0.75)',
@@ -619,7 +668,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
                         <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/[0.04]">
                             <span className="text-sm">{config.icon}</span>
                         </div>
-                    </div>
+                    </button>
                 );
             })}
         </div>
