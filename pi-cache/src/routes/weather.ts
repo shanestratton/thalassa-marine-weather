@@ -82,18 +82,53 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
 
     /**
      * GET /api/weather/marine?lat=X&lon=Y
-     * Marine-specific: swell, wave height, wave period, sea surface temp.
+     * Marine-specific: waves, swell (primary + secondary), sea surface temp,
+     * ocean current. Upstream is Open-Meteo's marine grid via the customer key
+     * the Pi already holds — no new third party, and it is what lets StormGlass
+     * go once the client consumes this.
+     *
+     * TWO TRAPS for anyone mapping this response:
+     *   - ocean_current_velocity is km/h, NOT m/s. StormGlass reports m/s.
+     *   - the marine grid is ocean-only. Open-Meteo SNAPS an inshore request
+     *     to the nearest wet cell and answers confidently from there, so the
+     *     caller MUST check the echoed latitude/longitude against what it
+     *     asked for before trusting the numbers.
      */
     router.get('/marine', async (req: Request, res: Response) => {
         try {
             const { lat, lon } = req.query;
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
-            const key = `weather:marine:${lat}:${lon}`;
+            // Round to 2dp like /combined does (~1 km grid). Without it, GPS
+            // drift on a moored boat produced a new cache key on every request
+            // and this route could never serve a HIT.
+            const rlat = parseFloat(parseFloat(lat as string).toFixed(2));
+            const rlon = parseFloat(parseFloat(lon as string).toFixed(2));
+            if (!isFinite(rlat) || !isFinite(rlon)) {
+                return res.status(400).json({ error: 'lat/lon must be numeric' });
+            }
+
+            const key = `weather:marine:${rlat}:${rlon}`;
+            // sea_surface_temperature was in the docstring but NOT the query —
+            // water temp has only ever come from StormGlass. Added here, with
+            // secondary swell, so this route can actually stand in for it.
+            //
+            // The response ALWAYS echoes the grid point Open-Meteo snapped to;
+            // the client must compare it against the request (see the marine
+            // client's snap guard). Measured at Newport: a request 10.7 km
+            // inside Moreton Bay came back as confident open-water waves from
+            // a point out in the bay, with no null and no warning. That is the
+            // exact failure the sheltered-water damping exists to correct, so
+            // the snap distance has to travel with the data.
             const url = openMeteoUrl(
                 config,
                 'marine',
-                `latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,ocean_current_velocity,ocean_current_direction&current=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height`,
+                `latitude=${rlat}&longitude=${rlon}` +
+                    `&hourly=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,` +
+                    `swell_wave_height,swell_wave_direction,swell_wave_period,secondary_swell_wave_height,secondary_swell_wave_period,` +
+                    `sea_surface_temperature,ocean_current_velocity,ocean_current_direction` +
+                    `&current=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_period,` +
+                    `sea_surface_temperature,ocean_current_velocity,ocean_current_direction`,
             );
 
             const result = await cachedJsonFetch(cache, {
