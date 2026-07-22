@@ -1282,9 +1282,33 @@ export const MapHub: React.FC<MapHubProps> = ({
                             },
                         });
                     }
+                }
+                // THE LINE GOES DOWN FIRST — before ANY verdict-shaped input is
+                // touched. It used to be pushed after the issue loop below, and
+                // the whole of sync() sits in one bare catch, so a single throw
+                // in that loop left the layers up and the trace-line source
+                // EMPTY. `layersUp()` was then true, which is precisely the
+                // condition that switches the styledata heal and the retry
+                // interval off — so it never recovered, for the life of that
+                // mount. The pins are DOM markers on a separate effect and were
+                // untouched, which is why it reads as "waypoints but no line"
+                // rather than "the trace didn't load", and why 25b16f5d's
+                // layer-readiness fix could not reach it: that commit made the
+                // LAYERS exist, which is the very thing that disarms the retry.
+                //
+                // Ordering is the fix, not a try/catch: the line is the payload,
+                // the ⚠ markers are decoration, and decoration must never be
+                // able to take the payload down with it.
+                (map.getSource('trace-line') as mapboxgl.GeoJSONSource).setData({
+                    type: 'FeatureCollection',
+                    features: feats as never,
+                });
+                if (coordCaptureMode) {
                     for (const v of legVerdicts) {
                         if (!v) continue; // pending slot — still grading
-                        for (const iss of v.issues) {
+                        // `?? []` — a verdict rehydrated from an older persisted
+                        // shape can reach here without `issues`.
+                        for (const iss of v.issues ?? []) {
                             if (!iss.at) continue;
                             if (iss.severity === 'info') continue; // green confirmation → no ⚠ on the chart
                             issueFeats.push({
@@ -1295,10 +1319,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }
                     }
                 }
-                (map.getSource('trace-line') as mapboxgl.GeoJSONSource).setData({
-                    type: 'FeatureCollection',
-                    features: feats as never,
-                });
                 (map.getSource('trace-issues') as mapboxgl.GeoJSONSource).setData({
                     type: 'FeatureCollection',
                     features: issueFeats as never,
@@ -1359,8 +1379,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                           ]
                         : []) as never,
                 });
-            } catch {
-                /* style mid-initial-load — the retry timer lands it */
+            } catch (e) {
+                // Usually benign: addSource/addLayer throw while the style is
+                // still doing its initial load, and the retry timer lands it.
+                // LOGGED ANYWAY, because a throw here is also the failure mode
+                // above, and a bare catch left no way to tell the two apart —
+                // which is why "waypoints but no line" has been diagnosed from
+                // first principles three times. warn(), not info(): createLogger
+                // no-ops info in prod, so info would never reach the Xcode
+                // console on a device build, which is the only place this bug
+                // has ever been seen.
+                log.warn('[trace] sync failed — line may be unpainted', e);
             }
         };
         sync();
@@ -4580,7 +4609,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Route Nudge removed — see import note above.
 
     // ── Weather Layers ──
-    const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
+    const weather = useWeatherLayers(mapRef, mapReady, embedded, location, coordCaptureMode);
     weatherRef.current = weather;
 
     // ── Clear weather layers + Follow Route when passage mode activates ──
@@ -4820,8 +4849,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         [weather, windOnGuards],
     );
 
-    // ── Lightning Strikes (Xweather GLD360) ──
-    useLightningLayer(mapRef, mapReady, lightningVisible);
+    // ── Lightning Strikes (Blitzortung) ──
+    // Off while plotting, same reasoning as the weather overlays: strike glyphs
+    // are chart-browsing furniture and they land straight on top of the route.
+    // Gated at the VISIBLE flag, never at `lightningVisible` itself, so the
+    // punter's persisted toggle comes back with the browsing chart.
+    useLightningLayer(mapRef, mapReady, lightningVisible && !coordCaptureMode);
 
     // Resolve the wind/lightning exclusion ONCE AT BOOT.
     //
@@ -5167,7 +5200,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!isPinView) return;
         // Snapshot
         savedLayersRef.current = {
-            weather: new Set(weather.activeLayers),
+            // userLayers, not activeLayers — the latter reads empty under any
+            // suppressing surface, and this snapshot is restored on exit.
+            weather: new Set(weather.userLayers),
             cyclone: cycloneVisible,
             squall: squallVisible,
         };

@@ -9,7 +9,7 @@
  * static tile overlays, velocity).
  */
 
-import { useState, useRef, useEffect, useCallback, type MutableRefObject } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WeatherLayers');
@@ -81,6 +81,15 @@ export function useWeatherLayers(
     mapReady: boolean,
     embedded: boolean,
     location: { lat: number; lon: number },
+    /**
+     * PLAN PAGE (the tracer, MapHub's `coordCaptureMode`). The plan surface and
+     * the browsing chart are ONE MapHub instance — nothing unmounts between
+     * them — so without this every overlay the punter left on simply keeps
+     * painting over the route they are trying to draw (Shane 2026-07-23: "any
+     * layer that is on in the charts page, shows up on the planning page ... we
+     * need our layer to show through").
+     */
+    planMode = false,
 ) {
     const windState = useWindStore();
 
@@ -89,7 +98,11 @@ export function useWeatherLayers(
     // Persisted to localStorage so selection survives app restart.
     const MAX_LAYERS = 4;
     const STORAGE_KEY = 'thalassa_active_layers';
-    const [activeLayers, setActiveLayers] = useState<Set<WeatherLayer>>(() => {
+    /**
+     * THE PUNTER'S SELECTION — persisted, and the only thing the toggles write.
+     * Distinct from `activeLayers` below, which is what is actually PAINTED.
+     */
+    const [userLayers, setUserLayers] = useState<Set<WeatherLayer>>(() => {
         try {
             return restoreActiveLayers(localStorage.getItem(STORAGE_KEY));
         } catch {
@@ -97,9 +110,27 @@ export function useWeatherLayers(
         }
     });
 
+    /**
+     * WHAT IS ON THE MAP. Empty while plotting, so every add/remove effect below
+     * tears its layer down through the SAME path it already uses when you switch
+     * a layer off by hand — no second teardown to keep in sync.
+     *
+     * DERIVED, NEVER ASSIGNED. The obvious implementation is to snapshot and
+     * `setActiveLayer('none')` on entry (which is what the pin-view suppressor
+     * at MapHub.tsx:5166 does), but the persistence effect below writes on EVERY
+     * change and `restoreActiveLayers` honours a stored "[]" as a deliberate
+     * all-off. So a mutating suppressor writes "[]" to localStorage the moment
+     * you start plotting, and a crash or force-quit mid-plot costs the punter
+     * their whole chart selection permanently. Deriving cannot do that: the
+     * suppression exists only for the render pass, and `userLayers` — the thing
+     * that gets persisted — is never touched.
+     */
+    const EMPTY_LAYERS = useMemo(() => new Set<WeatherLayer>(), []);
+    const activeLayers = planMode ? EMPTY_LAYERS : userLayers;
+
     // Toggle a layer on/off. 'none' clears all layers.
     const toggleLayer = useCallback((layer: WeatherLayer) => {
-        setActiveLayers((prev) => {
+        setUserLayers((prev) => {
             if (layer === 'none') return new Set<WeatherLayer>();
             const next = new Set(prev);
             if (next.has(layer)) {
@@ -139,7 +170,7 @@ export function useWeatherLayers(
     // Select a layer with mutual exclusion within its group.
     // Other layers in the same group are turned off; cross-group layers stay.
     const selectInGroup = useCallback((layer: WeatherLayer, group: WeatherLayer[]) => {
-        setActiveLayers((prev) => {
+        setUserLayers((prev) => {
             const next = new Set(prev);
             // Remove other layers in the same group
             for (const g of group) {
@@ -157,13 +188,17 @@ export function useWeatherLayers(
     // as the first-run default, "no key" and "user turned everything off"
     // would otherwise be indistinguishable and every all-off would bounce
     // back to wind on the next launch.
+    //
+    // userLayers, NOT activeLayers — see the derivation above. Persisting the
+    // rendered set would write "[]" for the whole time the tracer is open, and
+    // that "[]" is honoured on next launch.
     useEffect(() => {
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify([...activeLayers]));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([...userLayers]));
         } catch {
             /* ignore */
         }
-    }, [activeLayers]);
+    }, [userLayers]);
 
     // Backward-compatible single-layer getter (priority: wind > rain > pressure > first)
     const activeLayer: WeatherLayer = (() => {
@@ -184,8 +219,8 @@ export function useWeatherLayers(
 
     // Legacy setter — sets exactly one layer (for backward compat with MapUI etc.)
     const setActiveLayer = useCallback((layer: WeatherLayer) => {
-        if (layer === 'none') setActiveLayers(new Set());
-        else setActiveLayers(new Set([layer]));
+        if (layer === 'none') setUserLayers(new Set());
+        else setUserLayers(new Set([layer]));
     }, []);
 
     // Wind GL engine
@@ -1818,7 +1853,19 @@ export function useWeatherLayers(
     return {
         activeLayer,
         setActiveLayer,
+        /**
+         * WHAT IS PAINTED — empty while plotting. Chrome that describes the map
+         * (the helix scrubber, the legend) keys off this, so it stands down with
+         * the layers instead of scrubbing a field nobody can see.
+         */
         activeLayers,
+        /**
+         * WHAT THE PUNTER CHOSE — survives the plan page untouched. Use this,
+         * never `activeLayers`, for anything that SNAPSHOTS the selection to
+         * restore later (pin view does exactly that), or the restore brings
+         * back an empty set.
+         */
+        userLayers,
         toggleLayer,
         selectInGroup,
         // Wind
