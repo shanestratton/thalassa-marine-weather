@@ -4642,6 +4642,29 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Lightning Strikes (Xweather GLD360) ──
     useLightningLayer(mapRef, mapReady, lightningVisible);
 
+    // Resolve the wind/lightning exclusion ONCE AT BOOT.
+    //
+    // The toggle handlers enforce it going forward, but they only fire when
+    // something is tapped — and lightningVisible is PERSISTED
+    // ('thalassa_map_lightning_visible') while wind is on by default. So a
+    // session that ever left lightning on came back with both up, which is the
+    // state Shane screenshotted on 2026-07-22 minutes after the exclusion
+    // landed. A rule enforced only on transitions is not a rule.
+    //
+    // Wind wins: it is the default overlay and the one the model chips and
+    // scrubber below are driving. Lightning is one tap away.
+    const bootExclusionRef = useRef(false);
+    useEffect(() => {
+        if (!mapReady || bootExclusionRef.current) return;
+        bootExclusionRef.current = true;
+        if (lightningVisible && (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'))) {
+            setLightningVisible(false);
+        }
+        // Boot-only: deps deliberately exclude the values it reads, so a later
+        // legitimate toggle is not undone by this effect re-running.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapReady]);
+
     // ── Ocean Currents (CMEMS via Mapbox raster-particle) ──
     // Gated by VITE_CMEMS_CURRENTS_ENABLED. When the flag is off the hook
     // no-ops and the existing Xweather raster-currents tile layer renders

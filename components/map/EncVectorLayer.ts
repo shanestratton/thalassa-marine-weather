@@ -502,7 +502,17 @@ function mountSoundingLabelLayers(
                 id: ENC_VEC_LAYERS.SOUNDG,
                 type: 'symbol',
                 source: ENC_VEC_SRC.SOUNDG,
-                minzoom: 4,
+                // z12, was z4 (Shane 2026-07-22: "that is way too busy ... we
+                // dont need all of that on the chart page"). At z10 over a bay
+                // this drew every sounding in every cell — hundreds of numbers
+                // far too small to read and dense enough to bury the marks and
+                // the imagery underneath. A sounding is close-in piloting
+                // information; nobody navigates off individual depths at
+                // overview zoom, they read the contours and the bands.
+                //
+                // SCAMIN still applies ON TOP of this floor, so cells that ask
+                // to retire earlier than z12 still do.
+                minzoom: 12,
                 filter: mapFilter(SCAMIN_CLAUSE),
                 layout: {
                     // Paper-chart sounding typography: sub-10 m depths carry
@@ -1136,7 +1146,10 @@ function mountContourLayers(
                 id: ENC_VEC_LAYERS.DEPCNT_LINE,
                 type: 'line',
                 source: ENC_VEC_SRC.DEPCNT,
-                minzoom: minZoom,
+                // z12, was minZoom (7). The thin grey contour set is the other
+                // half of the z10 clutter — every 2/5/10 m line in every cell,
+                // stacked into grey hatching once several cells overlap.
+                minzoom: 12,
                 filter: depcntLineFilter(safetyByCell),
                 paint: {
                     'line-color': '#7d8e9b',
@@ -1153,7 +1166,17 @@ function mountContourLayers(
                 id: ENC_VEC_LAYERS.DEPCNT_SAFETY,
                 type: 'line',
                 source: ENC_VEC_SRC.DEPCNT,
-                minzoom: minZoom,
+                // z11, was minZoom (7) — one zoom EARLIER than the other
+                // contours, because this is the keel-limit line and should
+                // arrive before the detail it anchors. Bold amber per cell, it
+                // was the single biggest contributor to the "way too busy" z10
+                // chart: a mass of orange squiggles over every bank in view.
+                //
+                // Safe for the plotting surface: while plotting, the keel read
+                // is carried by DEPARE_GLAZE (floored on at any zoom by
+                // PLOTTING_KEEL_SAT), and this line is the crisp boundary drawn
+                // on top of it rather than the only depth signal.
+                minzoom: 11,
                 filter: depcntSafetyFilter(safetyByCell),
                 paint: {
                     // Bold AMBER — the single most keel-load-bearing line, now
