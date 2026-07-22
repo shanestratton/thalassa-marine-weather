@@ -556,15 +556,40 @@ export function useWeatherLayers(
         const m = mapRef.current;
         const grid = windGridRef.current;
         if (!m || !grid) return;
-        const h = Math.min(Math.floor(windHour), grid.totalHours - 1);
+        // CLAMP LOW TOO. `Math.min(floor(windHour), totalHours - 1)` alone goes
+        // NEGATIVE when a grid arrives with totalHours 0 — an empty
+        // wind_speed_10m array from Open-Meteo is enough — and speed[-1] is
+        // undefined.
+        const h = Math.max(0, Math.min(Math.floor(windHour), grid.totalHours - 1));
         const step = Math.max(2, Math.floor(Math.max(grid.width, grid.height) / 5));
 
-        windMarkersRef.current.forEach((mk) => mk.remove());
-        windMarkersRef.current = [];
-
+        // READ BEFORE YOU DESTROY (Shane 2026-07-22: "when i press the arrow on
+        // the scrubber, the wind disappears completely").
+        //
+        // This used to remove every marker and THEN index grid.speed[h] /
+        // u[h] / v[h] unguarded, dereferencing sData[idx] on the next line. Any
+        // hour the arrays do not cover threw a TypeError with the old markers
+        // already gone — so the failure mode was a TOTAL WIPE rather than a
+        // held frame, and it only showed once something advanced windHour,
+        // i.e. on PLAY. An exception inside the effect also aborts the rebuild
+        // for every later frame, so it never recovers on its own.
+        //
+        // Bail BEFORE clearing: keeping last frame's barbs is always better
+        // than an empty ocean, and this cannot mask a real gap — the warning
+        // names the hour and the grid.
         const sData = grid.speed[h];
         const uData = grid.u[h];
         const vData = grid.v[h];
+        if (!sData || !uData || !vData) {
+            log.warn(
+                `[wind] no grid data at hour ${h} (totalHours=${grid.totalHours}, ` +
+                    `speed=${grid.speed?.length ?? 0}) — keeping the last frame`,
+            );
+            return;
+        }
+
+        windMarkersRef.current.forEach((mk) => mk.remove());
+        windMarkersRef.current = [];
         for (let r = 0; r < grid.height; r += step) {
             for (let c = 0; c < grid.width; c += step) {
                 const idx = r * grid.width + c;
