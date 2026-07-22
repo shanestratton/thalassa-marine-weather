@@ -30,14 +30,35 @@ const log = createLogger('spitfire');
 const ARTIFACT_URL = 'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/weather/status/forecast.json';
 
 /**
- * Locations the server computes SPITFIRE for. Deliberately just Newport for
- * now: the weights are scored on NOWCAST WIND AT NEWPORT ONLY (see
- * `weights_scope` in the artifact and Phase 1 in docs/MODEL-STEWARDSHIP.md),
- * so offering it at Corfu would mean applying a Newport-wind-tuned blend to a
- * Mediterranean forecast. Add more slugs here as the skill scoring widens.
+ * Locations the server computes SPITFIRE for. A slug earns its place here by
+ * having MEASURED skill at that site — never by being somewhere we happen to
+ * publish a blend. Offering it at Corfu would mean dressing a Newport-tuned
+ * average up as a Mediterranean forecast.
+ *
+ * newport    — the original site. Weights scored against four in-bay beacon
+ *              anemometers. Honest caveat: as of 2026-07-22 this rests on ~106
+ *              samples over 40 h in two wind-direction sectors, the bias
+ *              correction is still WITHHELD for being below its guards, and the
+ *              blend does not yet beat its best single member. It is the site
+ *              with the least evidence, not the most.
+ *
+ * townsville — added 2026-07-22, and on far stronger ground: 17,099 paired
+ *              hours over 810 days, effective N 396 after autocorrelation, wind
+ *              sampled OVER WATER at Cleveland Bay rather than at the town, and
+ *              per-site multiplicative corrections plus inverse-variance weights
+ *              both fitted on the earlier half and validated on the later. The
+ *              blend beats every individual member there at every lead time.
+ *
+ * Both are checked against the artifact at fetch time, so a slug listed here
+ * without a published consensus degrades to null rather than throwing.
  */
 export const SPITFIRE_LOCATIONS: { slug: string; name: string; lat: number; lon: number }[] = [
     { slug: 'newport', name: 'Newport QLD', lat: -27.2, lon: 153.1 },
+    // The TOWN coordinate, matching the artifact's `townsville` entry. The
+    // server samples that location's WIND 14 km offshore at Cleveland Bay, but
+    // the slug and its coordinates stay the town's — a marine sample must never
+    // be relabelled as somewhere it was not taken.
+    { slug: 'townsville', name: 'Townsville QLD', lat: -19.26, lon: 146.82 },
 ];
 
 /** How close the boat must be for the blend to describe its weather. The

@@ -14,9 +14,30 @@ describe('spitfire availability', () => {
         expect(isSpitfireAvailableAt(-27.25, 153.15)).toBe(true);
     });
 
-    it('does NOT cover Townsville — the blend says nothing about it', () => {
-        expect(spitfireLocationFor(-19.26, 146.82)).toBeNull();
-        expect(isSpitfireAvailableAt(-19.26, 146.82)).toBe(false);
+    // Was "does NOT cover Townsville" until 2026-07-22, and correctly so: at the
+    // time nothing had been measured there. It now has 17,099 paired hours over
+    // 810 days (effective N 396), wind sampled over water at Cleveland Bay, and
+    // corrections and weights fitted on the earlier half and validated on the
+    // later — considerably stronger evidence than Newport itself.
+    it('covers Townsville — measured over 810 days, not merely published', () => {
+        expect(spitfireLocationFor(-19.26, 146.82)?.slug).toBe('townsville');
+        expect(isSpitfireAvailableAt(-19.26, 146.82)).toBe(true);
+    });
+
+    it('covers a boat out in Cleveland Bay, where the wind is actually sampled', () => {
+        expect(spitfireLocationFor(-19.1387, 146.899)?.slug).toBe('townsville');
+    });
+
+    // The negative case still matters — it is the whole reason for the list.
+    // Somewhere we publish a blend but have measured NOTHING must stay excluded,
+    // or a Queensland-tuned average gets dressed up as a Mediterranean forecast.
+    it('does NOT cover Corfu, where a blend is published but no skill is measured', () => {
+        expect(spitfireLocationFor(39.62, 19.92)).toBeNull();
+        expect(isSpitfireAvailableAt(39.62, 19.92)).toBe(false);
+    });
+
+    it('does NOT cover Mackay — 250 km from Townsville, outside the radius', () => {
+        expect(isSpitfireAvailableAt(-21.14, 149.19)).toBe(false);
     });
 
     it('does not cover Brisbane city, ~30 km away, despite being close-ish', () => {
