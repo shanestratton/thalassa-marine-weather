@@ -53,6 +53,17 @@ export const WIND_BANDS: WindBand[] = [
     { toKt: 60, hex: '#6d28d9', label: 'Storm force' },
 ];
 
+/**
+ * The band a speed falls in. Use this for anything that colours a DISCRETE
+ * thing — a speed label, a chip, a legend row — rather than windColorForKt(),
+ * which re-implements the particle renderer's m/s bucketing and exists to be
+ * testable against it. Both agree on the edges; this one says what it means.
+ */
+export function windBandForKt(kt: number): WindBand {
+    if (!Number.isFinite(kt) || kt <= 0) return WIND_BANDS[0];
+    return WIND_BANDS.find((b) => kt < b.toKt) ?? WIND_BANDS[WIND_BANDS.length - 1];
+}
+
 const KT_TO_MS = 1852 / 3600;
 
 /** Bucket count = ceiling in knots, i.e. one bucket per knot. */

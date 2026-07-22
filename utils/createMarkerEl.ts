@@ -121,6 +121,40 @@ export function createNudgeMarkerEl(): HTMLDivElement {
 }
 
 /**
+ * Ink that stays legible on an arbitrary chip colour.
+ *
+ * The wind label used to pick its text colour from the SPEED — dark ink under
+ * 25 kt, white over — which only worked because the old wind ramp happened to
+ * run light-to-dark in that order. On the Beaufort ramp it is wrong at both
+ * ends: the sub-10-knot bands are deep blue and would take dark ink, and the
+ * mid bands are bright enough to want dark ink well above 25. Ask the COLOUR,
+ * not the number, and the rule survives the next palette change too.
+ *
+ * Rec. 601 luma with a 0.6 cut — chosen over relative luminance because these
+ * chips are small, bold, and heavily shadowed, where the perceptual difference
+ * does not pay for the extra maths. Understands hex and rgb()/rgba().
+ */
+function inkFor(bg: string): string {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    const hex = bg.trim().match(/^#?([0-9a-f]{6})$/i);
+    if (hex) {
+        const n = parseInt(hex[1], 16);
+        r = (n >> 16) & 255;
+        g = (n >> 8) & 255;
+        b = n & 255;
+    } else {
+        const rgb = bg.match(/(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/);
+        if (!rgb) return '#ffffff'; // unparseable — white is the safer default over a dark chart
+        r = Number(rgb[1]);
+        g = Number(rgb[2]);
+        b = Number(rgb[3]);
+    }
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#101828' : '#ffffff';
+}
+
+/**
  * Wind label marker showing speed (kt) and cardinal direction.
  */
 export function createWindLabelMarker(speedKts: number, cardinal: string, bgColor: string): HTMLDivElement {
@@ -129,7 +163,7 @@ export function createWindLabelMarker(speedKts: number, cardinal: string, bgColo
     applyStyle(
         el,
         `display: inline-block; background: ${bgColor};
-         color: ${speedKts > 25 ? '#fff' : '#1a1a2e'};
+         color: ${inkFor(bgColor)};
          font-size: 10px; font-weight: 800; line-height: 1.2;
          text-align: center; padding: 3px 6px; border-radius: 6px;
          white-space: nowrap; pointer-events: none; text-shadow: none;

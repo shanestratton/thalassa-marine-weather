@@ -2,6 +2,8 @@
  * Map constants and types used across MapHub sub-modules.
  */
 
+import { windBandForKt } from './windRamp';
+
 // ── Types ──────────────────────────────────────────────────────
 
 export interface MapHubProps {
@@ -151,16 +153,30 @@ export function getTileUrl(layer: string): string | undefined {
     return undefined;
 }
 
-// Wind speed → monochrome color (matches GLSL palette in WindGLEngine)
+/**
+ * Wind speed → the colour of its speed label.
+ *
+ * ONE RAMP FOR THE WHOLE WIND LAYER. This used to be its own monochrome scale:
+ * near-black, dark slate, mid slate, grey, light grey, and only THEN amber and
+ * red. Which meant everything from a drifter to a 25-knot reefing breeze — the
+ * entire range anyone actually sails in — came out as one of five greys, and
+ * you had to read the number to know whether you were looking at a nice day or
+ * a hard one (Shane 2026-07-23: "make the wind colors more colourful and easily
+ * identify strong wind from light wind").
+ *
+ * It now defers to windRamp, the same band table the particle field and the
+ * legend already use. So a 22-knot label is the exact orange of the 22-knot
+ * particles streaming past it and of the legend block beside them, and the
+ * edges land where a skipper steers: 20 kt reef, 34 kt the true Beaufort F8
+ * gale line. Those bands are also cross-family hue flips at 20/30/34, so the
+ * read survives protanopia and deuteranopia — a grey ramp never did more than
+ * survive it, because it never said anything in the first place.
+ *
+ * Returns a solid hex, not the old 0.85 alpha: a translucent chip let the chart
+ * beneath it muddy the very hue that is doing the work.
+ */
 export function getWindColor(kts: number): string {
-    if (kts < 5) return 'rgba(30, 35, 45, 0.85)'; // Calm - near-black
-    if (kts < 10) return 'rgba(50, 55, 65, 0.85)'; // Light - dark slate
-    if (kts < 15) return 'rgba(75, 78, 85, 0.85)'; // Gentle - mid slate
-    if (kts < 20) return 'rgba(100, 103, 108, 0.85)'; // Moderate - grey
-    if (kts < 25) return 'rgba(130, 130, 133, 0.85)'; // Fresh - light grey
-    if (kts < 34) return 'rgba(140, 102, 76, 0.90)'; // Strong - muted amber
-    if (kts < 48) return 'rgba(166, 76, 71, 0.90)'; // Gale - muted coral
-    return 'rgba(178, 64, 76, 0.90)'; // Storm+ - warm red
+    return windBandForKt(kts).hex;
 }
 
 /* Animation keyframes moved to index.css */
