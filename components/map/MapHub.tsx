@@ -234,10 +234,8 @@ import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { EncAttributionChip } from './EncAttributionChip';
 import { HazardReportPanel } from '../passage/HazardReportPanel';
 import { SquallLegend } from './SquallLegend';
-import { ChartModes } from './ChartModes';
 import { ThreatBanner } from './ThreatBanner';
 import { ConnectivityChip } from './ConnectivityChip';
-import { LayerSettings } from './LayerSettings';
 import { PerfOverlay } from './PerfOverlay';
 import { PerfDowntierToast } from './PerfDowntierToast';
 import { CoachMark } from '../ui/CoachMark';
@@ -2779,10 +2777,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     // are meant to be session-only (cyclone / squall / weather inspect)
     // deliberately stay as plain useState.
     const [aisVisible, setAisVisible] = usePersistedState('thalassa_map_ais_visible', false);
-    // ENC vector chart visibility — separate from cell *presence*. When the user
-    // has imported cells we still let them toggle the chart off (e.g. to compare
-    // with raster charts underneath). Default true so first import is visible.
-    const [encVisible, setEncVisible] = usePersistedState('thalassa_map_enc_visible', true);
+    // ENC vector chart visibility.
+    //
+    // PINNED ON 2026-07-22, for the same reason as encChartDetail below: the
+    // ChartModes dropdown held the only setter, and it is gone. A persisted
+    // `false` — which the old "Clear All" preset wrote and PERSISTED — could
+    // then never be undone, leaving the sea chart off with no UI to restore
+    // it. That exact state cost a day in July ("where did my white keel areas
+    // go?") and is the reason for the plotting keel floor.
+    //
+    // The old rationale (toggle it off to compare against raster charts
+    // underneath) does not survive losing the toggle. Restore
+    // usePersistedState('thalassa_map_enc_visible', true) only alongside a
+    // real control, and give it a writer in the same commit.
+    const encVisible = true;
     // Chart-detail toggle. Default ON — the draft-aware depth shading IS the
     // product (flipped 2026-06-13; the 2026-05-17 "clean chart" preference
     // predates day-palette banding). When OFF: land + markers + hazards only.
@@ -2962,7 +2970,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // over the same photograph, which is the public voyage-page look.
     // Session-only, never persisted, so this is a default and not a setting
     // that can haunt a later boot.
-    const [satelliteVisible, setSatelliteVisible] = useState(false);
+    //
+    // PINNED 2026-07-22 with the removal of the ChartModes dropdown, which
+    // held the ONLY base switcher. These three can no longer change, so they
+    // are constants rather than state nothing can write — the same call made
+    // for encVisible and encChartDetail above.
+    //
+    // CONSEQUENCE, stated plainly: plain satellite and the MapTiler ocean
+    // base are now unreachable. Only hybrid renders. Restoring a switcher is
+    // small — put these three back as useState and give them a control in the
+    // same commit — but until then do not add code that reads them expecting
+    // either to be true.
+    const satelliteVisible = false;
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
@@ -2978,7 +2997,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // satellite starting false is what lets hybrid be the one that shows;
     // these two initialisers must always disagree. Plain satellite stays one
     // tap away on the base toggle. Session-only.
-    const [hybridVisibleRaw, setHybridVisible] = useState(true);
+    const hybridVisibleRaw = true;
     // OCEAN BASE (Shane 2026-07-19: "we used to have one that had a bit of
     // bathymetry with it" → make it its own base). The MapTiler Ocean raster has
     // always existed, but only as a 0.45 tint ON TOP of satellite. As a BASE it
@@ -2989,7 +3008,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the opaque land fills stand down. Without that the 0.95-opaque DEPARE ramp
     // would paint straight over the bathymetry and the base would be invisible,
     // which is the whole reason for choosing it. Session-only, like the others.
-    const [oceanBaseVisible, setOceanBaseVisible] = useState(false);
+    const oceanBaseVisible = false;
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page — I've lost all my zoom 10 whites in the
     // water"). The browsing chart and the plotting surface are the SAME map, so
@@ -3532,7 +3551,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Storm picker modal — opens when the user taps Storms in the radial menu
     // AND there are multiple active cyclones to choose from.
     const [stormPickerOpen, setStormPickerOpen] = useState(false);
-    const [layerSettingsOpen, setLayerSettingsOpen] = useState(false);
     /** One-time toast surfaced when PerfGuardian downtiered the device
      *  on the previous session. Cleared on dismiss / first render. */
     const [perfToast, setPerfToast] = useState<boolean>(() => consumePerfDowntierToast());
@@ -7005,85 +7023,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     "Storm Watch" in a single tap, instead of hunting
                     through 20 layer toggles. Always visible while on
                     the chart screen. */}
-                <ChartModes
-                    // Hidden while TRACING (Shane 2026-07-17: "hide the clear
-                    // all thing at the top" on the routing page) — plotting
-                    // deserves a clean sheet; Done brings it back.
-                    visible={!passage.showPassage && !embedded && !isPinView && !coordCaptureMode}
-                    onOpenSettings={() => setLayerSettingsOpen(true)}
-                    encVisible={encVisible}
-                    setEncVisible={setEncVisible}
-                    satelliteVisible={satelliteVisible}
-                    setSatelliteVisible={(v) => {
-                        setSatelliteVisible(v);
-                        if (v) {
-                            setHybridVisible(false); // one base at a time
-                            setOceanBaseVisible(false);
-                        }
-                    }}
-                    hybridVisible={hybridVisible}
-                    setHybridVisible={(v) => {
-                        setHybridVisible(v);
-                        if (v) {
-                            setSatelliteVisible(false);
-                            setOceanBaseVisible(false);
-                        }
-                    }}
-                    oceanBaseVisible={oceanBaseVisible}
-                    setOceanBaseVisible={(v) => {
-                        setOceanBaseVisible(v);
-                        if (v) {
-                            setSatelliteVisible(false);
-                            setHybridVisible(false);
-                        }
-                    }}
-                    tideDepthMode={tideDepthMode}
-                    onToggleTideDepth={onToggleTideDepth}
-                    nightDim={nightDim}
-                    onToggleNightDim={() => setNightDim(!nightDim)}
-                    onOpenChartKey={() => setChartKeyOpen(true)}
-                    encCellCount={encCellCount}
-                    seawayDebugVisible={seawayDebugVisible}
-                    onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}
-                    onPlanEncRoute={async () => {
-                        // Demo waypoints — hardcoded Newport → Rivergate
-                        // until the full two-tap workflow lands. Draft comes
-                        // from the REAL vessel settings (closing audit: a
-                        // hardcoded 1.9 m planned routes a 2.4 m keel can't
-                        // sail), defaulting like the rest of the app.
-                        const FROM = { lat: -27.157, lon: 153.103 };
-                        const TO = { lat: -27.435, lon: 153.105 };
-                        const DRAFT_M = vesselDraftMetres(settings.vessel) || 2.5;
-                        try {
-                            const res = await tryInshoreRoute(FROM, TO, DRAFT_M);
-                            if (res && 'polyline' in res) {
-                                setEncTestRoute({ polyline: res.polyline, cautionMask: res.cautionMask });
-                                const cautionCount = res.cautionMask?.filter(Boolean).length ?? 0;
-                                return {
-                                    ok: true,
-                                    summary: `${res.distanceNM.toFixed(1)} NM · ${res.polyline.length} pts · ${cautionCount} caution`,
-                                };
-                            }
-                            if (res && 'error' in res) {
-                                setEncTestRoute(null);
-                                // Humanised (closing audit: raw engine
-                                // internals leaked to the row).
-                                return { ok: false, summary: 'No safe water route found between these points' };
-                            }
-                            setEncTestRoute(null);
-                            return {
-                                ok: false,
-                                summary: 'Charts for this area are still downloading — try again shortly',
-                            };
-                        } catch {
-                            setEncTestRoute(null);
-                            return {
-                                ok: false,
-                                summary: 'Route planning hit a problem — try again in a moment',
-                            };
-                        }
-                    }}
-                />
 
                 {/* First-run coach marks — fire once per device. Five
                     one-sentence prompts covering the chart screen's
@@ -7171,19 +7110,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     selectedId={activeChartTrack?.id ?? null}
                     onSelect={(item) => setActiveChartTrack(item)}
                     onClose={() => setTrackPickerOpen(false)}
-                />
-
-                {/* Layer-opacity settings sheet — opened from the cog
-                    inside the ChartModes chip. Lets the user dim any
-                    active raster layer in real time so they can see
-                    the chart underneath without having to toggle the
-                    layer off entirely. */}
-                <LayerSettings
-                    visible={layerSettingsOpen && !passage.showPassage && !embedded && !isPinView}
-                    onClose={() => setLayerSettingsOpen(false)}
-                    mapRef={mapRef}
-                    activeSkyLayers={weather.activeLayers as Set<string>}
-                    squallVisible={squallVisible}
                 />
 
                 {/* Threat proximity banner — surfaces nearby lightning
