@@ -280,10 +280,25 @@ const _fetchWeatherByStrategyImpl = async (
 
     if (!unifiedReport) {
         log.info('Unified endpoint unavailable — falling back to WeatherKit + OpenMeteo');
-        weatherKitFull = await fetchWeatherKitFull(lat, lon).catch((e) => {
-            log.warn('WeatherKit failed:', e?.message || e);
-            return null;
-        });
+        // MUST go through bounded(), like the five sources above.
+        //
+        // This was a bare `await fetchWeatherKitFull(...).catch(...)`, and
+        // .catch handles a REJECTION, not a STALL — the exact distinction the
+        // header comment above already draws. fetchWeatherKitFull passes no
+        // connectTimeout/readTimeout (weatherkit.ts:417) and its own fallback
+        // is a bare fetch, so under CapacitorHttp it inherited the 600 s
+        // native floor with nothing in JS to cut it short.
+        //
+        // Worst possible placement for the one unbounded call: it runs only
+        // when `!unifiedReport` — i.e. once the network has already shown it
+        // is failing — and it is SEQUENTIAL after the allSettled, so its
+        // latency ADDS to the 8 s budget rather than overlapping it. The
+        // _inflight map then hands the stalled promise to every retry, so
+        // pull-to-refresh joined the hang instead of escaping it.
+        //
+        // bounded() also drops it into the [perf] timing line, so next time
+        // the slow member is named rather than guessed at.
+        weatherKitFull = await bounded('weatherkit-fallback', fetchWeatherKitFull(lat, lon));
     }
 
     // --- BUILD BASE REPORT ---

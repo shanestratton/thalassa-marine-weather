@@ -1,4 +1,6 @@
 // deno-lint-ignore-file
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
     env: { get(key: string): string | undefined };
@@ -24,10 +26,19 @@ declare const Deno: {
  *   PRACTICAL: we try `/v1/auth/grant` first; if Deepgram rejects we
  *   fall back to returning the long-lived API key directly. The
  *   long-lived key never lives in the iOS bundle — it's fetched per
- *   session over a JWT-gated TLS-protected fetch. A determined attacker
- *   on their own device could still extract it via MITM, same as with
- *   any other secret we surface; the operational mitigation is
- *   Deepgram's spending cap on the user's account.
+ *   session over TLS by a caller we have verified is a signed-in user.
+ *
+ *   That last clause used to read "over a JWT-gated fetch", which was
+ *   false and actively reassuring: the only JWT in play was the project
+ *   ANON key, which ships inside every web bundle and IPA. verify_jwt
+ *   accepted it, so a single request carrying a key anyone could read out
+ *   of the app returned this one. An audit on 2026-07-22 did exactly that
+ *   and got a 200. The handler now resolves the JWT to a real user and
+ *   401s when it cannot, so the sentence is true as written.
+ *
+ *   Residual risk is unchanged and accepted: a signed-in user on their own
+ *   device can still extract the key via MITM, as with any secret we hand
+ *   out. The operational mitigation is Deepgram's spending cap.
  *
  *   The client treats the returned token as opaque — it sends it via
  *   `Sec-WebSocket-Protocol: ['token', '<token>']` whether it's a
@@ -103,6 +114,39 @@ Deno.serve(async (req: Request) => {
         });
     }
 
+    // ── Caller must be a REAL signed-in user, not just anon-key holder ──
+    // verify_jwt (on by default, no config.toml here) only proves the caller
+    // holds a valid project JWT — and the anon key is compiled into every
+    // shipped web bundle and IPA, so on its own that gates nothing. This
+    // endpoint hands back the long-lived DEEPGRAM_API_KEY, so it needs to know
+    // WHICH user is asking, not merely that someone has the public key.
+    // (Audit 2026-07-22: a probe using the anon JWT lifted from the shipped
+    // bundle returned 200 and the key.)
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+        return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+            status: 401,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
+    const authClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        { global: { headers: { Authorization: authHeader } } },
+    );
+    const {
+        data: { user: caller },
+        error: authError,
+    } = await authClient.auth.getUser();
+    if (authError || !caller) {
+        // The anon key alone lands here: it carries no user identity.
+        console.warn('[deepgram-token] rejected caller with no verified user');
+        return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+            status: 401,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
+
     const apiKey = Deno.env.get('DEEPGRAM_API_KEY');
     if (!apiKey) {
         return new Response(JSON.stringify({ error: 'DEEPGRAM_API_KEY not configured' }), {
@@ -121,10 +165,12 @@ Deno.serve(async (req: Request) => {
     // value length limits — and Deepgram accepts them via the same
     // bearer/token subprotocol the client already uses.
     //
-    // Threat model: the long-lived key crosses the wire over an
-    // authenticated, TLS-protected fetch from the iOS app per session.
-    // Same blast radius as anthropic-proxy's pattern. Operational
+    // Threat model: the long-lived key crosses the wire over a TLS-protected
+    // fetch from a caller verified above to be a signed-in user. Operational
     // mitigation is the spending cap on the Deepgram dashboard.
+    // NOTE: do not restore the old "same blast radius as anthropic-proxy"
+    // line — that function was audited on the same day and is itself an
+    // open, uncapped relay, so it is not a standard to measure against.
     //
     // To revert to ephemeral tokens once iOS WebKit fixes its
     // subprotocol-length quirk, re-enable the tryGrantToken() call
