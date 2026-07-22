@@ -1,125 +1,38 @@
 /**
- * ChartModes — one-tap layer presets for the Charts page.
+ * ChartModes — the chart screen's layer chip (top-centre).
  *
- * The chart screen has ~20 toggleable layers across Sky / Tactical /
- * Charts. For new users that's overwhelming; for power users it's
- * still a lot of taps to get from one situational set to another. The
- * Modes chip flips that on its head: tap once → curated preset.
+ * NAME IS NOW HISTORICAL. This was a preset picker: one tap gave you a
+ * curated set (Day Sail, Offshore, Storm Watch, Charts Only, Clear All),
+ * and the chip showed which preset was live — or "Custom" once you had
+ * toggled your way off one.
  *
- * Modes:
- *   Day Sail        — wind, AIS, marks, tides (coastal cruising)
- *   Offshore Passage — wind, waves, currents, pressure, AIS
- *                      (passage planning, weather-aware)
- *   Storm Watch     — lightning, squall, pressure (weather threat focus)
- *   Charts Only     — marks, AIS, tides, no weather
- *   Clear All       — everything off
- *   Custom          — user has manually deviated from any preset
+ * All five presets were removed 2026-07-22 (Shane: "the drop down box that
+ * has day sail, offshore, storm watch, charts only... it is just too much
+ * noise for that screen"). ~200 lines of preset machinery went with them:
+ * MODE_SPECS, detectMode, specMatches, applyMode and the stored-mode key.
  *
- * The chip lives at top-center, always visible while on Charts. Tap
- * shows a vertical dropdown of all six modes. Selection persists in
- * localStorage so the user's preferred mode survives a relaunch.
+ * What is LEFT is what the dropdown had quietly accumulated around the
+ * presets, and it is all load-bearing — this is the only UI for any of it:
+ *   - Sea chart (ENC) master toggle
+ *   - Base switcher: satellite / hybrid / ocean
+ *   - Tide-depth mode, night dim, chart key
+ *   - Plan ENC Route, Seaway debug (dev rows, self-gating)
+ *   - the cog → layer-opacity settings (its ONLY opener)
  *
- * "Custom" automatically becomes the active mode if the user manually
- * toggles a layer that doesn't match the current preset — so the chip
- * is always honest about what's on screen.
+ * So the chip stays even though the modes are gone. Deleting it strands
+ * every item above, which is the same catch-22 that made the old layer FAB
+ * unreachable (see 8044e434). If it ever does go, rehome these first.
  *
- * Icons migrated from emoji to SVG components 2026-05-16 — visual
- * uplift pass after the 68/100 UX score audit.
+ * The label went with the presets — there is no mode to name any more — so
+ * the chip is now an icon and a caret.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
-import {
-    SunriseIcon,
-    CompassIcon,
-    ThunderstormIcon,
-    MapIcon,
-    SparklesIcon,
-    GearIcon,
-    CheckIcon,
-    AnchorIcon,
-} from '../Icons';
+import { MapIcon, GearIcon, AnchorIcon } from '../Icons';
 
 const log = createLogger('ChartModes');
-
-export type ChartMode = 'day-sail' | 'offshore' | 'storm-watch' | 'charts-only' | 'clear' | 'custom';
-
-interface ModeSpec {
-    id: ChartMode;
-    Icon: React.FC<{ className?: string }>;
-    label: string;
-    summary: string;
-    /** Layers to enable (any not listed are forced off). */
-    sky?: string[]; // e.g. 'wind', 'rain', 'pressure', 'currents', 'waves', 'sst', 'chl', 'seaice', 'mld'
-    tactical?: {
-        ais?: boolean;
-        lightning?: boolean;
-        cyclone?: boolean;
-        squall?: boolean;
-        seamark?: boolean;
-        tides?: boolean;
-        chokepoint?: boolean;
-        vesselTracking?: boolean;
-    };
-    mpa?: boolean;
-    /** ENC vector chart master toggle. Only enforced when the spec sets it AND
-     *  the encVisible prop is provided (see specMatches / applyMode) — audit #5. */
-    enc?: boolean;
-}
-
-// Order matters — picker shows them in this sequence.
-export const MODE_SPECS: ModeSpec[] = [
-    {
-        id: 'day-sail',
-        Icon: SunriseIcon,
-        label: 'Day Sail',
-        summary: 'Wind, AIS, marks, tides',
-        sky: ['wind'],
-        tactical: { ais: true, seamark: true, tides: true },
-        enc: true, // a coastal chart preset shows the ENC vector chart
-    },
-    {
-        id: 'offshore',
-        Icon: (props) => <CompassIcon {...props} rotation={0} />,
-        label: 'Offshore',
-        // 'waves' dropped 2026-07-21: it is PARKED (mapConstants
-        // PARKED_SEA_LAYERS) and has no picker, so switching it on here left
-        // the user with a layer they could not switch off — exactly the
-        // stuck-on failure the 2026-07-18 parking existed to prevent. It only
-        // self-healed because restoreActiveLayers drops parked layers on
-        // relaunch. Never list a parked layer in a preset.
-        summary: 'Wind, currents, pressure',
-        sky: ['wind', 'currents', 'pressure'],
-        tactical: { ais: true },
-    },
-    {
-        id: 'storm-watch',
-        Icon: ThunderstormIcon,
-        label: 'Storm Watch',
-        summary: 'Lightning, squall, pressure',
-        sky: ['pressure'],
-        tactical: { lightning: true, squall: true },
-    },
-    {
-        id: 'charts-only',
-        Icon: MapIcon,
-        label: 'Charts Only',
-        summary: 'Marks, AIS, tides — no weather',
-        sky: [],
-        tactical: { ais: true, seamark: true, tides: true },
-        enc: true, // the chart-centric preset MUST show the ENC vector chart
-    },
-    {
-        id: 'clear',
-        Icon: SparklesIcon,
-        label: 'Clear All',
-        summary: 'Turn everything off',
-        sky: [],
-        tactical: {},
-        enc: false, // Clear All turns the chart off too, matching its contract
-    },
-];
 
 interface ChartModesProps {
     visible: boolean;
@@ -127,34 +40,14 @@ interface ChartModesProps {
      *  itself can sit at the top level of the chart screen, not nested
      *  inside this chip's stacking context). */
     onOpenSettings?: () => void;
-    /** Current active sky layer set (from useWeatherLayers). */
-    activeSkyLayers: Set<string>;
-    /** Toggle a sky layer ON/OFF (calls weather.toggleLayer). */
-    toggleSkyLayer: (layer: string) => void;
-    /** Set the single active sky layer (calls weather.setActiveLayer). */
-    setActiveSkyLayer: (layer: string) => void;
 
-    aisVisible: boolean;
-    setAisVisible: (v: boolean) => void;
-    lightningVisible: boolean;
-    setLightningVisible: (v: boolean) => void;
-    cycloneVisible: boolean;
-    setCycloneVisible: (v: boolean) => void;
-    squallVisible: boolean;
-    setSquallVisible: (v: boolean) => void;
-    seamarkVisible: boolean;
-    setSeamarkVisible: (v: boolean) => void;
-    tideStationsVisible: boolean;
-    setTideStationsVisible: (v: boolean) => void;
-    chokepointVisible: boolean;
-    setChokepointVisible: (v: boolean) => void;
-    vesselTrackingVisible: boolean;
-    setVesselTrackingVisible: (v: boolean) => void;
+    // The ~20 layer props that used to live here (activeSkyLayers, ais,
+    // lightning, cyclone, squall, seamark, tides, chokepoint, vesselTracking,
+    // mpa, onClearRouteInk) went with the presets on 2026-07-22 — they were
+    // read ONLY by applyMode and specMatches, never rendered here. Those
+    // toggles are on the RadialHelmMenu and were never this chip's to own.
 
-    mpaVisible?: boolean;
-    setMpaVisible?: (v: boolean) => void;
-
-    /** ENC vector chart master toggle (audit #5 — presets can now reflect it). */
+    /** ENC vector chart master toggle — the only UI for it anywhere. */
     encVisible?: boolean;
     setEncVisible?: (v: boolean) => void;
 
@@ -184,10 +77,9 @@ interface ChartModesProps {
     onOpenChartKey?: () => void;
 
     /**
-     * If provided, renders a "Plan ENC Route" action row between the
-     * Charts Only and Clear All preset rows in the dropdown. The callback
-     * runs `tryInshoreRoute` and returns a short status string for the
-     * row's secondary text. ChartModes manages the local busy state.
+     * If provided, renders a "Plan ENC Route" action row in the dropdown.
+     * The callback runs `tryInshoreRoute` and returns a short status string
+     * for the row's secondary text. ChartModes manages the local busy state.
      *
      * Only shown when `encCellCount > 0` — pointless without imported cells.
      */
@@ -198,58 +90,10 @@ interface ChartModesProps {
      *  Shown beside the ENC route row, gated the same way. */
     seawayDebugVisible?: boolean;
     onToggleSeawayDebug?: () => void;
-
-    /** Invoked by the "Clear All" preset — clears route INK that outlives
-     *  layer toggles: the persisted follow-route (SAIL IT survives app
-     *  restarts by design) and the chart route/track selections. Without
-     *  this, Clear All left old test-route spaghetti on the chart with no
-     *  obvious kill (Shane 2026-07-09 "still got the blue spaghetti"). */
-    onClearRouteInk?: () => void;
-}
-
-const STORAGE_KEY = 'thalassa_chart_mode';
-
-/** Detect which preset (if any) matches the current state. Returns
- *  'custom' when the state doesn't match any preset exactly. */
-function detectMode(props: ChartModesProps): ChartMode {
-    const skyArr = Array.from(props.activeSkyLayers);
-    for (const spec of MODE_SPECS) {
-        if (specMatches(spec, props, skyArr)) return spec.id;
-    }
-    return 'custom';
-}
-
-function specMatches(spec: ModeSpec, props: ChartModesProps, skyArr: string[]): boolean {
-    const wantSky = new Set(spec.sky ?? []);
-    if (skyArr.length !== wantSky.size) return false;
-    for (const k of skyArr) if (!wantSky.has(k)) return false;
-
-    const t = spec.tactical ?? {};
-    if (!!t.ais !== props.aisVisible) return false;
-    if (!!t.lightning !== props.lightningVisible) return false;
-    if (!!t.cyclone !== props.cycloneVisible) return false;
-    if (!!t.squall !== props.squallVisible) return false;
-    if (!!t.seamark !== props.seamarkVisible) return false;
-    if (!!t.tides !== props.tideStationsVisible) return false;
-    if (!!t.chokepoint !== props.chokepointVisible) return false;
-    if (!!t.vesselTracking !== props.vesselTrackingVisible) return false;
-
-    if (props.mpaVisible !== undefined && !!spec.mpa !== !!props.mpaVisible) return false;
-    // ENC guard (audit #5): only constrain presets that SET enc — the weather
-    // presets omit it and ENC defaults on, so an unguarded check would reject them.
-    if (props.encVisible !== undefined && spec.enc !== undefined && !!spec.enc !== !!props.encVisible) return false;
-    return true;
 }
 
 export const ChartModes: React.FC<ChartModesProps> = (props) => {
     const [open, setOpen] = useState(false);
-    const [storedMode, setStoredMode] = useState<ChartMode | null>(() => {
-        try {
-            return (localStorage.getItem(STORAGE_KEY) as ChartMode | null) ?? null;
-        } catch {
-            return null;
-        }
-    });
     const wrapRef = useRef<HTMLDivElement>(null);
 
     // Plan-ENC-Route action state. Local because the action is "fire and
@@ -287,15 +131,6 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
         }
     }, [props.onPlanEncRoute, encBusy]);
 
-    // Detect current mode every render — when state matches one of the
-    // presets, the chip reflects that preset. When it doesn't, "Custom".
-    const detected = detectMode(props);
-    // The displayed mode is the detected one; the storedMode is just a
-    // hint for which preset the user last chose so we can prefer it on
-    // ambiguity (which doesn't actually happen — detectMode is unambiguous —
-    // but keeping for future preset overlap).
-    const currentMode = detected;
-    const currentSpec = MODE_SPECS.find((s) => s.id === currentMode);
     const deviceClass = useDeviceClass();
     // Tablet sizing — bumped font + padding + dropdown width so the
     // chart screen feels tablet-native instead of stretched phone UI.
@@ -325,67 +160,6 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
     // LayerFABMenu — it was the sole listener for the first event and the
     // sole dispatcher of the second, so the pair had become a conversation
     // with nobody. There is no longer a second dropdown to collide with.
-
-    const applyMode = useCallback(
-        (spec: ModeSpec) => {
-            triggerHaptic('medium');
-
-            // "Clear All" means ALL: route ink too (persisted follow-route,
-            // chart route/track selections), not just weather toggles.
-            if (spec.id === 'clear') props.onClearRouteInk?.();
-
-            // Sky: clear everything not in spec, enable everything in spec.
-            const wantSky = new Set(spec.sky ?? []);
-            // First disable sky layers that shouldn't be on.
-            const ALL_SKY = [
-                'wind',
-                'rain',
-                'pressure',
-                'clouds',
-                'temperature',
-                'currents',
-                'waves',
-                'sst',
-                'chl',
-                'seaice',
-                'mld',
-                'velocity',
-                'sea',
-            ];
-            for (const layer of ALL_SKY) {
-                const on = props.activeSkyLayers.has(layer);
-                const shouldBeOn = wantSky.has(layer);
-                if (on !== shouldBeOn) props.toggleSkyLayer(layer);
-            }
-
-            // Tactical
-            const t = spec.tactical ?? {};
-            if (!!t.ais !== props.aisVisible) props.setAisVisible(!!t.ais);
-            if (!!t.lightning !== props.lightningVisible) props.setLightningVisible(!!t.lightning);
-            if (!!t.cyclone !== props.cycloneVisible) props.setCycloneVisible(!!t.cyclone);
-            if (!!t.squall !== props.squallVisible) props.setSquallVisible(!!t.squall);
-            if (!!t.seamark !== props.seamarkVisible) props.setSeamarkVisible(!!t.seamark);
-            if (!!t.tides !== props.tideStationsVisible) props.setTideStationsVisible(!!t.tides);
-            if (!!t.chokepoint !== props.chokepointVisible) props.setChokepointVisible(!!t.chokepoint);
-            if (!!t.vesselTracking !== props.vesselTrackingVisible) props.setVesselTrackingVisible(!!t.vesselTracking);
-
-            if (props.setMpaVisible && props.mpaVisible !== undefined) {
-                if (!!spec.mpa !== !!props.mpaVisible) props.setMpaVisible(!!spec.mpa);
-            }
-            if (props.setEncVisible && props.encVisible !== undefined && spec.enc !== undefined) {
-                if (!!spec.enc !== !!props.encVisible) props.setEncVisible(!!spec.enc);
-            }
-
-            try {
-                localStorage.setItem(STORAGE_KEY, spec.id);
-            } catch {
-                /* storage full / unavailable — preset still applied */
-            }
-            setStoredMode(spec.id);
-            setOpen(false);
-        },
-        [props],
-    );
 
     if (!props.visible) return null;
 
@@ -430,12 +204,18 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                         border: 'none',
                         borderRadius: 18,
                     }}
-                    aria-label="Open chart mode picker"
+                    aria-label="Open chart layers"
                 >
+                    {/* Icon only. The preset name (or "Custom" once you had
+                        deviated from one) used to sit here and was the noisiest
+                        thing on the chart — a wide pill of text centred over the
+                        water, changing under you as you toggled layers (Shane
+                        2026-07-22). The presets it named are gone; what remains
+                        behind this chip is the sea chart, the base switcher and
+                        the rest, so a layers glyph says it without the width. */}
                     <span aria-hidden className="inline-flex items-center justify-center w-4 h-4">
-                        {currentSpec ? <currentSpec.Icon className="w-4 h-4" /> : <GearIcon className="w-4 h-4" />}
+                        <MapIcon className="w-4 h-4" />
                     </span>
-                    <span>{currentSpec?.label ?? 'Custom'}</span>
                     <span className="opacity-50" style={{ fontSize: chipFontSize - 2 }}>
                         {open ? '▴' : '▾'}
                     </span>
@@ -500,489 +280,378 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                         boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
                     }}
                 >
-                    {MODE_SPECS.map((spec) => {
-                        const active = currentMode === spec.id;
-                        // Inject the "Plan ENC Route" action row immediately
-                        // BEFORE the Clear All row so the picker reads:
-                        //   Day Sail / Offshore / Storm Watch / Charts Only /
-                        //   ─ Plan ENC Route (action, violet) ─
-                        //   Clear All
-                        const isClearRow = spec.id === 'clear';
-                        return (
-                            <React.Fragment key={spec.id}>
-                                {/* SEA CHART master — the switch lives beside the thing
-                                    that flips it. Clear All sets enc:false (its
-                                    contract), but the only way back was a toggle
-                                    buried in the layer drawer, itself gated on
-                                    encCellCount > 0. So one tap could strip the
-                                    depth bands, contours, marks and hazards with no
-                                    obvious way to restore them — that cost Shane a
-                                    day of "where did my white keel areas go?"
-                                    (2026-07-18). Off and on now sit in one menu. */}
-                                {isClearRow && props.setEncVisible && props.encVisible !== undefined && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.setEncVisible?.(!props.encVisible);
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.encVisible
-                                                ? 'rgba(56, 189, 248, 0.18)'
-                                                : 'rgba(56, 189, 248, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(56, 189, 248, 0.25)',
-                                        }}
-                                        aria-label="Toggle the sea chart"
-                                        aria-pressed={props.encVisible}
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#38bdf8' }}
-                                        >
-                                            <MapIcon className="w-[18px] h-[18px]" />
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#38bdf8', fontSize: 13 }}
-                                            >
-                                                Sea chart {props.encVisible ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                depth bands, contours, marks and hazards
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && showEncRouteRow && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            void runEncRoute();
-                                        }}
-                                        disabled={encBusy}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: encBusy
-                                                ? 'rgba(167, 139, 250, 0.18)'
-                                                : 'rgba(167, 139, 250, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(167, 139, 250, 0.25)',
-                                            cursor: encBusy ? 'wait' : 'pointer',
-                                        }}
-                                        aria-label="Plan ENC test route — Newport to Rivergate"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#a78bfa' }}
-                                        >
-                                            <AnchorIcon className="w-[18px] h-[18px]" />
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{
-                                                    color: '#a78bfa',
-                                                    fontSize: 13,
-                                                }}
-                                            >
-                                                {encBusy ? 'Routing…' : 'Plan ENC Route'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                {encLastResult ?? 'Newport → Rivergate demo'}
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.setSatelliteVisible && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.setSatelliteVisible?.(!props.satelliteVisible);
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.satelliteVisible
-                                                ? 'rgba(52, 211, 153, 0.18)'
-                                                : 'rgba(52, 211, 153, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(52, 211, 153, 0.25)',
-                                        }}
-                                        aria-label="Toggle satellite base imagery"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#34d399' }}
-                                        >
-                                            <MapIcon className="w-[18px] h-[18px]" />
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#34d399', fontSize: 13 }}
-                                            >
-                                                Satellite {props.satelliteVisible ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                real imagery under your route, marks &amp; weather
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.setHybridVisible && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.setHybridVisible?.(!props.hybridVisible);
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.hybridVisible
-                                                ? 'rgba(56, 189, 248, 0.20)'
-                                                : 'rgba(56, 189, 248, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(56, 189, 248, 0.3)',
-                                        }}
-                                        aria-label="Toggle hybrid satellite base (imagery with roads and names)"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#38bdf8', fontSize: 14, lineHeight: 1 }}
-                                        >
-                                            🗺️
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#38bdf8', fontSize: 13 }}
-                                            >
-                                                Hybrid {props.hybridVisible ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                imagery with roads &amp; names — the public-page look
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.setOceanBaseVisible && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.setOceanBaseVisible?.(!props.oceanBaseVisible);
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.oceanBaseVisible
-                                                ? 'rgba(45, 212, 191, 0.20)'
-                                                : 'rgba(45, 212, 191, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(45, 212, 191, 0.3)',
-                                        }}
-                                        aria-label="Toggle bathymetric ocean base"
-                                        aria-pressed={props.oceanBaseVisible ?? false}
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#2dd4bf', fontSize: 14, lineHeight: 1 }}
-                                        >
-                                            🌊
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#2dd4bf', fontSize: 13 }}
-                                            >
-                                                Bathymetry {props.oceanBaseVisible ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                depth contours as the chart — no photo
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.onToggleTideDepth && (
-                                    <button
-                                        onClick={() => {
-                                            props.onToggleTideDepth?.();
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.tideDepthMode
-                                                ? 'rgba(45, 212, 191, 0.18)'
-                                                : 'rgba(45, 212, 191, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(45, 212, 191, 0.25)',
-                                        }}
-                                        aria-label="Toggle live tide depth"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#2dd4bf', fontSize: 15, fontWeight: 900 }}
-                                        >
-                                            ≈
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#2dd4bf', fontSize: 13 }}
-                                            >
-                                                Live tide depth {props.tideDepthMode ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                depths as they are right now, not chart datum
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.onToggleNightDim && (
-                                    <button
-                                        onClick={() => {
-                                            props.onToggleNightDim?.();
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.nightDim
-                                                ? 'rgba(220, 80, 60, 0.18)'
-                                                : 'rgba(220, 80, 60, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(220, 80, 60, 0.25)',
-                                        }}
-                                        aria-label="Toggle night dim"
-                                        aria-pressed={props.nightDim ?? false}
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#e07a5f', fontSize: 14 }}
-                                        >
-                                            ☾
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#e07a5f', fontSize: 13 }}
-                                            >
-                                                Night dim {props.nightDim ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                red-tinted dim protects night vision at the helm
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.onOpenChartKey && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.onOpenChartKey?.();
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: 'rgba(251, 191, 36, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(251, 191, 36, 0.25)',
-                                        }}
-                                        aria-label="Open the chart key"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#fbbf24', fontSize: 14, fontWeight: 900 }}
-                                        >
-                                            ?
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#fbbf24', fontSize: 13 }}
-                                            >
-                                                Chart key
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                what the shades and numbers mean
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && showSeawayRow && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.onToggleSeawayDebug?.();
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.seawayDebugVisible
-                                                ? 'rgba(56, 189, 248, 0.18)'
-                                                : 'rgba(56, 189, 248, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(56, 189, 248, 0.25)',
-                                        }}
-                                        aria-label="Toggle the Seaway Graph debug overlay"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#38bdf8' }}
-                                        >
-                                            <AnchorIcon className="w-[18px] h-[18px]" />
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#38bdf8', fontSize: 13 }}
-                                            >
-                                                Seaway Graph {props.seawayDebugVisible ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                gates + channel edges from your charts (debug)
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                <button
-                                    onClick={() => applyMode(spec)}
-                                    className="flex items-center gap-3 text-left transition-colors"
+                    {props.setEncVisible && props.encVisible !== undefined && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.setEncVisible?.(!props.encVisible);
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.encVisible ? 'rgba(56, 189, 248, 0.18)' : 'rgba(56, 189, 248, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(56, 189, 248, 0.25)',
+                            }}
+                            aria-label="Toggle the sea chart"
+                            aria-pressed={props.encVisible}
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#38bdf8' }}
+                            >
+                                <MapIcon className="w-[18px] h-[18px]" />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#38bdf8', fontSize: 13 }}>
+                                    Sea chart {props.encVisible ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
                                     style={{
-                                        background: active ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                                        borderRadius: 10,
-                                        padding: '8px 10px',
-                                        border: active ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
                                     }}
                                 >
-                                    <span
-                                        aria-hidden
-                                        className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                        style={{ color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)' }}
-                                    >
-                                        <spec.Icon className="w-[18px] h-[18px]" />
-                                    </span>
-                                    <span className="flex-1 min-w-0">
-                                        <span
-                                            className="block font-semibold"
-                                            style={{
-                                                color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)',
-                                                fontSize: 13,
-                                            }}
-                                        >
-                                            {spec.label}
-                                        </span>
-                                        <span
-                                            className="block opacity-70"
-                                            style={{
-                                                color: 'rgba(255,255,255,0.7)',
-                                                fontSize: 10,
-                                                marginTop: 1,
-                                            }}
-                                        >
-                                            {spec.summary}
-                                        </span>
-                                    </span>
-                                    {active && (
-                                        <span aria-hidden className="inline-flex items-center text-sky-400">
-                                            <CheckIcon className="w-4 h-4" />
-                                        </span>
-                                    )}
-                                </button>
-                            </React.Fragment>
-                        );
-                    })}
-                    {currentMode === 'custom' && (
-                        <div
-                            className="px-2 py-1.5 mt-1 text-[10px] opacity-70 flex items-center gap-1.5"
-                            style={{
-                                color: 'rgba(255,255,255,0.6)',
-                                borderTop: '1px solid rgba(255,255,255,0.06)',
+                                    depth bands, contours, marks and hazards
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {showEncRouteRow && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                void runEncRoute();
                             }}
+                            disabled={encBusy}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: encBusy ? 'rgba(167, 139, 250, 0.18)' : 'rgba(167, 139, 250, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(167, 139, 250, 0.25)',
+                                cursor: encBusy ? 'wait' : 'pointer',
+                            }}
+                            aria-label="Plan ENC test route — Newport to Rivergate"
                         >
-                            <GearIcon className="w-3 h-3" />
-                            <span>Custom — pick any preset to reset</span>
-                        </div>
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#a78bfa' }}
+                            >
+                                <AnchorIcon className="w-[18px] h-[18px]" />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span
+                                    className="block font-semibold"
+                                    style={{
+                                        color: '#a78bfa',
+                                        fontSize: 13,
+                                    }}
+                                >
+                                    {encBusy ? 'Routing…' : 'Plan ENC Route'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    {encLastResult ?? 'Newport → Rivergate demo'}
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {props.setSatelliteVisible && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.setSatelliteVisible?.(!props.satelliteVisible);
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.satelliteVisible
+                                    ? 'rgba(52, 211, 153, 0.18)'
+                                    : 'rgba(52, 211, 153, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(52, 211, 153, 0.25)',
+                            }}
+                            aria-label="Toggle satellite base imagery"
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#34d399' }}
+                            >
+                                <MapIcon className="w-[18px] h-[18px]" />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#34d399', fontSize: 13 }}>
+                                    Satellite {props.satelliteVisible ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    real imagery under your route, marks &amp; weather
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {props.setHybridVisible && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.setHybridVisible?.(!props.hybridVisible);
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.hybridVisible
+                                    ? 'rgba(56, 189, 248, 0.20)'
+                                    : 'rgba(56, 189, 248, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                            }}
+                            aria-label="Toggle hybrid satellite base (imagery with roads and names)"
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#38bdf8', fontSize: 14, lineHeight: 1 }}
+                            >
+                                🗺️
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#38bdf8', fontSize: 13 }}>
+                                    Hybrid {props.hybridVisible ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    imagery with roads &amp; names — the public-page look
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {props.setOceanBaseVisible && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.setOceanBaseVisible?.(!props.oceanBaseVisible);
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.oceanBaseVisible
+                                    ? 'rgba(45, 212, 191, 0.20)'
+                                    : 'rgba(45, 212, 191, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(45, 212, 191, 0.3)',
+                            }}
+                            aria-label="Toggle bathymetric ocean base"
+                            aria-pressed={props.oceanBaseVisible ?? false}
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#2dd4bf', fontSize: 14, lineHeight: 1 }}
+                            >
+                                🌊
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#2dd4bf', fontSize: 13 }}>
+                                    Bathymetry {props.oceanBaseVisible ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    depth contours as the chart — no photo
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {props.onToggleTideDepth && (
+                        <button
+                            onClick={() => {
+                                props.onToggleTideDepth?.();
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.tideDepthMode
+                                    ? 'rgba(45, 212, 191, 0.18)'
+                                    : 'rgba(45, 212, 191, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(45, 212, 191, 0.25)',
+                            }}
+                            aria-label="Toggle live tide depth"
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#2dd4bf', fontSize: 15, fontWeight: 900 }}
+                            >
+                                ≈
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#2dd4bf', fontSize: 13 }}>
+                                    Live tide depth {props.tideDepthMode ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    depths as they are right now, not chart datum
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {props.onToggleNightDim && (
+                        <button
+                            onClick={() => {
+                                props.onToggleNightDim?.();
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.nightDim ? 'rgba(220, 80, 60, 0.18)' : 'rgba(220, 80, 60, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(220, 80, 60, 0.25)',
+                            }}
+                            aria-label="Toggle night dim"
+                            aria-pressed={props.nightDim ?? false}
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#e07a5f', fontSize: 14 }}
+                            >
+                                ☾
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#e07a5f', fontSize: 13 }}>
+                                    Night dim {props.nightDim ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    red-tinted dim protects night vision at the helm
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {props.onOpenChartKey && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.onOpenChartKey?.();
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: 'rgba(251, 191, 36, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(251, 191, 36, 0.25)',
+                            }}
+                            aria-label="Open the chart key"
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#fbbf24', fontSize: 14, fontWeight: 900 }}
+                            >
+                                ?
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#fbbf24', fontSize: 13 }}>
+                                    Chart key
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    what the shades and numbers mean
+                                </span>
+                            </span>
+                        </button>
+                    )}
+                    {showSeawayRow && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.onToggleSeawayDebug?.();
+                            }}
+                            className="flex items-center gap-3 text-left transition-colors"
+                            style={{
+                                background: props.seawayDebugVisible
+                                    ? 'rgba(56, 189, 248, 0.18)'
+                                    : 'rgba(56, 189, 248, 0.08)',
+                                borderRadius: 10,
+                                padding: '8px 10px',
+                                border: '1px solid rgba(56, 189, 248, 0.25)',
+                            }}
+                            aria-label="Toggle the Seaway Graph debug overlay"
+                        >
+                            <span
+                                aria-hidden
+                                className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                style={{ color: '#38bdf8' }}
+                            >
+                                <AnchorIcon className="w-[18px] h-[18px]" />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="block font-semibold" style={{ color: '#38bdf8', fontSize: 13 }}>
+                                    Seaway Graph {props.seawayDebugVisible ? 'ON' : 'off'}
+                                </span>
+                                <span
+                                    className="block opacity-70"
+                                    style={{
+                                        color: 'rgba(255,255,255,0.7)',
+                                        fontSize: 10,
+                                        marginTop: 1,
+                                    }}
+                                >
+                                    gates + channel edges from your charts (debug)
+                                </span>
+                            </span>
+                        </button>
                     )}
                 </div>
             )}
-            {/* Hide unused storedMode warning while we keep it for future
-                use (preset overlap when more modes are added). */}
-            {storedMode === null && null}
         </div>
     );
 };
