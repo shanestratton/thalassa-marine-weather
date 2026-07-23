@@ -92,11 +92,11 @@ const getUrl = () => {
 const getKey = () => {
     let key = '';
 
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_KEY) {
-        key = import.meta.env.VITE_SUPABASE_KEY as string;
-        logConfig('Found KEY in import.meta.env.VITE_SUPABASE_KEY');
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+        key = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || '') as string;
+        if (key) logConfig('Found Supabase anon key in import.meta.env');
     } else {
-        logConfig('❌ Not found in import.meta.env.VITE_SUPABASE_KEY');
+        logConfig('❌ Not found in import.meta.env');
     }
 
     if (!key) {

@@ -88,18 +88,23 @@ describe('apiCache', () => {
             expect(apiCacheGet('worldtides', 0, 0)).toEqual({ data: 'test' });
         });
 
-        it('stormglass expires after 3 hours', () => {
+        it('stormglass remains cached within the same published model cycle', () => {
+            const storedAt = Date.UTC(2026, 0, 1, 2, 0);
+            vi.spyOn(Date, 'now').mockReturnValue(storedAt);
             apiCacheSet('stormglass', 0, 0, { data: 'test' });
 
-            vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3.1 * 60 * 60 * 1000);
-            expect(apiCacheGet('stormglass', 0, 0)).toBeNull();
+            vi.mocked(Date.now).mockReturnValue(storedAt + 3.1 * 60 * 60 * 1000);
+            expect(apiCacheGet('stormglass', 0, 0)).toEqual({ data: 'test' });
         });
 
-        it('noaa_gfs expires after 3 hours', () => {
-            apiCacheSet('noaa_gfs', 0, 0, { data: 'test' });
+        it.each(['stormglass', 'noaa_gfs'] as const)('%s expires when the next model cycle publishes', (provider) => {
+            const storedAt = Date.UTC(2026, 0, 1, 2, 0);
+            vi.spyOn(Date, 'now').mockReturnValue(storedAt);
+            apiCacheSet(provider, 0, 0, { data: 'test' });
 
-            vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3.1 * 60 * 60 * 1000);
-            expect(apiCacheGet('noaa_gfs', 0, 0)).toBeNull();
+            // 07:31 UTC is past the 90-minute publish lag for the 06Z run.
+            vi.mocked(Date.now).mockReturnValue(Date.UTC(2026, 0, 1, 7, 31));
+            expect(apiCacheGet(provider, 0, 0)).toBeNull();
         });
 
         it('tides valid for 24 hours', () => {

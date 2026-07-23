@@ -389,7 +389,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             // Try the GFS edge function first (same as MapHub — reliable)
             try {
                 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-                const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
+                const SUPABASE_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ||
+                    import.meta.env.VITE_SUPABASE_KEY) as string;
                 const edgeUrl = `${SUPABASE_URL}/functions/v1/fetch-wind-grid`;
 
                 const res = await fetch(edgeUrl, {

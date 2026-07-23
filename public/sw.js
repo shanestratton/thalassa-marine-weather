@@ -517,12 +517,11 @@
 // v194: Vessel page — Atmosphere (Music) section removed, and Boat Binder opens
 // as its OWN SCREEN instead of unrolling ~170 lines of rows inline underneath
 // the pinned hero.
-// v195: chart-key overlap. The new Cardinals row carries FOUR glyphs and its
-// nowrap label ran over "Safe water" in the next column — it takes the full row
-// now, and every label truncates instead of overrunning.
-const CACHE_NAME = 'thalassa-v195-core';
+// v196: authenticated requests bypass CacheStorage and the data cache rotates
+// so previously cached user-scoped Edge responses are removed on activation.
+const CACHE_NAME = 'thalassa-v196-core';
 const TILE_CACHE = 'thalassa-v195-tiles';
-const DATA_CACHE = 'thalassa-v195-data';
+const DATA_CACHE = 'thalassa-v196-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
@@ -549,6 +548,11 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
+
+    // CacheStorage accepts GET requests only. More importantly, authenticated
+    // POST responses (Edge Functions, auth, AI) must never be replayed across
+    // users or request bodies.
+    if (event.request.method !== 'GET') return;
 
     // ── DEV MODE BYPASS ──
     // On localhost, let ALL requests pass through to Vite dev server directly.
@@ -641,15 +645,13 @@ self.addEventListener('fetch', (event) => {
     }
 
     // 2. DATA API - Network First, then Cache
-    // Covers weather APIs (StormGlass, Open-Meteo) AND Supabase edge functions
-    // (WeatherKit, tides, wind grid). Network first so we always get fresh data,
-    // but we cache responses so users see last-known data when offline.
+    // Covers public, credential-free weather APIs only. Supabase responses are
+    // deliberately excluded because many are user-scoped or signed.
     if (
         url.hostname.includes('open-meteo.com') ||
         url.hostname.includes('stormglass.io') ||
         url.hostname.includes('nomads.ncep.noaa.gov') ||
-        url.hostname.includes('gebco.net') ||
-        (url.hostname.includes('supabase.co') && url.pathname.includes('/functions/v1/'))
+        url.hostname.includes('gebco.net')
     ) {
         event.respondWith(
             fetch(event.request)
@@ -705,6 +707,17 @@ self.addEventListener('fetch', (event) => {
     // Safe here: /assets/* filenames are content-hashed (immutable per
     // hash), so a cache hit is correct by construction. waitUntil keeps
     // the background revalidation alive past page teardown.
+    const isSameOriginAppAsset =
+        url.origin === self.location.origin &&
+        !url.pathname.startsWith('/api/') &&
+        url.pathname !== '/sw.js' &&
+        (url.pathname.startsWith('/assets/') ||
+            url.pathname.startsWith('/icons/') ||
+            url.pathname.startsWith('/fonts/') ||
+            ASSETS.includes(url.pathname) ||
+            /\.(?:js|css|woff2?|png|jpe?g|webp|svg|ico|wasm|json|geojson)$/.test(url.pathname));
+    if (!isSameOriginAppAsset) return;
+
     event.respondWith(
         caches.match(event.request).then((cachedResponse) => {
             const fetchPromise = fetch(event.request)

@@ -202,7 +202,10 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
     try {
         // Use the NOAA GRIB edge function for dense global coverage (1° grid)
         const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-        const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+        const supabaseKey =
+            (typeof import.meta !== 'undefined' &&
+                (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+            '';
 
         if (!supabaseUrl) {
             return _doFetchGlobalOpenMeteo();

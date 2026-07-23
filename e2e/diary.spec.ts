@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 test.describe('Diary', () => {
+    test.use({ storageState: ONBOARDED_STORAGE });
+
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
         // Navigate to vessel tab then diary

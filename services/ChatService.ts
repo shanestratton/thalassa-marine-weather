@@ -315,7 +315,7 @@ class ChatServiceClass {
 
         // Fire-and-forget: push notifications for SOS questions
         if (isQuestion && data?.id) {
-            this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch((e) => {
+            this.pushSOSNotification(data.id).catch((e) => {
                 log.warn(``, e);
             });
         }
@@ -507,13 +507,7 @@ class ChatServiceClass {
 
         // Fire-and-forget: push notification to DM recipient
         if (data?.id) {
-            this.queuePushNotification({
-                recipientUserId: recipientId,
-                type: 'dm',
-                title: `💬 ${displayName}`,
-                body: text.length > 100 ? text.substring(0, 97) + '...' : text,
-                data: { sender_id: user.id, message_id: data.id },
-            }).catch(() => {
+            this.queuePushNotification(data.id).catch(() => {
                 /* best effort */
             });
         }
@@ -980,26 +974,16 @@ class ChatServiceClass {
      */
     async addCrewToVoyageChannels(captainUserId: string, crewUserId: string): Promise<void> {
         if (!supabase) return;
-
-        // Find all active private voyage channels owned by this captain
-        const { data: channels } = await supabase
-            .from(CHANNELS_TABLE)
-            .select('id')
-            .eq('owner_id', captainUserId)
-            .eq('is_private', true)
-            .eq('status', 'active')
-            .like('icon', '👥');
-
-        if (!channels || channels.length === 0) return;
-
-        // Add crew to each voyage channel (upsert to avoid duplicates)
-        for (const ch of channels) {
-            await supabase
-                .from('channel_members')
-                .upsert({ channel_id: ch.id, user_id: crewUserId }, { onConflict: 'channel_id,user_id' });
+        const currentUser = (await supabase.auth.getUser()).data.user;
+        if (!currentUser || currentUser.id !== crewUserId) return;
+        const { data: joinedCount, error } = await supabase.rpc('join_accepted_crew_channels', {
+            p_owner_id: captainUserId,
+        });
+        if (error) {
+            log.warn('Could not join accepted crew channels:', error.message);
+            return;
         }
-
-        log.info(`Added crew ${crewUserId} to ${channels.length} voyage channel(s) for captain ${captainUserId}`);
+        log.info(`Added crew ${crewUserId} to ${joinedCount ?? 0} voyage channel(s) for captain ${captainUserId}`);
     }
 
     /** Anyone can propose a channel (goes to 'pending' — admin approves) */
@@ -1160,7 +1144,7 @@ class ChatServiceClass {
 
     /** Admin/owner: get pending join requests (optionally for a specific channel) */
     async getJoinRequests(channelId?: string): Promise<JoinRequest[]> {
-        if (!supabase || !this.isMod()) return [];
+        if (!supabase) return [];
 
         let query = supabase
             .from('channel_join_requests')
@@ -1197,7 +1181,7 @@ class ChatServiceClass {
 
     /** Admin/owner: approve a join request — adds user to channel_members */
     async approveJoinRequest(requestId: string): Promise<boolean> {
-        if (!supabase || !this.isMod()) return false;
+        if (!supabase) return false;
 
         // Get request details
         const { data: request } = await supabase
@@ -1230,7 +1214,7 @@ class ChatServiceClass {
 
     /** Admin/owner: reject a join request */
     async rejectJoinRequest(requestId: string): Promise<boolean> {
-        if (!supabase || !this.isMod()) return false;
+        if (!supabase) return false;
         const { error } = await supabase
             .from('channel_join_requests')
             .update({ status: 'rejected', reviewed_by: this.currentUserId })
@@ -1258,22 +1242,10 @@ class ChatServiceClass {
 
     // --- PUSH NOTIFICATIONS ---
 
-    private async queuePushNotification(opts: {
-        recipientUserId: string;
-        type: string;
-        title: string;
-        body: string;
-        data?: Record<string, unknown>;
-    }): Promise<void> {
+    private async queuePushNotification(messageId: string): Promise<void> {
         if (!supabase) return;
         try {
-            await supabase.from('push_notification_queue').insert({
-                recipient_user_id: opts.recipientUserId,
-                notification_type: opts.type,
-                title: opts.title,
-                body: opts.body,
-                data: opts.data || {},
-            });
+            await supabase.rpc('queue_dm_push', { p_message_id: messageId });
         } catch (e) {
             log.warn('[Chat]', e);
             /* Push notification is best-effort — never block message sending */
@@ -1281,41 +1253,10 @@ class ChatServiceClass {
     }
 
     /** Push notifications to all recent channel participants for an SOS question */
-    private async pushSOSNotification(
-        channelId: string,
-        senderId: string,
-        senderName: string,
-        questionText: string,
-        messageId: string,
-    ): Promise<void> {
+    private async pushSOSNotification(messageId: string): Promise<void> {
         if (!supabase) return;
         try {
-            // Get unique recent contributors in this channel (last 50 messages)
-            const { data: recentMessages } = await supabase
-                .from(MESSAGES_TABLE)
-                .select('user_id')
-                .eq('channel_id', channelId)
-                .order('created_at', { ascending: false })
-                .limit(50);
-
-            if (!recentMessages) return;
-
-            const uniqueUserIds = [...new Set(recentMessages.map((m) => m.user_id))].filter((id) => id !== senderId); // Don't notify sender
-
-            const body = questionText.length > 80 ? questionText.substring(0, 77) + '...' : questionText;
-
-            // Queue a notification for each channel participant
-            const inserts = uniqueUserIds.map((uid) => ({
-                recipient_user_id: uid,
-                notification_type: 'sos',
-                title: `🆘 ${senderName} needs help`,
-                body,
-                data: { channel_id: channelId, message_id: messageId, sender_id: senderId },
-            }));
-
-            if (inserts.length > 0) {
-                await supabase.from('push_notification_queue').insert(inserts);
-            }
+            await supabase.rpc('queue_sos_push', { p_message_id: messageId });
         } catch (e) {
             log.warn('[Chat]', e);
             /* Best effort */

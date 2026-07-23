@@ -60,7 +60,10 @@ const _getSupabaseUrl = (): string =>
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
     'https://pcisdplnodrphauixcau.supabase.co';
 
-const _getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const _getSupabaseKey = (): string =>
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 /**
  * Fetch bathymetric-safe waypoints using the client-side Route Orchestrator.

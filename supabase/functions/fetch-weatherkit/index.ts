@@ -213,7 +213,15 @@ Deno.serve(async (req: Request) => {
         // absent, the URL is identical to before.
         const b = body as Record<string, unknown>;
         const extra: string[] = [];
-        for (const k of ['hourlyStart', 'hourlyEnd', 'dailyStart', 'dailyEnd', 'currentAsOf', 'timezone', 'countryCode']) {
+        for (const k of [
+            'hourlyStart',
+            'hourlyEnd',
+            'dailyStart',
+            'dailyEnd',
+            'currentAsOf',
+            'timezone',
+            'countryCode',
+        ]) {
             const v = b[k];
             if (typeof v === 'string' && v) extra.push(`${k}=${encodeURIComponent(v)}`);
         }

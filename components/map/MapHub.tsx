@@ -1145,15 +1145,20 @@ export const MapHub: React.FC<MapHubProps> = ({
             }, 200);
             return () => window.clearInterval(waitForMap);
         }
+        const layersUp = (): boolean =>
+            !!map.getLayer('trace-line-core') &&
+            !!map.getLayer('trace-line-glow') &&
+            !!map.getLayer('trace-issues-icons');
         const sync = (): void => {
             try {
-                // No isStyleLoaded() gate: it idles FALSE on a quiet map
-                // (proven 2026-07-15), and gating on it left fresh verdicts
-                // undrawn — "the last waypoint stays grey until you add
-                // another" / "reopen the page and all waypoints stay grey".
-                // addSource/addLayer only throw during the style's INITIAL
-                // load; the try/catch below plus the retry timer cover that
-                // window, and setData is always safe once sources exist.
+                // Gate only the INITIAL layer installation. isStyleLoaded()
+                // can briefly be false on an otherwise usable quiet map, so
+                // existing layers must still receive fresh setData below. But
+                // addSource/addLayer before the first style load always throws
+                // and creates a noisy, avoidable first-paint failure. The
+                // styledata listener and bounded retry below re-enter once the
+                // initial style is ready.
+                if (!layersUp() && !map.isStyleLoaded()) return;
                 if (!map.getSource('trace-line')) {
                     map.addSource('trace-line', {
                         type: 'geojson',
@@ -1474,10 +1479,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         // was there for: once they exist, layersUp() is true and styledata
         // stops triggering work, so the ~8 Hz self-feeding loop of 2026-07-15
         // does not come back.
-        const layersUp = (): boolean =>
-            !!map.getLayer('trace-line-core') &&
-            !!map.getLayer('trace-line-glow') &&
-            !!map.getLayer('trace-issues-icons');
         const heal = (): void => {
             if (!layersUp()) sync();
         };
@@ -2999,7 +3000,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // Diagnostic — count only: joining all 172 cloud-cell ids
             // built a ~2.5 KB string per notify and flooded the console
             // during registration storms (2026-07-12 audit).
-            console.warn(`[MapHub] encCellCount = ${cells.length}`);
+            log.info(`encCellCount = ${cells.length}`);
             setEncCellCount(cells.length);
         };
         refresh();
@@ -3282,9 +3283,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     if (buried.length > 0) {
                         // Self-limiting: once lifted they sit above the
                         // imagery, so this logs on the pass that fixes it and
-                        // then goes quiet. warn, not info — info is a no-op in
-                        // prod and this is the only evidence the lift happened.
-                        log.warn(
+                        // then goes quiet. This is normal layer maintenance,
+                        // so keep it out of warning/error telemetry.
+                        log.info(
                             `[labels] lifted ${buried.length} place-label layers above imagery: ${buried.join(', ')}`,
                         );
                         changed = true;
@@ -6964,7 +6965,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setChartKeyOpen((v) => !v);
                         }}
                         aria-label="What the chart colours and numbers mean"
-                        className="absolute bottom-1 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900/70 px-2 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95"
+                        className="absolute bottom-1 left-1/2 z-[9980] flex min-h-[44px] -translate-x-1/2 items-center whitespace-nowrap rounded-md bg-slate-900/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95"
                     >
                         {tideDepthMode && tideOffsetInfo
                             ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
@@ -7039,7 +7040,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Auto-opens once on first charted render; afterwards via
                     the ChartModes row. */}
                 {chartKeyOpen && !embedded && !pickerMode && !isPinView && (
-                    <div className="absolute bottom-44 right-2 z-[9992] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl">
+                    <div
+                        role="region"
+                        aria-label="Nautical chart key"
+                        className="absolute bottom-44 right-2 z-[9992] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
+                    >
                         <div className="mb-2 flex items-center justify-between">
                             <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">
                                 Chart key
@@ -7047,7 +7052,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <button
                                 onClick={() => setChartKeyOpen(false)}
                                 aria-label="Close chart key"
-                                className="text-xs font-bold text-gray-400"
+                                className="flex min-h-[44px] min-w-[44px] items-center justify-center text-xs font-bold text-gray-400"
                             >
                                 ✕
                             </button>
@@ -8114,7 +8119,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <button
                             type="button"
                             onClick={() => setChartControlsHidden(false)}
-                            className="absolute left-1/2 -translate-x-1/2 z-[510] flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
+                            className="absolute left-1/2 -translate-x-1/2 z-[510] flex min-h-[44px] items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
                             style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
                             aria-label="Show weather controls"
                         >
@@ -8124,7 +8129,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <button
                             type="button"
                             onClick={() => setChartControlsHidden(true)}
-                            className="absolute right-[16px] z-[510] flex h-9 w-9 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
+                            className="absolute right-[16px] z-[510] flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
                             style={{ bottom: 'calc(140px + env(safe-area-inset-bottom))' }}
                             aria-label="Hide weather controls"
                             title="Hide controls"

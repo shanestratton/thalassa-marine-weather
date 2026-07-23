@@ -1608,7 +1608,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         const supabaseUrl =
                             (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
                         const supabaseKey =
-                            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+                            (typeof import.meta !== 'undefined' &&
+                                (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+                            '';
                         if (supabaseUrl) {
                             // Pad generously: 15° south (wavefront goes around continents), 5° other dirs
                             const fetchBounds = {

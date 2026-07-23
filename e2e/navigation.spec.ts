@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 test.describe('Tab Navigation', () => {
-    test.use({ storageState: { cookies: [], origins: [] } });
+    test.use({ storageState: ONBOARDED_STORAGE });
 
     test('app renders navigation tabs', async ({ page }) => {
         await page.goto('/');
@@ -61,6 +62,7 @@ test.describe('Tab Navigation', () => {
 
         // The skip link should exist
         const skipLink = page.locator('a[href="#main-content"]');
-        await expect(skipLink).toBeAttached();
+        await expect(skipLink).toHaveCount(1);
+        await expect(skipLink).toHaveAccessibleName('Skip to main content');
     });
 });

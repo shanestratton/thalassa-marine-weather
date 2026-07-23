@@ -28,19 +28,14 @@ export const DiaryPhoto: React.FC<DiaryPhotoProps> = ({ src, alt = '', className
         // Fast path: if the src is already a directly-usable URL, skip the
         // async resolution and return it synchronously so the first render
         // paints the image without a flash.
-        if (src.startsWith('http://') || src.startsWith('https://')) return src;
         if (src.startsWith('data:') || src.startsWith('blob:')) return src;
         return null;
     });
 
     useEffect(() => {
         let cancelled = false;
-        // The fast path above already handled http(s)/data/blob — only async
-        // resolution needed for idb: refs (or unknown schemes we pass through).
-        if (src.startsWith('http://') || src.startsWith('https://')) {
-            setResolved(src);
-            return;
-        }
+        // The async resolver also converts legacy public Supabase URLs into
+        // signed private URLs. Only local data/blob refs can bypass it.
         if (src.startsWith('data:') || src.startsWith('blob:')) {
             setResolved(src);
             return;

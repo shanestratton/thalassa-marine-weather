@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * proxy-gemini — Google Gemini API Proxy
  *
@@ -44,6 +46,11 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
+    const caller = await requireAuthenticatedQuota(req, 'gemini', 30, 3600);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
+    }
+
     const key = Deno.env.get('GEMINI_API_KEY');
     if (!key) {
         return corsResponse(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }), 500);
@@ -55,20 +62,38 @@ Deno.serve(async (req: Request) => {
             prompt,
             systemInstruction,
             temperature = 0.7,
-            maxTokens = 8192,
+            maxTokens = 4096,
             responseMimeType,
         } = await req.json();
 
-        if (!prompt || typeof prompt !== 'string') {
+        if (!prompt || typeof prompt !== 'string' || prompt.length > 40_000) {
             return corsResponse(JSON.stringify({ error: 'prompt is required' }), 400);
+        }
+        const allowedModels = new Set(['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']);
+        if (!allowedModels.has(model)) {
+            return corsResponse(JSON.stringify({ error: 'Unsupported model' }), 400);
+        }
+        if (systemInstruction && (typeof systemInstruction !== 'string' || systemInstruction.length > 10_000)) {
+            return corsResponse(JSON.stringify({ error: 'Invalid system instruction' }), 400);
+        }
+        const numericTemperature = Number(temperature);
+        const numericMaxTokens = Number(maxTokens);
+        const safeTemperature = Number.isFinite(numericTemperature)
+            ? Math.min(2, Math.max(0, numericTemperature))
+            : 0.7;
+        const safeMaxTokens = Number.isFinite(numericMaxTokens)
+            ? Math.min(4096, Math.max(1, Math.floor(numericMaxTokens)))
+            : 1024;
+        if (responseMimeType && !['application/json', 'text/plain'].includes(responseMimeType)) {
+            return corsResponse(JSON.stringify({ error: 'Unsupported response type' }), 400);
         }
 
         // Build the Gemini API request body
         const requestBody: Record<string, unknown> = {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
-                temperature,
-                maxOutputTokens: maxTokens,
+                temperature: safeTemperature,
+                maxOutputTokens: safeMaxTokens,
             },
         };
 

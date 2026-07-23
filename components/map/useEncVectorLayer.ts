@@ -69,6 +69,8 @@ const WINDOW_FACTOR = 2.5;
  *  of pre-load so the chart's ready by the z7 render floor. Gate the
  *  COMPUTE, not just the render (lesson: zoom-gate-render-only-compute). */
 const ENC_MERGE_MIN_ZOOM = 6.5;
+let prewarmInFlight: Promise<unknown> | null = null;
+let lastPrewarmAt = 0;
 
 type Bbox = [number, number, number, number];
 
@@ -94,9 +96,16 @@ function windowFor(map: mapboxgl.Map): Bbox {
 export function prewarmEncMerge(map: mapboxgl.Map): void {
     try {
         if (map.getZoom() < ENC_MERGE_MIN_ZOOM || !hasAnyCells()) return;
+        const now = Date.now();
+        if (prewarmInFlight || now - lastPrewarmAt < 2_000) return;
+        lastPrewarmAt = now;
         const win = windowFor(map);
-        log.warn(`[prewarm] boot merge start z=${map.getZoom().toFixed(1)}`);
-        void getMergedVectorData(win, map.getZoom()).catch(() => undefined);
+        log.info(`[prewarm] boot merge start z=${map.getZoom().toFixed(1)}`);
+        prewarmInFlight = getMergedVectorData(win, map.getZoom())
+            .catch(() => undefined)
+            .finally(() => {
+                prewarmInFlight = null;
+            });
     } catch {
         /* prewarm is best-effort — the normal apply path still runs */
     }
@@ -360,21 +369,17 @@ export function useEncVectorLayer(
             // chart still looked populated while the soundings were gone.
             if (!visible && !plotting) {
                 if (mountedRef.current) setEncVectorVisibility(map, false);
-                log.warn('[apply] skipped — ENC chart toggled off');
+                log.info('[apply] skipped — ENC chart toggled off');
                 return;
             }
 
             try {
                 const win = windowFor(map);
-                // warn, not info: info is silent in prod and this line is
-                // the only breadcrumb for "chart never mounted / never
-                // refreshed" field reports (2026-07-15, "white layer is
-                // not showing"). One line per merge attempt — cheap.
-                log.warn(
+                log.info(
                     `[apply] merge start z=${map.getZoom().toFixed(1)} win=${win.map((v) => v.toFixed(2)).join(',')}`,
                 );
                 const data = await getMergedVectorData(win, map.getZoom());
-                log.warn(
+                log.info(
                     `[apply] merge done: ${
                         data
                             ? `${data.cellCount} cells, depare=${data.DEPARE.features.length}, glaze=${data.DEPARE_GLAZE.features.length}, cancelled=${cancelled}`

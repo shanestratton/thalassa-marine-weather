@@ -895,7 +895,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 const supabaseUrl =
                     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                     'https://pcisdplnodrphauixcau.supabase.co';
-                const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+                const supabaseKey =
+                    (typeof import.meta !== 'undefined' &&
+                        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+                    '';
                 const { piCache } = await import('../services/PiCacheService');
                 const usePi = piCache.isAvailable();
                 const url = usePi

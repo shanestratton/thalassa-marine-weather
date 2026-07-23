@@ -34,7 +34,6 @@ import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
 import {
     isDeepgramAvailable,
     prewarmAudioContext,
-    prewarmDeepgram,
     prewarmDeepgramWebSocket,
     prewarmMicStream,
     prewarmWorkerConnection,
@@ -529,8 +528,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 // Multi-prewarm to slash cold-start latency on first
                 // tap. Each one shaves a chunk off the tap-to-ready
                 // critical path:
-                //   - prewarmDeepgram: token cache (no-op on Cloudflare
-                //     path which doesn't need a token)
                 //   - prewarmMicStream: getUserMedia. Dominant cold-
                 //     start cost on iOS (~1.0-1.4s). Acquires the mic
                 //     NOW so tap-to-ready skips it.
@@ -556,7 +553,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 // words after tap don't get clipped by AVAudioSession
                 // activation latency.
                 void Promise.all([
-                    prewarmDeepgram(),
                     prewarmMicStream().then(async (ok) => {
                         if (ok) {
                             // Chained so the mic stream is alive when
@@ -629,7 +625,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      */
     const rearmPrewarm = useCallback(() => {
         void Promise.all([
-            prewarmDeepgram(),
             prewarmMicStream().then(async (ok) => {
                 if (ok) await prewarmAudioContext();
                 return ok;

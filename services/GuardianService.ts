@@ -467,26 +467,27 @@ class GuardianServiceClass {
             const fullMessage = `${ownerName} on ${vesselName} says: ${message}`;
 
             // Send as DM via existing chat_direct_messages
-            const { error } = await supabase.from('chat_direct_messages').insert({
-                sender_id: user.id,
-                recipient_id: targetUserId,
-                sender_name: ownerName,
-                message: `🏴‍☠️ ${fullMessage}`,
-            });
+            const { data: sentMessage, error } = await supabase
+                .from('chat_direct_messages')
+                .insert({
+                    sender_id: user.id,
+                    recipient_id: targetUserId,
+                    sender_name: ownerName,
+                    message: `🏴‍☠️ ${fullMessage}`,
+                })
+                .select('id')
+                .single();
 
             if (error) {
                 log.error('[Guardian] Hail error:', error.message);
                 return false;
             }
 
-            // Also queue a push notification
-            await supabase.from('push_notification_queue').insert({
-                recipient_user_id: targetUserId,
-                notification_type: 'hail',
-                title: `🏴‍☠️ Hail from ${vesselName}`,
-                body: fullMessage,
-                data: { sender_id: user.id, sender_vessel: vesselName },
-            });
+            // The database derives the recipient and safe push copy from the
+            // newly-created DM; clients cannot enqueue arbitrary notifications.
+            if (sentMessage?.id) {
+                await supabase.rpc('queue_dm_push', { p_message_id: sentMessage.id });
+            }
 
             return true;
         } catch (e) {

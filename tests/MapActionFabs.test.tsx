@@ -13,10 +13,10 @@ describe('MapActionFabs', () => {
         recenterDisabled: false,
     };
 
-    it('renders both action buttons', () => {
+    it('renders the GPS action and keeps the parked recenter action hidden', () => {
         render(<MapActionFabs {...defaultProps} />);
         expect(screen.getByLabelText('Locate me')).toBeInTheDocument();
-        expect(screen.getByLabelText('Recenter on weather location')).toBeInTheDocument();
+        expect(screen.queryByLabelText('Recenter on weather location')).not.toBeInTheDocument();
     });
 
     it('calls onLocateMe when GPS button is clicked', () => {
@@ -24,23 +24,6 @@ describe('MapActionFabs', () => {
         render(<MapActionFabs {...defaultProps} onLocateMe={onLocateMe} />);
         fireEvent.click(screen.getByLabelText('Locate me'));
         expect(onLocateMe).toHaveBeenCalledTimes(1);
-    });
-
-    it('calls onRecenter when recenter button is clicked', () => {
-        const onRecenter = vi.fn();
-        render(<MapActionFabs {...defaultProps} onRecenter={onRecenter} />);
-        fireEvent.click(screen.getByLabelText('Recenter on weather location'));
-        expect(onRecenter).toHaveBeenCalledTimes(1);
-    });
-
-    it('disables recenter button when recenterDisabled is true', () => {
-        render(<MapActionFabs {...defaultProps} recenterDisabled={true} />);
-        expect(screen.getByLabelText('Recenter on weather location')).toBeDisabled();
-    });
-
-    it('does NOT disable recenter button when recenterDisabled is false', () => {
-        render(<MapActionFabs {...defaultProps} recenterDisabled={false} />);
-        expect(screen.getByLabelText('Recenter on weather location')).not.toBeDisabled();
     });
 
     it('positions at the bottom with safe area inset', () => {

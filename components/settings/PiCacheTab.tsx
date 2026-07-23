@@ -36,7 +36,10 @@ import { useAuthStore } from '../../stores/authStore';
 import { triggerHaptic } from '../../utils/system';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const SUPABASE_KEY =
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 const OPEN_METEO_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPEN_METEO_API_KEY) || '';
 
 // ── Phase display config ──────────────────────────────────────

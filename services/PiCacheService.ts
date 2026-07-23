@@ -873,7 +873,7 @@ class PiCacheServiceImpl {
             string | undefined
         > | null;
         const supabaseUrl = envSrc?.VITE_SUPABASE_URL || '';
-        const supabaseAnonKey = envSrc?.VITE_SUPABASE_KEY || '';
+        const supabaseAnonKey = envSrc?.VITE_SUPABASE_ANON_KEY || envSrc?.VITE_SUPABASE_KEY || '';
         const openMeteoApiKey = envSrc?.VITE_OPEN_METEO_API_KEY || '';
 
         if (!supabaseUrl || !supabaseAnonKey) {

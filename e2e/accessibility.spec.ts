@@ -1,50 +1,13 @@
 import { test, expect } from '@playwright/test';
+import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 /**
  * Accessibility-focused E2E tests.
  * Validates ARIA roles, focus management, and keyboard navigation.
  */
 
-const ONBOARDED_STORAGE = {
-    cookies: [],
-    origins: [
-        {
-            origin: 'http://localhost:3000',
-            localStorage: [
-                { name: 'thalassa_v3_onboarded', value: 'true' },
-                {
-                    name: 'thalassa_v3_settings',
-                    value: JSON.stringify({
-                        defaultLocation: 'Sydney, NSW',
-                        units: {
-                            speed: 'kts',
-                            temp: 'C',
-                            distance: 'nm',
-                            length: 'm',
-                            tideHeight: 'm',
-                            waveHeight: 'm',
-                            visibility: 'nm',
-                            volume: 'l',
-                        },
-                        vessel: {
-                            name: 'Test Vessel',
-                            type: 'sail',
-                            length: 35,
-                            beam: 11,
-                            draft: 6,
-                            displacement: 12000,
-                        },
-                        savedLocations: ['Sydney, NSW'],
-                    }),
-                },
-            ],
-        },
-    ],
-};
-
 test.describe('Accessibility', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    test.use({ storageState: ONBOARDED_STORAGE as any });
+    test.use({ storageState: ONBOARDED_STORAGE });
 
     test('modals have role=dialog and aria-modal', async ({ page }) => {
         await page.goto('/');

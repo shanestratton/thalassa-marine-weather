@@ -98,7 +98,10 @@ async function ensureWindGridForRoute(
         const supabaseUrl =
             (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
             'https://pcisdplnodrphauixcau.supabase.co';
-        const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+        const supabaseKey =
+            (typeof import.meta !== 'undefined' &&
+                (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+            '';
         const { piCache } = await import('./PiCacheService');
         const usePi = piCache.isAvailable();
         const url = usePi ? `${piCache.baseUrl}/api/grib/wind-grid` : `${supabaseUrl}/functions/v1/fetch-wind-grid`;

@@ -18,6 +18,7 @@ const log = createLogger('MarketplaceService');
 
 // --- CONFIG ---
 const LISTINGS_TABLE = 'marketplace_listings';
+const PUBLIC_LISTINGS_VIEW = 'marketplace_listings_public';
 const _MESSAGES_TABLE = 'marketplace_messages';
 const PROFILES_TABLE = 'chat_profiles';
 const IMAGES_BUCKET = 'marketplace-images';
@@ -201,7 +202,7 @@ class MarketplaceServiceClass {
         if (!supabase) return [];
 
         let query = supabase
-            .from(LISTINGS_TABLE)
+            .from(PUBLIC_LISTINGS_VIEW)
             .select('*')
             .eq('status', 'available')
             .order('created_at', { ascending: false })
@@ -218,7 +219,7 @@ class MarketplaceServiceClass {
         let soldListings: Record<string, unknown>[] = [];
         const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         let soldQuery = supabase
-            .from(LISTINGS_TABLE)
+            .from(PUBLIC_LISTINGS_VIEW)
             .select('*')
             .eq('status', 'sold')
             .gte('sold_at', twoDaysAgo)
@@ -261,7 +262,7 @@ class MarketplaceServiceClass {
     async getListing(id: string): Promise<MarketplaceListing | null> {
         if (!supabase) return null;
 
-        const { data } = await supabase.from(LISTINGS_TABLE).select('*').eq('id', id).single();
+        const { data } = await supabase.from(PUBLIC_LISTINGS_VIEW).select('*').eq('id', id).single();
 
         if (!data) return null;
 

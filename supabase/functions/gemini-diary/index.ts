@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * gemini-diary — Captain's Journal AI Assistant
  *
@@ -172,6 +174,11 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ error: 'POST required' }, 405);
     }
 
+    const caller = await requireAuthenticatedQuota(req, 'gemini_diary', 30, 3600);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
+    }
+
     try {
         const apiKey = Deno.env.get('GEMINI_API_KEY');
         if (!apiKey) {
@@ -181,6 +188,16 @@ Deno.serve(async (req: Request) => {
 
         const body = await req.json();
         const { action } = body;
+
+        if (action === 'enhance' && (typeof body.text !== 'string' || body.text.length > 20_000)) {
+            return jsonResponse({ error: 'Invalid journal text' }, 400);
+        }
+        if (
+            action === 'transcribe' &&
+            (typeof body.audio_base64 !== 'string' || body.audio_base64.length > 20_000_000)
+        ) {
+            return jsonResponse({ error: 'Invalid or oversized audio' }, 400);
+        }
 
         console.info(`[gemini-diary] Action: ${action}`);
 

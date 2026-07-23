@@ -210,7 +210,10 @@ export const WindDataController = {
             const supabaseUrl =
                 (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                 'https://pcisdplnodrphauixcau.supabase.co';
-            const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+            const supabaseKey =
+                (typeof import.meta !== 'undefined' &&
+                    (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+                '';
             const directUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
             const usePi = piCache.isAvailable();
             const edgeUrl = usePi ? `${piCache.baseUrl}/api/grib/wind-grid` : directUrl;

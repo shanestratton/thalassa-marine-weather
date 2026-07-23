@@ -5,7 +5,7 @@
  * User must scroll to bottom and tap "I Understand" to proceed.
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { acceptDisclaimer, getDisclaimerText, DISCLAIMER_VERSION } from './LegalGuard';
 
 interface DisclaimerOverlayProps {
@@ -15,6 +15,10 @@ interface DisclaimerOverlayProps {
 export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted }) => {
     const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        scrollRef.current?.focus();
+    }, []);
 
     const handleScroll = useCallback(() => {
         const el = scrollRef.current;
@@ -32,7 +36,12 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
     }, [onAccepted]);
 
     return (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950">
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="navigation-disclaimer-title"
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950"
+        >
             {/* Subtle ocean gradient background */}
             <div
                 className="absolute inset-0 opacity-30"
@@ -45,7 +54,12 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
                 {/* Header */}
                 <div className="shrink-0 text-center mb-6">
                     <div className="text-4xl mb-3">⚓</div>
-                    <h1 className="text-2xl font-black text-white tracking-wide uppercase">Important Notice</h1>
+                    <h1
+                        id="navigation-disclaimer-title"
+                        className="text-2xl font-black text-white tracking-wide uppercase"
+                    >
+                        Important Notice
+                    </h1>
                     <p className="text-sm text-amber-400 font-semibold mt-2 tracking-wider uppercase">
                         Not for Navigation
                     </p>
@@ -54,6 +68,9 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
                 {/* Scrollable disclaimer text */}
                 <div
                     ref={scrollRef}
+                    role="document"
+                    tabIndex={0}
+                    aria-label="Navigation disclaimer text"
                     onScroll={handleScroll}
                     className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-slate-900/80 border border-white/10 p-5 mb-4 backdrop-blur-sm"
                     style={{
@@ -78,7 +95,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
                     </div>
                 ) : (
                     <button
-                        aria-label="Previous"
+                        aria-label="Accept navigation disclaimer and continue"
                         onClick={handleAccept}
                         className="w-full py-4 rounded-2xl text-white text-lg font-bold transition-all active:scale-[0.98]"
                         style={{

@@ -76,7 +76,7 @@ const log = createLogger('isobars');
 // No client-side GRIB2 parsing needed — server handles it all.
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_KEY || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || '';
 
 // Forecast hours: 3h intervals over 12h = 5 frames
 const GRIB_FORECAST_HOURS = [0, 3, 6, 9, 12];

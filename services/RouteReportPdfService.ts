@@ -36,14 +36,14 @@ function pdfSafe(s: unknown): string {
         .replace(/→/g, ' to ') // → arrow
         .replace(/[‘’]/g, "'") // curly single quotes
         .replace(/[“”]/g, '"') // curly double quotes
-        .replace(/[   ]/g, ' ') // nbsp / thin spaces
+        .replace(/[\u00a0\u2009\u202f]/g, ' ') // nbsp / thin spaces
         .replace(/[^\x20-\x7E°]/g, '') // keep printable ASCII + degree; strip emoji
         .trim();
 }
 
 /** Decimal degrees → degrees-decimal-minutes with hemisphere (plotter standard). */
 function ddToDMM(v: number, isLat: boolean): string {
-    const hemi = isLat ? (v >= 0 ? 'N' : 'S') : (v >= 0 ? 'E' : 'W');
+    const hemi = isLat ? (v >= 0 ? 'N' : 'S') : v >= 0 ? 'E' : 'W';
     const a = Math.abs(v);
     const deg = Math.floor(a);
     const min = (a - deg) * 60;
@@ -146,7 +146,10 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     doc.setFontSize(7);
     doc.setTextColor(...COLORS.dim);
     doc.text(nowLabel(data.nowMs), W - margin - 6, y + 7, { align: 'right' });
-    const vesselLine = [data.vesselName ? pdfSafe(data.vesselName) : '', data.draftM != null ? `${data.draftM.toFixed(1)} m draft` : '']
+    const vesselLine = [
+        data.vesselName ? pdfSafe(data.vesselName) : '',
+        data.draftM != null ? `${data.draftM.toFixed(1)} m draft` : '',
+    ]
         .filter(Boolean)
         .join('  ·  ');
     if (vesselLine) doc.text(vesselLine, W - margin - 6, y + 23, { align: 'right' });
@@ -250,7 +253,9 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
                 : (problem?.message ?? v.grade);
         doc.setFontSize(8.5);
         const lines = doc.splitTextToSize(pdfSafe(msg), contentW - 20) as string[];
-        const tide = data.tideLabels[i] ? (doc.splitTextToSize(pdfSafe(data.tideLabels[i]), contentW - 20) as string[]) : [];
+        const tide = data.tideLabels[i]
+            ? (doc.splitTextToSize(pdfSafe(data.tideLabels[i]), contentW - 20) as string[])
+            : [];
         const rowH = Math.max(5.4, lines.length * 3.6 + tide.length * 3.2 + 1.6);
         ensure(rowH);
         doc.setFillColor(...col);

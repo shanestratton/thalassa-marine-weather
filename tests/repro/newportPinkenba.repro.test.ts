@@ -665,7 +665,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(hug.riverPts).toBeGreaterThan(0);
     });
 
-    it('VARIANT C — REAL OSM navLines → NAVLINE (the actual on-device puller)', () => {
+    it('VARIANT C — REAL OSM navLines → NAVLINE (the actual on-device puller)', (context) => {
+        if (osmNav.length === 0 || osmCanal.length === 0) {
+            return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
+        }
         const { route, prov, hug } = runVariant('osm');
         // eslint-disable-next-line no-console
         console.log('\n=== VARIANT C (REAL OSM navLines → NAVLINE) ===');
@@ -706,7 +709,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(hug.riverPts).toBeGreaterThan(0);
     });
 
-    it('VARIANT D — REAL OSM + regional marker chains (live device path)', async () => {
+    it('VARIANT D — REAL OSM + regional marker chains (live device path)', async (context) => {
+        if (osmNav.length === 0 || osmCanal.length === 0) {
+            return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
+        }
         const { route, prov, hug, regional } = await runVariantWithRegionalMarkers();
         const newportPts = route.polyline
             .filter(([lon, lat]) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
@@ -785,7 +791,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(true).toBe(true);
     });
 
-    it('CANAL SNAP — Newport canal rides dead centre, river left untouched', () => {
+    it('CANAL SNAP — Newport canal rides dead centre, river left untouched', (context) => {
+        if (osmCanal.length === 0) {
+            return context.skip('Pi is reachable but its live OSM overlay returned no canal lines');
+        }
         // Variant C = the faithful on-device path (CANAL populated). The Newport
         // canal can come out tier-3 passthrough here (the lines carve navigable water),
         // i.e. the raw A* wall-hug. snapRouteToCanalLines should pull it dead centre,

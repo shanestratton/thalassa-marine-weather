@@ -191,31 +191,34 @@ export const WatchAssignmentService = {
             // 3. Enqueue one push per crew member, listing their first
             //    watch + total count. The send-push edge function
             //    polls push_notification_queue and fires APNs.
-            const inserts: Array<Record<string, unknown>> = [];
+            const pushRequests: Array<PromiseLike<{ error: { message: string } | null }>> = [];
             for (const email of uniqueEmails) {
                 const userId = emailToUserId.get(email);
                 if (!userId) continue; // crew not registered / not yet accepted
                 const mine = assigned.filter((a) => a.assigned_crew_email === email);
                 const first = mine[0];
-                inserts.push({
-                    recipient_user_id: userId,
-                    notification_type: 'watch_schedule_published',
-                    title: `⚓ Watch schedule for ${voyageName}`,
-                    body:
-                        mine.length === 1
-                            ? `You have ${first.watch_label} (${first.watch_time_label} UTC)`
-                            : `You have ${mine.length} watches — first: ${first.watch_label} (${first.watch_time_label})`,
-                    data: {
-                        voyageId,
-                        watchIndex: first.watch_index,
-                        deepLink: '/crew',
-                    },
-                });
+                pushRequests.push(
+                    supabase.rpc('queue_watch_schedule_push', {
+                        p_voyage_id: voyageId,
+                        p_recipient_user_id: userId,
+                        p_title: `⚓ Watch schedule for ${voyageName}`,
+                        p_body:
+                            mine.length === 1
+                                ? `You have ${first.watch_label} (${first.watch_time_label} UTC)`
+                                : `You have ${mine.length} watches — first: ${first.watch_label} (${first.watch_time_label})`,
+                        p_data: {
+                            voyageId,
+                            watchIndex: first.watch_index,
+                            deepLink: '/crew',
+                        },
+                    }),
+                );
             }
 
-            if (inserts.length > 0) {
-                const { error } = await supabase.from('push_notification_queue').insert(inserts);
-                if (error) log.warn('push enqueue failed:', error.message);
+            if (pushRequests.length > 0) {
+                const results = await Promise.all(pushRequests);
+                const failed = results.find((result) => result.error);
+                if (failed?.error) log.warn('push request failed:', failed.error.message);
             }
 
             // 4. Realtime broadcast — crew clients with an open
@@ -233,8 +236,8 @@ export const WatchAssignmentService = {
                 log.warn('realtime broadcast failed:', e);
             }
 
-            log.info(`published watch schedule to ${inserts.length} crew member(s)`);
-            return inserts.length;
+            log.info(`published watch schedule to ${pushRequests.length} crew member(s)`);
+            return pushRequests.length;
         } catch (e) {
             log.warn('publishToCrew failed:', e);
             return 0;

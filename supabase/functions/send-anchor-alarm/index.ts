@@ -9,7 +9,7 @@
  * - APNS_KEY_P8: The contents of your Apple .p8 auth key file
  * - APNS_KEY_ID: The Key ID from Apple Developer
  * - APNS_TEAM_ID: Your Apple Developer Team ID
- * - APNS_BUNDLE_ID: Your app's bundle identifier (e.g., com.thalassa.marine)
+ * - APNS_BUNDLE_ID: Your app's bundle identifier (e.g., com.thalassa.weather)
  * - SUPABASE_URL: Auto-provided
  * - SUPABASE_SERVICE_ROLE_KEY: Auto-provided
  */
@@ -65,23 +65,20 @@ async function sendApnsPush(
     body: string,
     data: Record<string, unknown>,
 ): Promise<boolean> {
-    const bundleId = Deno.env.get('APNS_BUNDLE_ID') || 'com.thalassa.marine';
+    const bundleId = Deno.env.get('APNS_BUNDLE_ID') || 'com.thalassa.weather';
+    const criticalAlertsEntitled = Deno.env.get('APNS_CRITICAL_ALERTS_ENABLED') === 'true';
     const jwt = await createApnsJwt();
 
     // Use production APNs (switch to api.sandbox.push.apple.com for dev)
     const useProduction = Deno.env.get('APNS_PRODUCTION') !== 'false';
     const host = useProduction ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
 
+    const alertSound = criticalAlertsEntitled ? { critical: 1, name: 'default', volume: 1.0 } : 'default';
     const payload = {
         aps: {
             alert: { title, body },
-            // Critical Alert — bypasses Do Not Disturb and silent mode
-            sound: {
-                critical: 1,
-                name: 'default',
-                volume: 1.0,
-            },
-            'interruption-level': 'critical',
+            sound: alertSound,
+            'interruption-level': criticalAlertsEntitled ? 'critical' : 'time-sensitive',
             'content-available': 1,
             badge: 1,
         },
@@ -117,31 +114,63 @@ async function sendApnsPush(
 
 serve(async (req: Request) => {
     try {
-        const { record } = await req.json();
+        if (req.method !== 'POST') {
+            return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+        }
 
-        if (!record?.session_code) {
-            return new Response(JSON.stringify({ error: 'Missing session_code' }), {
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!serviceRoleKey) {
+            return new Response(JSON.stringify({ error: 'Server configuration error' }), { status: 500 });
+        }
+        if (req.headers.get('authorization') !== `Bearer ${serviceRoleKey}`) {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+        }
+
+        const { record: webhookRecord } = await req.json();
+
+        if (!webhookRecord?.id) {
+            return new Response(JSON.stringify({ error: 'Missing alarm record id' }), {
                 status: 400,
             });
         }
 
-        const { session_code, distance_m, swing_radius_m, vessel_lat, vessel_lon } = record;
+        const supabase = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey);
+        const { data: record, error: eventError } = await supabase.rpc('claim_anchor_alarm_event', {
+            p_id: webhookRecord.id,
+        });
+        if (eventError || !record) {
+            return new Response(JSON.stringify({ error: 'Alarm record is missing, stale, or already processed' }), {
+                status: 409,
+            });
+        }
+
+        const { id, session_code, distance_m, swing_radius_m, vessel_lat, vessel_lon } = record;
+        const releaseClaim = async (message: string) => {
+            await supabase
+                .from('anchor_alarm_events')
+                .update({ processing_at: null, last_error: message.slice(0, 500) })
+                .eq('id', id)
+                .is('notified_at', null);
+        };
 
         // Look up device tokens for this session
-        const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-
         const { data: tokens, error } = await supabase
             .from('anchor_alarm_tokens')
             .select('device_token, platform')
             .eq('session_code', session_code);
 
         if (error) {
+            await releaseClaim(`Token lookup failed: ${error.message}`);
             return new Response(JSON.stringify({ error: 'Token lookup failed' }), {
                 status: 500,
             });
         }
 
         if (!tokens || tokens.length === 0) {
+            await supabase
+                .from('anchor_alarm_events')
+                .update({ notified_at: new Date().toISOString(), processing_at: null })
+                .eq('id', id);
             return new Response(JSON.stringify({ sent: 0, message: 'No tokens' }), {
                 status: 200,
             });
@@ -167,6 +196,19 @@ serve(async (req: Request) => {
         );
 
         const sent = results.filter(Boolean).length;
+
+        if (sent === 0) {
+            await releaseClaim('APNs delivery failed');
+            return new Response(JSON.stringify({ error: 'APNs delivery failed; queued for retry' }), {
+                status: 502,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        await supabase
+            .from('anchor_alarm_events')
+            .update({ notified_at: new Date().toISOString(), processing_at: null, last_error: null })
+            .eq('id', id);
 
         return new Response(JSON.stringify({ sent, total: tokens.length }), {
             status: 200,

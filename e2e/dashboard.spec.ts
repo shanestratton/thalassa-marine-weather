@@ -1,50 +1,13 @@
 import { test, expect } from '@playwright/test';
+import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 /**
  * These tests simulate a post-onboarding state
  * by injecting localStorage with onboarded=true + minimal settings.
  */
 
-const ONBOARDED_STORAGE = {
-    cookies: [],
-    origins: [
-        {
-            origin: 'http://localhost:3000',
-            localStorage: [
-                { name: 'thalassa_v3_onboarded', value: 'true' },
-                {
-                    name: 'thalassa_v3_settings',
-                    value: JSON.stringify({
-                        defaultLocation: 'Sydney, NSW',
-                        units: {
-                            speed: 'kts',
-                            temp: 'C',
-                            distance: 'nm',
-                            length: 'm',
-                            tideHeight: 'm',
-                            waveHeight: 'm',
-                            visibility: 'nm',
-                            volume: 'l',
-                        },
-                        vessel: {
-                            name: 'Test Vessel',
-                            type: 'sail',
-                            length: 35,
-                            beam: 11,
-                            draft: 6,
-                            displacement: 12000,
-                        },
-                        savedLocations: ['Sydney, NSW'],
-                    }),
-                },
-            ],
-        },
-    ],
-};
-
 test.describe('Dashboard Navigation', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    test.use({ storageState: ONBOARDED_STORAGE as any });
+    test.use({ storageState: ONBOARDED_STORAGE });
 
     test('dashboard loads with content', async ({ page }) => {
         await page.goto('/');

@@ -29,7 +29,10 @@ import { EncCellManager } from './EncCellManager';
 const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const SUPABASE_KEY =
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 interface AvNavPageProps {
     onBack: () => void;

@@ -29,9 +29,8 @@
  *   iOS ──wss──> Worker ──wss──> api.deepgram.com
  *                  (WebSocketPair)   (token subprotocol w/ API key)
  *
- *   Auth: client passes the Supabase anon JWT as ?apikey= URL param.
- *   Worker compares to env.SUPABASE_ANON_KEY (set as Worker secret) —
- *   same trust boundary as our other Supabase-fronted endpoints.
+ *   Auth: client passes a 60-second, one-use proxy ticket. The Worker
+ *   atomically consumes it through a restricted Supabase RPC before upgrade.
  *   Worker holds the Deepgram API key in env.DEEPGRAM_API_KEY and
  *   never exposes it to the client.
  *
@@ -48,6 +47,7 @@
 export interface Env {
     DEEPGRAM_API_KEY: string;
     SUPABASE_ANON_KEY: string;
+    SUPABASE_URL: string;
 }
 
 // Cloudflare Workers' fetch API requires https:// for WebSocket
@@ -57,7 +57,7 @@ export interface Env {
 const DEEPGRAM_BASE = 'https://api.deepgram.com/v1/listen';
 
 /** Params we consume on the Worker side; everything else forwards to Deepgram. */
-const WORKER_OWN_PARAMS = new Set(['apikey', 'token', 'access_token']);
+const WORKER_OWN_PARAMS = new Set(['apikey', 'ticket', 'token', 'access_token']);
 
 export default {
     async fetch(req: Request, env: Env): Promise<Response> {
@@ -70,20 +70,28 @@ export default {
             });
         }
 
-        // ── 2. Auth: client must present the Supabase anon key ─────
+        // ── 2. Auth: consume a short-lived, one-use proxy ticket ──
         const reqUrl = new URL(req.url);
-        const clientKey = reqUrl.searchParams.get('apikey');
-        if (!env.SUPABASE_ANON_KEY) {
-            return new Response('Worker not configured: SUPABASE_ANON_KEY missing', { status: 500 });
+        const ticket = reqUrl.searchParams.get('ticket');
+        if (!env.SUPABASE_ANON_KEY || !env.SUPABASE_URL) {
+            return new Response('Worker not configured: Supabase settings missing', { status: 500 });
         }
         if (!env.DEEPGRAM_API_KEY) {
             return new Response('Worker not configured: DEEPGRAM_API_KEY missing', { status: 500 });
         }
-        // Constant-time-ish comparison. The keys are public anon JWTs so
-        // timing leaks aren't security-critical, but no reason to be
-        // sloppy when the cost is one extra line.
-        if (clientKey !== env.SUPABASE_ANON_KEY) {
-            return new Response('Unauthorized: invalid apikey', { status: 401 });
+        if (!ticket) return new Response('Unauthorized: missing ticket', { status: 401 });
+        const ticketResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_deepgram_proxy_ticket`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                apikey: env.SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({ p_ticket: ticket }),
+        });
+        const ticketValid = ticketResponse.ok ? ((await ticketResponse.json()) as boolean) : false;
+        if (!ticketValid) {
+            return new Response('Unauthorized: invalid or expired ticket', { status: 401 });
         }
 
         // ── 3. Build the upstream Deepgram URL ─────────────────────

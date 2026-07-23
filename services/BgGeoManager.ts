@@ -18,6 +18,7 @@ import BackgroundGeolocation, {
     Location,
     Subscription as BGSubscription,
 } from '@transistorsoft/capacitor-background-geolocation';
+import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('BgGeo');
@@ -71,6 +72,14 @@ class BgGeoManagerClass {
         if (this.ready) return;
         if (this.readyPromise) return this.readyPromise;
 
+        // The Transistorsoft plugin has no web implementation. Treat the web
+        // build as a supported no-op rather than invoking the proxy and
+        // emitting a rejected promise on every log-page mount.
+        if (!this.isNativeSupported()) {
+            this.ready = true;
+            return;
+        }
+
         this.readyPromise = this._doReady();
         return this.readyPromise;
     }
@@ -92,6 +101,7 @@ class BgGeoManagerClass {
      * resets on reload. Returns false on web or if the plugin errors.
      */
     async isNativeTrackingEnabled(): Promise<boolean> {
+        if (!this.isNativeSupported()) return false;
         try {
             const state = await BackgroundGeolocation.getState();
             return state?.enabled === true;
@@ -105,6 +115,7 @@ class BgGeoManagerClass {
      * stops when ALL callers have called `requestStop()`.
      */
     async requestStart(): Promise<void> {
+        if (!this.isNativeSupported()) return;
         await this.ensureReady();
         this.startCount++;
         if (this.startCount === 1) {
@@ -116,6 +127,7 @@ class BgGeoManagerClass {
      * Ref-counted stop. Only actually stops the engine when no consumers remain.
      */
     async requestStop(): Promise<void> {
+        if (!this.isNativeSupported()) return;
         this.startCount = Math.max(0, this.startCount - 1);
         if (this.startCount === 0) {
             try {
@@ -131,6 +143,7 @@ class BgGeoManagerClass {
      */
     async forceStop(): Promise<void> {
         this.startCount = 0;
+        if (!this.isNativeSupported()) return;
         try {
             await BackgroundGeolocation.stop();
         } catch (e) {
@@ -181,6 +194,7 @@ class BgGeoManagerClass {
      * no restart needed.
      */
     async setSamplingMode(mode: 'default' | 'precision' | 'fastlock'): Promise<void> {
+        if (!this.isNativeSupported()) return;
         try {
             await this.ensureReady();
             await BackgroundGeolocation.setConfig({
@@ -227,6 +241,8 @@ class BgGeoManagerClass {
             if (age < staleLimitMs) return this._lastPosition;
         }
 
+        if (!this.isNativeSupported()) return this._lastPosition;
+
         // Fallback to on-demand fetch
         try {
             await this.ensureReady();
@@ -255,11 +271,13 @@ class BgGeoManagerClass {
         notifyOnExit?: boolean;
         notifyOnDwell?: boolean;
     }): Promise<void> {
+        if (!this.isNativeSupported()) return;
         await this.ensureReady();
         await BackgroundGeolocation.addGeofence(params);
     }
 
     async removeGeofence(id: string): Promise<void> {
+        if (!this.isNativeSupported()) return;
         try {
             await BackgroundGeolocation.removeGeofence(id);
         } catch (e) {
@@ -268,6 +286,10 @@ class BgGeoManagerClass {
     }
 
     // ---- INTERNAL ----
+
+    private isNativeSupported(): boolean {
+        return Capacitor.getPlatform() !== 'web';
+    }
 
     private async _doReady(): Promise<void> {
         try {

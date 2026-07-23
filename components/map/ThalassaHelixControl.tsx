@@ -408,7 +408,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             {/* Layer icon */}
                             <button
                                 onClick={() => setShowLegend(false)}
-                                className="mt-1 w-11 h-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+                                className="mt-1 w-12 h-12 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
                                 aria-label={`${config.label} layer`}
                             >
                                 <span className="text-sm">{config.icon}</span>
@@ -421,7 +421,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                     {!showLegend && (
                         <button
                             onClick={() => setShowLegend(true)}
-                            className="w-11 h-11 flex items-center justify-center rounded-xl transition-colors"
+                            className="w-12 h-12 flex items-center justify-center rounded-xl transition-colors"
                             style={{
                                 background: 'rgba(15, 23, 42, 0.75)',
                                 backdropFilter: 'blur(16px)',
@@ -482,7 +482,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                         onPlayToggle();
                                         triggerHaptic('light');
                                     }}
-                                    className="w-11 h-11 flex items-center justify-center rounded-lg shrink-0 active:scale-90 transition-transform"
+                                    className="w-12 h-12 flex items-center justify-center rounded-lg shrink-0 active:scale-90 transition-transform"
                                     style={{
                                         background: `${accent}20`,
                                         border: `1px solid ${accent}30`,

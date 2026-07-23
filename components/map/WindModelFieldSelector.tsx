@@ -77,7 +77,7 @@ export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = mem
                                     aria-pressed={active}
                                     onClick={() => onModelChange(m.id)}
                                     className={
-                                        'shrink-0 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ' +
+                                        'min-h-[44px] min-w-[44px] shrink-0 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ' +
                                         (active
                                             ? 'bg-sky-500/25 border border-sky-400/40 text-sky-200'
                                             : 'bg-white/[0.04] border border-white/[0.06] text-gray-400')

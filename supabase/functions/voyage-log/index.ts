@@ -60,10 +60,34 @@ function json(body: unknown, status = 200, extraHeaders: Record<string, string> 
     });
 }
 
-/** Keep only real http(s) photo URLs — drop offline data: URIs / idb refs. */
-function publicPhotos(photos: unknown): string[] {
+/** Sign private diary photos only for entries the owner explicitly published. */
+async function publicPhotos(
+    supabase: ReturnType<typeof createClient>,
+    photos: unknown,
+    ownerUserId: string,
+): Promise<string[]> {
     if (!Array.isArray(photos)) return [];
-    return photos.filter((p): p is string => typeof p === 'string' && /^https?:\/\//i.test(p));
+    const resolved = await Promise.all(
+        photos.map(async (photo) => {
+            if (typeof photo !== 'string') return null;
+            const privatePrefix = 'storage:diary-photos:';
+            let path: string | null = null;
+            if (photo.startsWith(privatePrefix)) {
+                path = photo.slice(privatePrefix.length);
+            } else {
+                const legacy = photo.match(/diary-photos\/(.+?)(?:\?.*)?$/);
+                if (legacy) path = decodeURIComponent(legacy[1]);
+            }
+            if (!path) return /^https?:\/\//i.test(photo) ? photo : null;
+            // The service-role client can sign any object. Bind every path to
+            // the public entry's owner so a crafted diary row cannot turn the
+            // public-log endpoint into a signer for somebody else's media.
+            if (path.split('/')[0] !== ownerUserId) return null;
+            const { data, error } = await supabase.storage.from('diary-photos').createSignedUrl(path, 3600);
+            return error ? null : data?.signedUrl || null;
+        }),
+    );
+    return resolved.filter((photo): photo is string => Boolean(photo));
 }
 
 /**
@@ -373,28 +397,30 @@ Deno.serve(async (req: Request) => {
         // Hiding a voyage hides its diary entries (and their photos) too —
         // the whole passage disappears from the page as one unit. Entries
         // with no voyage_id (dockside musings) are unaffected.
-        const entries = (entriesRes.data || [])
-            .filter((e) => !hiddenVoyageIds.has((e.voyage_id as string | null) ?? ''))
-            .map((e) => ({
-                id: e.id,
-                title: e.title,
-                body: e.body,
-                mood: e.mood,
-                photos: publicPhotos(e.photos),
-                location_name: e.location_name,
-                latitude: e.latitude,
-                longitude: e.longitude,
-                weather_summary: e.weather_summary,
-                weather_data: e.weather_data ?? null,
-                tags: Array.isArray(e.tags) ? e.tags : [],
-                created_at: e.created_at,
-                // Byline only in combined scope. Personal scope omits it
-                // (renderer hides the chip — single voice, no need to attribute).
-                author:
-                    combinedAuthors && combinedAuthors.has(e.user_id as string)
-                        ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
-                        : null,
-            }));
+        const entries = await Promise.all(
+            (entriesRes.data || [])
+                .filter((e) => !hiddenVoyageIds.has((e.voyage_id as string | null) ?? ''))
+                .map(async (e) => ({
+                    id: e.id,
+                    title: e.title,
+                    body: e.body,
+                    mood: e.mood,
+                    photos: await publicPhotos(supabase, e.photos, e.user_id as string),
+                    location_name: e.location_name,
+                    latitude: e.latitude,
+                    longitude: e.longitude,
+                    weather_summary: e.weather_summary,
+                    weather_data: e.weather_data ?? null,
+                    tags: Array.isArray(e.tags) ? e.tags : [],
+                    created_at: e.created_at,
+                    // Byline only in combined scope. Personal scope omits it
+                    // (renderer hides the chip — single voice, no need to attribute).
+                    author:
+                        combinedAuthors && combinedAuthors.has(e.user_id as string)
+                            ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
+                            : null,
+                })),
+        );
 
         const durableTrack = (trackRes.data || []).map((p) => ({
             lat: p.latitude,
@@ -644,8 +670,10 @@ Deno.serve(async (req: Request) => {
         if (!last) {
             const { data: fallbackRows } = await supabase
                 .from('ship_logs')
-                .select('latitude, longitude, timestamp, speed_kts, course_deg, pressure, wind_speed, ' +
-                    'wind_direction, air_temp, water_temp, wave_height')
+                .select(
+                    'latitude, longitude, timestamp, speed_kts, course_deg, pressure, wind_speed, ' +
+                        'wind_direction, air_temp, water_temp, wave_height',
+                )
                 .eq('user_id', ownerId)
                 .or('archived.is.null,archived.eq.false')
                 .not('latitude', 'is', null)

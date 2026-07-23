@@ -62,7 +62,8 @@ class AisStreamServiceClass {
             const supabaseKey =
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (supabase as any).supabaseKey ||
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) ||
+                (typeof import.meta !== 'undefined' &&
+                    (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
                 '';
 
             const params = new URLSearchParams({

@@ -1,5 +1,5 @@
 import { CapacitorHttp } from '@capacitor/core';
-import { piCache } from '../../PiCacheService';
+import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 
 // ── StormGlass API Client ─────────────────────────────────────
 // Routes ALL requests through the Supabase Edge Function proxy
@@ -10,7 +10,6 @@ import { piCache } from '../../PiCacheService';
 // and forwards to https://api.stormglass.io/v2/{path}?{params}
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_KEY || '';
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/proxy-stormglass`;
 
 /**
@@ -50,16 +49,13 @@ export const fetchSG = async <T>(
         path: cleanEndpoint,
         params: stringParams,
     });
+    const authHeaders = await getAuthenticatedFunctionHeaders();
 
     try {
         // 1. Try CapacitorHttp (native iOS/Android — bypasses CORS)
         const res = await CapacitorHttp.post({
             url: PROXY_URL,
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-                apikey: SUPABASE_ANON_KEY,
-            },
+            headers: authHeaders,
             data: body,
         });
 
@@ -93,11 +89,7 @@ export const fetchSG = async <T>(
         try {
             const res = await fetch(PROXY_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-                    apikey: SUPABASE_ANON_KEY,
-                },
+                headers: authHeaders,
                 body,
             });
 

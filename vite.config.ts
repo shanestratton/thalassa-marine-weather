@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import path from 'path';
 import http from 'http';
+import net from 'node:net';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
@@ -9,6 +10,27 @@ import { fileURLToPath } from 'url';
 // Define __dirname for ESM context
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function isAllowedLanChartHost(host: string): boolean {
+    const normalized = host.toLowerCase().replace(/^\[|\]$/g, '');
+    const ipVersion = net.isIP(normalized);
+    if (ipVersion === 4) {
+        const [a, b] = normalized.split('.').map(Number);
+        return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+    }
+    if (ipVersion === 6) {
+        return (
+            normalized === '::1' ||
+            normalized.startsWith('fc') ||
+            normalized.startsWith('fd') ||
+            normalized.startsWith('fe80:')
+        );
+    }
+    return (
+        normalized === 'localhost' ||
+        (/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.local$/.test(normalized) && normalized.length <= 253)
+    );
+}
 
 export default defineConfig(({ mode }) => {
     // 1. Load env vars from local .env files
@@ -25,7 +47,8 @@ export default defineConfig(({ mode }) => {
     return {
         server: {
             port: 3000,
-            host: '0.0.0.0',
+            // Localhost by default. LAN exposure is an explicit developer opt-in.
+            host: getKey('VITE_DEV_HOST') || '127.0.0.1',
             proxy: {
                 // Proxy Distance.tools API to avoid CORS (browser → Vite → API)
                 '/api/distance-tools': {
@@ -176,6 +199,38 @@ export default defineConfig(({ mode }) => {
                             return;
                         }
                         const [, targetHost, targetPort, targetPath] = match;
+                        let decodedHost: string;
+                        try {
+                            decodedHost = decodeURIComponent(targetHost);
+                        } catch {
+                            res.writeHead(400, { 'Content-Type': 'text/plain' });
+                            res.end('Malformed chart proxy host');
+                            return;
+                        }
+                        const port = Number(targetPort);
+                        if (
+                            !isAllowedLanChartHost(decodedHost) ||
+                            !Number.isInteger(port) ||
+                            port < 1 ||
+                            port > 65535
+                        ) {
+                            res.writeHead(403, { 'Content-Type': 'text/plain' });
+                            res.end('Chart proxy target is not an allowed LAN host');
+                            return;
+                        }
+                        if (req.method === 'OPTIONS') {
+                            res.writeHead(204, {
+                                'Access-Control-Allow-Origin': '*',
+                                'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+                            });
+                            res.end();
+                            return;
+                        }
+                        if (req.method !== 'GET' && req.method !== 'HEAD') {
+                            res.writeHead(405, { Allow: 'GET, HEAD, OPTIONS', 'Content-Type': 'text/plain' });
+                            res.end('Method not allowed');
+                            return;
+                        }
                         // Strip browser-specific headers that LAN servers reject
                         const cleanHeaders: Record<string, string | string[] | undefined> = {};
                         for (const [key, val] of Object.entries(req.headers)) {
@@ -189,10 +244,10 @@ export default defineConfig(({ mode }) => {
                                 continue;
                             cleanHeaders[key] = val;
                         }
-                        cleanHeaders['host'] = `${targetHost}:${targetPort}`;
+                        cleanHeaders['host'] = `${decodedHost}:${port}`;
                         const options: http.RequestOptions = {
-                            hostname: targetHost,
-                            port: Number(targetPort),
+                            hostname: decodedHost,
+                            port,
                             path: targetPath || '/',
                             method: req.method || 'GET',
                             headers: cleanHeaders,
@@ -219,15 +274,13 @@ export default defineConfig(({ mode }) => {
                             proxyRes.pipe(res, { end: true });
                         });
                         proxyReq.on('error', (err) => {
-                            console.error(
-                                `[chart-proxy] Error → ${targetHost}:${targetPort}${targetPath}: ${err.message}`,
-                            );
+                            console.error(`[chart-proxy] Error → ${decodedHost}:${port}${targetPath}: ${err.message}`);
                             if (!res.headersSent) {
                                 res.writeHead(502, { 'Content-Type': 'text/plain' });
                             }
                             res.end(`Chart proxy error: ${err.message}`);
                         });
-                        req.pipe(proxyReq, { end: true });
+                        proxyReq.end();
                     });
                 },
             },
@@ -245,31 +298,12 @@ export default defineConfig(({ mode }) => {
             // Instead, define individual keys only.
             'process.env.NODE_ENV': JSON.stringify(mode),
 
-            // --- API KEY INJECTION ---
-            // We inject these keys directly into the build so the client can use them.
-            // This is required for Vercel static deployments where there is no runtime Node server.
-
-            // 1. Gemini / Google GenAI
-            'process.env.API_KEY': JSON.stringify(
-                getKey('VITE_GEMINI_API_KEY') || getKey('GEMINI_API_KEY') || getKey('API_KEY') || '',
-            ),
-            'process.env.GEMINI_API_KEY': JSON.stringify(
-                getKey('VITE_GEMINI_API_KEY') || getKey('GEMINI_API_KEY') || getKey('API_KEY') || '',
-            ),
-
-            // 2. Stormglass Marine Data
-            'process.env.STORMGLASS_API_KEY': JSON.stringify(
-                getKey('VITE_STORMGLASS_API_KEY') ||
-                    getKey('STORMGLASS_API_KEY') ||
-                    getKey('VITE_STORMGLASS_KEY') ||
-                    getKey('STORMGLASS_KEY') ||
-                    '',
-            ),
-
-            // 3. Open-Meteo (Optional Commercial Key)
-            'process.env.OPEN_METEO_API_KEY': JSON.stringify(
-                getKey('VITE_OPEN_METEO_API_KEY') || getKey('OPEN_METEO_API_KEY') || '',
-            ),
+            // Paid provider secrets never enter the browser bundle. All three
+            // providers are accessed through authenticated, rate-limited relays.
+            'process.env.API_KEY': JSON.stringify(''),
+            'process.env.GEMINI_API_KEY': JSON.stringify(''),
+            'process.env.STORMGLASS_API_KEY': JSON.stringify(''),
+            'process.env.OPEN_METEO_API_KEY': JSON.stringify(''),
 
             // 4. Mapbox / Maps
             'process.env.MAPBOX_ACCESS_TOKEN': JSON.stringify(

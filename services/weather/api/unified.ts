@@ -38,8 +38,8 @@ function getSupabaseUrl(): string {
 }
 
 function getSupabaseKey(): string {
-    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) {
-        return import.meta.env.VITE_SUPABASE_KEY;
+    if (typeof import.meta !== 'undefined') {
+        return import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY || '';
     }
     return '';
 }

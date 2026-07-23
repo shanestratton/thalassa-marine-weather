@@ -11,6 +11,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { supabase } from './supabase';
 const log = createLogger('Moderation');
 
@@ -209,9 +210,10 @@ export const geminiModerate = async (text: string): Promise<ModerationResult> =>
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
 
+        const headers = await getAuthenticatedFunctionHeaders();
         const res = await fetch(`${url}/functions/v1/proxy-gemini`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
                 prompt: MODERATION_PROMPT + `"${text}"`,
                 model: 'gemini-2.0-flash',
