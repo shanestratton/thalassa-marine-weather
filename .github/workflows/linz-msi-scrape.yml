@@ -32,7 +32,7 @@ jobs:
               uses: actions/checkout@v4
 
             - name: Set up Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v7
               with:
                   # Node 22+ for the native WebSocket implementation —
                   # supabase-js v2 initialises its Realtime transport on
