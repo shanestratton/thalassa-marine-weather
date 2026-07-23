@@ -4,10 +4,11 @@
  * Extracted from LonelyHeartsPage to reduce file size.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { CrewFinderState, CrewFinderAction } from '../../hooks/useCrewFinderState';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface CrewModalsProps {
     state: CrewFinderState;
@@ -42,6 +43,16 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
             (v: string) => dispatch({ type: 'SET_SUPER_LIKE_MESSAGE', payload: v }),
             [dispatch],
         );
+        const reportCancelRef = useRef<HTMLButtonElement>(null);
+        const reportDialogRef = useFocusTrap<HTMLDivElement>(showReportModal !== null, {
+            initialFocusRef: reportCancelRef,
+            onEscape: () => setShowReportModal(null),
+        });
+        const superLikeCancelRef = useRef<HTMLButtonElement>(null);
+        const superLikeDialogRef = useFocusTrap<HTMLDivElement>(showSuperLikeModal !== null, {
+            initialFocusRef: superLikeCancelRef,
+            onEscape: () => setShowSuperLikeModal(null),
+        });
 
         return (
             <>
@@ -60,20 +71,26 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                 {/* Report Modal */}
                 {showReportModal && (
                     <div
-                        role="dialog"
-                        aria-modal="true"
                         className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowReportModal(null)}
+                        role="presentation"
                     >
                         <div
+                            ref={reportDialogRef}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="report-user-title"
                             className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <h3 className="text-lg font-bold text-white/80 mb-3">🚩 Report User</h3>
+                            <h3 id="report-user-title" className="text-lg font-bold text-white/80 mb-3">
+                                🚩 Report User
+                            </h3>
                             <p className="text-xs text-white/40 mb-4">
                                 Help us keep the community safe. What's the issue?
                             </p>
                             <select
+                                aria-label="Reason for reporting this user"
                                 value={reportReason}
                                 onChange={(e) => setReportReason(e.target.value)}
                                 className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-4 outline-none focus:border-white/20"
@@ -87,14 +104,15 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             </select>
                             <div className="flex gap-3">
                                 <button
-                                    aria-label="Report content"
+                                    ref={reportCancelRef}
+                                    aria-label="Cancel report"
                                     onClick={() => setShowReportModal(null)}
                                     className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    aria-label="Report content"
+                                    aria-label="Submit report"
                                     onClick={onReport}
                                     disabled={!reportReason}
                                     className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 'bg-white/[0.03] text-white/40 cursor-not-allowed'}`}
@@ -109,22 +127,29 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                 {/* Super Like Modal */}
                 {showSuperLikeModal && (
                     <div
-                        role="dialog"
-                        aria-modal="true"
                         className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowSuperLikeModal(null)}
+                        role="presentation"
                     >
                         <div
+                            ref={superLikeDialogRef}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="super-like-title"
                             className="bg-slate-900 border border-violet-500/20 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-300 to-pink-300 mb-1">
+                            <h3
+                                id="super-like-title"
+                                className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-300 to-pink-300 mb-1"
+                            >
                                 ⚡ Super Like
                             </h3>
                             <p className="text-xs text-white/40 mb-4">
                                 Send {showSuperLikeModal.display_name} a message with your star! (1 per day)
                             </p>
                             <textarea
+                                aria-label="Super Like message"
                                 value={superLikeMessage}
                                 onChange={(e) => setSuperLikeMessage(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
@@ -135,14 +160,15 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             <p className="text-[11px] text-white/40 text-right mb-4">{superLikeMessage.length}/200</p>
                             <div className="flex gap-3">
                                 <button
-                                    aria-label="Like this item"
+                                    ref={superLikeCancelRef}
+                                    aria-label="Cancel Super Like"
                                     onClick={() => setShowSuperLikeModal(null)}
                                     className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    aria-label="Like this item"
+                                    aria-label="Send Super Like"
                                     onClick={onSuperLike}
                                     className="flex-1 py-3 rounded-xl bg-gradient-to-r from-violet-500/30 to-pink-500/30 text-sm font-bold text-violet-200 border border-violet-400/20 transition-all active:scale-[0.97]"
                                 >

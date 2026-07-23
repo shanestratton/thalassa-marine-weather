@@ -21,6 +21,7 @@ import {
 import { triggerHaptic } from '../../utils/system';
 import { toast } from '../Toast';
 import { createLogger } from '../../utils/createLogger';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const log = createLogger('CustomRecipeForm');
 
@@ -77,6 +78,11 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const titleInputRef = useRef<HTMLInputElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: titleInputRef,
+        onEscape: onClose,
+    });
 
     // Step 2: Ingredients
     const [ingredients, setIngredients] = useState<IngredientRow[]>([
@@ -262,11 +268,12 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     Recipe Name *
                 </label>
                 <input
+                    ref={titleInputRef}
+                    aria-label="Recipe name"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="e.g. Mum's Spaghetti Bolognese"
                     className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
-                    autoFocus
                 />
             </div>
 
@@ -546,6 +553,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
         <div
             className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
+            role="presentation"
             // Reserve space for the iOS keyboard at the bottom of the
             // modal's containing flex region. When keyboardHeight > 0,
             // adding it as bottom padding shrinks the available area
@@ -554,6 +562,10 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
             style={keyboardHeight > 0 ? { paddingBottom: `${keyboardHeight}px` } : undefined}
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="custom-recipe-title"
                 className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300 transition-[max-height] duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -580,7 +592,9 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         </svg>
                     </button>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-white">📝 New Recipe</p>
+                        <p id="custom-recipe-title" className="text-sm font-bold text-white">
+                            📝 New Recipe
+                        </p>
                         <p className="text-[11px] text-gray-500 truncate">
                             Step {step + 1} of {STEPS.length} — {STEPS[step]}
                         </p>

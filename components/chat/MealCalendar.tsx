@@ -7,6 +7,7 @@
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { Capacitor } from '@capacitor/core';
 import {
     scheduleMeal,
     unscheduleMeal,
@@ -28,6 +29,7 @@ import { CustomRecipeForm } from './CustomRecipeForm';
 import { CaptainsTable } from './CaptainsTable';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
 import { createLogger } from '../../utils/createLogger';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const log = createLogger('MealCalendar');
 
@@ -63,6 +65,11 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
 
     // Context menu for meal card actions (copy/move)
     const [contextMenu, setContextMenu] = useState<{ meal: MealPlan; action: 'copy' | 'move' } | null>(null);
+    const contextCancelRef = useRef<HTMLButtonElement>(null);
+    const contextDialogRef = useFocusTrap<HTMLDivElement>(contextMenu !== null, {
+        initialFocusRef: contextCancelRef,
+        onEscape: () => setContextMenu(null),
+    });
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Delete meal ──
@@ -465,7 +472,8 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                 return (
                                     <button
                                         key={slot}
-                                        onClick={() => {
+                                        onClick={(event) => {
+                                            event.currentTarget.focus({ preventScroll: true });
                                             setSlotPicker({ date, slot });
                                             triggerHaptic('light');
                                         }}
@@ -527,8 +535,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     <div
                         className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
                         onClick={() => setContextMenu(null)}
+                        role="presentation"
                     >
                         <div
+                            ref={contextDialogRef}
                             className="w-full max-w-lg bg-slate-950 border-t border-amber-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
                             onClick={(e) => e.stopPropagation()}
                             role="dialog"
@@ -612,6 +622,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
 
                             {/* Cancel */}
                             <button
+                                ref={contextCancelRef}
                                 onClick={() => setContextMenu(null)}
                                 className="w-full py-3 rounded-xl bg-white/[0.04] text-sm text-gray-400 font-medium"
                             >
@@ -641,43 +652,70 @@ const SlotPicker: React.FC<{
     const [customName, setCustomName] = useState('');
     const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
     const customInputRef = useRef<HTMLInputElement>(null);
+    const searchInputRef = useRef<HTMLInputElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [showRecipeForm, setShowRecipeForm] = useState(false);
     const [showCaptainsTable, setShowCaptainsTable] = useState(false);
     const [brokenImageIds, setBrokenImageIds] = useState<Set<string | number>>(new Set());
+    const recipeLibraryOpenerRef = useRef<HTMLButtonElement>(null);
+    const customRecipeOpenerRef = useRef<HTMLButtonElement>(null);
+    const recipeLibraryCloseRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: searchInputRef,
+        onEscape: onClose,
+    });
+    const recipeLibraryDialogRef = useFocusTrap<HTMLDivElement>(showCaptainsTable, {
+        initialFocusRef: recipeLibraryCloseRef,
+        onEscape: () => setShowCaptainsTable(false),
+    });
 
     // ── Keyboard tracking for iOS ──
     useEffect(() => {
         let cleanup: (() => void) | undefined;
+        let disposed = false;
 
-        // Use Capacitor keyboard events if available
-        import('@capacitor/keyboard')
-            .then(({ Keyboard }) => {
-                const showHandle = Keyboard.addListener('keyboardDidShow', () => {
-                    setKeyboardOpen(true);
-                });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardOpen(false);
-                });
-                cleanup = () => {
-                    showHandle.then((h) => h.remove());
-                    hideHandle.then((h) => h.remove());
-                };
-            })
-            .catch(() => {
-                // Web fallback: use visualViewport
-                const vp = window.visualViewport;
-                if (vp) {
-                    const handler = () => {
-                        setKeyboardOpen(vp.height < window.innerHeight - 150);
+        const attachWebFallback = () => {
+            if (disposed) return;
+            const vp = window.visualViewport;
+            if (!vp) return;
+            const handler = () => setKeyboardOpen(vp.height < window.innerHeight - 150);
+            vp.addEventListener('resize', handler);
+            cleanup = () => vp.removeEventListener('resize', handler);
+        };
+
+        if (!Capacitor.isNativePlatform()) {
+            attachWebFallback();
+        } else {
+            void import('@capacitor/keyboard')
+                .then(async ({ Keyboard }) => {
+                    const listenerResults = await Promise.allSettled([
+                        Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true)),
+                        Keyboard.addListener('keyboardWillHide', () => setKeyboardOpen(false)),
+                    ]);
+                    const handles = listenerResults.flatMap((result) =>
+                        result.status === 'fulfilled' ? [result.value] : [],
+                    );
+                    if (handles.length !== 2) {
+                        await Promise.allSettled(handles.map((handle) => handle.remove()));
+                        attachWebFallback();
+                        return;
+                    }
+                    if (disposed) {
+                        await Promise.allSettled(handles.map((handle) => handle.remove()));
+                        return;
+                    }
+                    cleanup = () => {
+                        void Promise.allSettled(handles.map((handle) => handle.remove()));
                     };
-                    vp.addEventListener('resize', handler);
-                    cleanup = () => vp.removeEventListener('resize', handler);
-                }
-            });
+                })
+                .catch(attachWebFallback);
+        }
 
-        return () => cleanup?.();
+        return () => {
+            disposed = true;
+            cleanup?.();
+        };
     }, []);
 
     const slotLabel = SLOT_CONFIG.find((s) => s.slot === slot);
@@ -760,16 +798,15 @@ const SlotPicker: React.FC<{
             <div
                 className={`fixed inset-0 z-[900] flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}
                 onClick={onClose}
-                role="dialog"
-                aria-modal="true"
-                aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
+                role="presentation"
             >
                 <div
+                    ref={dialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
                     className={`w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl ${keyboardOpen ? 'max-h-[50vh]' : 'max-h-[80vh]'} flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 transition-all`}
                     onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Escape') onClose();
-                    }}
                 >
                     {/* Header */}
                     <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
@@ -791,10 +828,10 @@ const SlotPicker: React.FC<{
                     {/* Search */}
                     <div className="p-3">
                         <input
+                            ref={searchInputRef}
                             value={searchQuery}
                             onChange={(e) => handleSearch(e.target.value)}
                             placeholder="Search recipes…"
-                            autoFocus
                             data-no-keyboard-scroll
                             className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
                             aria-label="Search recipes"
@@ -987,7 +1024,11 @@ const SlotPicker: React.FC<{
 
                             {/* Browse community recipe library */}
                             <button
-                                onClick={() => setShowCaptainsTable(true)}
+                                ref={recipeLibraryOpenerRef}
+                                onClick={(event) => {
+                                    event.currentTarget.focus({ preventScroll: true });
+                                    setShowCaptainsTable(true);
+                                }}
                                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[11px] font-bold text-white/80 hover:bg-white/[0.08] transition-all active:scale-[0.98] min-h-[44px]"
                             >
                                 Browse Community Recipes
@@ -995,7 +1036,11 @@ const SlotPicker: React.FC<{
 
                             {/* Full recipe creator */}
                             <button
-                                onClick={() => setShowRecipeForm(true)}
+                                ref={customRecipeOpenerRef}
+                                onClick={(event) => {
+                                    event.currentTarget.focus({ preventScroll: true });
+                                    setShowRecipeForm(true);
+                                }}
                                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-300 hover:bg-amber-500/15 transition-all active:scale-[0.98] min-h-[44px]"
                             >
                                 Create Custom Recipe
@@ -1018,12 +1063,19 @@ const SlotPicker: React.FC<{
 
             {/* Captain's Table — community recipe browser */}
             {showCaptainsTable && (
-                <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
+                <div
+                    ref={recipeLibraryDialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="recipe-library-title"
+                    className="fixed inset-0 z-[955] bg-slate-950 flex flex-col"
+                >
                     <div
                         className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
                         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
                     >
                         <button
+                            ref={recipeLibraryCloseRef}
                             onClick={() => setShowCaptainsTable(false)}
                             aria-label="Close recipe browser"
                             className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
@@ -1031,7 +1083,9 @@ const SlotPicker: React.FC<{
                             <span className="text-sky-400 text-lg">‹</span>
                         </button>
                         <div className="flex-1 min-w-0">
-                            <p className="text-base font-bold text-white truncate">Recipe Library</p>
+                            <p id="recipe-library-title" className="text-base font-bold text-white truncate">
+                                Recipe Library
+                            </p>
                             <p className="text-[11px] text-white/60">Browse community recipes</p>
                         </div>
                     </div>

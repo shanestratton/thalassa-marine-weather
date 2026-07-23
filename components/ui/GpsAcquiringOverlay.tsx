@@ -10,7 +10,8 @@
  * flaky-GPS days (it never blocks recording — capture starts on lock
  * regardless).
  */
-import React from 'react';
+import React, { useId, useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface GpsAcquiringOverlayProps {
     open: boolean;
@@ -18,16 +19,27 @@ interface GpsAcquiringOverlayProps {
 }
 
 export const GpsAcquiringOverlay: React.FC<GpsAcquiringOverlayProps> = ({ open, onDismiss }) => {
+    const titleId = useId();
+    const descriptionId = useId();
+    const dismissRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
+        initialFocusRef: dismissRef,
+        onEscape: onDismiss,
+    });
+
     if (!open) return null;
+
     return (
-        <div
-            className="fixed inset-0 z-[10000] flex items-center justify-center p-6"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Acquiring GPS fix"
-        >
-            <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm" />
-            <div className="relative w-full max-w-sm text-center animate-in fade-in zoom-in-95 duration-300">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm" aria-hidden="true" />
+            <div
+                ref={dialogRef}
+                className="relative w-full max-w-sm text-center animate-in fade-in zoom-in-95 duration-300"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
+            >
                 {/* Pulsing satellite ring */}
                 <div className="mx-auto relative w-36 h-36 mb-6">
                     <div className="absolute inset-0 rounded-full bg-amber-400/10 animate-ping" />
@@ -50,16 +62,21 @@ export const GpsAcquiringOverlay: React.FC<GpsAcquiringOverlayProps> = ({ open, 
                     </div>
                 </div>
 
-                <h2 className="text-3xl font-black text-amber-300 tracking-tight mb-3">Acquiring GPS fix…</h2>
-                <p className="text-base text-slate-200 leading-relaxed mb-2">
-                    Hold tight — a cold start can take up to <span className="font-bold text-white">30 seconds</span>{' '}
-                    with clear sky.
-                </p>
-                <p className="text-sm text-slate-400 leading-relaxed mb-8">
-                    Recording starts automatically the moment we lock on. This screen will clear itself.
-                </p>
+                <h2 id={titleId} className="text-3xl font-black text-amber-300 tracking-tight mb-3">
+                    Acquiring GPS fix…
+                </h2>
+                <div id={descriptionId}>
+                    <p className="text-base text-slate-200 leading-relaxed mb-2">
+                        Hold tight — a cold start can take up to{' '}
+                        <span className="font-bold text-white">30 seconds</span> with clear sky.
+                    </p>
+                    <p className="text-sm text-slate-400 leading-relaxed mb-8">
+                        Recording starts automatically the moment we lock on. This screen will clear itself.
+                    </p>
+                </div>
 
                 <button
+                    ref={dismissRef}
                     onClick={onDismiss}
                     className="px-6 py-3 rounded-2xl bg-white/10 border border-white/15 text-slate-200 text-sm font-bold uppercase tracking-widest active:scale-[0.97] transition-transform"
                 >

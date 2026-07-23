@@ -5,8 +5,9 @@
  * outside the swing circle radius.
  */
 
-import React from 'react';
+import React, { useId, useRef } from 'react';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatDistance, bearingToCardinal } from './anchorUtils';
 
 interface AnchorAlarmOverlayProps {
@@ -16,10 +17,22 @@ interface AnchorAlarmOverlayProps {
 
 export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(({ snapshot, onAcknowledge }) => {
     const gpsLost = snapshot.alarmCause === 'gps-lost';
+    const titleId = useId();
+    const descriptionId = useId();
+    const acknowledgeRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: acknowledgeRef,
+    });
+
     return (
         <div
+            ref={dialogRef}
             className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
             style={{ background: 'radial-gradient(circle at center, #450a0a 0%, #1c0505 50%, #0a0202 100%)' }}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={descriptionId}
         >
             {/* Animated concentric pulse rings */}
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -51,17 +64,16 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
 
             {/* Alarm heading */}
             <h1
+                id={titleId}
                 className="text-4xl font-black text-red-400 tracking-[0.2em] mb-4 uppercase"
                 style={{ textShadow: '0 0 30px rgba(239,68,68,0.4)' }}
-                role="alert"
-                aria-live="assertive"
             >
                 {gpsLost ? 'GPS Lost' : 'Drag Alarm'}
             </h1>
 
             {gpsLost ? (
                 /* GPS-lost readout — the watch is blind; the distance is stale, so don't headline it */
-                <div className="text-center mb-8 max-w-xs px-6">
+                <div id={descriptionId} className="text-center mb-8 max-w-xs px-6">
                     <div className="text-lg text-red-200 font-bold mb-2">Anchor watch can&apos;t see your position</div>
                     <div className="text-sm text-red-300/70">
                         No GPS fix is arriving — dragging can no longer be detected. Check your position and GPS signal
@@ -74,7 +86,7 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
             ) : (
                 <>
                     {/* Distance readout */}
-                    <div className="text-center mb-8">
+                    <div id={descriptionId} className="text-center mb-8">
                         <div
                             className="text-4xl font-mono font-black text-white mb-1"
                             style={{ textShadow: '0 0 20px rgba(255,255,255,0.2)' }}
@@ -117,6 +129,7 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
 
             {/* Silence button — premium gradient */}
             <button
+                ref={acknowledgeRef}
                 onClick={onAcknowledge}
                 className="px-10 py-4 rounded-2xl text-white text-xl font-black transition-all active:scale-95"
                 style={{

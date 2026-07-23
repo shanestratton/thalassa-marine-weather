@@ -18,7 +18,7 @@
  * Spec for the Pi-side endpoints: docs/BOSUN_NETWORK_SETUP_API.md.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     configureNetwork,
     isProvisioningReachable,
@@ -30,6 +30,7 @@ import {
     type WifiSecurity,
 } from '../../services/voice/piProvisioning';
 import { BoatNetworkService } from '../../services/BoatNetworkService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface Props {
     isOpen: boolean;
@@ -85,11 +86,24 @@ function securityLabel(s: WifiSecurity): string {
 
 export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
     const [state, setState] = useState<WizardState>(initialState);
+    const stepPanelRef = useRef<HTMLDivElement>(null);
+    const previousStepRef = useRef<WizardStep>('intro');
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });
 
     // Reset to intro every time the wizard re-opens.
     useEffect(() => {
         if (isOpen) setState(initialState);
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            previousStepRef.current = 'intro';
+            return;
+        }
+        if (previousStepRef.current === state.step) return;
+        previousStepRef.current = state.step;
+        stepPanelRef.current?.focus();
+    }, [isOpen, state.step]);
 
     const advance = useCallback((step: WizardStep) => setState((s) => ({ ...s, step, error: null })), []);
     const fail = useCallback((error: string) => setState((s) => ({ ...s, step: 'error', error })), []);
@@ -223,12 +237,20 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
 
     return (
         <div
+            ref={dialogRef}
             className="fixed inset-0 z-[300] flex flex-col bg-gradient-to-b from-slate-900 via-slate-950 to-black"
             role="dialog"
-            aria-label="Pi setup wizard"
+            aria-modal="true"
+            aria-labelledby="pi-setup-title"
         >
             <Header step={state.step} onClose={onClose} />
-            <div className="flex-1 overflow-y-auto px-5 py-6">
+            <div
+                ref={stepPanelRef}
+                tabIndex={-1}
+                aria-label={`Setup step: ${stepLabel(state.step)}`}
+                aria-live="polite"
+                className="flex-1 overflow-y-auto px-5 py-6 outline-none"
+            >
                 {state.step === 'intro' && <IntroPanel onContinue={() => advance('join-ap')} />}
                 {state.step === 'join-ap' && (
                     <JoinApPanel apPassword={AP_PASSWORD_DISPLAY} onContinue={() => void verifyApReachable()} />
@@ -277,7 +299,9 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
 const Header: React.FC<{ step: WizardStep; onClose: () => void }> = ({ step, onClose }) => (
     <header className="shrink-0 flex items-center justify-between px-5 pt-12 pb-4 border-b border-white/5">
         <div>
-            <p className="text-base font-bold text-white">Set up Pi</p>
+            <p id="pi-setup-title" className="text-base font-bold text-white">
+                Set up Pi
+            </p>
             <p className="text-[10px] uppercase tracking-widest text-gray-400">Step {stepLabel(step)}</p>
         </div>
         <button
@@ -363,7 +387,12 @@ const JoinApPanel: React.FC<{ apPassword: string; onContinue: () => void }> = ({
 );
 
 const SpinnerPanel: React.FC<{ label: string; sublabel?: string }> = ({ label, sublabel }) => (
-    <div className="max-w-md mx-auto flex flex-col items-center pt-12 gap-3">
+    <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="max-w-md mx-auto flex flex-col items-center pt-12 gap-3"
+    >
         <div className="w-10 h-10 rounded-full border-2 border-sky-400/30 border-t-sky-400 animate-spin" />
         <p className="text-sm font-bold text-white">{label}</p>
         {sublabel && <p className="text-xs text-gray-400 text-center">{sublabel}</p>}

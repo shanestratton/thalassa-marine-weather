@@ -60,9 +60,11 @@ import {
 import { isScrubHidden } from './encDetailScrubber';
 import {
     buildFeaturePopupHtml,
+    buildGebcoDepthPopupBodyHtml,
     buildGebcoDepthPopupHtml,
     needsTideWindow,
     pickAreaTap,
+    wireEncPopupLifecycle,
     type PopupExtras,
 } from './encPopup';
 import { GebcoDepthService } from '../../services/GebcoDepthService';
@@ -1923,12 +1925,19 @@ export function encHasClickableFeatureAt(map: mapboxgl.Map, lngLat: { lat: numbe
 function showUnchartedDepthPopup(map: mapboxgl.Map, lngLat: mapboxgl.LngLat): void {
     const entry = attachedHandlers.get(map);
     if (entry?.popup) entry.popup.remove();
+    const returnFocus =
+        typeof document !== 'undefined' &&
+        document.activeElement instanceof HTMLElement &&
+        document.activeElement !== document.body
+            ? document.activeElement
+            : map.getCanvas();
     const safetyDepthM = depthStyleState.get(map)?.safetyDepthM;
     // The GEBCO keel verdict must carry the same draft-assumed caveat the
     // charted popup does (cycle-5 audit #5) — it's the least-certain read.
     const draftAssumed = depthStyleState.get(map)?.draftAssumed ?? false;
     const popup = new mapboxgl.Popup({
         closeButton: false,
+        focusAfterOpen: true,
         maxWidth: '280px',
         offset: 8,
         className: 'enc-popup-mapbox',
@@ -1937,22 +1946,25 @@ function showUnchartedDepthPopup(map: mapboxgl.Map, lngLat: mapboxgl.LngLat): vo
         .setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'loading', draftAssumed))
         .addTo(map);
     if (entry) entry.popup = popup;
-    const wireClose = () => {
-        const btn = popup.getElement()?.querySelector<HTMLButtonElement>('.enc-popup-close');
-        if (btn) btn.addEventListener('click', () => popup.remove());
-    };
-    wireClose();
+    wireEncPopupLifecycle(popup, returnFocus, () => {
+        const current = attachedHandlers.get(map);
+        if (current?.popup === popup) current.popup = null;
+    });
     const isCurrent = () => popup.isOpen() && attachedHandlers.get(map)?.popup === popup;
     GebcoDepthService.queryDepth(lngLat.lat, lngLat.lng)
         .then((depthM) => {
             if (!isCurrent()) return; // closed or superseded by a newer tap
-            popup.setHTML(buildGebcoDepthPopupHtml(depthM, safetyDepthM, 'ready', draftAssumed));
-            wireClose(); // setHTML replaced the DOM — re-wire the close button
+            const body = popup.getElement()?.querySelector<HTMLElement>('.enc-popup-body');
+            if (!body) return;
+            body.innerHTML = buildGebcoDepthPopupBodyHtml(depthM, safetyDepthM, 'ready', draftAssumed);
+            body.setAttribute('aria-busy', 'false');
         })
         .catch(() => {
             if (!isCurrent()) return;
-            popup.setHTML(buildGebcoDepthPopupHtml(null, safetyDepthM, 'ready', draftAssumed));
-            wireClose();
+            const body = popup.getElement()?.querySelector<HTMLElement>('.enc-popup-body');
+            if (!body) return;
+            body.innerHTML = buildGebcoDepthPopupBodyHtml(null, safetyDepthM, 'ready', draftAssumed);
+            body.setAttribute('aria-busy', 'false');
         });
 }
 
@@ -2066,6 +2078,12 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
 
         const existing = attachedHandlers.get(map);
         if (existing?.popup) existing.popup.remove();
+        const returnFocus =
+            typeof document !== 'undefined' &&
+            document.activeElement instanceof HTMLElement &&
+            document.activeElement !== document.body
+                ? document.activeElement
+                : map.getCanvas();
 
         // Vessel keel + live tide state ride along so the DEPARE branch
         // can answer "can I float here" instead of quoting chart-speak.
@@ -2095,6 +2113,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
 
         const popup = new mapboxgl.Popup({
             closeButton: false,
+            focusAfterOpen: true,
             maxWidth: '280px',
             offset: 8,
             className: 'enc-popup-mapbox',
@@ -2105,11 +2124,10 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
 
         if (existing) existing.popup = popup;
         if (layerId === ENC_VEC_LAYERS.DEPARE) fillDepareTideWindow(popup, props, extras);
-
-        const closeBtn = popup.getElement()?.querySelector<HTMLButtonElement>('.enc-popup-close');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => popup.remove());
-        }
+        wireEncPopupLifecycle(popup, returnFocus, () => {
+            const current = attachedHandlers.get(map);
+            if (current?.popup === popup) current.popup = null;
+        });
     };
 
     const onEnter = () => {

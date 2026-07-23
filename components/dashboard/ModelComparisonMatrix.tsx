@@ -20,7 +20,7 @@
  * chart when nothing publishes it. No mock data — if the fetch fails the
  * chart says so.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { WeatherModel } from '../../types';
 import {
@@ -31,6 +31,7 @@ import {
 } from '../../services/weather/ModelSpreadService';
 import { MODEL_ATTRIBUTION_LINE } from '../../services/weather/forecastModels';
 import { useLocationCoords } from '../../stores/LocationStore';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // ── Parameter definitions ──
 // Ids match the Glass grid's metric ids so a long-pressed cell maps 1:1.
@@ -403,6 +404,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         const [isLoading, setIsLoading] = useState(false);
         const [failed, setFailed] = useState(false);
         const [param, setParam] = useState<MatrixParam>('wind');
+        const closeButtonRef = useRef<HTMLButtonElement>(null);
+        const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+            initialFocusRef: closeButtonRef,
+            onEscape: onClose,
+        });
         // Sampling anchor — fixed per open so tab switches don't reflow columns.
         const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -500,15 +506,17 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             <div
                 className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60 backdrop-blur-sm"
                 onClick={onClose}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Model comparison"
+                role="presentation"
                 style={{
                     paddingTop: 'calc(env(safe-area-inset-top, 0px) + 48px)',
                     paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
                 }}
             >
                 <div
+                    ref={dialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="model-comparison-title"
                     className="w-full max-w-lg mx-4 bg-slate-900/95 border border-white/[0.08] rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300"
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -518,7 +526,10 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     {/* Header */}
                     <div className="flex items-center justify-between px-5 pt-4 pb-3">
                         <div>
-                            <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <h2
+                                id="model-comparison-title"
+                                className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2"
+                            >
                                 Model Convergence
                                 {isLoading && (
                                     <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
@@ -538,6 +549,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                             </p>
                         </div>
                         <button
+                            ref={closeButtonRef}
                             onClick={onClose}
                             aria-label="Close"
                             className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"

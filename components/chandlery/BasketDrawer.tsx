@@ -4,10 +4,11 @@
  * grand total, and a "Checkout" CTA (stubbed for now — Stripe lands
  * in the Q3-2026 sprint per the original ChandleryPage docstring).
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import { STORE_ONE_PRODUCTS, type StoreOneProduct } from '../../data/storeOne.products';
 import { removeFromBasket, setQuantity, type BasketLine } from '../../services/ChandleryBasketService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface BasketDrawerProps {
     open: boolean;
@@ -21,6 +22,12 @@ interface ResolvedLine {
 }
 
 export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     if (!open) return null;
 
     const resolved: ResolvedLine[] = lines.map((line) => ({
@@ -31,19 +38,15 @@ export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines
     const subtotal = resolved.reduce((sum, r) => sum + (r.product?.price ?? 0) * r.line.quantity, 0);
 
     return (
-        <div
-            className="fixed inset-0 z-[100] flex items-end justify-center"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Shopping basket"
-        >
-            <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close basket"
-                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            />
-            <div className="relative w-full max-w-2xl max-h-[88vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-200">
+        <div className="fixed inset-0 z-[100] flex items-end justify-center">
+            <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="basket-title"
+                className="relative w-full max-w-2xl max-h-[88vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-200"
+            >
                 {/* Drag handle visual */}
                 <div className="flex justify-center pt-2 pb-1">
                     <div className="w-10 h-1 rounded-full bg-white/15" />
@@ -51,11 +54,12 @@ export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines
 
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-white/5">
-                    <h2 className="text-base font-bold text-white">
+                    <h2 id="basket-title" className="text-base font-bold text-white">
                         Your Basket
                         <span className="ml-2 text-xs font-mono text-slate-400">({lines.length})</span>
                     </h2>
                     <button
+                        ref={closeButtonRef}
                         type="button"
                         onClick={onClose}
                         aria-label="Close basket"

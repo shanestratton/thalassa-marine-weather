@@ -53,6 +53,7 @@ import {
 } from './chat/ChatAttachmentSheets';
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 import { type PassageStatus, getPassageStatus, getPassageStatusSync } from '../services/PassagePlanService';
 import { WelcomeBanner } from './chat/WelcomeBanner';
@@ -242,6 +243,11 @@ export const ChatPage: React.FC = React.memo(() => {
         handleRequestAccess,
         handleSubmitJoinRequest,
     } = proposalHook;
+    const joinRequestCancelRef = useRef<HTMLButtonElement>(null);
+    const joinRequestDialogRef = useFocusTrap<HTMLDivElement>(joinRequestChannel !== null, {
+        initialFocusRef: joinRequestCancelRef,
+        onEscape: () => setJoinRequestChannel(null),
+    });
 
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
     const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -807,20 +813,24 @@ export const ChatPage: React.FC = React.memo(() => {
                         <div
                             className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
                             onClick={() => setJoinRequestChannel(null)}
+                            role="presentation"
                         >
                             <div
+                                ref={joinRequestDialogRef}
                                 className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
                                 onClick={(e) => e.stopPropagation()}
                                 role="dialog"
                                 aria-modal="true"
-                                aria-label={`Request access to ${joinRequestChannel.name}`}
+                                aria-labelledby="join-request-title"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
                                         🔒
                                     </div>
                                     <div>
-                                        <h3 className="text-sm font-bold text-white">Request Access</h3>
+                                        <h3 id="join-request-title" className="text-sm font-bold text-white">
+                                            Request Access to {joinRequestChannel.name}
+                                        </h3>
                                         <p className="text-[11px] text-purple-400/60">
                                             {joinRequestChannel.name} — Private Channel
                                         </p>
@@ -843,6 +853,7 @@ export const ChatPage: React.FC = React.memo(() => {
 
                                 <div className="flex gap-2">
                                     <button
+                                        ref={joinRequestCancelRef}
                                         onClick={() => setJoinRequestChannel(null)}
                                         aria-label="Cancel request"
                                         className="flex-1 py-3 rounded-xl bg-white/[0.04] text-sm text-white/60 font-medium min-h-[48px]"

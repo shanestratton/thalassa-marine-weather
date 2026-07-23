@@ -6,8 +6,9 @@
  * confirmation and handoff flow has passed end-to-end payment testing.
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
 import type { MarketplaceListing } from '../../services/MarketplaceService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // --- HELPERS ---
 
@@ -38,6 +39,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     onCashDeal,
     onEscrowComplete: _onEscrowComplete,
 }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen && listing !== null, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     if (!isOpen || !listing) return null;
 
     const platformFee = listing.price * 0.06;
@@ -54,18 +61,33 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     return (
         <div
-            role="dialog"
-            aria-modal="true"
             className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
             onClick={handleClose}
+            role="presentation"
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Marketplace checkout"
                 className="w-full max-w-lg bg-slate-900/98 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[85vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Drag handle */}
                 <div className="flex justify-center pt-3 pb-1">
                     <div className="w-10 h-1 rounded-full bg-white/20" />
+                </div>
+                <div className="flex items-center justify-between px-5 py-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-white/60">Checkout</span>
+                    <button
+                        ref={closeButtonRef}
+                        type="button"
+                        onClick={handleClose}
+                        aria-label="Close marketplace checkout"
+                        className="rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-bold text-white/60 hover:bg-white/10 hover:text-white"
+                    >
+                        Close
+                    </button>
                 </div>
 
                 {/* Listing context card */}

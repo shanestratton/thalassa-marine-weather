@@ -5,10 +5,11 @@
  * with visualViewport web fallback. Inputs auto-scroll above keyboard on focus.
  * Matches the DiaryPage compose pattern.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import type { ChatChannel } from '../../services/ChatService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ChannelProposalModalProps {
     onClose: () => void;
@@ -48,6 +49,12 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
 }) => {
     const [step, setStep] = useState(1);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const nameInputRef = useRef<HTMLInputElement>(null);
+    const stepHeadingRef = useRef<HTMLParagraphElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: nameInputRef,
+        onEscape: onClose,
+    });
 
     // Track keyboard height — same pattern as DiaryPage
     useEffect(() => {
@@ -94,13 +101,20 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
         };
     }, []);
 
+    useEffect(() => {
+        if (step === 1) nameInputRef.current?.focus();
+        else stepHeadingRef.current?.focus();
+    }, [step]);
+
     const canProceed1 = proposalName.trim().length > 0;
     const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'env(safe-area-inset-bottom)';
 
     return (
         <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
+            aria-labelledby="channel-proposal-title"
             className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm"
         >
             {/* Header */}
@@ -122,7 +136,12 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         </svg>
                     </button>
                     <div className="flex-1">
-                        <h1 className="text-lg font-extrabold text-white uppercase tracking-wider">New Channel</h1>
+                        <h1
+                            id="channel-proposal-title"
+                            className="text-lg font-extrabold text-white uppercase tracking-wider"
+                        >
+                            New Channel
+                        </h1>
                         <p className="text-[11px] text-white/30">Step {step} of 3</p>
                     </div>
                     {/* Step dots */}
@@ -163,12 +182,12 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <div className="flex-1">
                                 <label className="text-[11px] text-white/30 block mb-1.5 px-1">Channel Name</label>
                                 <input
+                                    ref={nameInputRef}
                                     value={proposalName}
                                     onChange={(e) => setProposalName(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="e.g. Cruising Tips"
                                     aria-label="Channel name"
-                                    autoFocus
                                     className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
                                 />
                             </div>
@@ -211,14 +230,17 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                 {/* ── Step 2: Options ── */}
                 {step === 2 && (
                     <div className="space-y-5 fade-slide-down max-w-lg mx-auto">
-                        <p className="text-sm font-semibold text-white/70">Channel settings</p>
+                        <p ref={stepHeadingRef} tabIndex={-1} className="text-sm font-semibold text-white/70">
+                            Channel settings
+                        </p>
 
                         {/* Parent channel selector */}
                         <div>
                             <p className="text-[11px] text-white/30 mb-2 px-1">Parent Channel</p>
                             <div className="flex gap-2 flex-wrap">
                                 <button
-                                    aria-label="Proposal Parent Id"
+                                    aria-label="Select top-level channel"
+                                    aria-pressed={!proposalParentId}
                                     onClick={() => setProposalParentId(null)}
                                     className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
                                         !proposalParentId
@@ -230,7 +252,8 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 </button>
                                 {parentOptions.map((p) => (
                                     <button
-                                        aria-label="Proposal Parent Id"
+                                        aria-label={`Select ${p.name} as parent channel`}
+                                        aria-pressed={proposalParentId === p.id}
                                         key={p.id}
                                         onClick={() => setProposalParentId(p.id)}
                                         className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
@@ -250,7 +273,8 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <p className="text-[11px] text-white/30 mb-2 px-1">Visibility</p>
                             <div className="flex gap-2">
                                 <button
-                                    aria-label="Proposal Is Private"
+                                    aria-label="Set channel visibility to public"
+                                    aria-pressed={!proposalIsPrivate}
                                     onClick={() => setProposalIsPrivate(false)}
                                     className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         !proposalIsPrivate
@@ -261,7 +285,8 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     🌊 Public
                                 </button>
                                 <button
-                                    aria-label="Proposal Is Private"
+                                    aria-label="Set channel visibility to private"
+                                    aria-pressed={proposalIsPrivate}
                                     onClick={() => setProposalIsPrivate(true)}
                                     className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         proposalIsPrivate
@@ -303,7 +328,9 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                 {/* ── Step 3: Review & Submit ── */}
                 {step === 3 && (
                     <div className="space-y-5 fade-slide-down max-w-lg mx-auto">
-                        <p className="text-sm font-semibold text-white/70">Review your channel</p>
+                        <p ref={stepHeadingRef} tabIndex={-1} className="text-sm font-semibold text-white/70">
+                            Review your channel
+                        </p>
 
                         {/* Preview card */}
                         <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-3">

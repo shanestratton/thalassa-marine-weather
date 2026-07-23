@@ -25,6 +25,7 @@ import { BgGeoManager } from '../../services/BgGeoManager';
 import { Capacitor } from '@capacitor/core';
 import { haversineNm, getConditionColor, MAX_PHOTOS } from './helpers';
 import { sanitizeText, validateListingTitle, validatePrice, validateDescription } from '../../utils/inputValidation';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface CreateListingModalProps {
     isOpen: boolean;
@@ -44,6 +45,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [locSuburb, setLocSuburb] = useState('');
     const [images, setImages] = useState<File[]>([]);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+    const imagePreviewsRef = useRef<string[]>([]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [_step, setStep] = useState<'details' | 'photos'>('details');
@@ -53,6 +55,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const autoFilledLocRef = useRef<{ lat: number; lon: number } | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
     // ── Keyboard height detection — same pattern as DiaryPage/AuthModal ──
     const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -137,6 +140,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     // Get GPS + auto-fill location on open
     useEffect(() => {
         if (!isOpen) return;
+        const controller = new AbortController();
+        let cancelled = false;
         const pos = BgGeoManager.getLastPosition();
         if (pos) {
             setGpsLat(pos.latitude);
@@ -145,10 +150,11 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             // Reverse-geocode to auto-fill Country / State / Suburb
             fetch(
                 `https://nominatim.openstreetmap.org/reverse?lat=${pos.latitude}&lon=${pos.longitude}&format=json&zoom=10`,
+                { signal: controller.signal },
             )
                 .then((r) => r.json())
                 .then((data) => {
-                    if (data?.address) {
+                    if (!cancelled && data?.address) {
                         setLocCountry(data.address.country || '');
                         setLocState(data.address.state || data.address.region || '');
                         setLocSuburb(
@@ -160,11 +166,16 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     /* best effort */
                 });
         }
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [isOpen]);
 
     /** Check if user-edited location is suspiciously far from GPS */
     const checkLocationDistance = useCallback(async (country: string, state: string, suburb: string) => {
-        if (!autoFilledLocRef.current) {
+        const origin = autoFilledLocRef.current;
+        if (!origin) {
             setLocationWarning(null);
             return;
         }
@@ -178,10 +189,11 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
             );
             const results = await r.json();
+            if (autoFilledLocRef.current !== origin) return;
             if (results?.[0]) {
                 const dist = haversineNm(
-                    autoFilledLocRef.current.lat,
-                    autoFilledLocRef.current.lon,
+                    origin.lat,
+                    origin.lon,
                     parseFloat(results[0].lat),
                     parseFloat(results[0].lon),
                 );
@@ -202,24 +214,31 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
-        const newImages = [...images, ...files].slice(0, MAX_PHOTOS);
-        setImages(newImages);
-        // Generate previews
-        const previews: string[] = [];
-        for (const f of newImages) {
-            previews.push(URL.createObjectURL(f));
-        }
-        setImagePreviews(previews);
+        const accepted = files.slice(0, Math.max(0, MAX_PHOTOS - images.length));
+        if (accepted.length === 0) return;
+        const previews = accepted.map((file) => URL.createObjectURL(file));
+        setImages((current) => [...current, ...accepted]);
+        setImagePreviews((current) => {
+            const next = [...current, ...previews];
+            imagePreviewsRef.current = next;
+            return next;
+        });
+        e.target.value = '';
     };
 
     const removeImage = (idx: number) => {
+        const removedPreview = imagePreviewsRef.current[idx];
+        if (removedPreview) URL.revokeObjectURL(removedPreview);
         const newImages = images.filter((_, i) => i !== idx);
         const newPreviews = imagePreviews.filter((_, i) => i !== idx);
+        imagePreviewsRef.current = newPreviews;
         setImages(newImages);
         setImagePreviews(newPreviews);
     };
 
     const reset = () => {
+        imagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview));
+        imagePreviewsRef.current = [];
         setTitle('');
         setDescription('');
         setPrice('');
@@ -231,6 +250,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
         setLocSuburb('');
         setLocationWarning(null);
         autoFilledLocRef.current = null;
+        setGpsLat(null);
+        setGpsLon(null);
         setImages([]);
         setImagePreviews([]);
         setStep('details');
@@ -256,6 +277,22 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
         setBoatSurveyed(false);
         setBoatFeatures([]);
     };
+
+    useEffect(
+        () => () => {
+            imagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview));
+            imagePreviewsRef.current = [];
+        },
+        [],
+    );
+    const dismiss = () => {
+        reset();
+        onClose();
+    };
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+        initialFocusRef: cancelButtonRef,
+        onEscape: dismiss,
+    });
 
     const handleSubmit = async () => {
         const titleCheck = validateListingTitle(title);
@@ -295,8 +332,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             category,
             condition,
             images: images.length > 0 ? images : undefined,
-            latitude: gpsLat || undefined,
-            longitude: gpsLon || undefined,
+            latitude: gpsLat ?? undefined,
+            longitude: gpsLon ?? undefined,
             location_name:
                 [locSuburb.trim(), locState.trim(), locCountry.trim()].filter(Boolean).join(', ') || undefined,
         };
@@ -347,12 +384,15 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
     return (
         <div
-            role="dialog"
-            aria-modal="true"
             className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
-            onClick={onClose}
+            onClick={dismiss}
+            role="presentation"
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="create-listing-title"
                 className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-3xl shadow-2xl flex flex-col"
                 style={{
                     maxHeight:
@@ -364,16 +404,14 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 {/* Header — sticky at top of modal */}
                 <div className="shrink-0 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06] rounded-t-3xl">
                     <button
+                        ref={cancelButtonRef}
                         aria-label="Close create listing form"
-                        onClick={() => {
-                            reset();
-                            onClose();
-                        }}
+                        onClick={dismiss}
                         className="text-xs text-white/60 font-medium"
                     >
                         Cancel
                     </button>
-                    <h2 className="text-sm font-bold text-white">
+                    <h2 id="create-listing-title" className="text-sm font-bold text-white">
                         {isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}
                     </h2>
                     <button
@@ -407,7 +445,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CATEGORIES.map((cat) => (
                                 <button
-                                    aria-label="Select listing category"
+                                    aria-label={`Select ${cat} category`}
+                                    aria-pressed={category === cat}
                                     key={cat}
                                     onClick={() => setCategory(cat)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
@@ -428,6 +467,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             {isBoat ? 'Listing Title' : 'Title'}
                         </label>
                         <input
+                            aria-label={isBoat ? 'Listing title' : 'Title'}
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
                             placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
@@ -442,6 +482,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             Description
                         </label>
                         <textarea
+                            aria-label="Description"
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
                             placeholder="Describe the item, any defects, model year, etc."
@@ -461,6 +502,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Make
                                     </label>
                                     <input
+                                        aria-label="Boat make"
                                         value={boatMake}
                                         onChange={(e) => setBoatMake(e.target.value)}
                                         placeholder="Beneteau"
@@ -473,6 +515,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Model
                                     </label>
                                     <input
+                                        aria-label="Boat model"
                                         value={boatModel}
                                         onChange={(e) => setBoatModel(e.target.value)}
                                         placeholder="Oceanis 40.1"
@@ -489,6 +532,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Year Built
                                     </label>
                                     <input
+                                        aria-label="Year built"
                                         value={boatYear}
                                         onChange={(e) => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
                                         placeholder="2019"
@@ -501,6 +545,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Length (ft)
                                     </label>
                                     <input
+                                        aria-label="Length in feet"
                                         value={boatLoa}
                                         onChange={(e) => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))}
                                         placeholder="40"
@@ -517,6 +562,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Beam (ft)
                                     </label>
                                     <input
+                                        aria-label="Beam in feet"
                                         value={boatBeam}
                                         onChange={(e) => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))}
                                         placeholder="13"
@@ -529,6 +575,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Draft (ft)
                                     </label>
                                     <input
+                                        aria-label="Draft in feet"
                                         value={boatDraft}
                                         onChange={(e) => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))}
                                         placeholder="6.5"
@@ -546,7 +593,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <div className="flex flex-wrap gap-1.5">
                                     {HULL_MATERIALS.map((h) => (
                                         <button
-                                            aria-label="Boat Hull"
+                                            aria-label={`Select ${h} hull material`}
+                                            aria-pressed={boatHull === h}
                                             key={h}
                                             onClick={() => setBoatHull(h)}
                                             className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${
@@ -569,7 +617,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <div className="flex flex-wrap gap-1.5">
                                     {ENGINE_TYPES.map((et) => (
                                         <button
-                                            aria-label="Boat Engine Type"
+                                            aria-label={`Select ${et} engine type`}
+                                            aria-pressed={boatEngineType === et}
                                             key={et}
                                             onClick={() => setBoatEngineType(et)}
                                             className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${
@@ -585,6 +634,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <div className="flex gap-2">
                                     <div className="flex-1">
                                         <input
+                                            aria-label="Engine make"
                                             value={boatEngineMake}
                                             onChange={(e) => setBoatEngineMake(e.target.value)}
                                             placeholder="Engine make (e.g. Yanmar)"
@@ -594,6 +644,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     </div>
                                     <div className="w-20">
                                         <input
+                                            aria-label="Engine horsepower"
                                             value={boatHp}
                                             onChange={(e) => setBoatHp(e.target.value.replace(/\D/g, ''))}
                                             placeholder="HP"
@@ -605,6 +656,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <div className="flex gap-2">
                                     <div className="flex-1">
                                         <input
+                                            aria-label="Engine hours"
                                             value={boatHours}
                                             onChange={(e) => setBoatHours(e.target.value.replace(/\D/g, ''))}
                                             placeholder="Engine hours"
@@ -616,7 +668,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         <div className="flex flex-wrap gap-1">
                                             {FUEL_TYPES.map((f) => (
                                                 <button
-                                                    aria-label="Boat Fuel"
+                                                    aria-label={`Select ${f} fuel type`}
+                                                    aria-pressed={boatFuel === f}
                                                     key={f}
                                                     onClick={() => setBoatFuel(f)}
                                                     className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition-all ${
@@ -640,6 +693,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Berths
                                     </label>
                                     <input
+                                        aria-label="Berths"
                                         value={boatBerths}
                                         onChange={(e) => setBoatBerths(e.target.value.replace(/\D/g, ''))}
                                         placeholder="6"
@@ -652,6 +706,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Cabins
                                     </label>
                                     <input
+                                        aria-label="Cabins"
                                         value={boatCabins}
                                         onChange={(e) => setBoatCabins(e.target.value.replace(/\D/g, ''))}
                                         placeholder="3"
@@ -664,6 +719,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Heads
                                     </label>
                                     <input
+                                        aria-label="Heads"
                                         value={boatHeads}
                                         onChange={(e) => setBoatHeads(e.target.value.replace(/\D/g, ''))}
                                         placeholder="2"
@@ -680,6 +736,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         Rego Number
                                     </label>
                                     <input
+                                        aria-label="Registration number"
                                         value={boatRego}
                                         onChange={(e) => setBoatRego(e.target.value)}
                                         placeholder="Optional"
@@ -688,7 +745,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <button
-                                    aria-label="Boat Surveyed"
+                                    aria-label="Toggle surveyed status"
+                                    aria-pressed={boatSurveyed}
                                     onClick={() => setBoatSurveyed(!boatSurveyed)}
                                     className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
                                         boatSurveyed
@@ -710,7 +768,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         const selected = boatFeatures.includes(feat);
                                         return (
                                             <button
-                                                aria-label="Boat Features"
+                                                aria-label={`Toggle ${feat}`}
+                                                aria-pressed={selected}
                                                 key={feat}
                                                 onClick={() =>
                                                     setBoatFeatures((prev) =>
@@ -741,7 +800,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CONDITIONS.map((cond) => (
                                 <button
-                                    aria-label="Select item condition"
+                                    aria-label={`Select ${cond} condition`}
+                                    aria-pressed={condition === cond}
                                     key={cond}
                                     onClick={() => setCondition(cond)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
@@ -763,6 +823,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 Price
                             </label>
                             <input
+                                aria-label="Price"
                                 value={price}
                                 onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
                                 placeholder="0.00"
@@ -775,6 +836,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 Currency
                             </label>
                             <select
+                                aria-label="Currency"
                                 value={currency}
                                 onChange={(e) => setCurrency(e.target.value)}
                                 className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white outline-none"
@@ -795,6 +857,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         </label>
                         <div className="flex gap-2 flex-wrap">
                             <input
+                                aria-label="Country"
                                 value={locCountry}
                                 onChange={(e) => {
                                     setLocCountry(e.target.value);
@@ -804,6 +867,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
+                                aria-label="State"
                                 value={locState}
                                 onChange={(e) => {
                                     setLocState(e.target.value);
@@ -813,6 +877,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
+                                aria-label="Suburb"
                                 value={locSuburb}
                                 onChange={(e) => {
                                     setLocSuburb(e.target.value);

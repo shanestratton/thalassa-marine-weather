@@ -33,6 +33,7 @@ import type { ChatChannel } from '../../services/chat/types';
 import { triggerHaptic } from '../../utils/system';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { toast } from '../Toast';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // ── Group accent palette — quieter, no pulse shadows ──
 // Active state retains the group hue so the user knows what they tapped;
@@ -160,6 +161,11 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     const [shareNote, setShareNote] = useState('');
     const [posting, setPosting] = useState(false);
     const [posted, setPosted] = useState(false);
+    const backButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: backButtonRef,
+        onEscape: onClose,
+    });
 
     useEffect(() => {
         if (recipe.supabaseId) {
@@ -253,8 +259,13 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
         <div
             className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
+            role="presentation"
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="recipe-detail-title"
                 className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[90vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -274,6 +285,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         {/* Galley light vignette — smooths out harsh galley lighting */}
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/10 rounded-t-3xl" />
                         <button
+                            ref={backButtonRef}
                             onClick={onClose}
                             className="absolute top-3 left-3 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
                             aria-label="Back to Recipe Library"
@@ -289,6 +301,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                             </svg>
                         </button>
                         <button
+                            ref={backButtonRef}
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white text-xs"
                             aria-label="Close recipe detail"
@@ -328,7 +341,9 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {/* Title & meta */}
                     <div>
-                        <h3 className="text-lg font-bold text-white leading-tight">{recipe.title}</h3>
+                        <h3 id="recipe-detail-title" className="text-lg font-bold text-white leading-tight">
+                            {recipe.title}
+                        </h3>
                         <div className="flex items-center gap-3 mt-1.5">
                             <WheelRating rating={recipe.ratingAvg} count={recipe.ratingCount} size={12} />
                             <span className="text-[11px] text-gray-500">·</span>

@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface MinutelyRain {
     time: string;
@@ -141,16 +142,6 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, rainSummary, tick]); // tick forces re-evaluation every 60s
-
-    // Close modal on ESC
-    useEffect(() => {
-        if (!isModalOpen) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setIsModalOpen(false);
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [isModalOpen]);
 
     const openModal = useCallback(() => {
         if (data && data.length > 0) {
@@ -296,11 +287,18 @@ interface ModalProps {
 }
 
 const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     // Prevent body scroll when modal is open
     useEffect(() => {
+        const previousOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
-            document.body.style.overflow = '';
+            document.body.style.overflow = previousOverflow;
         };
     }, []);
 
@@ -348,16 +346,19 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 
     return (
         <div
-            role="dialog"
-            aria-modal="true"
             className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
             onClick={onClose}
+            role="presentation"
         >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/80" />
 
             {/* Modal */}
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="rain-forecast-title"
                 className="relative w-full max-w-md rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
                 style={{
@@ -645,9 +646,15 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                     strokeWidth="1.5"
                                 />
                             </svg>
-                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Rain Forecast</h3>
+                            <h3
+                                id="rain-forecast-title"
+                                className="text-sm font-bold text-white uppercase tracking-wider"
+                            >
+                                Rain Forecast
+                            </h3>
                         </div>
                         <button
+                            ref={closeButtonRef}
                             onClick={onClose}
                             className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
                             aria-label="Close rain forecast detail"

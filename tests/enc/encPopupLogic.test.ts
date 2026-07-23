@@ -4,14 +4,16 @@
  * routing"). These functions ARE the wiring the map handler runs; the
  * handler itself only maps queryRenderedFeatures hits into them.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ENC_VEC_LAYERS } from '../../components/map/encLayerIds';
 import {
     buildFeaturePopupHtml,
+    buildGebcoDepthPopupBodyHtml,
     buildGebcoDepthPopupHtml,
     needsTideWindow,
     pickAreaTap,
+    wireEncPopupLifecycle,
     type AreaTapHit,
 } from '../../components/map/encPopup';
 
@@ -165,6 +167,19 @@ describe('buildGebcoDepthPopupHtml — uncharted-water tap answer (cycle-4 audit
         expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready', false)).not.toContain('default 2.5 m draft');
         expect(buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready')).not.toContain('default 2.5 m draft');
     });
+
+    it('keeps one labelled non-modal dialog and a polite busy result region', () => {
+        const loading = buildGebcoDepthPopupHtml(null, 2.9, 'loading');
+        expect(loading).toContain('role="dialog"');
+        expect(loading).toContain('aria-label="Uncharted water"');
+        expect(loading).toContain('type="button"');
+        expect(loading).toContain('aria-live="polite"');
+        expect(loading).toContain('aria-atomic="true"');
+        expect(loading).toContain('aria-busy="true"');
+
+        expect(buildGebcoDepthPopupBodyHtml(-12, 2.9, 'ready')).toContain('~12 m');
+        expect(buildGebcoDepthPopupHtml(-12, 2.9, 'ready')).toContain('aria-busy="false"');
+    });
 });
 
 describe('buildFeaturePopupHtml — chart-currency caveat on provenance (re-audit UX #8)', () => {
@@ -177,5 +192,73 @@ describe('buildFeaturePopupHtml — chart-currency caveat on provenance (re-audi
             'verify NtM',
         );
         expect(buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, depareProps, {})).not.toContain('verify NtM');
+    });
+
+    it('emits an explicitly non-submitting close button for the non-modal dialog', () => {
+        const html = buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, depareProps, {});
+        expect(html).toContain('role="dialog"');
+        expect(html).toContain('type="button"');
+        expect(html).toContain('aria-label="Close"');
+        expect(html).not.toContain('aria-modal');
+    });
+});
+
+describe('wireEncPopupLifecycle — non-modal map popup keyboard behaviour', () => {
+    const makePopup = () => {
+        const container = document.createElement('div');
+        container.innerHTML = '<button type="button" class="enc-popup-close">Close</button>';
+        document.body.appendChild(container);
+        let closeListener: (() => void) | null = null;
+        const popup = {
+            getElement: () => container,
+            remove: vi.fn(() => {
+                const listener = closeListener;
+                closeListener = null;
+                listener?.();
+                container.remove();
+            }),
+            once: vi.fn((_event: 'close', listener: () => void) => {
+                closeListener = listener;
+            }),
+        };
+        return { container, popup };
+    };
+
+    it('closes on Escape, restores lost focus, and does not trap Tab', () => {
+        const opener = document.createElement('button');
+        opener.textContent = 'Map';
+        document.body.appendChild(opener);
+        const onClosed = vi.fn();
+        const { container, popup } = makePopup();
+        const close = container.querySelector<HTMLButtonElement>('.enc-popup-close')!;
+        opener.focus();
+        close.focus(); // Mapbox focusAfterOpen behaviour
+        wireEncPopupLifecycle(popup, opener, onClosed);
+
+        const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        close.dispatchEvent(tabEvent);
+        expect(tabEvent.defaultPrevented).toBe(false);
+
+        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+        close.dispatchEvent(escapeEvent);
+        expect(escapeEvent.defaultPrevented).toBe(true);
+        expect(popup.remove).toHaveBeenCalledOnce();
+        expect(onClosed).toHaveBeenCalledOnce();
+        expect(opener).toHaveFocus();
+        opener.remove();
+    });
+
+    it('does not override a valid focus target outside the popup when it closes', () => {
+        const opener = document.createElement('button');
+        const outside = document.createElement('button');
+        document.body.append(opener, outside);
+        const { popup } = makePopup();
+        wireEncPopupLifecycle(popup, opener);
+
+        outside.focus();
+        popup.remove();
+        expect(outside).toHaveFocus();
+        opener.remove();
+        outside.remove();
     });
 });

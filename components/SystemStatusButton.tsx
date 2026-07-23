@@ -10,7 +10,7 @@
  * When 0 active: hidden
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
@@ -25,6 +25,7 @@ import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // ── Types ──
 
@@ -121,6 +122,11 @@ const SystemStatusModal: React.FC<{
     onAcceptChange,
     onDismissChange: _onDismissChange,
 }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
     const activeCount = [
         state.activeVoyageMode.active,
         state.gpsTracking.active,
@@ -136,15 +142,17 @@ const SystemStatusModal: React.FC<{
         <div
             className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60 backdrop-blur-[2px]"
             onClick={onClose}
-            role="dialog"
-            aria-modal="true"
-            aria-label="System status"
+            role="presentation"
             style={{
                 paddingTop: 'calc(env(safe-area-inset-top) + 60px)',
                 paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)',
             }}
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="system-status-title"
                 className="w-full max-w-md bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl max-h-[80dvh] overflow-y-auto mx-4 animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -154,12 +162,15 @@ const SystemStatusModal: React.FC<{
                         <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
                             <span className="text-sky-400 text-sm font-bold">ℹ</span>
                         </div>
-                        <h2 className="text-base font-bold text-white tracking-tight">System Status</h2>
+                        <h2 id="system-status-title" className="text-base font-bold text-white tracking-tight">
+                            System Status
+                        </h2>
                         <span className="text-[11px] font-bold text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded-lg">
                             {activeCount} active
                         </span>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         aria-label="Close system status"
                         className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
