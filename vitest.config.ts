@@ -43,13 +43,13 @@ export default defineConfig({
             exclude: ['**/*.test.*', '**/*.spec.*', '**/types.ts', '**/*.d.ts'],
             thresholds: {
                 // Ratchet floor — raised to sit just below the verified
-                // full-suite baseline (24.67/20.46/20.36/24.67).
+                // full-suite baseline (25.33/20.97/21.00/25.29).
                 // These prevent regression. Raise as test coverage improves.
                 // TARGET: 80% across the board.
-                lines: 24,
-                functions: 20,
-                branches: 20,
-                statements: 24,
+                lines: 25,
+                functions: 20.5,
+                branches: 20.5,
+                statements: 25,
             },
         },
     },

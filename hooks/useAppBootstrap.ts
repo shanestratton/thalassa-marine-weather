@@ -15,16 +15,21 @@ export function useAppBootstrap() {
     const [chatUnread, setChatUnread] = useState(0);
 
     useEffect(() => {
+        let active = true;
         let timer: ReturnType<typeof setInterval> | null = null;
         import('../services/ChatService').then(({ ChatService }) => {
+            if (!active) return;
             const poll = () =>
                 ChatService.getUnreadDMCount()
-                    .then((n) => setChatUnread(n))
+                    .then((n) => {
+                        if (active) setChatUnread(n);
+                    })
                     .catch(() => {});
             poll();
             timer = setInterval(poll, 30000);
         });
         return () => {
+            active = false;
             if (timer) clearInterval(timer);
         };
     }, []);
@@ -64,11 +69,17 @@ export function useAppBootstrap() {
     // flips uiStore.isOffline → true when the WAN isn't actually
     // reachable, so the staleness banner shows.
     useEffect(() => {
+        let active = true;
         let stop: (() => void) | null = null;
         import('../services/internetProbe').then(({ startInternetProbe }) => {
-            stop = startInternetProbe();
+            const started = startInternetProbe();
+            if (active) stop = started;
+            else started();
         });
-        return () => stop?.();
+        return () => {
+            active = false;
+            stop?.();
+        };
     }, []);
 
     // ── Signal K auto-reconnect ───────────────────────────────────
@@ -86,59 +97,77 @@ export function useAppBootstrap() {
 
     // ── Local-first DB + sync engine ───────────────────────────────
     useEffect(() => {
+        let active = true;
         let stopSync: (() => void) | null = null;
         import('../services/vessel').then(({ initLocalDatabase, startSyncEngine, stopSyncEngine }) => {
-            initLocalDatabase()
-                .then(() => startSyncEngine())
-                .catch((e) => console.error('[App] Local DB init failed:', e));
             stopSync = stopSyncEngine;
+            if (!active) {
+                stopSyncEngine();
+                return;
+            }
+            initLocalDatabase()
+                .then(() => {
+                    if (active) startSyncEngine();
+                })
+                .catch((e) => console.error('[App] Local DB init failed:', e));
         });
         return () => {
+            active = false;
             stopSync?.();
         };
     }, []);
 
     // ── Push notification wiring ───────────────────────────────────
     useEffect(() => {
+        let active = true;
+        const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
+            pushForegroundToast(notification);
+        };
+        const tapHandler = (data: Record<string, unknown>) => {
+            const type = data.notification_type as string;
+            switch (type) {
+                case 'dm':
+                    setPage('chat');
+                    break;
+                case 'weather_alert':
+                    setPage('dashboard');
+                    break;
+                case 'anchor_alarm':
+                    setPage('map');
+                    break;
+                case 'bolo_alert':
+                case 'suspicious_alert':
+                case 'drag_warning':
+                case 'geofence_alert':
+                case 'hail':
+                    setPage('guardian');
+                    break;
+                default:
+                    setPage('dashboard');
+                    break;
+            }
+        };
         import('../services/PushNotificationService').then(({ PushNotificationService }) => {
-            PushNotificationService.onForegroundPush = (notification) => {
-                pushForegroundToast(notification);
-            };
-            PushNotificationService.onNotificationTap = (data) => {
-                const type = data.notification_type as string;
-                switch (type) {
-                    case 'dm':
-                        setPage('chat');
-                        break;
-                    case 'weather_alert':
-                        setPage('dashboard');
-                        break;
-                    case 'anchor_alarm':
-                        setPage('map');
-                        break;
-                    case 'bolo_alert':
-                    case 'suspicious_alert':
-                    case 'drag_warning':
-                    case 'geofence_alert':
-                    case 'hail':
-                        setPage('guardian');
-                        break;
-                    default:
-                        setPage('dashboard');
-                        break;
-                }
-            };
+            if (!active) return;
+            PushNotificationService.onForegroundPush = foregroundHandler;
+            PushNotificationService.onNotificationTap = tapHandler;
         });
         return () => {
+            active = false;
             import('../services/PushNotificationService').then(({ PushNotificationService }) => {
-                PushNotificationService.onForegroundPush = null;
-                PushNotificationService.onNotificationTap = null;
+                if (PushNotificationService.onForegroundPush === foregroundHandler) {
+                    PushNotificationService.onForegroundPush = null;
+                }
+                if (PushNotificationService.onNotificationTap === tapHandler) {
+                    PushNotificationService.onNotificationTap = null;
+                }
             });
         };
     }, [setPage]);
 
     // ── Clear badge on foreground ──────────────────────────────────
     useEffect(() => {
+        let active = true;
         let listener: { remove: () => void } | null = null;
         import('@capacitor/app')
             .then(({ App }) => {
@@ -149,7 +178,8 @@ export function useAppBootstrap() {
                         });
                     }
                 }).then((l) => {
-                    listener = l;
+                    if (active) listener = l;
+                    else l.remove();
                 });
             })
             .catch(() => {});
@@ -159,6 +189,7 @@ export function useAppBootstrap() {
         });
 
         return () => {
+            active = false;
             listener?.remove();
         };
     }, []);
