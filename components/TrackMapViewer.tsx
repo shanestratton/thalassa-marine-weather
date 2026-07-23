@@ -335,24 +335,27 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const addSegment = (coords: [number, number][], color: string, isPlannedRoute: boolean) => {
             if (coords.length < 2) return;
 
-            // White casing under the line — gives a crisp "chart route"
-            // outline that pops on any background instead of a thin line
-            // lost in the map.
+            // Glow + core, matching the chart-page tracer and the public page
+            // (Shane 2026-07-23). The wide underlay is the SAME hue as the core
+            // at low opacity, so it reads as the line glowing rather than the
+            // old white "chart route" casing around it. The followed route is
+            // no longer dashed — it is a solid core in its own colour, one
+            // notch brighter than its glow, so plan-vs-sailed still reads at a
+            // glance without the dashes that made it look dated.
             L.polyline(coords, {
-                color: '#ffffff',
-                weight: 6.5,
-                opacity: 0.7,
+                color,
+                weight: 11,
+                opacity: 0.26,
                 lineCap: 'round',
                 lineJoin: 'round',
             }).addTo(layerGroup);
 
             L.polyline(coords, {
-                color,
+                color: isPlannedRoute ? '#c4b5fd' : color,
                 weight: 3.5,
                 opacity: 1,
                 lineCap: 'round',
                 lineJoin: 'round',
-                ...(isPlannedRoute ? { dashArray: '6 8' } : {}),
             }).addTo(layerGroup);
         };
 
@@ -443,24 +446,29 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             }
         }
 
-        // Start marker
-        const startIcon = L.divIcon({
-            html: `<div style="width:24px;height:24px;background:#34d399;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-            className: '',
-        });
-        L.marker([lineEntries[0].latitude!, lineEntries[0].longitude!], { icon: startIcon }).addTo(layerGroup);
-
-        // End marker
-        const endIcon = L.divIcon({
-            html: `<div style="width:24px;height:24px;background:#ef4444;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-            className: '',
-        });
+        // Start / end markers — a coloured core inside a soft same-hue halo,
+        // the app's glow language rather than the old flat disc with a hard
+        // white ring (Shane 2026-07-23). The halo is a wider translucent ring
+        // so the pin reads as lit on both the imagery and the dark base.
+        const endpointIcon = (core: string, glow: string) =>
+            L.divIcon({
+                html:
+                    `<div style="width:26px;height:26px;border-radius:50%;` +
+                    `background:radial-gradient(circle,${glow} 0%,transparent 70%);` +
+                    `display:flex;align-items:center;justify-content:center;">` +
+                    `<div style="width:13px;height:13px;background:${core};border:2.5px solid #fff;` +
+                    `border-radius:50%;box-shadow:0 0 8px ${glow},0 1px 3px rgba(0,0,0,0.5)"></div></div>`,
+                iconSize: [26, 26],
+                iconAnchor: [13, 13],
+                className: '',
+            });
+        L.marker([lineEntries[0].latitude!, lineEntries[0].longitude!], {
+            icon: endpointIcon('#34d399', 'rgba(52,211,153,0.55)'),
+        }).addTo(layerGroup);
         const lastEntry = lineEntries[lineEntries.length - 1];
-        L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon }).addTo(layerGroup);
+        L.marker([lastEntry.latitude!, lastEntry.longitude!], {
+            icon: endpointIcon('#f87171', 'rgba(248,113,113,0.55)'),
+        }).addTo(layerGroup);
 
         // Waypoint markers REMOVED 2026-06-12 (Shane: "do away with the
         // wayward waypoints") — auto turn pins landed off-route and

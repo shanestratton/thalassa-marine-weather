@@ -32,6 +32,7 @@ import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useLogPageState } from '../hooks/useLogPageState';
+import { useFollowRouteStore } from '../stores/followRouteStore';
 import { useUI } from '../context/UIContext';
 import { ShipLogEntry } from '../types';
 
@@ -200,19 +201,43 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return matchPlannedRouteByCoords(sailed, summaries);
     }, [state.selectedVoyageId, state.summaries]);
 
+    // The route CURRENTLY BEING FOLLOWED (Shane 2026-07-23: "when we are
+    // following a route, we need it to show up on the log page in the large
+    // map"). The tracer's Sail flow and the Follow button both persist the plan
+    // as a planned_route voyage and stash its logbook id in followRouteStore;
+    // TrackMapViewer already draws source==='planned_route' as the route line,
+    // partitioned per voyageId. So this is purely a wiring gap: the log page
+    // just never read the store. Unlike matchedPlannedId (which needs BOTH end
+    // coords and so can only match a COMPLETED voyage), this shows the route
+    // mid-passage. Empty until the background save lands the id — the store is
+    // a live selector, so it appears on its own when it does.
+    const followedPlanId = useFollowRouteStore((s) => (s.isFollowing && s.voyageId ? s.voyageId : null));
+
     const trackMapEntries = React.useMemo(() => {
-        if (!state.selectedVoyageId) return state.entries;
+        if (!state.selectedVoyageId) {
+            // No voyage picked: show everything, which already includes the
+            // followed route's points once they are resident (loaded below).
+            return state.entries;
+        }
         return state.entries.filter(
             (e) =>
-                e.voyageId === state.selectedVoyageId || (matchedPlannedId != null && e.voyageId === matchedPlannedId),
+                e.voyageId === state.selectedVoyageId ||
+                (matchedPlannedId != null && e.voyageId === matchedPlannedId) ||
+                (followedPlanId != null && e.voyageId === followedPlanId),
         );
-    }, [state.entries, state.selectedVoyageId, matchedPlannedId]);
+    }, [state.entries, state.selectedVoyageId, matchedPlannedId, followedPlanId]);
 
     // Load the matched planned route's points when the track map opens so
     // they're resident for the overlay.
     useEffect(() => {
         if (state.showTrackMap && matchedPlannedId) void loadVoyageEntries(matchedPlannedId);
     }, [state.showTrackMap, matchedPlannedId, loadVoyageEntries]);
+
+    // Same, for the route being followed — its full points must be resident or
+    // there is nothing for TrackMapViewer to draw.
+    useEffect(() => {
+        if (state.showTrackMap && followedPlanId) void loadVoyageEntries(followedPlanId);
+    }, [state.showTrackMap, followedPlanId, loadVoyageEntries]);
 
     // Career personal records — derived purely from voyage summaries.
     const records = React.useMemo(() => computePersonalRecords(state.summaries ?? []), [state.summaries]);
@@ -1595,49 +1620,52 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 // measurement, so it cannot be wrong by a magic number the way the
                 // two previous attempts were.
                 createPortal(
-                <div
-                    className="fixed inset-0 z-[10055] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
-                    onClick={() => setFollowPromptVoyageId(null)}
-                >
                     <div
-                        className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
+                        className="fixed inset-0 z-[10055] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
+                        onClick={() => setFollowPromptVoyageId(null)}
                     >
-                        <div className="shrink-0 border-b border-white/10 px-5 py-4">
-                            <div className="text-sm font-black uppercase tracking-widest text-emerald-300">
-                                Following a route?
+                        <div
+                            className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="shrink-0 border-b border-white/10 px-5 py-4">
+                                <div className="text-sm font-black uppercase tracking-widest text-emerald-300">
+                                    Following a route?
+                                </div>
+                                <div className="mt-0.5 text-[12px] text-gray-400">
+                                    Pick one to show on your public page — or just record the track.
+                                </div>
                             </div>
-                            <div className="mt-0.5 text-[12px] text-gray-400">
-                                Pick one to show on your public page — or just record the track.
+                            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
+                                {plannedChoices.map(({ summary: s, reversible }) => (
+                                    <FollowRouteChoice
+                                        key={s.voyageId}
+                                        summary={s}
+                                        reversible={reversible}
+                                        onPick={() => {
+                                            void publishFollowedRoute(s.voyageId).then((result) => {
+                                                if (result === 'linked')
+                                                    toast.success('Your public page now follows this route');
+                                                else
+                                                    toast.error(
+                                                        'Couldn’t publish — try the Follow button, or Settings',
+                                                    );
+                                            });
+                                            setFollowPromptVoyageId(null);
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                            <div className="shrink-0 border-t border-white/10 px-5 py-3">
+                                <button
+                                    onClick={() => setFollowPromptVoyageId(null)}
+                                    className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
+                                >
+                                    Just recording
+                                </button>
                             </div>
                         </div>
-                        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                            {plannedChoices.map(({ summary: s, reversible }) => (
-                                <FollowRouteChoice
-                                    key={s.voyageId}
-                                    summary={s}
-                                    reversible={reversible}
-                                    onPick={() => {
-                                        void publishFollowedRoute(s.voyageId).then((result) => {
-                                            if (result === 'linked')
-                                                toast.success('Your public page now follows this route');
-                                            else toast.error('Couldn’t publish — try the Follow button, or Settings');
-                                        });
-                                        setFollowPromptVoyageId(null);
-                                    }}
-                                />
-                            ))}
-                        </div>
-                        <div className="shrink-0 border-t border-white/10 px-5 py-3">
-                            <button
-                                onClick={() => setFollowPromptVoyageId(null)}
-                                className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
-                            >
-                                Just recording
-                            </button>
-                        </div>
-                    </div>
-                </div>,
+                    </div>,
                     document.body,
                 )}
 
