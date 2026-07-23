@@ -11,6 +11,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { UnitPreferences } from '../../../types';
 import { convertSpeed, degreesToCardinal } from '../../../utils';
 import { piCache } from '../../../services/PiCacheService';
+import { buildRainViewerTileUrl } from '../../../services/weather/api/rainviewerTiles';
 import { SafeImage } from '../../ui/SafeImage';
 
 interface EssentialMapSlideProps {
@@ -32,6 +33,7 @@ type EssentialFrame = {
     type: 'radar' | 'forecast';
     forecastSecs?: number;
     snapshot?: number;
+    host?: string;
 };
 
 export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
@@ -95,8 +97,16 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 const nowcast = (data.radar?.nowcast ?? []).map((f) => ({ path: f.path, time: f.time }));
 
                 const all: EssentialFrame[] = [
-                    ...past.map((f: { path: string; time: number }) => ({ ...f, type: 'radar' as const })),
-                    ...nowcast.map((f: { path: string; time: number }) => ({ ...f, type: 'radar' as const })),
+                    ...past.map((f: { path: string; time: number }) => ({
+                        ...f,
+                        host: data.host,
+                        type: 'radar' as const,
+                    })),
+                    ...nowcast.map((f: { path: string; time: number }) => ({
+                        ...f,
+                        host: data.host,
+                        type: 'radar' as const,
+                    })),
                 ];
                 const ni = Math.max(0, past.length - 1);
 
@@ -170,9 +180,18 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         const containerW = 600,
             containerH = 400;
         const tiles: { left: number; top: number; tx: number; ty: number; key: string }[] = [];
-        for (let dy = -2; dy <= 2; dy++) {
-            for (let dx = -2; dx <= 2; dx++) {
-                const tx = centerTileX + dx;
+        // Calculate the smallest grid that fully covers the card at this
+        // fractional tile offset. Combined with the three-frame preload
+        // window below, this stays comfortably inside RainViewer's request
+        // budget without leaving transparent strips at the card edges.
+        const minDx = Math.floor((pxOffsetX - containerW / 2) / tileSize);
+        const maxDx = Math.ceil((pxOffsetX + containerW / 2) / tileSize) - 1;
+        const minDy = Math.floor((pxOffsetY - containerH / 2) / tileSize);
+        const maxDy = Math.ceil((pxOffsetY + containerH / 2) / tileSize) - 1;
+        for (let dy = minDy; dy <= maxDy; dy++) {
+            for (let dx = minDx; dx <= maxDx; dx++) {
+                const rawTx = centerTileX + dx;
+                const tx = ((rawTx % n) + n) % n;
                 const ty = centerTileY + dy;
                 if (ty < 0 || ty >= n) continue;
                 tiles.push({
@@ -180,7 +199,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     top: containerH / 2 - pxOffsetY + dy * tileSize,
                     tx,
                     ty,
-                    key: `${tx}-${ty}`,
+                    key: `${dx}-${ty}`,
                 });
             }
         }
@@ -269,11 +288,16 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                             }}
                                         >
                                             {/* Preload nearby frames for smooth scrubbing */}
-                                            {(Math.abs(idx - activeFrame) <= 3 || idx === activeFrame) &&
+                                            {Math.abs(idx - activeFrame) <= 1 &&
                                                 tileGrid.map((t) => {
                                                     const directSrc = isForecst
                                                         ? `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${frame.snapshot}&forecast=${frame.forecastSecs}&z=${zoom}&x=${t.tx}&y=${t.ty}&color=6`
-                                                        : `https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`;
+                                                        : buildRainViewerTileUrl(frame.path, {
+                                                              host: frame.host,
+                                                              zoom,
+                                                              x: t.tx,
+                                                              y: t.ty,
+                                                          });
                                                     const src = piCache.passthroughTileUrl(directSrc) || directSrc;
                                                     return (
                                                         <SafeImage
@@ -469,6 +493,19 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
                         <span className="text-[11px] text-white/50 font-medium tracking-wide">{condition}</span>
                     </div>
+                )}
+
+                {radarFrames[activeFrame]?.type === 'radar' && (
+                    <a
+                        href="https://www.rainviewer.com/"
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="absolute bottom-10 right-2.5 z-[2] rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-sm"
+                        aria-label="Rain radar data by RainViewer"
+                    >
+                        RainViewer
+                    </a>
                 )}
             </div>
         </div>

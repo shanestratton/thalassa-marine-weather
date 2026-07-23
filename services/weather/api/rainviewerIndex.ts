@@ -37,7 +37,8 @@ export interface RainViewerIndex {
     host: string;
     radar: {
         past: RainViewerFrame[];
-        nowcast: RainViewerFrame[];
+        /** Legacy indexes may include this; the current public API is past-only. */
+        nowcast?: RainViewerFrame[];
     };
     satellite?: {
         infrared: RainViewerFrame[];

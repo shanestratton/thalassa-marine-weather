@@ -294,8 +294,8 @@ async function prefetchGrib(
  */
 async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void> {
     // 1. Cache the weather-maps API response (app fetches this to get frame paths)
-    const apiKey = 'rainviewer:weather-maps';
     const apiUrl = 'https://api.rainviewer.com/public/weather-maps.json';
+    const apiKey = `passthrough:${apiUrl}`;
 
     const result = await cachedJsonFetch(cache, {
         cacheKey: apiKey,
@@ -305,9 +305,25 @@ async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void
     });
 
     // 2. Download radar tiles for the boat's area (zoom 5 = synoptic overview)
-    const radar = result?.data as { radar?: { past?: { path: string }[]; nowcast?: { path: string }[] } } | null;
+    const radar = result?.data as {
+        host?: string;
+        radar?: { past?: { path: string }[]; nowcast?: { path: string }[] };
+    } | null;
     const past = radar?.radar?.past ?? [];
     const nowcast = radar?.radar?.nowcast ?? [];
+    let tileHost = 'https://tilecache.rainviewer.com';
+    try {
+        const candidate = new URL(radar?.host ?? '');
+        const hostname = candidate.hostname.toLowerCase();
+        if (
+            candidate.protocol === 'https:' &&
+            (hostname === 'rainviewer.com' || hostname.endsWith('.rainviewer.com'))
+        ) {
+            tileHost = candidate.origin;
+        }
+    } catch {
+        // Retain the documented host when the provider index is malformed.
+    }
 
     // Only cache recent frames (last 3 past + all nowcast) — not the full 2-hour history
     const recentPast = past.slice(-3);
@@ -322,10 +338,12 @@ async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void
     for (const frame of frames) {
         for (let x = minTileX; x <= maxTileX; x++) {
             for (let y = minTileY; y <= maxTileY; y++) {
-                const key = `tile:rainviewer:${z}/${x}/${y}:${frame.path}`;
+                const url = `${tileHost}${frame.path}/512/${z}/${x}/${y}/2/1_1.png`;
+                const key = `passthrough-tile:${url}`;
                 if (cache.hasFreshTile(key)) continue;
 
-                const url = `https://tilecache.rainviewer.com${frame.path}/256/${z}/${y}/${x}/4/1_1.png`;
+                // RainViewer's public contract is z/x/y, native z0-7,
+                // Universal Blue palette 2. This prefetch runs at z5.
                 try {
                     await cachedTileFetch(cache, {
                         cacheKey: key,

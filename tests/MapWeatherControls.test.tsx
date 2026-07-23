@@ -100,4 +100,37 @@ describe('MapWeatherControls', () => {
         expect(screen.getByText('Forecast')).toBeInTheDocument();
         expect(setRainFrameIndex).not.toHaveBeenCalled();
     });
+
+    it('credits RainViewer while a radar frame is visible', () => {
+        render(
+            <MapWeatherControls
+                weather={weather({
+                    activeLayers: new Set(['rain']),
+                    rainLoading: false,
+                    rainReady: true,
+                    rainFrameCount: 2,
+                    rainFrameIndex: 0,
+                    rainPlaying: false,
+                    rainNowIdxRef: { current: 0 },
+                    unifiedFramesRef: {
+                        current: [
+                            { label: 'Now', type: 'radar' },
+                            { label: '+10m', type: 'forecast' },
+                        ],
+                    },
+                    setRainFrameIndex: vi.fn(),
+                    setRainPlaying: vi.fn(),
+                })}
+                visible
+                embedded={false}
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByRole('link', { name: 'Rain radar data by RainViewer' })).toHaveAttribute(
+            'href',
+            'https://www.rainviewer.com/',
+        );
+    });
 });

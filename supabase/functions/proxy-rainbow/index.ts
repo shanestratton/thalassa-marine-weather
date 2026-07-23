@@ -251,11 +251,13 @@ Deno.serve(async (req: Request) => {
             }
             const snapshot = url.searchParams.get('snapshot');
             const forecast = parseBoundedInteger(url.searchParams.get('forecast'), 0, 14_400);
-            const z = parseBoundedInteger(url.searchParams.get('z'), 0, 14);
+            const layer = url.searchParams.get('layer') || 'precip'; // precip | precip-global | clouds
+            const maxZoom = layer === 'clouds' ? 7 : 12;
+            const z = parseBoundedInteger(url.searchParams.get('z'), 0, maxZoom);
             const x = parseBoundedInteger(url.searchParams.get('x'), 0, z === null ? 0 : 2 ** z - 1);
             const y = parseBoundedInteger(url.searchParams.get('y'), 0, z === null ? 0 : 2 ** z - 1);
             const color = url.searchParams.get('color') || '';
-            const layer = url.searchParams.get('layer') || 'precip'; // precip | precip-global | clouds
+            const hasForecast = url.searchParams.has('forecast');
 
             if (
                 !snapshot ||
@@ -265,7 +267,8 @@ Deno.serve(async (req: Request) => {
                 y === null ||
                 !TILE_LAYERS.has(layer) ||
                 !TILE_COLORS.has(color) ||
-                (url.searchParams.has('forecast') && forecast === null)
+                (hasForecast && (forecast === null || forecast % 600 !== 0)) ||
+                (layer === 'clouds' && hasForecast)
             ) {
                 return jsonResponse({ error: 'Invalid tile params' }, 400);
             }

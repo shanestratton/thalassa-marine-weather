@@ -4538,7 +4538,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // wind alignment with the tracked cyclone position.
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
-    const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
+    const embeddedRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
 
     // ── AIS Vessel Target Layer ──
     useAisLayer(mapRef, mapReady, aisVisible);
@@ -5191,6 +5191,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // Determine if tablet split-screen is active
     const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded && !pickerMode;
+    const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
 
     return (
         <div data-testid="map-hub" className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
@@ -7231,6 +7232,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onControlsHiddenChange={setChartControlsHidden}
                         />
                     </Suspense>
+                )}
+                {showEmbeddedRainViewerAttribution && (
+                    <a
+                        href="https://www.rainviewer.com/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute bottom-3 right-3 z-[509] rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-slate-300/80 backdrop-blur-sm"
+                        aria-label="Rain radar data by RainViewer"
+                    >
+                        Radar by RainViewer
+                    </a>
                 )}
             </div>
 
