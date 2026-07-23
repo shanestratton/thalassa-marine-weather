@@ -30,10 +30,8 @@ import { ToastPortal, toast } from './components/Toast';
 import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
-import { checkDisclaimerAccepted } from './modules/LegalGuard';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { useAuthStore } from './stores/authStore';
-import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
 import { TIER_INFO } from './services/SubscriptionService';
@@ -91,9 +89,6 @@ const App: React.FC = () => {
 
     // Resolve the active view config from the registry (null for dashboard/map)
     const activeViewConfig = VIEW_REGISTRY[currentView] ?? null;
-
-    // --- LEGAL DISCLAIMER GATE ---
-    const [disclaimerAccepted, setDisclaimerAccepted] = useState(() => checkDisclaimerAccepted());
 
     // --- AUTH: deferred to save-time, not boot-time. ---
     // authStore is consumed wherever identity matters (SignInScreen at
@@ -308,9 +303,11 @@ const App: React.FC = () => {
         return (
             <div className="flex items-center justify-center h-screen w-full bg-slate-950 flex-col gap-4">
                 <img
-                    src="/thalassa-icon.png"
+                    src="/thalassa-icon-128.webp"
                     alt=""
                     aria-hidden="true"
+                    width={64}
+                    height={64}
                     className="w-16 h-16 rounded-2xl animate-pulse"
                 />
                 <p className="text-[11px] font-bold uppercase tracking-wider text-sky-300">Thalassa</p>
@@ -358,11 +355,6 @@ const App: React.FC = () => {
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     const showHeader = !['map', 'warnings'].includes(currentView);
     const isDashboard = currentView === 'dashboard';
-
-    // --- DISCLAIMER GATE: block app until accepted ---
-    if (!disclaimerAccepted) {
-        return <DisclaimerOverlay onAccepted={() => setDisclaimerAccepted(true)} />;
-    }
 
     // --- AUTH: deferred to action-time, NOT boot-time ---
     // The previous hard gate (boot → SignInScreen) traded a real UX cost
@@ -548,7 +540,13 @@ const App: React.FC = () => {
                                     bump (0.49 → 0.55), the in-app header now
                                     has a properly sized compass that doesn't
                                     drown next to the wordmark + Skipper pill. */}
-                                <img src="/thalassa-icon.png" alt="" className="w-[64px] h-[64px] rounded-lg" />
+                                <img
+                                    src="/thalassa-icon-128.webp"
+                                    alt=""
+                                    width={64}
+                                    height={64}
+                                    className="w-[64px] h-[64px] rounded-lg"
+                                />
                                 <div>
                                     <div className="flex items-center gap-1">
                                         <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">

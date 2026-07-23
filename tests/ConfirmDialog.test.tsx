@@ -2,7 +2,7 @@
  * Tests for ConfirmDialog component
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 describe('ConfirmDialog', () => {
@@ -44,10 +44,12 @@ describe('ConfirmDialog', () => {
         expect(onCancel).toHaveBeenCalledTimes(1);
     });
 
-    it('calls onConfirm when confirm button is clicked', () => {
+    it('calls onConfirm when confirm button is clicked', async () => {
         const onConfirm = vi.fn();
         render(<ConfirmDialog {...baseProps} onConfirm={onConfirm} />);
-        fireEvent.click(screen.getByText('Confirm'));
+        await act(async () => {
+            fireEvent.click(screen.getByText('Confirm'));
+        });
         expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 

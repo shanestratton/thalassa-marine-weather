@@ -1,6 +1,7 @@
 // Sentry must be imported FIRST — before any other app code
 import { captureException } from './services/sentry';
 import { crumb, startFlightRecorder } from './utils/flightRecorder';
+import { Capacitor } from '@capacitor/core';
 
 // JS BUILD-MARKER — landed via Preferences so it appears in Xcode
 // console (console.warn from WKWebView is invisible to Xcode's
@@ -12,19 +13,31 @@ import { crumb, startFlightRecorder } from './utils/flightRecorder';
 
 // ── BOOT DIAGNOSTIC ── uses Capacitor Preferences (visible in Xcode as native bridge calls)
 // because console.error from WKWebView does NOT appear in Xcode's native console.
-import { Preferences } from '@capacitor/preferences';
-Preferences.set({
-    key: 'BUILD_MARKER_JS',
-    value: `[BUILD-MARKER-JS] thalassa ${new Date().toISOString()} (bundle freshness check)`,
-}).catch(() => {});
-Preferences.set({ key: 'BOOT_DIAG', value: `index.tsx loaded at ${new Date().toISOString()}` })
-    .then(() => Preferences.get({ key: 'signalk_host' }))
-    .then((r) => {
-        // This will show as '⚡️  TO JS {"value":"..."}' in Xcode
-        // Look for the signalk_host value in the Xcode log output
-        Preferences.set({ key: 'BOOT_SK_HOST', value: `host=${r.value}` });
-    })
-    .catch(() => {});
+// Web sessions never need the native bridge, so keep it out of their startup
+// dependency graph. Native diagnostics still initialize before the app shell.
+const nativePreferencesPromise = Capacitor.isNativePlatform()
+    ? import('@capacitor/preferences').then(({ Preferences }) => Preferences)
+    : null;
+
+const setNativePreference = (key: string, value: string): void => {
+    if (!nativePreferencesPromise) return;
+    void nativePreferencesPromise.then((preferences) => preferences.set({ key, value })).catch(() => {});
+};
+
+if (nativePreferencesPromise) {
+    void nativePreferencesPromise
+        .then(async (preferences) => {
+            await preferences.set({
+                key: 'BUILD_MARKER_JS',
+                value: `[BUILD-MARKER-JS] thalassa ${new Date().toISOString()} (bundle freshness check)`,
+            });
+            await preferences.set({ key: 'BOOT_DIAG', value: `index.tsx loaded at ${new Date().toISOString()}` });
+            const { value } = await preferences.get({ key: 'signalk_host' });
+            // This will show as '⚡️  TO JS {"value":"..."}' in Xcode.
+            await preferences.set({ key: 'BOOT_SK_HOST', value: `host=${value}` });
+        })
+        .catch(() => {});
+}
 
 // ── Global error capture ──
 // Capacitor's bridge swallows exception details by default — Xcode just
@@ -47,7 +60,7 @@ if (typeof window !== 'undefined') {
                 : `${event.message} @ ${event.filename}:${event.lineno}:${event.colno}`;
         // Native console (Xcode) — the Preferences round-trip is the
         // only way to make a JS error reliably appear in the iOS logs.
-        Preferences.set({ key: 'BOOT_ERR', value: `[window.error] ${detail.slice(0, 1500)}` }).catch(() => {});
+        setNativePreference('BOOT_ERR', `[window.error] ${detail.slice(0, 1500)}`);
         // Web console (in case anyone has the inspector attached)
 
         console.error('[GlobalErrorHandler]', detail);
@@ -65,7 +78,7 @@ if (typeof window !== 'undefined') {
             reason instanceof Error
                 ? `${reason.name}: ${reason.message}\n${reason.stack ?? ''}`
                 : `[unhandled rejection] ${typeof reason === 'object' ? JSON.stringify(reason) : String(reason)}`;
-        Preferences.set({ key: 'BOOT_REJECT', value: detail.slice(0, 1500) }).catch(() => {});
+        setNativePreference('BOOT_REJECT', detail.slice(0, 1500));
 
         console.error('[UnhandledRejection]', detail);
         try {
@@ -76,13 +89,12 @@ if (typeof window !== 'undefined') {
     });
 }
 
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode, Suspense, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
-import { ThalassaProvider } from './context/ThalassaContext';
-import { Keyboard } from '@capacitor/keyboard';
-import { Capacitor } from '@capacitor/core';
-import { CrewCountProvider } from './contexts/CrewCountContext';
+import { checkDisclaimerAccepted } from './modules/LegalGuard';
+import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
+
+const ApplicationShell = React.lazy(() => import('./ApplicationShell'));
 
 // Show the iOS keyboard accessory bar (the strip with the
 // up/down field-navigation chevrons and a Done button on the right).
@@ -93,9 +105,11 @@ import { CrewCountProvider } from './contexts/CrewCountContext';
 // enough to lift the input above the accessory bar). Solved at the
 // page level instead of by hiding the bar everywhere.
 if (Capacitor.isNativePlatform()) {
-    Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {
-        /* Keyboard API unavailable on web */
-    });
+    void import('@capacitor/keyboard')
+        .then(({ Keyboard }) => Keyboard.setAccessoryBarVisible({ isVisible: true }))
+        .catch(() => {
+            /* Keyboard API unavailable on web */
+        });
 }
 
 // ── Block whole-page pinch-zoom everywhere except the chart map ──
@@ -135,17 +149,17 @@ if (typeof document !== 'undefined') {
     document.addEventListener('gestureend', blockPageZoom, { passive: false });
 }
 
-// Wire Apple Watch reverse-direction events (mob trigger, alarm ack)
-// + the weather snapshot push pipeline. No-op on web / Android.
-// Lazy-imported so the watchBridge plugin doesn't load on web bundles.
-import('./services/native/watchBridgeListeners')
-    .then(({ initWatchBridgeListeners }) => initWatchBridgeListeners())
-    .catch((e) => {
-        // Bridge missing or watch not paired — silent ok, the watch is
-        // optional and failure here mustn't block app boot.
-
-        console.info('[index] watchBridgeListeners not initialised:', e);
-    });
+// Wire Apple Watch reverse-direction events (MOB trigger, alarm ack)
+// and the weather snapshot push pipeline only on the native shell.
+if (Capacitor.isNativePlatform()) {
+    void import('./services/native/watchBridgeListeners')
+        .then(({ initWatchBridgeListeners }) => initWatchBridgeListeners())
+        .catch((e) => {
+            // Bridge missing or watch not paired — silent ok, the watch is
+            // optional and failure here mustn't block app boot.
+            console.info('[index] watchBridgeListeners not initialised:', e);
+        });
+}
 
 // Suppress Recharts "width(-1) and height(-1)" warnings — a known cosmetic issue
 // that fires during the brief window between chart mount and layout stabilization.
@@ -384,11 +398,8 @@ if (flight.verdict !== 'clean-start') {
     // console output from WKWebView never reaches Xcode's native console,
     // but a Preferences.set surfaces as '⚡️  TO JS {"value":"..."}'. A report
     // nobody can read is not an instrument.
-    Preferences.set({
-        key: 'FLIGHT_VERDICT',
-        value: `[FLIGHT] ${flight.verdict.toUpperCase()} — ${flight.summary}`,
-    }).catch(() => {});
-    Preferences.set({ key: 'FLIGHT_TRAIL', value: `[FLIGHT-TRAIL] ${trail}` }).catch(() => {});
+    setNativePreference('FLIGHT_VERDICT', `[FLIGHT] ${flight.verdict.toUpperCase()} — ${flight.summary}`);
+    setNativePreference('FLIGHT_TRAIL', `[FLIGHT-TRAIL] ${trail}`);
 }
 crumb('boot');
 
@@ -397,15 +408,36 @@ if (!rootElement) {
     throw new Error('Could not find root element to mount to');
 }
 
+const BootSplash: React.FC = () => (
+    <main
+        id="main-content"
+        aria-label="Loading Thalassa"
+        className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-slate-950 text-white"
+    >
+        <img src="/favicon.svg" alt="" aria-hidden="true" className="h-16 w-16 animate-pulse rounded-2xl" />
+        <p className="text-[11px] font-bold uppercase tracking-wider text-sky-300">Thalassa</p>
+    </main>
+);
+
+const RootGate: React.FC = () => {
+    const [disclaimerAccepted, setDisclaimerAccepted] = useState(() => checkDisclaimerAccepted());
+
+    if (!disclaimerAccepted) {
+        return <DisclaimerOverlay onAccepted={() => setDisclaimerAccepted(true)} />;
+    }
+
+    return (
+        <Suspense fallback={<BootSplash />}>
+            <ApplicationShell />
+        </Suspense>
+    );
+};
+
 const root = ReactDOM.createRoot(rootElement);
 root.render(
     <React.StrictMode>
         <ErrorBoundary>
-            <ThalassaProvider>
-                <CrewCountProvider>
-                    <App />
-                </CrewCountProvider>
-            </ThalassaProvider>
+            <RootGate />
         </ErrorBoundary>
     </React.StrictMode>,
 );

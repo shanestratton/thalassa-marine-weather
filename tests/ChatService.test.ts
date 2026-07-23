@@ -26,10 +26,15 @@ const {
     mockPreferencesSet,
 } = vi.hoisted(() => {
     const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-    const mockOrder = vi.fn().mockReturnValue({
+    const orderedQuery = {
+        data: [],
+        error: null,
         range: vi.fn().mockResolvedValue({ data: [], error: null }),
         limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    });
+        order: null as unknown as ReturnType<typeof vi.fn>,
+    };
+    const mockOrder = vi.fn().mockReturnValue(orderedQuery);
+    orderedQuery.order = mockOrder;
     const mockEq = vi.fn().mockReturnValue({
         single: mockSingle,
         eq: vi.fn().mockReturnValue({
@@ -103,6 +108,10 @@ vi.mock('../services/supabase', () => ({
 
 vi.mock('../services/ContentModerationService', () => ({
     moderateMessage: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../utils/createLogger', () => ({
+    createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
 vi.mock('@capacitor/preferences', () => ({

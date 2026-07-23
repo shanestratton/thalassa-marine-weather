@@ -2,7 +2,7 @@
  * GuardianPage — smoke tests (856 LOC component)
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../stores/LocationStore', () => ({
@@ -53,18 +53,24 @@ import { GuardianPage } from '../components/GuardianPage';
 describe('GuardianPage', () => {
     beforeEach(() => vi.clearAllMocks());
 
-    it('renders without crashing', () => {
-        const { container } = render(<GuardianPage onBack={vi.fn()} />);
+    const renderSettled = async () => {
+        const result = render(<GuardianPage onBack={vi.fn()} />);
+        await screen.findByText('Guardian Profile');
+        return result;
+    };
+
+    it('renders without crashing', async () => {
+        const { container } = await renderSettled();
         expect(container).toBeDefined();
     });
 
-    it('renders without empty container', () => {
-        const { container } = render(<GuardianPage onBack={vi.fn()} />);
+    it('renders without empty container', async () => {
+        const { container } = await renderSettled();
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 
-    it('displays Guardian/BOLO related text', () => {
-        const { container } = render(<GuardianPage onBack={vi.fn()} />);
+    it('displays Guardian/BOLO related text', async () => {
+        const { container } = await renderSettled();
         // Should contain some guardian-related content
         expect(container.innerHTML).toBeTruthy();
     });

@@ -2,7 +2,7 @@
  * AdminPanel — smoke tests (816 LOC component)
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../services/ChatService', () => ({
@@ -38,6 +38,7 @@ vi.mock('../components/Toast', () => ({
 }));
 
 import { AdminPanel } from '../components/AdminPanel';
+import { ChatService } from '../services/ChatService';
 
 describe('AdminPanel', () => {
     const defaultProps = {
@@ -47,13 +48,21 @@ describe('AdminPanel', () => {
 
     beforeEach(() => vi.clearAllMocks());
 
-    it('renders without crashing when open', () => {
+    const waitForAdminData = async () => {
+        await waitFor(() => {
+            expect(ChatService.getAuditLog).toHaveBeenCalledWith(50);
+        });
+    };
+
+    it('renders without crashing when open', async () => {
         const { container } = render(<AdminPanel {...defaultProps} />);
+        await waitForAdminData();
         expect(container).toBeDefined();
     });
 
-    it('renders content when open', () => {
+    it('renders content when open', async () => {
         const { container } = render(<AdminPanel {...defaultProps} />);
+        await waitForAdminData();
         expect(container.textContent!.length).toBeGreaterThan(0);
     });
 
@@ -62,9 +71,10 @@ describe('AdminPanel', () => {
         expect(container).toBeDefined();
     });
 
-    it('accepts callback props', () => {
-        expect(() => {
+    it('accepts callback props', async () => {
+        const renderPanel = () =>
             render(<AdminPanel {...defaultProps} onChannelDeleted={vi.fn()} onChannelApproved={vi.fn()} />);
-        }).not.toThrow();
+        expect(renderPanel).not.toThrow();
+        await waitForAdminData();
     });
 });

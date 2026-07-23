@@ -370,19 +370,28 @@ export default defineConfig(({ mode }) => {
                     warn(warning);
                 },
                 output: {
-                    manualChunks: {
-                        'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
-                        'vendor-leaflet': ['leaflet'],
-                        'vendor-supabase': ['@supabase/supabase-js'],
-                        'vendor-sentry': ['@sentry/react'],
-                        'vendor-mapbox': ['mapbox-gl'],
-                        'vendor-capacitor': [
-                            '@capacitor/preferences',
-                            '@capacitor/share',
-                            '@capacitor/filesystem',
-                            '@capacitor/app',
-                        ],
-                        'vendor-react': ['react', 'react-dom'],
+                    manualChunks(id) {
+                        const moduleId = id.replaceAll('\\', '/');
+                        if (!moduleId.includes('/node_modules/')) return undefined;
+
+                        // Package-path routing avoids Rollup absorbing React into
+                        // whichever React-based vendor happens to be visited
+                        // first. The legal boot shell then loads React alone,
+                        // while Sentry, DnD, data clients, and maps remain lazy.
+                        if (
+                            moduleId.includes('/node_modules/react/') ||
+                            moduleId.includes('/node_modules/react-dom/') ||
+                            moduleId.includes('/node_modules/scheduler/')
+                        ) {
+                            return 'vendor-react';
+                        }
+                        if (moduleId.includes('/node_modules/@dnd-kit/')) return 'vendor-dnd';
+                        if (moduleId.includes('/node_modules/leaflet/')) return 'vendor-leaflet';
+                        if (moduleId.includes('/node_modules/@supabase/')) return 'vendor-supabase';
+                        if (moduleId.includes('/node_modules/@sentry/')) return 'vendor-sentry';
+                        if (moduleId.includes('/node_modules/mapbox-gl/')) return 'vendor-mapbox';
+                        if (moduleId.includes('/node_modules/@capacitor/core/')) return 'vendor-capacitor';
+                        return undefined;
                     },
                 },
             },

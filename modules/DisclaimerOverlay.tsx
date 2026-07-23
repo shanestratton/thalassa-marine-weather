@@ -37,9 +37,11 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
 
     return (
         <div
+            id="main-content"
             role="dialog"
             aria-modal="true"
             aria-labelledby="navigation-disclaimer-title"
+            tabIndex={-1}
             className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950"
         >
             {/* Subtle ocean gradient background */}
@@ -90,7 +92,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
 
                 {/* Scroll prompt or Accept button */}
                 {!hasScrolledToBottom ? (
-                    <div className="text-center text-sm text-slate-500 animate-pulse">
+                    <div className="text-center text-sm text-slate-300 animate-pulse">
                         ↓ Scroll to read the full disclaimer
                     </div>
                 ) : (
@@ -108,7 +110,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
                 )}
 
                 {/* Version footer */}
-                <p className="text-center text-[11px] text-slate-600 mt-3">Disclaimer v{DISCLAIMER_VERSION}</p>
+                <p className="text-center text-[11px] text-slate-400 mt-3">Disclaimer v{DISCLAIMER_VERSION}</p>
             </div>
         </div>
     );

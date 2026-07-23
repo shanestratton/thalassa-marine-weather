@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+const vercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8')) as {
+    headers: Array<{ headers: Array<{ key: string; value: string }> }>;
+};
 
 test.describe('Settings & Preferences', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
@@ -16,12 +21,19 @@ test.describe('Settings & Preferences', () => {
         expect(viewport).toContain('viewport-fit=cover');
     });
 
-    test('CSP meta tag is present', async ({ page }) => {
+    test('CSP meta tag and deployment header are configured', async ({ page }) => {
         await page.goto('/');
         const csp = await page.getAttribute('meta[http-equiv="Content-Security-Policy"]', 'content');
         expect(csp).toContain("default-src 'self'");
         expect(csp).toContain("frame-src 'none'");
-        expect(csp).toContain("frame-ancestors 'none'");
+
+        // Browsers ignore frame-ancestors in a meta-delivered policy and log
+        // an error. Keep clickjacking protection in the real HTTP header.
+        expect(csp).not.toContain('frame-ancestors');
+        const deploymentCsp = vercelConfig.headers
+            .flatMap((rule) => rule.headers)
+            .find((header) => header.key.toLowerCase() === 'content-security-policy');
+        expect(deploymentCsp?.value).toContain("frame-ancestors 'none'");
     });
 
     test('manifest link is present', async ({ page }) => {

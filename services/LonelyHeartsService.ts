@@ -405,14 +405,14 @@ class LonelyHeartsServiceClass {
             const blob = await compressImage(file);
 
             const modResult = await moderatePhoto(blob);
-            if (modResult.verdict === 'rejected') {
+            if (modResult.verdict !== 'approved') {
                 return { success: false, error: modResult.reason };
             }
 
-            const path = `crew/${this.currentUserId}/${Date.now()}.webp`;
+            const path = `crew/${this.currentUserId}/${Date.now()}.jpg`;
             const { error: uploadError } = await supabase.storage
                 .from('chat-avatars')
-                .upload(path, blob, { contentType: 'image/webp', upsert: true });
+                .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
             if (uploadError) return { success: false, error: uploadError.message };
 
             const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
@@ -502,14 +502,14 @@ class LonelyHeartsServiceClass {
             const blob = await compressImage(file);
 
             const modResult = await moderatePhoto(blob);
-            if (modResult.verdict === 'rejected') {
+            if (modResult.verdict !== 'approved') {
                 return { success: false, error: modResult.reason };
             }
 
-            const path = `dating/${this.currentUserId}/${position}_${Date.now()}.webp`;
+            const path = `dating/${this.currentUserId}/${position}_${Date.now()}.jpg`;
             const { error: uploadError } = await supabase.storage
                 .from('chat-avatars')
-                .upload(path, blob, { contentType: 'image/webp', upsert: true });
+                .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
             if (uploadError) return { success: false, error: uploadError.message };
 
             const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);

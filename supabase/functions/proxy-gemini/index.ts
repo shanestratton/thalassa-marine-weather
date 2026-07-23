@@ -20,7 +20,9 @@ import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.
  *     systemInstruction?: string,
  *     temperature?: number, // default: 0.7
  *     maxTokens?: number,   // default: 8192
- *     responseMimeType?: string // e.g. "application/json"
+ *     responseMimeType?: string, // e.g. "application/json"
+ *     imageBase64?: string,      // optional raw base64 image (no data URL prefix)
+ *     imageMimeType?: string     // image/jpeg, image/png, or image/webp
  *   }
  *
  * Required Supabase Secret:
@@ -64,6 +66,8 @@ Deno.serve(async (req: Request) => {
             temperature = 0.7,
             maxTokens = 4096,
             responseMimeType,
+            imageBase64,
+            imageMimeType,
         } = await req.json();
 
         if (!prompt || typeof prompt !== 'string' || prompt.length > 40_000) {
@@ -87,10 +91,32 @@ Deno.serve(async (req: Request) => {
         if (responseMimeType && !['application/json', 'text/plain'].includes(responseMimeType)) {
             return corsResponse(JSON.stringify({ error: 'Unsupported response type' }), 400);
         }
+        const hasImage = imageBase64 !== undefined || imageMimeType !== undefined;
+        if (hasImage) {
+            const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+            const validBase64 =
+                typeof imageBase64 === 'string' &&
+                imageBase64.length > 0 &&
+                imageBase64.length <= 2_800_000 &&
+                imageBase64.length % 4 === 0 &&
+                /^[A-Za-z0-9+/]*={0,2}$/.test(imageBase64);
+            if (!validBase64 || typeof imageMimeType !== 'string' || !allowedImageTypes.has(imageMimeType)) {
+                return corsResponse(JSON.stringify({ error: 'Invalid image payload' }), 400);
+            }
+        }
 
         // Build the Gemini API request body
+        const parts: Array<Record<string, unknown>> = [{ text: prompt }];
+        if (hasImage) {
+            parts.push({
+                inlineData: {
+                    mimeType: imageMimeType,
+                    data: imageBase64,
+                },
+            });
+        }
         const requestBody: Record<string, unknown> = {
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: [{ parts }],
             generationConfig: {
                 temperature: safeTemperature,
                 maxOutputTokens: safeMaxTokens,
