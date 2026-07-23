@@ -32,6 +32,46 @@ function FocusTrapHarness({
     );
 }
 
+function NestedFocusTrapHarness({
+    parentActive,
+    childActive,
+    onParentEscape,
+    onChildEscape,
+}: {
+    parentActive: boolean;
+    childActive: boolean;
+    onParentEscape: () => void;
+    onChildEscape: () => void;
+}) {
+    const childOpenerRef = useRef<HTMLButtonElement>(null);
+    const childCloseRef = useRef<HTMLButtonElement>(null);
+    const parentRef = useFocusTrap<HTMLDivElement>(parentActive, {
+        initialFocusRef: childOpenerRef,
+        onEscape: onParentEscape,
+    });
+    const childRef = useFocusTrap<HTMLDivElement>(childActive, {
+        initialFocusRef: childCloseRef,
+        onEscape: onChildEscape,
+    });
+
+    return (
+        <>
+            {parentActive && (
+                <div ref={parentRef} data-testid="parent-trap">
+                    <button ref={childOpenerRef}>Open child</button>
+                    <button>Parent last</button>
+                </div>
+            )}
+            {childActive && (
+                <div ref={childRef} data-testid="child-trap">
+                    <button ref={childCloseRef}>Close child</button>
+                    <button>Child last</button>
+                </div>
+            )}
+        </>
+    );
+}
+
 describe('useFocusTrap', () => {
     it('focuses the preferred control, contains Tab, handles Escape, and restores the opener', () => {
         const onEscape = vi.fn();
@@ -85,5 +125,86 @@ describe('useFocusTrap', () => {
 
         rerender(<FocusTrapHarness active={false} empty onEscape={() => {}} />);
         expect(trap).not.toHaveAttribute('tabindex');
+    });
+
+    it('lets only the topmost nested dialog handle keyboard input and preserves both restore targets', () => {
+        const onParentEscape = vi.fn();
+        const onChildEscape = vi.fn();
+        const { rerender } = render(
+            <>
+                <button>Launch parent</button>
+                <NestedFocusTrapHarness
+                    parentActive={false}
+                    childActive={false}
+                    onParentEscape={onParentEscape}
+                    onChildEscape={onChildEscape}
+                />
+            </>,
+        );
+        const parentOpener = screen.getByRole('button', { name: 'Launch parent' });
+        parentOpener.focus();
+
+        rerender(
+            <>
+                <button>Launch parent</button>
+                <NestedFocusTrapHarness
+                    parentActive
+                    childActive={false}
+                    onParentEscape={onParentEscape}
+                    onChildEscape={onChildEscape}
+                />
+            </>,
+        );
+        const childOpener = screen.getByRole('button', { name: 'Open child' });
+        expect(childOpener).toHaveFocus();
+
+        rerender(
+            <>
+                <button>Launch parent</button>
+                <NestedFocusTrapHarness
+                    parentActive
+                    childActive
+                    onParentEscape={onParentEscape}
+                    onChildEscape={onChildEscape}
+                />
+            </>,
+        );
+        const childClose = screen.getByRole('button', { name: 'Close child' });
+        const childLast = screen.getByRole('button', { name: 'Child last' });
+        expect(childClose).toHaveFocus();
+
+        fireEvent.keyDown(childClose, { key: 'Escape' });
+        expect(onChildEscape).toHaveBeenCalledOnce();
+        expect(onParentEscape).not.toHaveBeenCalled();
+
+        childLast.focus();
+        fireEvent.keyDown(childLast, { key: 'Tab' });
+        expect(childClose).toHaveFocus();
+
+        rerender(
+            <>
+                <button>Launch parent</button>
+                <NestedFocusTrapHarness
+                    parentActive
+                    childActive={false}
+                    onParentEscape={onParentEscape}
+                    onChildEscape={onChildEscape}
+                />
+            </>,
+        );
+        expect(childOpener).toHaveFocus();
+
+        rerender(
+            <>
+                <button>Launch parent</button>
+                <NestedFocusTrapHarness
+                    parentActive={false}
+                    childActive={false}
+                    onParentEscape={onParentEscape}
+                    onChildEscape={onChildEscape}
+                />
+            </>,
+        );
+        expect(parentOpener).toHaveFocus();
     });
 });

@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useFollowRoute } from '../context/FollowRouteContext';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { RouteIcon, XIcon, AlertTriangleIcon, RefreshIcon, CompassIcon } from './Icons';
 
 import { createLogger } from '../utils/createLogger';
@@ -21,60 +22,84 @@ const StopFollowingDialog: React.FC<{
     onCancel: () => void;
     origin?: string;
     destination?: string;
-}> = ({ onConfirm, onCancel, origin, destination }) => (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6" onClick={onCancel}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-        <div
-            className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300"
-            onClick={(e) => e.stopPropagation()}
-        >
-            {/* Header accent */}
-            <div className="h-1 bg-gradient-to-r from-red-500 via-amber-500 to-red-500" />
+}> = ({ onConfirm, onCancel, origin, destination }) => {
+    const cancelRef = React.useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: cancelRef,
+        onEscape: onCancel,
+    });
 
-            <div className="p-6 text-center">
-                {/* Icon */}
-                <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-                    <svg
-                        className="w-8 h-8 text-red-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
-                    </svg>
+    return (
+        <div
+            role="presentation"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+            onClick={onCancel}
+        >
+            <div aria-hidden="true" className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <div
+                ref={dialogRef}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="stop-following-title"
+                aria-describedby="stop-following-description"
+                className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header accent */}
+                <div className="h-1 bg-gradient-to-r from-red-500 via-amber-500 to-red-500" />
+
+                <div className="p-6 text-center">
+                    {/* Icon */}
+                    <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+                        <svg
+                            className="w-8 h-8 text-red-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M5.636 5.636a9 9 0 1012.728 0M12 3v9"
+                            />
+                        </svg>
+                    </div>
+
+                    <h3 id="stop-following-title" className="text-lg font-bold text-white mb-2">
+                        Stop Following Route?
+                    </h3>
+                    <p id="stop-following-description" className="text-sm text-gray-400 leading-relaxed mb-1">
+                        This will remove the route overlay from all maps and stop weather auto-refresh.
+                    </p>
+                    {origin && destination && (
+                        <p className="text-xs text-sky-400/70 font-mono mt-2">
+                            {origin.split(',')[0]} → {destination.split(',')[0]}
+                        </p>
+                    )}
                 </div>
 
-                <h3 className="text-lg font-bold text-white mb-2">Stop Following Route?</h3>
-                <p className="text-sm text-gray-400 leading-relaxed mb-1">
-                    This will remove the route overlay from all maps and stop weather auto-refresh.
-                </p>
-                {origin && destination && (
-                    <p className="text-xs text-sky-400/70 font-mono mt-2">
-                        {origin.split(',')[0]} → {destination.split(',')[0]}
-                    </p>
-                )}
-            </div>
-
-            <div className="px-6 pb-6 flex gap-3">
-                <button
-                    aria-label="Cancel route following"
-                    onClick={onCancel}
-                    className="flex-1 py-3.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-bold text-sm hover:bg-white/10 transition-all active:scale-[0.97]"
-                >
-                    Keep Following
-                </button>
-                <button
-                    aria-label="Confirm route follow"
-                    onClick={onConfirm}
-                    className="flex-1 py-3.5 px-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 font-bold text-sm hover:bg-red-500/25 transition-all active:scale-[0.97]"
-                >
-                    Stop Route
-                </button>
+                <div className="px-6 pb-6 flex gap-3">
+                    <button
+                        ref={cancelRef}
+                        aria-label="Cancel route following"
+                        onClick={onCancel}
+                        className="flex-1 py-3.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-bold text-sm hover:bg-white/10 transition-all active:scale-[0.97]"
+                    >
+                        Keep Following
+                    </button>
+                    <button
+                        aria-label="Stop route following"
+                        onClick={onConfirm}
+                        className="flex-1 py-3.5 px-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 font-bold text-sm hover:bg-red-500/25 transition-all active:scale-[0.97]"
+                    >
+                        Stop Route
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 // ── Route Change Alert Panel ──
 

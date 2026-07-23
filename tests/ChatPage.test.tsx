@@ -3,7 +3,7 @@
  * Verifies render, view switching, and banner display.
  */
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../utils/createLogger', () => ({
@@ -133,7 +133,14 @@ vi.mock('../components/chat/ChatHeader', () => ({
     ChatHeader: () => <div data-testid="chat-header">Crew Talk</div>,
 }));
 vi.mock('../components/chat/ChannelList', () => ({
-    ChannelList: () => <div data-testid="channel-list">Channels</div>,
+    ChannelList: ({ onRequestAccess }: { onRequestAccess: (channel: { id: string; name: string }) => void }) => (
+        <div data-testid="channel-list">
+            Channels
+            <button onClick={() => onRequestAccess({ id: 'private-1', name: 'Skippers Lounge' })}>
+                Request private channel
+            </button>
+        </div>
+    ),
 }));
 vi.mock('../components/chat/ChatMessageList', () => ({
     ChatMessageList: () => <div data-testid="message-list">Messages</div>,
@@ -236,5 +243,19 @@ describe('ChatPage', () => {
     it('starts in channels view by default', async () => {
         await renderSettledChatPage();
         expect(screen.getByText(/crew talk/i)).toBeDefined();
+    });
+
+    it('contains the private-channel request and restores focus after Escape', async () => {
+        await renderSettledChatPage();
+        const opener = screen.getByRole('button', { name: 'Request private channel' });
+        opener.focus();
+        fireEvent.click(opener);
+
+        const cancel = screen.getByRole('button', { name: 'Cancel request' });
+        expect(screen.getByRole('dialog', { name: 'Request Access to Skippers Lounge' })).toContainElement(cancel);
+        expect(cancel).toHaveFocus();
+        fireEvent.keyDown(cancel, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: /Request Access/ })).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
     });
 });

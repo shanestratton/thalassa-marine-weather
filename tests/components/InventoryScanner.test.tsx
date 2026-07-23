@@ -2,7 +2,7 @@
  * InventoryScanner — smoke tests (893 LOC component)
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../utils/createLogger', () => ({
@@ -20,6 +20,7 @@ vi.mock('../../services/vessel/LocalInventoryService', () => ({
 vi.mock('../../components/Toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { InventoryScanner } from '../../components/vessel/InventoryScanner';
+import { LocalInventoryService } from '../../services/vessel/LocalInventoryService';
 
 describe('InventoryScanner', () => {
     beforeEach(() => vi.clearAllMocks());
@@ -32,5 +33,50 @@ describe('InventoryScanner', () => {
     it('renders content', () => {
         const { container } = render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
         expect(container.innerHTML.length).toBeGreaterThan(0);
+    });
+
+    it('focuses the camera close action and handles Escape', () => {
+        const onClose = vi.fn();
+        render(<InventoryScanner onClose={onClose} onItemSaved={vi.fn()} />);
+        const close = screen.getByRole('button', { name: 'Close camera' });
+        expect(screen.getByRole('dialog', { name: 'Inventory barcode scanner' })).toContainElement(close);
+        expect(close).toHaveFocus();
+        fireEvent.keyDown(close, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it('claims the first barcode result so overlapping detector calls cannot process it twice', async () => {
+        vi.useFakeTimers();
+        const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+        Object.defineProperty(navigator, 'mediaDevices', {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn().mockResolvedValue({
+                    getTracks: () => [],
+                }),
+            },
+        });
+        const detect = vi.fn().mockResolvedValue([{ rawValue: '9312345678901' }]);
+        Object.defineProperty(window, 'BarcodeDetector', {
+            configurable: true,
+            value: class {
+                detect = detect;
+            },
+        });
+
+        try {
+            render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
+            await act(async () => {
+                await Promise.resolve();
+                await Promise.resolve();
+                await vi.advanceTimersByTimeAsync(1_100);
+            });
+
+            expect(LocalInventoryService.findByBarcode).toHaveBeenCalledTimes(1);
+            expect(screen.getByRole('dialog', { name: 'Add New Item' })).toBeInTheDocument();
+        } finally {
+            play.mockRestore();
+            vi.useRealTimers();
+        }
     });
 });

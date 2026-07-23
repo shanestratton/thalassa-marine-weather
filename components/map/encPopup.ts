@@ -686,7 +686,7 @@ export function buildFeaturePopupHtml(
 
     return `
         <div class="enc-popup" role="dialog" aria-label="${esc(title)}">
-            <button class="enc-popup-close" aria-label="Close">×</button>
+            <button type="button" class="enc-popup-close" aria-label="Close">×</button>
             <div class="enc-popup-title" style="color:${accent}">${esc(title)}</div>
             <div class="enc-popup-body">${body}</div>
             ${provenance}
@@ -784,13 +784,12 @@ export function buildFeaturePopupHtml(
  * the async depth lands, 'ready' after (null depth then = no data). Reuses the
  * .enc-popup classes with a compact self-contained style so it stands alone.
  */
-export function buildGebcoDepthPopupHtml(
+export function buildGebcoDepthPopupBodyHtml(
     depthM: number | null,
     safetyDepthM: number | undefined,
     phase: 'loading' | 'ready',
     draftAssumed = false,
 ): string {
-    const accent = '#f59e0b'; // amber — an uncharted, caution-grade read
     let body: string;
     if (phase === 'loading') {
         body = `<div class="enc-popup-row"><span>Depth</span><b>checking…</b></div>`;
@@ -820,11 +819,22 @@ export function buildGebcoDepthPopupHtml(
             ? `<div class="enc-popup-sub">Uncharted here — coarse ~460 m GEBCO ocean bathymetry, ` +
               `NOT chart-verified. Shoals smaller than the grid are invisible to it.</div>`
             : '';
+    return `${body}${caveat}`;
+}
+
+export function buildGebcoDepthPopupHtml(
+    depthM: number | null,
+    safetyDepthM: number | undefined,
+    phase: 'loading' | 'ready',
+    draftAssumed = false,
+): string {
+    const accent = '#f59e0b'; // amber — an uncharted, caution-grade read
+    const body = buildGebcoDepthPopupBodyHtml(depthM, safetyDepthM, phase, draftAssumed);
     return `
-        <div class="enc-popup" role="dialog" aria-label="Uncharted depth">
-            <button class="enc-popup-close" aria-label="Close">×</button>
+        <div class="enc-popup" role="dialog" aria-label="Uncharted water">
+            <button type="button" class="enc-popup-close" aria-label="Close">×</button>
             <div class="enc-popup-title" style="color:${accent}">Uncharted water</div>
-            <div class="enc-popup-body">${body}${caveat}</div>
+            <div class="enc-popup-body" aria-live="polite" aria-atomic="true" aria-busy="${phase === 'loading'}">${body}</div>
         </div>
         <style>
             .enc-popup { position: relative; font: -apple-system-body; font-family: system-ui, -apple-system, sans-serif; color: rgb(229,231,235); background: rgba(15,23,42,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; font-size: clamp(13px,1em,18px); line-height: 1.5; min-width: 180px; max-width: 280px; }
@@ -840,4 +850,57 @@ export function buildGebcoDepthPopupHtml(
             .mapboxgl-popup-tip { display: none !important; }
         </style>
     `;
+}
+
+interface EncPopupLifecycleTarget {
+    getElement: () => HTMLElement | null | undefined;
+    remove: () => unknown;
+    once: (event: 'close', listener: () => void) => unknown;
+}
+
+/**
+ * Keyboard/focus lifecycle for Mapbox ENC popups. These are non-modal
+ * dialogs: focus enters via Mapbox's focusAfterOpen behaviour, Escape
+ * dismisses, Tab remains free to reach the map, and close restores focus only
+ * when it would otherwise be lost.
+ */
+export function wireEncPopupLifecycle(
+    popup: EncPopupLifecycleTarget,
+    returnFocus: HTMLElement | null,
+    onClosed?: () => void,
+): void {
+    const container = popup.getElement();
+    const closeButton = container?.querySelector<HTMLButtonElement>('.enc-popup-close');
+    const dismiss = () => {
+        popup.remove();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        dismiss();
+    };
+
+    closeButton?.addEventListener('click', dismiss);
+    container?.addEventListener('keydown', onKeyDown);
+
+    let handledClose = false;
+    popup.once('close', () => {
+        if (handledClose) return;
+        handledClose = true;
+        closeButton?.removeEventListener('click', dismiss);
+        container?.removeEventListener('keydown', onKeyDown);
+        onClosed?.();
+
+        if (typeof document === 'undefined') return;
+        const active = document.activeElement;
+        const focusWasLost =
+            !(active instanceof HTMLElement) ||
+            active === document.body ||
+            !active.isConnected ||
+            Boolean(container?.contains(active));
+        if (focusWasLost && returnFocus?.isConnected) {
+            returnFocus.focus({ preventScroll: true });
+        }
+    });
 }

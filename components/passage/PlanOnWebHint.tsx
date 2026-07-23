@@ -17,11 +17,12 @@
  * wherever that box happens to be. Learned the hard way on the Log page's
  * follow-route sheet, which took three attempts.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const log = createLogger('PlanOnWebHint');
 
@@ -80,6 +81,11 @@ export const PlanOnWebHint: React.FC = () => {
         triggerHaptic('light');
         setOpen(false);
     };
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
+        initialFocusRef: closeButtonRef,
+        onEscape: close,
+    });
 
     if (!open) return null;
 
@@ -87,16 +93,18 @@ export const PlanOnWebHint: React.FC = () => {
         <div
             className="fixed inset-0 z-[10070] flex items-center justify-center bg-black/70 px-4 py-[max(1rem,env(safe-area-inset-bottom))]"
             onClick={close}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Plot on the big screen"
+            role="presentation"
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="plan-on-web-title"
                 className="flex max-h-full w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-sky-500/25 bg-slate-900 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="shrink-0 border-b border-white/10 px-5 py-4">
-                    <div className="text-sm font-black uppercase tracking-widest text-sky-300">
+                    <div id="plan-on-web-title" className="text-sm font-black uppercase tracking-widest text-sky-300">
                         🖥 Plot on the big screen
                     </div>
                 </div>
@@ -133,6 +141,7 @@ export const PlanOnWebHint: React.FC = () => {
                         <span className="text-[12px] font-bold text-gray-400">Don’t show this again</span>
                     </label>
                     <button
+                        ref={closeButtonRef}
                         onClick={close}
                         className="w-full rounded-xl bg-sky-500/20 py-2.5 text-[12px] font-black uppercase tracking-widest text-sky-300 active:scale-95"
                     >

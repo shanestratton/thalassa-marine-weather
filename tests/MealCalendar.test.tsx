@@ -2,7 +2,7 @@
  * MealCalendar — component tests
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock service dependencies
@@ -17,6 +17,10 @@ vi.mock('../services/GalleyRecipeService', () => ({
     searchRecipes: vi.fn().mockResolvedValue([]),
     getGalleyDifficulty: vi.fn(() => ({ score: 1, label: 'Simple', emoji: '🟢' })),
     getRecipeImageUrl: vi.fn(() => ''),
+    NAUTICAL_TAG_DEFS: [],
+    deriveNauticalTags: vi.fn(() => []),
+    isScalable: vi.fn(() => true),
+    saveCustomRecipe: vi.fn().mockResolvedValue({ id: 'recipe-1' }),
 }));
 
 vi.mock('../services/ShoppingListService', () => ({
@@ -25,6 +29,10 @@ vi.mock('../services/ShoppingListService', () => ({
 }));
 
 vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+
+vi.mock('../components/chat/CaptainsTable', () => ({
+    CaptainsTable: () => <button>Community recipe result</button>,
+}));
 
 import { MealCalendar } from '../components/chat/MealCalendar';
 
@@ -105,6 +113,77 @@ describe('MealCalendar', () => {
         expect(screen.getByLabelText(/Add Brekky meal/)).toBeDefined();
         expect(screen.getByLabelText(/Add Lunch meal/)).toBeDefined();
         expect(screen.getByLabelText(/Add Dinner meal/)).toBeDefined();
+    });
+
+    it('contains the recipe picker and restores focus after Escape', () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        render(<MealCalendar {...baseProps} mealDays={mealDays} />);
+        const opener = screen.getByRole('button', { name: /Add Brekky meal/ });
+        opener.focus();
+        fireEvent.click(opener);
+
+        const search = screen.getByRole('textbox', { name: 'Search recipes' });
+        expect(screen.getByRole('dialog', { name: /Add Brekky recipe/ })).toContainElement(search);
+        expect(search).toHaveFocus();
+        fireEvent.keyDown(search, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: /Add Brekky recipe/ })).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
+    });
+
+    it('keeps nested recipe-library focus above the picker and restores each layer in order', () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        render(<MealCalendar {...baseProps} mealDays={mealDays} />);
+        const opener = screen.getByRole('button', { name: /Add Brekky meal/ });
+        fireEvent.click(opener);
+
+        const libraryOpener = screen.getByRole('button', { name: 'Browse Community Recipes' });
+        fireEvent.click(libraryOpener);
+        const libraryClose = screen.getByRole('button', { name: 'Close recipe browser' });
+        expect(screen.getByRole('dialog', { name: 'Recipe Library' })).toContainElement(libraryClose);
+        expect(libraryClose).toHaveFocus();
+
+        fireEvent.keyDown(libraryClose, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: 'Recipe Library' })).not.toBeInTheDocument();
+        expect(libraryOpener).toHaveFocus();
+
+        fireEvent.keyDown(libraryOpener, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: /Add Brekky recipe/ })).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
+    });
+
+    it('gives a nested custom-recipe dialog keyboard priority over the picker', () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        render(<MealCalendar {...baseProps} mealDays={mealDays} />);
+        fireEvent.click(screen.getByRole('button', { name: /Add Brekky meal/ }));
+
+        const formOpener = screen.getByRole('button', { name: 'Create Custom Recipe' });
+        fireEvent.click(formOpener);
+        const titleInput = screen.getByRole('textbox', { name: 'Recipe name' });
+        expect(screen.getByRole('dialog', { name: /New Recipe/ })).toContainElement(titleInput);
+        expect(titleInput).toHaveFocus();
+
+        fireEvent.keyDown(titleInput, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: /New Recipe/ })).not.toBeInTheDocument();
+        expect(formOpener).toHaveFocus();
+        expect(screen.getByRole('dialog', { name: /Add Brekky recipe/ })).toBeInTheDocument();
     });
 
     it('renders voyage name in header', () => {

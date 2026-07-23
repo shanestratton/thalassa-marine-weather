@@ -25,21 +25,22 @@ describe('ProcessOverlay', () => {
         expect(screen.getByText('Loading Marine Data...')).toBeInTheDocument();
     });
 
-    it('has role="alert" for accessibility', () => {
+    it('is exposed as a labelled modal processing dialog', () => {
         render(<ProcessOverlay />);
-        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Updating...' })).toHaveAttribute('aria-modal', 'true');
     });
 
     it('has aria-busy="true" while loading', () => {
         render(<ProcessOverlay />);
-        const alert = screen.getByRole('alert');
-        expect(alert.getAttribute('aria-busy')).toBe('true');
+        const dialog = screen.getByRole('dialog');
+        expect(dialog.getAttribute('aria-busy')).toBe('true');
     });
 
-    it('has aria-live="assertive" for screen readers', () => {
+    it('announces processing updates through a polite status', () => {
         render(<ProcessOverlay />);
-        const alert = screen.getByRole('alert');
-        expect(alert.getAttribute('aria-live')).toBe('assertive');
+        const status = screen.getByRole('status');
+        expect(status.getAttribute('aria-live')).toBe('polite');
+        expect(status.getAttribute('aria-atomic')).toBe('true');
     });
 
     it('renders a spinner', () => {

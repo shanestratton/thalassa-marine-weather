@@ -18,6 +18,7 @@ import { toast } from '../Toast';
 import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface InventoryScannerProps {
     onClose: () => void;
@@ -34,10 +35,12 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
 }) => {
     // ── Scanner state ──
     const [scanning, setScanning] = useState(!startInManualMode);
+    const scanningRef = useRef(scanning);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const cameraCloseRef = useRef<HTMLButtonElement>(null);
 
     // ── Inline barcode scanner (manual mode) ──
     const [showInlineScanner, setShowInlineScanner] = useState(false);
@@ -50,6 +53,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     const [scannedBarcode, setScannedBarcode] = useState('');
     const [foundItem, setFoundItem] = useState<InventoryItem | null>(null);
     const [saving, setSaving] = useState(false);
+    const existingDoneRef = useRef<HTMLButtonElement>(null);
+    const newItemNameRef = useRef<HTMLInputElement>(null);
 
     // ── New item form ──
     const [newItem, setNewItem] = useState({
@@ -272,7 +277,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         });
 
         scanIntervalRef.current = setInterval(async () => {
-            if (!videoRef.current || !scanning) return;
+            if (!videoRef.current || !scanningRef.current) return;
             try {
                 const barcodes = await detector.detect(videoRef.current);
                 if (barcodes.length > 0) {
@@ -291,7 +296,11 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     // ── Barcode scan handler ──
     const handleBarcodeScan = useCallback(
         async (barcode: string) => {
-            if (sheetMode !== 'hidden') return; // Don't re-scan while sheet is open
+            // BarcodeDetector calls can overlap when a slow frame takes longer
+            // than the polling interval. Claim the scan synchronously so a
+            // second in-flight result cannot open or save the same item again.
+            if (sheetMode !== 'hidden' || !scanningRef.current) return;
+            scanningRef.current = false;
             setScanning(false);
             setScannedBarcode(barcode);
             triggerHaptic('medium');
@@ -316,6 +325,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
 
     // ── Manual barcode entry ──
     const handleManualEntry = () => {
+        scanningRef.current = false;
         setScanning(false);
         setSheetMode('new');
         setNewItem((prev) => ({ ...prev, barcode: '' }));
@@ -371,8 +381,17 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         setSheetMode('hidden');
         setFoundItem(null);
         setScannedBarcode('');
+        scanningRef.current = true;
         setScanning(true);
     };
+    const cameraDialogRef = useFocusTrap<HTMLDivElement>(!startInManualMode && sheetMode === 'hidden', {
+        initialFocusRef: cameraCloseRef,
+        onEscape: onClose,
+    });
+    const activeSheetRef = useFocusTrap<HTMLDivElement>(!startInManualMode && sheetMode !== 'hidden', {
+        initialFocusRef: sheetMode === 'existing' ? existingDoneRef : newItemNameRef,
+        onEscape: dismissSheet,
+    });
 
     // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
     if (startInManualMode && sheetMode === 'new') {
@@ -544,14 +563,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                 {/* Actions */}
                 <div className="flex gap-3 mt-3">
                     <button
-                        aria-label="Close dialog"
+                        aria-label="Cancel adding item"
                         onClick={onClose}
                         className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
                         Cancel
                     </button>
                     <button
-                        aria-label="Save changes"
+                        aria-label={saving ? 'Adding item' : 'Add item'}
                         onClick={handleSaveNew}
                         disabled={!newItem.item_name.trim() || saving}
                         className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
@@ -565,7 +584,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
 
     // ── Camera scanner mode (original layout) ──
     return (
-        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[2000] bg-black flex flex-col">
+        <div
+            ref={cameraDialogRef}
+            role={sheetMode === 'hidden' ? 'dialog' : 'presentation'}
+            aria-modal={sheetMode === 'hidden' ? 'true' : undefined}
+            aria-label={sheetMode === 'hidden' ? 'Inventory barcode scanner' : undefined}
+            className="fixed inset-0 z-[2000] bg-black flex flex-col"
+        >
             {/* ── Camera View ── */}
             <div className="relative flex-1 overflow-hidden">
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
@@ -595,7 +620,12 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                 {/* Header bar */}
                 <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent pt-[max(1rem,env(safe-area-inset-top))] px-4 pb-8">
                     <div className="flex items-center justify-between">
-                        <button onClick={onClose} aria-label="Close camera" className="p-2 rounded-xl bg-white/10">
+                        <button
+                            ref={cameraCloseRef}
+                            onClick={onClose}
+                            aria-label="Close camera"
+                            className="p-2 rounded-xl bg-white/10"
+                        >
                             <svg
                                 className="w-6 h-6 text-white"
                                 fill="none"
@@ -647,7 +677,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             {/* BOTTOM SHEET — Existing Item */}
             {/* ═══════════════════════════════════════════ */}
             {sheetMode === 'existing' && foundItem && (
-                <div className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300">
+                <div
+                    ref={activeSheetRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Inventory item ${foundItem.item_name}`}
+                    className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300"
+                >
                     {/* Handle bar */}
                     <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-4" />
 
@@ -703,7 +739,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     )}
 
                     <button
-                        aria-label="Open action sheet"
+                        ref={existingDoneRef}
+                        aria-label="Done reviewing inventory item"
                         onClick={dismissSheet}
                         className="w-full py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
@@ -716,11 +753,19 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             {/* BOTTOM SHEET — New Item Form (camera mode) */}
             {/* ═══════════════════════════════════════════ */}
             {sheetMode === 'new' && (
-                <div className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300 max-h-[70vh] overflow-y-auto">
+                <div
+                    ref={activeSheetRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="inventory-new-item-title"
+                    className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300 max-h-[70vh] overflow-y-auto"
+                >
                     {/* Handle bar */}
                     <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-4" />
 
-                    <h3 className="text-lg font-black text-white mb-4">Add New Item</h3>
+                    <h3 id="inventory-new-item-title" className="text-lg font-black text-white mb-4">
+                        Add New Item
+                    </h3>
 
                     <div className="space-y-3">
                         {/* Category — first */}
@@ -732,6 +777,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 {CATEGORIES.map((cat) => (
                                     <button
                                         aria-label={cat}
+                                        aria-pressed={newItem.category === cat}
                                         key={cat}
                                         onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
                                         className={`py-1.5 rounded-lg text-label font-bold transition-all text-center ${
@@ -752,12 +798,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Item Name *
                             </label>
                             <input
+                                ref={newItemNameRef}
+                                aria-label="Item name"
                                 type="text"
                                 value={newItem.item_name}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, item_name: e.target.value }))}
                                 placeholder="e.g. Racor 2010PM-OR Fuel Filter"
                                 className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-400"
-                                autoFocus
                             />
                         </div>
 
@@ -767,6 +814,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Barcode
                             </label>
                             <input
+                                aria-label="Barcode"
                                 type="text"
                                 value={newItem.barcode}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, barcode: e.target.value }))}
@@ -782,6 +830,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     Quantity
                                 </label>
                                 <input
+                                    aria-label="Quantity"
                                     type="number"
                                     min="0"
                                     value={newItem.quantity}
@@ -796,6 +845,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     Min Alert
                                 </label>
                                 <input
+                                    aria-label="Minimum quantity alert"
                                     type="number"
                                     min="0"
                                     value={newItem.min_quantity}
@@ -814,6 +864,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     Zone
                                 </label>
                                 <input
+                                    aria-label="Location zone"
                                     type="text"
                                     value={newItem.location_zone}
                                     onChange={(e) => setNewItem((prev) => ({ ...prev, location_zone: e.target.value }))}
@@ -827,6 +878,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     Exact Spot
                                 </label>
                                 <input
+                                    aria-label="Exact storage location"
                                     type="text"
                                     value={newItem.location_specific}
                                     onChange={(e) =>
@@ -845,6 +897,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Notes
                             </label>
                             <input
+                                aria-label="Item notes"
                                 type="text"
                                 value={newItem.description}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
@@ -860,6 +913,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Expiry / Service Date
                             </label>
                             <input
+                                aria-label="Expiry or service date"
                                 type="date"
                                 value={newItem.expiry_date}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, expiry_date: e.target.value }))}
@@ -871,14 +925,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Actions */}
                     <div className="flex gap-3 mt-5">
                         <button
-                            aria-label="Open action sheet"
+                            aria-label="Cancel adding item"
                             onClick={dismissSheet}
                             className="flex-1 py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                         >
                             Cancel
                         </button>
                         <button
-                            aria-label="Save changes"
+                            aria-label={saving ? 'Adding item' : 'Add item'}
                             onClick={handleSaveNew}
                             disabled={!newItem.item_name.trim() || saving}
                             className="flex-1 py-3 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"

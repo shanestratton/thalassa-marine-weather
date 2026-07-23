@@ -7,7 +7,8 @@
  * close early. Positive/tidy framing (emerald), not destructive — this
  * is helpful housekeeping, not data loss the user should fret over.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface EmptyTrackRemovedModalProps {
     /** Number of empty tracks removed; null/0 = closed. */
@@ -23,6 +24,13 @@ const C = 2 * Math.PI * R;
 export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ count, onClose }) => {
     const open = !!count && count > 0;
     const [secondsLeft, setSecondsLeft] = useState(AUTO_DISMISS_S);
+    const titleId = useId();
+    const descriptionId = useId();
+    const closeRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
+        initialFocusRef: closeRef,
+        onEscape: onClose,
+    });
 
     useEffect(() => {
         if (!open) return;
@@ -40,19 +48,18 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
     const plural = count! > 1;
 
     return (
-        <div
-            className="fixed inset-0 z-[10001] flex items-center justify-center p-5"
-            onClick={onClose}
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Empty track removed"
-        >
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-5" onClick={onClose}>
             <style>{`@keyframes tmv-ring-deplete { from { stroke-dashoffset: 0; } to { stroke-dashoffset: ${C}; } }`}</style>
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden="true" />
 
             <div
+                ref={dialogRef}
                 className="relative w-full max-w-sm bg-slate-900 border border-emerald-400/25 rounded-3xl px-7 pt-8 pb-6 shadow-2xl shadow-emerald-900/30 animate-in fade-in zoom-in-95 duration-300 text-center"
                 onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
             >
                 {/* Countdown ring around a nautical broom/sweep icon */}
                 <div className="mx-auto relative w-[120px] h-[120px] mb-5">
@@ -90,16 +97,17 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
                     </div>
                 </div>
 
-                <h3 className="text-xl font-black text-white mb-2">
+                <h3 id={titleId} className="text-xl font-black text-white mb-2">
                     {plural ? `${count} empty tracks tidied away` : 'Empty track tidied away'}
                 </h3>
-                <p className="text-sm text-slate-300/90 leading-relaxed mb-6">
+                <p id={descriptionId} className="text-sm text-slate-300/90 leading-relaxed mb-6">
                     {plural ? 'They went nowhere' : 'It went nowhere'} —{' '}
                     <span className="font-bold text-white">0.0 NM</span> logged, so {plural ? "they're" : "it's"}{' '}
                     cleared from your logbook to keep it shipshape.
                 </p>
 
                 <button
+                    ref={closeRef}
                     onClick={onClose}
                     className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white text-sm font-black uppercase tracking-widest shadow-lg shadow-emerald-500/25 active:scale-[0.97] transition-transform"
                 >

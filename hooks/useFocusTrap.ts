@@ -17,6 +17,12 @@ const FOCUSABLE_SELECTOR = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
+// More than one modal can be mounted at once (for example, a recipe form
+// opened from a recipe picker). Every trap keeps its own restore target, but
+// only the most recently activated trap may handle keyboard input. Without
+// this stack, an underlying dialog can pull Tab focus out of the child dialog.
+const activeTrapStack: HTMLElement[] = [];
+
 export interface FocusTrapOptions {
     /** Preferred element to focus when the dialog opens. Defaults to the first focusable descendant. */
     initialFocusRef?: RefObject<HTMLElement | null>;
@@ -51,8 +57,11 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
         const addedTabIndex = !initialTarget && !container.hasAttribute('tabindex');
         if (addedTabIndex) container.setAttribute('tabindex', '-1');
         (initialTarget ?? container).focus();
+        activeTrapStack.push(container);
 
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (activeTrapStack[activeTrapStack.length - 1] !== container) return;
+
             if (event.key === 'Escape' && container.contains(document.activeElement)) {
                 const onEscape = optionsRef.current.onEscape;
                 if (onEscape) {
@@ -91,6 +100,8 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
 
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
+            const stackIndex = activeTrapStack.lastIndexOf(container);
+            if (stackIndex !== -1) activeTrapStack.splice(stackIndex, 1);
             if (addedTabIndex) container.removeAttribute('tabindex');
             if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
             previousFocusRef.current = null;

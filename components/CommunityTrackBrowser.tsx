@@ -15,6 +15,7 @@ import { ShimmerBlock } from './ui/ShimmerBlock';
 import { AlertTriangleIcon, MapIcon, MapPinIcon } from './Icons';
 
 import { createLogger } from '../utils/createLogger';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 const log = createLogger('CommunityTrackBrowser');
 
@@ -65,6 +66,11 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
     const [myTracks, setMyTracks] = useState<SharedTrack[]>([]);
     const [myTracksLoading, setMyTracksLoading] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     const fetchTracks = useCallback(
         async (searchQuery?: string) => {
@@ -212,6 +218,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
 
     return (
         <div
+            ref={dialogRef}
             className="fixed inset-0 z-50 flex flex-col bg-slate-950"
             role="dialog"
             aria-modal="true"
@@ -233,6 +240,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                     </div>
                     <div className="flex items-center gap-2">
                         <button
+                            ref={closeButtonRef}
                             onClick={onClose}
                             className="p-2 text-slate-400 hover:text-white transition-colors"
                             aria-label="Close dialog"
