@@ -1,0 +1,33 @@
+# Local/dependency/build state
+.git/
+.claude/
+.codex/
+.vercel/
+node_modules/
+dist/
+storybook-static/
+coverage/
+playwright-report/
+test-results/
+*.log
+.env
+.env.*
+
+# Test and development-only material
+tests/
+docs/
+tools/
+icons_new/
+bundle-stats.html
+
+# Independently deployed runtimes and native projects
+android/
+ios/
+pi-cache/
+cloudflare-worker/
+workers/
+vessel-scraper/
+supabase/
+
+# Large local data caches; production map/chart samples live under public/
+tiles/
