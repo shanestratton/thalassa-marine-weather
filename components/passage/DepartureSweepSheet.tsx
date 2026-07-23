@@ -18,7 +18,7 @@
  *     sweep already supports it via shallowSpots.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { VoyagePlan, VesselProfile } from '../../types';
 import { vesselDraftMetres } from '../../services/units';
 import { motoringSpeedModel, tideFieldFromCurve, type TideField } from '../../services/routing/env/EnvFields';
@@ -31,6 +31,7 @@ import {
 import type { LonLat } from '../../services/routing/TideAwareAnnotator';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const log = createLogger('DepartureSweepSheet');
 
@@ -116,6 +117,11 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     const [sweep, setSweep] = useState<DepartureSweep | null>(null);
     const [tideProvenance, setTideProvenance] = useState<TideField['provenance'] | 'NONE'>('NONE');
     const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     // The locked inshore polyline — the sweep NEVER re-routes, it re-times.
     const polyline = useMemo<LonLat[] | null>(() => {
@@ -204,15 +210,20 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     const haveCurrents = (sweep?.currentProvenance ?? 'NONE') !== 'NONE';
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
-            <button
-                type="button"
-                aria-label="Close departure sweep panel"
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div
+                role="presentation"
                 onClick={onClose}
                 className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
             />
 
-            <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="departure-sweep-title"
+                className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300"
+            >
                 <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">
                     <div className="w-12 h-1 rounded-full bg-white/20" />
                 </div>
@@ -221,12 +232,15 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 <div className="flex-shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                            <h2 className="text-base font-bold text-white">Inshore Departure Sweep</h2>
+                            <h2 id="departure-sweep-title" className="text-base font-bold text-white">
+                                Inshore Departure Sweep
+                            </h2>
                             <p className="text-[11px] text-slate-400 mt-0.5 truncate">
                                 {voyagePlan ? `${voyagePlan.origin} → ${voyagePlan.destination}` : 'Best time to leave'}
                             </p>
                         </div>
                         <button
+                            ref={closeButtonRef}
                             onClick={onClose}
                             type="button"
                             aria-label="Close"

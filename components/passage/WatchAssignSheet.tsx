@@ -8,8 +8,9 @@
  * (or null/null for clear) and closes.
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
 import type { CrewMember, CrewRole } from '../../services/CrewService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface WatchAssignSheetProps {
     open: boolean;
@@ -63,6 +64,12 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
     skipperName,
     onAssign,
 }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(open, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     if (!open) return null;
 
     const acceptedCrew = crew.filter((c) => c.status === 'accepted');
@@ -72,29 +79,33 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
-            <button
-                type="button"
-                aria-label="Close watch assignment"
-                onClick={onClose}
-                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            />
+            <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
             {/* Sheet — now a centered modal (was a bottom sheet). User
                 wanted the box visible in the middle of the page rather
                 than docked at the bottom, where it felt out-of-reach. */}
-            <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="watch-assign-title"
+                className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+            >
                 {/* Header */}
                 <div className="flex-shrink-0 px-5 pt-4 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                            <h2 className="text-base font-bold text-white">Assign Watch</h2>
+                            <h2 id="watch-assign-title" className="text-base font-bold text-white">
+                                Assign Watch
+                            </h2>
                             <p className="text-[11px] text-slate-400 mt-0.5">
                                 {watchLabel} · <span className="font-mono">{watchTimeLabel}</span>
                             </p>
                         </div>
                         <button
+                            ref={closeButtonRef}
                             onClick={onClose}
                             type="button"
                             aria-label="Close"

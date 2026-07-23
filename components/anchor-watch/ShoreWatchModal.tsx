@@ -2,9 +2,10 @@
  * ShoreWatchModal — Join a remote anchor watch session from shore.
  * Allows entering a secure 12-character session code to connect to a vessel.
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from '../../theme';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ShoreWatchModalProps {
     sessionCode: string;
@@ -14,16 +15,25 @@ interface ShoreWatchModalProps {
 }
 
 export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
-    ({ sessionCode, onSessionCodeChange, onJoin, onClose }) =>
-        createPortal(
+    ({ sessionCode, onSessionCodeChange, onJoin, onClose }) => {
+        const inputRef = useRef<HTMLInputElement>(null);
+        const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+            initialFocusRef: inputRef,
+            onEscape: onClose,
+        });
+
+        return createPortal(
             <div
-                role="dialog"
-                aria-modal="true"
                 className="fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center"
                 style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 108px)' }}
                 onClick={onClose}
+                role="presentation"
             >
                 <div
+                    ref={dialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="shore-watch-title"
                     className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -31,7 +41,9 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     <div className={t.modal.header}>
                         <div className="flex items-center gap-2">
                             <span className="text-sky-400 text-lg">📱</span>
-                            <h2 className="text-base font-black text-white tracking-tight">Shore Watch</h2>
+                            <h2 id="shore-watch-title" className="text-base font-black text-white tracking-tight">
+                                Shore Watch
+                            </h2>
                         </div>
                         <button onClick={onClose} className={t.modal.close} aria-label="Close shore watch modal">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -82,6 +94,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                             </p>
                             <div className="flex gap-2 items-center">
                                 <input
+                                    ref={inputRef}
                                     type="text"
                                     inputMode="text"
                                     maxLength={12}
@@ -96,7 +109,6 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                                         )
                                     }
                                     className={`flex-1 min-w-0 ${t.input.code} text-lg`}
-                                    autoFocus
                                     aria-label="12-character session code"
                                 />
                                 <button
@@ -116,7 +128,8 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                 </div>
             </div>,
             document.body,
-        ),
+        );
+    },
 );
 
 ShoreWatchModal.displayName = 'ShoreWatchModal';
