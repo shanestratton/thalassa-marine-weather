@@ -183,6 +183,10 @@ export interface RouteDebug {
     originSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
     /** Destination snap result. */
     destinationSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
+    /** Longest/total emitted-route distance across exact LNDARE without
+     * overlapping DEPARE/DRGARE/FAIRWY evidence. */
+    hardLandMaxRunM?: number;
+    hardLandTotalM?: number;
 }
 
 export interface RouteResult {
@@ -218,7 +222,8 @@ export interface RouteFailure {
         | 'no-path'
         | 'origin-out-of-bounds'
         | 'destination-out-of-bounds'
-        | 'empty-grid';
+        | 'empty-grid'
+        | 'hard-land-crossing';
     debug?: RouteDebug;
 }
 
@@ -238,6 +243,169 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
     const dλ = ((lon2 - lon1) * Math.PI) / 180;
     const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+interface IndexedArea {
+    geometry: Polygon | MultiPolygon;
+    bbox: [number, number, number, number];
+}
+
+interface IndexedLine {
+    coordinates: Position[];
+    bbox: [number, number, number, number];
+}
+
+const MAX_UNVOUCHED_HARD_LAND_RUN_M = 500;
+
+function indexAreaCollections(collections: Array<FeatureCollection | undefined>): IndexedArea[] {
+    const out: IndexedArea[] = [];
+    for (const collection of collections) {
+        for (const feature of collection?.features ?? []) {
+            const geometry = feature.geometry;
+            if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) continue;
+            let minLon = Infinity;
+            let minLat = Infinity;
+            let maxLon = -Infinity;
+            let maxLat = -Infinity;
+            const visit = (coords: unknown): void => {
+                if (!Array.isArray(coords)) return;
+                if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                    minLon = Math.min(minLon, coords[0]);
+                    minLat = Math.min(minLat, coords[1]);
+                    maxLon = Math.max(maxLon, coords[0]);
+                    maxLat = Math.max(maxLat, coords[1]);
+                    return;
+                }
+                for (const child of coords) visit(child);
+            };
+            visit(geometry.coordinates);
+            out.push({ geometry, bbox: [minLon, minLat, maxLon, maxLat] });
+        }
+    }
+    return out;
+}
+
+function pointInRing(lon: number, lat: number, ring: Position[]): boolean {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+}
+
+function pointInArea(lon: number, lat: number, area: Polygon | MultiPolygon): boolean {
+    const polygons = area.type === 'Polygon' ? [area.coordinates] : area.coordinates;
+    for (const rings of polygons) {
+        if (!rings[0] || !pointInRing(lon, lat, rings[0])) continue;
+        let inHole = false;
+        for (let i = 1; i < rings.length; i++) {
+            if (pointInRing(lon, lat, rings[i])) {
+                inHole = true;
+                break;
+            }
+        }
+        if (!inHole) return true;
+    }
+    return false;
+}
+
+function pointInIndexedAreas(lon: number, lat: number, areas: readonly IndexedArea[]): boolean {
+    for (const area of areas) {
+        const [minLon, minLat, maxLon, maxLat] = area.bbox;
+        if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) continue;
+        if (pointInArea(lon, lat, area.geometry)) return true;
+    }
+    return false;
+}
+
+function indexLineCollections(collections: Array<FeatureCollection | undefined>): IndexedLine[] {
+    const out: IndexedLine[] = [];
+    for (const collection of collections) {
+        for (const feature of collection?.features ?? []) {
+            const geometry = feature.geometry;
+            if (!geometry || (geometry.type !== 'LineString' && geometry.type !== 'MultiLineString')) continue;
+            const lines = geometry.type === 'LineString' ? [geometry.coordinates] : geometry.coordinates;
+            for (const coordinates of lines) {
+                if (coordinates.length < 2) continue;
+                const lons = coordinates.map((p) => p[0]);
+                const lats = coordinates.map((p) => p[1]);
+                out.push({
+                    coordinates,
+                    bbox: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+                });
+            }
+        }
+    }
+    return out;
+}
+
+function pointToLineSegmentM(lon: number, lat: number, a: Position, b: Position): number {
+    const refLat = ((lat + a[1] + b[1]) / 3) * (Math.PI / 180);
+    const mx = 111_320 * Math.cos(refLat);
+    const my = 111_320;
+    const px = lon * mx;
+    const py = lat * my;
+    const ax = a[0] * mx;
+    const ay = a[1] * my;
+    const bx = b[0] * mx;
+    const by = b[1] * my;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lengthSq = dx * dx + dy * dy;
+    if (lengthSq === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function pointNearIndexedLine(lon: number, lat: number, lines: readonly IndexedLine[], corridorM = 125): boolean {
+    const dLat = corridorM / 111_320;
+    const dLon = corridorM / (111_320 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+    for (const line of lines) {
+        const [minLon, minLat, maxLon, maxLat] = line.bbox;
+        if (lon < minLon - dLon || lon > maxLon + dLon || lat < minLat - dLat || lat > maxLat + dLat) continue;
+        for (let i = 1; i < line.coordinates.length; i++) {
+            if (pointToLineSegmentM(lon, lat, line.coordinates[i - 1], line.coordinates[i]) <= corridorM) return true;
+        }
+    }
+    return false;
+}
+
+function auditUnvouchedHardLand(
+    layers: InshoreLayers,
+    polyline: readonly (readonly [number, number])[],
+): { maxRunM: number; totalM: number } {
+    const land = indexAreaCollections([layers.LNDARE]);
+    const wet = indexAreaCollections([layers.DEPARE, layers.DRGARE, layers.FAIRWY]);
+    const wetLines = indexLineCollections([layers.CANAL, layers.NAVLINE]);
+    let runM = 0;
+    let maxRunM = 0;
+    let totalM = 0;
+    for (let i = 1; i < polyline.length; i++) {
+        const [lonA, latA] = polyline[i - 1];
+        const [lonB, latB] = polyline[i];
+        const segmentM = haversineM(latA, lonA, latB, lonB);
+        const intervals = Math.max(1, Math.ceil(segmentM / 25));
+        const intervalM = segmentM / intervals;
+        for (let s = 0; s < intervals; s++) {
+            const t = (s + 0.5) / intervals;
+            const lon = lonA + (lonB - lonA) * t;
+            const lat = latA + (latB - latA) * t;
+            const hardLand =
+                pointInIndexedAreas(lon, lat, land) &&
+                !pointInIndexedAreas(lon, lat, wet) &&
+                !pointNearIndexedLine(lon, lat, wetLines);
+            if (hardLand) {
+                runM += intervalM;
+                totalM += intervalM;
+                maxRunM = Math.max(maxRunM, runM);
+            } else {
+                runM = 0;
+            }
+        }
+    }
+    return { maxRunM, totalM };
 }
 
 /**
@@ -1817,31 +1985,12 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * before calling this.
  */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
-    // Try strict first — LNDARE blocks land. With proper ring assembly
-    // (Eulerian/linear-chain fix landed 2026-05-19) this gives accurate
-    // results for most routes. But certain charts represent rivers as
-    // "inside" a giant mainland LNDARE polygon with no inner-ring hole
-    // (verified on AU OC-61-351824 rcid 4500: Brisbane mainland is one
-    // 3503-vert polygon, no holes — the river course is inside it). For
-    // destinations inside such polygons, retry with LNDARE relaxed to
-    // CAUTION (cost 500× water). A* prefers actual water cells massively
-    // over caution, so it won't cross real land masses — only the
-    // chart-says-land-but-really-water river/harbour interior cells get
-    // traversed, flagged red in the polyline so the user verifies.
+    // Try strict first — LNDARE blocks land. Never retry a disconnection with
+    // the former grid-wide relaxation: it could manufacture a red route across
+    // real mainland. The phone engine's localized retry remains below and every
+    // emitted Pi fallback route is independently audited against source vectors.
     const strict = routeInshoreOnce(layers, req, false);
-    if ('error' in strict) {
-        if (strict.code !== 'destination-disconnected') return strict;
-        // Last resort: strict found NO path because the destination is
-        // inside a giant mainland LNDARE with no inner-ring hole. Relax
-        // GRID-WIDE — A* still prefers real water (8×) over relaxed land
-        // (40×), so it only crosses land where no water route exists at
-        // all. This is the only place we relax globally; the far-snap
-        // path below uses bounded zones instead.
-        console.warn(
-            '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed grid-wide to CAUTION (last resort)',
-        );
-        return routeInshoreOnce(layers, req, true);
-    }
+    if ('error' in strict) return strict;
 
     // Strict succeeded — but did it start/end where the user actually
     // tapped? When an endpoint sits in a pocket cut off from the routable
@@ -1889,7 +2038,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         `[inshoreEngine] endpoint snapped far (origin ${Math.round(originSnapM)}m / dest ${Math.round(destSnapM)}m) — retrying with ${relaxZones.length} localized relax zone(s) so the route starts at the real berth (barrier shown red, mainland stays blocked)`,
     );
     const relaxed = routeInshoreOnce(layers, req, false, relaxZones);
-    if ('error' in relaxed) return strict;
+    if ('error' in relaxed) return relaxed.code === 'hard-land-crossing' ? relaxed : strict;
     const relaxedWorstSnapM = Math.max(
         relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
         relaxed.debug?.destinationSnap?.snapDistanceM ?? Infinity,
@@ -2472,6 +2621,23 @@ function routeInshoreOnce(
     let distM = 0;
     for (let i = 1; i < polyline.length; i++) {
         distM += haversineM(polyline[i - 1][1], polyline[i - 1][0], polyline[i][1], polyline[i][0]);
+    }
+
+    const hardLandAudit = auditUnvouchedHardLand(layers, polyline);
+    if (hardLandAudit.maxRunM > MAX_UNVOUCHED_HARD_LAND_RUN_M) {
+        const hardLandDebug = {
+            ...debug,
+            hardLandMaxRunM: Math.round(hardLandAudit.maxRunM),
+            hardLandTotalM: Math.round(hardLandAudit.totalM),
+        };
+        console.warn(
+            `[hardLand] Pi fallback route crosses ${Math.round(hardLandAudit.maxRunM)} m continuously / ${Math.round(hardLandAudit.totalM)} m total of unvouched charted land — REFUSING`,
+        );
+        return {
+            error: `No safe chart-vouched route: the only candidate crosses ${(hardLandAudit.maxRunM / 1000).toFixed(1)} km of charted land`,
+            code: 'hard-land-crossing',
+            debug: hardLandDebug,
+        };
     }
 
     return {

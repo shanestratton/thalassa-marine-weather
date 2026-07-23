@@ -134,20 +134,17 @@ describe('inshore router — connectivity invariants', () => {
         expect(Math.abs(endLon - (r.debug?.destinationSnap?.snappedLon ?? 0))).toBeLessThan(1e-8);
     });
 
-    it('a full barrier with no detour → still routes, but FLAGS caution (warned, never silent)', () => {
-        // Engine contract: rather than hard-fail with destination-
-        // disconnected, it retries relaxed — routing THROUGH the barrier
-        // at high cost and flagging those segments caution so the renderer
-        // draws them red. The invariant that must never regress: a route
-        // forced through land/shallow is WARNED, never returned as a clean
-        // "looks fine" path. Vertical LANDARE wall ~1.3 km thick (>10 cells
-        // at 100 m), full bbox height, between origin (W) and dest (E).
+    it('a full barrier with no detour → refuses instead of emitting a red route across charted land', () => {
+        // A caution colour is not permission to cross a sustained run of exact
+        // LNDARE. The localized retry can explore the barrier, but the final
+        // source-vector audit must reject it. Vertical LNDARE wall ~1.3 km
+        // thick, full bbox height, between origin (W) and destination (E).
         const wall = fc(rect(153.0935, -27.35, 153.1065, -27.05));
-        const r = routeInshore({ LNDARE: wall }, baseReq());
-        expect(isResult(r)).toBe(true);
-        if (!isResult(r)) return;
-        const cautionCount = (r.cautionMask ?? []).filter(Boolean).length;
-        expect(cautionCount).toBeGreaterThan(0);
+        const r = routeInshore({ LNDARE: wall }, baseReq({ unchartedPolicy: 'strict' }));
+        expect(isResult(r)).toBe(false);
+        if (isResult(r)) return;
+        expect(r.code).toBe('hard-land-crossing');
+        expect(r.debug?.hardLandMaxRunM ?? 0).toBeGreaterThan(1_000);
     });
 });
 
