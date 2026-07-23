@@ -5,6 +5,7 @@
 #   npx wrangler login                        (one-time)
 #   npx wrangler secret put DEEPGRAM_API_KEY  (paste the long-lived Deepgram key)
 #   npx wrangler secret put SUPABASE_ANON_KEY (paste the same anon key the iOS app uses)
+#   npx wrangler secret put SUPABASE_URL      (https://<project>.supabase.co)
 #   npx wrangler deploy
 #
 # After deploy, set in /Users/.../thalassa-marine-weather/.env.local:

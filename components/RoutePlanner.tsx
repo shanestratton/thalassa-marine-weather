@@ -6,7 +6,6 @@ import { createPortal } from 'react-dom';
 import {
     MapPinIcon,
     MapIcon,
-    XIcon,
     LockIcon,
     CompassIcon,
     CrosshairIcon,
@@ -41,6 +40,7 @@ import { requestPassageMode, type PassageHandoffDetail } from '../services/passa
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
+import { Capacitor } from '@capacitor/core';
 
 export const RoutePlanner: React.FC<{
     onTriggerUpgrade: () => void;
@@ -163,18 +163,22 @@ export const RoutePlanner: React.FC<{
     // need this because their layouts are already scroll-friendly.
     const [keyboardHeight, setKeyboardHeight] = useState(0);
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return;
         let disposed = false;
         const handles: Array<() => void> = [];
         import('@capacitor/keyboard')
             .then(({ Keyboard }) => {
                 if (disposed) return;
-                Keyboard.addListener('keyboardWillShow', (info) => {
+                void Keyboard.addListener('keyboardWillShow', (info) => {
                     setKeyboardHeight(info.keyboardHeight ?? 0);
-                }).then((h) => handles.push(() => h.remove()));
-                Keyboard.addListener('keyboardWillHide', () => {
+                })
+                    .then((h) => handles.push(() => void h.remove()))
+                    .catch((e) => log.warn('Keyboard show listener unavailable:', e));
+                void Keyboard.addListener('keyboardWillHide', () => {
                     setKeyboardHeight(0);
-                }).then((h) => handles.push(() => h.remove()));
+                })
+                    .then((h) => handles.push(() => void h.remove()))
+                    .catch((e) => log.warn('Keyboard hide listener unavailable:', e));
             })
             .catch(() => {
                 /* Web — no native keyboard events */
@@ -508,122 +512,132 @@ export const RoutePlanner: React.FC<{
                         The escape hatch is to pick a different leg (or "New trip")
                         from the picker above — the lock is purely a guardrail on
                         the input field, not on the user's overall freedom. */}
-                    <div className="relative group">
-                        <div
-                            className={`absolute inset-y-0 left-4 flex items-center pointer-events-none ${originLocked ? 'text-emerald-500/60' : 'text-emerald-400'}`}
-                        >
-                            <MapPinIcon className="w-4 h-4" />
-                        </div>
-                        <input
-                            type="text"
-                            value={origin}
-                            onChange={(e) => setOrigin(e.target.value)}
-                            onFocus={handleInputFocus}
-                            readOnly={originLocked}
-                            aria-readonly={originLocked || undefined}
-                            placeholder={originLocked ? '' : 'Type port, GPS coords, or tap map…'}
-                            aria-label="Departure port or location"
-                            title={originLocked ? 'Auto-set from the previous leg — change Leg 1 to alter' : undefined}
-                            className={`w-full h-12 border rounded-xl pl-12 pr-32 text-sm font-medium placeholder-gray-500 outline-none transition-all shadow-inner ${
-                                originLocked
-                                    ? 'bg-slate-900/70 border-emerald-500/25 text-gray-300 cursor-not-allowed'
-                                    : 'bg-slate-900/50 border-white/10 focus:border-sky-500/50 text-white'
-                            }`}
-                        />
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                            {originLocked ? (
+                            <div className="relative group">
                                 <div
-                                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] uppercase tracking-wide font-semibold"
-                                    title="Departure auto-set from the previous leg's arrival. Edit the previous leg's destination to change."
+                                    className={`absolute inset-y-0 left-4 flex items-center pointer-events-none ${originLocked ? 'text-emerald-500/60' : 'text-emerald-400'}`}
                                 >
-                                    <LockIcon className="w-3 h-3" />
-                                    <span>Auto</span>
+                                    <MapPinIcon className="w-4 h-4" />
                                 </div>
-                            ) : (
-                                <>
+                                <input
+                                    type="text"
+                                    value={origin}
+                                    onChange={(e) => setOrigin(e.target.value)}
+                                    onFocus={handleInputFocus}
+                                    readOnly={originLocked}
+                                    aria-readonly={originLocked || undefined}
+                                    placeholder={originLocked ? '' : 'Type port, GPS coords, or tap map…'}
+                                    aria-label="Departure port or location"
+                                    title={
+                                        originLocked
+                                            ? 'Auto-set from the previous leg — change Leg 1 to alter'
+                                            : undefined
+                                    }
+                                    className={`w-full h-12 border rounded-xl pl-12 pr-32 text-sm font-medium placeholder-gray-500 outline-none transition-all shadow-inner ${
+                                        originLocked
+                                            ? 'bg-slate-900/70 border-emerald-500/25 text-gray-300 cursor-not-allowed'
+                                            : 'bg-slate-900/50 border-white/10 focus:border-sky-500/50 text-white'
+                                    }`}
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    {originLocked ? (
+                                        <div
+                                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] uppercase tracking-wide font-semibold"
+                                            title="Departure auto-set from the previous leg's arrival. Edit the previous leg's destination to change."
+                                        >
+                                            <LockIcon className="w-3 h-3" />
+                                            <span>Auto</span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={() => openMap('origin')}
+                                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                                title="Select on Map"
+                                                aria-label="Select origin on map"
+                                            >
+                                                <MapIcon className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) =>
+                                                    handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>)
+                                                }
+                                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                                title="Use Current Location"
+                                                aria-label="Use Current Location"
+                                            >
+                                                <CrosshairIcon className="w-4 h-4" />
+                                            </button>
+                                            <SavedLocationsPicker value={origin} onPick={setOrigin} target="origin" />
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Destination */}
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-purple-400">
+                                    <MapPinIcon className="w-4 h-4" />
+                                </div>
+                                <input
+                                    type="text"
+                                    value={destination}
+                                    onChange={(e) => setDestination(e.target.value)}
+                                    onFocus={handleInputFocus}
+                                    placeholder="Type destination, coords, or tap map…"
+                                    aria-label="Destination port or location"
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button
                                         type="button"
-                                        onClick={() => openMap('origin')}
+                                        onClick={() => openMap('destination')}
                                         className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
                                         title="Select on Map"
-                                        aria-label="Select origin on map"
+                                        aria-label="Select destination on map"
                                     >
                                         <MapIcon className="w-4 h-4" />
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={(e) => handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>)}
-                                        className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
-                                        title="Use Current Location"
-                                        aria-label="Use Current Location"
-                                    >
-                                        <CrosshairIcon className="w-4 h-4" />
-                                    </button>
-                                    <SavedLocationsPicker value={origin} onPick={setOrigin} target="origin" />
-                                </>
-                            )}
-                        </div>
-                    </div>
+                                    <SavedLocationsPicker
+                                        value={destination}
+                                        onPick={setDestination}
+                                        target="destination"
+                                    />
+                                </div>
+                            </div>
 
-                    {/* Destination */}
-                    <div className="relative group">
-                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-purple-400">
-                            <MapPinIcon className="w-4 h-4" />
-                        </div>
-                        <input
-                            type="text"
-                            value={destination}
-                            onChange={(e) => setDestination(e.target.value)}
-                            onFocus={handleInputFocus}
-                            placeholder="Type destination, coords, or tap map…"
-                            aria-label="Destination port or location"
-                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
-                        />
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                            <button
-                                type="button"
-                                onClick={() => openMap('destination')}
-                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
-                                title="Select on Map"
-                                aria-label="Select destination on map"
-                            >
-                                <MapIcon className="w-4 h-4" />
-                            </button>
-                            <SavedLocationsPicker value={destination} onPick={setDestination} target="destination" />
-                        </div>
-                    </div>
-
-                    {/* Departure date — time-of-day is set later in
+                            {/* Departure date — time-of-day is set later in
                         Passage Planning (the time card was removed
                         2026-05-05 because it was never threaded into
                         the saved plan and only confused the form). */}
-                    <div className="relative w-full min-w-0 group">
-                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
-                            <CalendarIcon className="w-4 h-4" />
-                        </div>
-                        <input
-                            type="date"
-                            min={minDate}
-                            value={departureDate}
-                            onChange={(e) => {
-                                const d = e.target.value;
-                                if (!minDate || d >= minDate) {
-                                    // handleDateChange updates form state
-                                    // AND syncs the new date through to
-                                    // the active voyage record (if any)
-                                    // so the Passage Summary, Crew
-                                    // Management dropdown, etc. all
-                                    // reflect the change immediately
-                                    // without requiring a re-Calculate.
-                                    handleDateChange(d);
-                                }
-                            }}
-                            onFocus={handleInputFocus}
-                            aria-label="Departure date"
-                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
-                            style={{ WebkitAppearance: 'none' }}
-                        />
-                    </div>
+                            <div className="relative w-full min-w-0 group">
+                                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
+                                    <CalendarIcon className="w-4 h-4" />
+                                </div>
+                                <input
+                                    type="date"
+                                    min={minDate}
+                                    value={departureDate}
+                                    onChange={(e) => {
+                                        const d = e.target.value;
+                                        if (!minDate || d >= minDate) {
+                                            // handleDateChange updates form state
+                                            // AND syncs the new date through to
+                                            // the active voyage record (if any)
+                                            // so the Passage Summary, Crew
+                                            // Management dropdown, etc. all
+                                            // reflect the change immediately
+                                            // without requiring a re-Calculate.
+                                            handleDateChange(d);
+                                        }
+                                    }}
+                                    onFocus={handleInputFocus}
+                                    aria-label="Departure date"
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                    style={{ WebkitAppearance: 'none' }}
+                                />
+                            </div>
                         </>
                     )}
                 </div>
@@ -841,7 +855,7 @@ export const RoutePlanner: React.FC<{
                                             }
                                             setPage('settings');
                                         }}
-                                        className="text-[11px] font-mono text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
+                                        className="inline-flex min-h-[44px] items-center text-[11px] font-mono text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
                                         aria-label="Personalise vessel profile in Settings"
                                     >
                                         Personalise →

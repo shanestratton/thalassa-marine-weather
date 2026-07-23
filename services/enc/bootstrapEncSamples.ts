@@ -24,6 +24,7 @@ const log = createLogger('bootstrapEncSamples');
 // Bumping the version forces the bootstrap to run again on next launch — used
 // when we ship a new sample set or fix a previously-failed-silently regression.
 const FLAG_KEY = 'thalassa.enc.samplesImported.v7';
+let bootstrapPromise: Promise<void> | null = null;
 
 /**
  * Sample cells to fetch on first launch. Names match files in
@@ -38,13 +39,18 @@ const FLAG_KEY = 'thalassa.enc.samplesImported.v7';
  */
 const SAMPLE_CELLS: string[] = ['US5GA22M'];
 
-export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
-    // log.warn used throughout so the bootstrap is visible in Xcode console even
-    // on a release build — createLogger.info is no-op'd in prod (see the
-    // log.info() silenced in prod memory).
+export function bootstrapEncSamplesIfNeeded(): Promise<void> {
+    // React StrictMode deliberately remounts effects in development. Keep the
+    // import single-flight so both mounts share one fetch/parse/IndexedDB job
+    // instead of racing a second 4.7 MB chart import before the flag is set.
+    bootstrapPromise ??= runBootstrap();
+    return bootstrapPromise;
+}
+
+async function runBootstrap(): Promise<void> {
     try {
         if (localStorage.getItem(FLAG_KEY) === '1') {
-            log.warn(`bootstrap skipped — already ran (clear localStorage.${FLAG_KEY} to retry)`);
+            log.info(`bootstrap skipped — already ran (clear localStorage.${FLAG_KEY} to retry)`);
             return;
         }
 
@@ -54,7 +60,7 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
         // never touched.
         const existing = new Set(listCells().map((c) => c.id));
         const platform = Capacitor.getPlatform();
-        log.warn(
+        log.info(
             `bootstrap starting on ${platform} — ${SAMPLE_CELLS.length} sample cells, ${existing.size} cells in store (will overwrite any matching sample IDs)`,
         );
 
@@ -63,15 +69,15 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
         for (const cellId of SAMPLE_CELLS) {
             const url = `/enc-samples/${cellId}.geojson`;
             try {
-                log.warn(`  ${cellId}: fetching ${url}`);
+                log.info(`  ${cellId}: fetching ${url}`);
                 const res = await fetch(url);
-                log.warn(`  ${cellId}: fetch returned HTTP ${res.status}`);
+                log.info(`  ${cellId}: fetch returned HTTP ${res.status}`);
                 if (!res.ok) {
                     log.warn(`  ${cellId}: NOT bundled (${res.status}) — skipping`);
                     continue;
                 }
                 const text = await res.text();
-                log.warn(`  ${cellId}: got ${text.length} bytes, parsing JSON`);
+                log.info(`  ${cellId}: got ${text.length} bytes, parsing JSON`);
                 let blob: EncConversionResult;
                 try {
                     blob = JSON.parse(text) as EncConversionResult;
@@ -85,7 +91,7 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
                 }
                 await importCell(blob);
                 imported += 1;
-                log.warn(
+                log.info(
                     `  ${cellId}: IMPORTED (${blob.sourceHO} edition ${blob.edition}, ${Object.keys(blob.layers).length} layers)`,
                 );
             } catch (err) {
@@ -99,7 +105,7 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
         const covered = imported + alreadyHave;
         if (covered === SAMPLE_CELLS.length) {
             localStorage.setItem(FLAG_KEY, '1');
-            log.warn(
+            log.info(
                 `bootstrap complete: ${imported} imported / ${alreadyHave} pre-existing / ${SAMPLE_CELLS.length} total, flag set`,
             );
         } else {

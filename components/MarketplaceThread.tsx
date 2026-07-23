@@ -1,10 +1,14 @@
 /**
  * MarketplaceThread — Transaction negotiation room.
  *
- * Not a standard chat — a dedicated negotiation room with:
+ * Dedicated negotiation room with:
  *   1. Sticky item header (thumbnail, title, price)
  *   2. Message thread with buyer/seller distinction
- *   3. Escrow PIN system (Secure Funds / Enter PIN)
+ *
+ * Payment state deliberately does not live in chat messages. The former
+ * client-only "escrow" controls generated a local PIN without charging a
+ * card and could display a false funds-held state. Checkout remains launch-
+ * gated until the native Stripe confirmation sheet is wired end to end.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createLogger } from '../utils/createLogger';
@@ -12,7 +16,6 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('MarketplaceThread');
 import { type MarketplaceListing, CATEGORY_ICONS } from '../services/MarketplaceService';
 import { supabase } from '../services/supabase';
-import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 
 interface MarketplaceThreadProps {
@@ -26,13 +29,7 @@ interface ThreadMessage {
     sender_id: string;
     content: string;
     created_at: string;
-    is_system?: boolean; // System messages (escrow events)
-    escrow_type?: 'funds_held' | 'pin_reveal' | 'pin_verified' | 'released';
-    pin_code?: string; // 4-digit PIN (visible only to buyer)
 }
-
-// ── Escrow states ──
-type EscrowState = 'none' | 'holding' | 'released';
 
 export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, otherPartyId, onBack }) => {
     const [messages, setMessages] = useState<ThreadMessage[]>([]);
@@ -41,16 +38,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
     const [userId, setUserId] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
 
-    // Escrow
-    const [escrowState, setEscrowState] = useState<EscrowState>('none');
-    const [buyerPin, setBuyerPin] = useState<string | null>(null);
-    const [pinInput, setPinInput] = useState('');
-    const [showPinPad, setShowPinPad] = useState(false);
-    const [pinError, setPinError] = useState(false);
-    const [securingFunds, setSecuringFunds] = useState(false);
-
     const scrollRef = useRef<HTMLDivElement>(null);
-    const isBuyer = userId !== listing.seller_id;
 
     // ── Load user + messages ──
     useEffect(() => {
@@ -69,20 +57,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 .eq('listing_id', listing.id)
                 .order('created_at', { ascending: true });
 
-            if (data) {
-                setMessages(data as ThreadMessage[]);
-
-                // Check for existing escrow state from system messages
-                const escrowMsgs = data.filter((m: ThreadMessage) => m.escrow_type);
-                if (escrowMsgs.some((m: ThreadMessage) => m.escrow_type === 'released')) {
-                    setEscrowState('released');
-                } else if (escrowMsgs.some((m: ThreadMessage) => m.escrow_type === 'funds_held')) {
-                    setEscrowState('holding');
-                    // Find buyer's PIN
-                    const pinMsg = escrowMsgs.find((m: ThreadMessage) => m.escrow_type === 'pin_reveal');
-                    if (pinMsg?.pin_code) setBuyerPin(pinMsg.pin_code);
-                }
-            }
+            if (data) setMessages(data as ThreadMessage[]);
             setLoading(false);
 
             // Scroll to bottom
@@ -137,75 +112,6 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
         }
     }, [input, listing.id, userId, otherPartyId, sending]);
 
-    // ── Secure Funds (Buyer) ──
-    const handleSecureFunds = useCallback(async () => {
-        if (!supabase || !userId) return;
-        setSecuringFunds(true);
-
-        try {
-            triggerHaptic('heavy');
-
-            // Generate 4-digit PIN
-            const pin = String(Math.floor(1000 + Math.random() * 9000));
-            setBuyerPin(pin);
-            setEscrowState('holding');
-
-            // Insert system message: funds held
-            await supabase.from('marketplace_messages').insert({
-                listing_id: listing.id,
-                sender_id: userId,
-                recipient_id: otherPartyId,
-                content: `💰 Funds secured — $${listing.price} held in escrow`,
-                is_system: true,
-                escrow_type: 'funds_held',
-            });
-
-            // Insert PIN reveal (buyer-visible only — in production, this
-            // would be filtered server-side)
-            await supabase.from('marketplace_messages').insert({
-                listing_id: listing.id,
-                sender_id: userId,
-                recipient_id: otherPartyId,
-                content: `🔐 Your handoff PIN is ready`,
-                is_system: true,
-                escrow_type: 'pin_reveal',
-                pin_code: pin,
-            });
-        } catch (e) {
-            log.error('Failed to secure funds:', e);
-            toast.error('Failed to secure funds — try again');
-        } finally {
-            setSecuringFunds(false);
-        }
-    }, [listing.id, listing.price, userId, otherPartyId]);
-
-    // ── Verify PIN (Seller) ──
-    const handleVerifyPin = useCallback(async () => {
-        if (!supabase || !userId) return;
-
-        if (pinInput === buyerPin) {
-            triggerHaptic('heavy');
-            setEscrowState('released');
-            setPinError(false);
-            setShowPinPad(false);
-
-            // Insert release message
-            await supabase.from('marketplace_messages').insert({
-                listing_id: listing.id,
-                sender_id: userId,
-                recipient_id: otherPartyId,
-                content: `✅ PIN verified — $${listing.price} released to seller`,
-                is_system: true,
-                escrow_type: 'released',
-            });
-        } else {
-            triggerHaptic('heavy');
-            setPinError(true);
-            setPinInput('');
-            setTimeout(() => setPinError(false), 2000);
-        }
-    }, [pinInput, buyerPin, listing.id, listing.price, userId, otherPartyId]);
-
     // ── Render ──
     return (
         <div className="flex flex-col h-full w-full bg-slate-900">
@@ -230,17 +136,6 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                     <h2 className="text-sm font-black text-white truncate">{listing.seller_name || 'Seller'}</h2>
                     <p className="text-[11px] text-gray-400 font-bold">Transaction Room</p>
                 </div>
-                {/* Escrow status badge */}
-                {escrowState === 'holding' && (
-                    <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[11px] font-black border border-amber-500/20 animate-pulse">
-                        💰 FUNDS HELD
-                    </span>
-                )}
-                {escrowState === 'released' && (
-                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black border border-emerald-500/20">
-                        ✅ RELEASED
-                    </span>
-                )}
             </div>
 
             {/* ═══ STICKY ITEM HEADER ═══ */}
@@ -289,59 +184,6 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                     messages.map((msg) => {
                         const isOwn = msg.sender_id === userId;
 
-                        // ── SYSTEM MESSAGE (Escrow events) ──
-                        if (msg.is_system || msg.escrow_type) {
-                            return (
-                                <div key={msg.id} className="flex justify-center my-3">
-                                    {msg.escrow_type === 'pin_reveal' && isOwn ? (
-                                        // ── BUYER'S PIN BUBBLE ──
-                                        <div className="w-full max-w-xs bg-gradient-to-br from-sky-500/20 to-sky-500/20 border-2 border-sky-500/30 rounded-2xl p-5 text-center">
-                                            <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest mb-2">
-                                                Your Handoff PIN
-                                            </p>
-                                            <div className="flex items-center justify-center gap-3">
-                                                {(msg.pin_code || buyerPin || '????').split('').map((digit, i) => (
-                                                    <div
-                                                        key={i}
-                                                        className="w-12 h-14 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center"
-                                                    >
-                                                        <span className="text-2xl font-black text-white">{digit}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <p className="text-[12px] text-gray-400 mt-3">
-                                                Share this PIN with the seller at handoff
-                                            </p>
-                                        </div>
-                                    ) : msg.escrow_type === 'pin_reveal' && !isOwn ? null : ( // Seller sees "funds held" message only
-                                        // ── GENERIC SYSTEM BUBBLE ──
-                                        <div
-                                            className={`px-4 py-2 rounded-2xl text-center max-w-xs ${
-                                                msg.escrow_type === 'released'
-                                                    ? 'bg-emerald-500/15 border border-emerald-500/20'
-                                                    : msg.escrow_type === 'funds_held'
-                                                      ? 'bg-amber-500/15 border border-amber-500/20'
-                                                      : 'bg-white/[0.04] border border-white/[0.06]'
-                                            }`}
-                                        >
-                                            <p
-                                                className={`text-xs font-bold ${
-                                                    msg.escrow_type === 'released'
-                                                        ? 'text-emerald-400'
-                                                        : msg.escrow_type === 'funds_held'
-                                                          ? 'text-amber-400'
-                                                          : 'text-gray-400'
-                                                }`}
-                                            >
-                                                {msg.content}
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        }
-
-                        // ── REGULAR MESSAGE ──
                         return (
                             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                 <div
@@ -365,99 +207,8 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 )}
             </div>
 
-            {/* ═══ SELLER PIN ENTRY (when funds are held) ═══ */}
-            {!isBuyer && escrowState === 'holding' && (
-                <div className="mx-4 mb-2">
-                    {showPinPad ? (
-                        <div className="bg-gradient-to-br from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl p-4">
-                            <p className="text-[11px] text-amber-400/70 font-bold uppercase tracking-widest mb-3 text-center">
-                                Enter Buyer's PIN
-                            </p>
-                            <div className="flex items-center justify-center gap-3 mb-4">
-                                {[0, 1, 2, 3].map((i) => (
-                                    <div
-                                        key={i}
-                                        className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${
-                                            pinError
-                                                ? 'border-red-500/50 bg-red-500/10 animate-[shake_0.3s_ease-in-out]'
-                                                : pinInput[i]
-                                                  ? 'border-amber-400/40 bg-amber-500/15'
-                                                  : 'border-white/10 bg-white/[0.04]'
-                                        }`}
-                                    >
-                                        <span className="text-2xl font-black text-white">{pinInput[i] || ''}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Number pad */}
-                            <div className="grid grid-cols-3 gap-2 max-w-[240px] mx-auto">
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, 'del'].map((key, i) =>
-                                    key === null ? (
-                                        <div key={i} />
-                                    ) : (
-                                        <button
-                                            aria-label="Enter PIN digit"
-                                            key={i}
-                                            onClick={() => {
-                                                triggerHaptic('light');
-                                                if (key === 'del') {
-                                                    setPinInput((prev) => prev.slice(0, -1));
-                                                } else if (pinInput.length < 4) {
-                                                    const next = pinInput + key;
-                                                    setPinInput(next);
-                                                    if (next.length === 4) {
-                                                        setTimeout(() => handleVerifyPin(), 200);
-                                                    }
-                                                }
-                                            }}
-                                            className="h-12 rounded-xl bg-white/[0.06] text-white font-black text-lg hover:bg-white/10 active:scale-95 transition-all"
-                                        >
-                                            {key === 'del' ? '⌫' : key}
-                                        </button>
-                                    ),
-                                )}
-                            </div>
-
-                            {pinError && (
-                                <p className="text-xs text-red-400 font-bold text-center mt-3">
-                                    Incorrect PIN — try again
-                                </p>
-                            )}
-                        </div>
-                    ) : (
-                        <button
-                            aria-label="Enter buyer PIN to release escrow funds"
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                setShowPinPad(true);
-                            }}
-                            className="w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-600 rounded-2xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:from-amber-500 hover:to-amber-500 transition-all active:scale-[0.97]"
-                        >
-                            🔐 Enter Buyer's PIN to Release Funds
-                        </button>
-                    )}
-                </div>
-            )}
-
             {/* ═══ COMPOSE BAR ═══ */}
             <div className="px-4 pb-4 pt-2 flex items-center gap-2 shrink-0 border-t border-white/[0.06]">
-                {/* Buyer: Secure Funds button */}
-                {isBuyer && escrowState === 'none' && (
-                    <button
-                        aria-label="Secure funds in escrow"
-                        onClick={handleSecureFunds}
-                        disabled={securingFunds}
-                        className="shrink-0 px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-[11px] font-black text-white uppercase tracking-widest hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-95 disabled:opacity-50"
-                    >
-                        {securingFunds ? (
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                            '💰 Secure'
-                        )}
-                    </button>
-                )}
-
                 {/* Text input */}
                 <input
                     type="text"
@@ -466,9 +217,8 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') sendMessage();
                     }}
-                    placeholder={escrowState === 'released' ? 'Transaction complete ✅' : 'Type a message...'}
+                    placeholder="Type a message..."
                     className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
-                    disabled={escrowState === 'released'}
                 />
 
                 {/* Send button */}

@@ -5,6 +5,8 @@ declare const Deno: {
     upgradeWebSocket: (req: Request) => { socket: WebSocket; response: Response };
 };
 
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 /**
  * deepgram-ws-proxy — bridge a client WebSocket to Deepgram's
  * /v1/listen streaming endpoint, with the API key applied server-side.
@@ -56,13 +58,27 @@ Deno.serve(async (req: Request) => {
         });
     }
 
+    const incoming = new URL(req.url);
+    const ticket = incoming.searchParams.get('ticket');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    if (!ticket || !supabaseUrl || !anonKey) {
+        return new Response(JSON.stringify({ error: 'Missing proxy authorization' }), { status: 401 });
+    }
+    const ticketClient = createClient(supabaseUrl, anonKey);
+    const { data: ticketValid, error: ticketError } = await ticketClient.rpc('consume_deepgram_proxy_ticket', {
+        p_ticket: ticket,
+    });
+    if (ticketError || !ticketValid) {
+        return new Response(JSON.stringify({ error: 'Invalid or expired proxy ticket' }), { status: 401 });
+    }
+
     // Strip our own ?apikey query param (Supabase-gateway auth) before
     // forwarding to Deepgram. Anything else the client passed (model,
     // encoding, sample_rate, keywords, etc.) goes through verbatim.
-    const incoming = new URL(req.url);
     const forwarded = new URLSearchParams();
     for (const [k, v] of incoming.searchParams) {
-        if (k === 'apikey' || k === 'token' || k === 'access_token') continue;
+        if (k === 'apikey' || k === 'ticket' || k === 'token' || k === 'access_token') continue;
         forwarded.append(k, v);
     }
     const dgUrl = `${DEEPGRAM_BASE}?${forwarded.toString()}`;

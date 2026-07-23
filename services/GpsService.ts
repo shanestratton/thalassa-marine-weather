@@ -233,7 +233,17 @@ class GpsServiceClass {
                     speed: pos.coords.speed ?? 0,
                     timestamp: pos.timestamp,
                 }),
-            (err) => log.warn('[GpsService] web watch error:', err),
+            (err) => {
+                // Permission denial is an ordinary web/PWA state (the app can
+                // continue with a selected port), not a runtime fault. Keep
+                // genuine provider/time-out failures visible without flooding
+                // the console when location permission has not been granted.
+                if (err.code === err.PERMISSION_DENIED) {
+                    log.info('[GpsService] web location permission not granted');
+                } else {
+                    log.warn(`[GpsService] web watch failed (${err.code}): ${err.message}`);
+                }
+            },
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
         );
         return () => navigator.geolocation.clearWatch(id);

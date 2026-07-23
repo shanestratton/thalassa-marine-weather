@@ -173,7 +173,7 @@ export const LocationStarMenu: React.FC = () => {
                 }}
                 aria-label="Saved locations"
                 aria-expanded={open}
-                className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-gray-300 transition-colors hover:bg-white/10 hover:text-yellow-400"
             >
                 <StarIcon className={`w-4 h-4 ${starActive ? 'text-yellow-400' : ''}`} filled={starActive} />
             </button>

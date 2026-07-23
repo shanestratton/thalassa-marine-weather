@@ -154,7 +154,8 @@ interface SendResult {
 }
 
 async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<SendResult> {
-    const bundleId = Deno.env.get('APNS_BUNDLE_ID') || 'com.thalassa.weather-2025';
+    const bundleId = Deno.env.get('APNS_BUNDLE_ID') || 'com.thalassa.weather';
+    const criticalAlertsEntitled = Deno.env.get('APNS_CRITICAL_ALERTS_ENABLED') === 'true';
     const useProduction = Deno.env.get('APNS_PRODUCTION') !== 'false';
     const host = useProduction ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
 
@@ -170,10 +171,15 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
         aps.badge = payload.badge;
     }
 
-    if (payload.isCritical) {
+    if (payload.isCritical && criticalAlertsEntitled) {
         // Critical Alert — bypasses DND and silent mode (requires Apple entitlement)
         aps.sound = { critical: 1, name: 'default', volume: 1.0 };
         aps['interruption-level'] = 'critical';
+    } else if (payload.isCritical) {
+        // Safety alerts remain prominent without falsely claiming an Apple
+        // Critical Alerts entitlement that may not be provisioned.
+        aps.sound = 'default';
+        aps['interruption-level'] = 'time-sensitive';
     } else {
         aps.sound = 'default';
         aps['interruption-level'] = 'active';
@@ -259,18 +265,57 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
 
 serve(async (req: Request) => {
     try {
-        const { record } = await req.json();
+        if (req.method !== 'POST') {
+            return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+        }
 
-        if (!record?.recipient_user_id || !record?.title || !record?.body) {
-            return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!serviceRoleKey) {
+            return new Response(JSON.stringify({ error: 'Server configuration error' }), { status: 500 });
+        }
+        if (req.headers.get('authorization') !== `Bearer ${serviceRoleKey}`) {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+        }
+
+        const { record: webhookRecord } = await req.json();
+
+        if (!webhookRecord?.id) {
+            return new Response(JSON.stringify({ error: 'Missing queue record id' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
 
-        const { id, recipient_user_id, notification_type, title, body, data } = record;
+        const supabase = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey);
+        const { data: record, error: queueError } = await supabase.rpc('claim_push_notification', {
+            p_id: webhookRecord.id,
+        });
+        if (queueError || !record) {
+            return new Response(JSON.stringify({ error: 'Queue record is missing or already processed' }), {
+                status: 409,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
 
-        const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+        const { id, recipient_user_id, notification_type, title, body, data } = record;
+        const releaseClaim = async (message: string) => {
+            await supabase
+                .from('push_notification_queue')
+                .update({ processing_at: null, last_error: message.slice(0, 500) })
+                .eq('id', id)
+                .is('sent_at', null);
+        };
+        if (
+            !recipient_user_id ||
+            !notification_type ||
+            typeof title !== 'string' ||
+            typeof body !== 'string' ||
+            title.length > 120 ||
+            body.length > 500
+        ) {
+            await releaseClaim('Invalid persisted queue record');
+            return new Response(JSON.stringify({ error: 'Invalid persisted queue record' }), { status: 422 });
+        }
 
         // ── Look up device tokens for the recipient ──
         const { data: tokens, error } = await supabase
@@ -280,6 +325,7 @@ serve(async (req: Request) => {
 
         if (error) {
             console.error('Token lookup failed:', error);
+            await releaseClaim(`Token lookup failed: ${error.message}`);
             return new Response(JSON.stringify({ error: 'Token lookup failed' }), {
                 status: 500,
                 headers: { 'Content-Type': 'application/json' },
@@ -287,19 +333,23 @@ serve(async (req: Request) => {
         }
 
         if (!tokens || tokens.length === 0) {
-            await supabase.from('push_notification_queue').update({ sent_at: new Date().toISOString() }).eq('id', id);
+            await supabase
+                .from('push_notification_queue')
+                .update({ sent_at: new Date().toISOString(), processing_at: null })
+                .eq('id', id);
             return new Response(JSON.stringify({ sent: 0, message: 'No registered devices' }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
 
-        // ── Calculate badge count (pending unread notifications) ──
+        // ── Calculate badge count (delivered unread + this notification) ──
         const { count: badgeCount } = await supabase
             .from('push_notification_queue')
             .select('id', { count: 'exact', head: true })
             .eq('recipient_user_id', recipient_user_id)
-            .is('sent_at', null);
+            .not('sent_at', 'is', null)
+            .is('read_at', null);
 
         // ── Build push payload ──
         const pushPayload: PushPayload = {
@@ -333,8 +383,20 @@ serve(async (req: Request) => {
         const sent = results.filter((r) => r.success).length;
         const pruned = results.filter((r) => r.tokenInvalid).length;
 
+        if (sent === 0 && pruned < tokens.length) {
+            const failure = results.find((result) => !result.success && !result.tokenInvalid);
+            await releaseClaim(failure?.error || 'APNs delivery failed');
+            return new Response(JSON.stringify({ error: 'APNs delivery failed; queued for retry' }), {
+                status: 502,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         // Mark notification as sent
-        await supabase.from('push_notification_queue').update({ sent_at: new Date().toISOString() }).eq('id', id);
+        await supabase
+            .from('push_notification_queue')
+            .update({ sent_at: new Date().toISOString(), processing_at: null, last_error: null })
+            .eq('id', id);
 
         return new Response(JSON.stringify({ sent, total: tokens.length, pruned }), {
             status: 200,

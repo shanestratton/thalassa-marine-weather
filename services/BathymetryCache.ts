@@ -10,7 +10,10 @@
  */
 
 const getSupabaseUrl = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const getSupabaseKey = (): string =>
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 import { createLogger } from '../utils/createLogger';
 

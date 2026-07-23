@@ -4,7 +4,7 @@
  * Enables the "Shore Watch" pattern:
  * - VESSEL device: broadcasts position + alarm state to Supabase Realtime channel
  * - SHORE device: subscribes to vessel's channel for remote monitoring
- * - Session pairing via 6-digit code
+ * - Session pairing via a high-entropy 12-character code
  * - **Session persists across app crashes/closures** — auto-reconnects on reopen
  *
  * Channel naming: `anchor-watch-{sessionCode}`
@@ -67,9 +67,13 @@ interface PersistedSyncSession {
 
 // ------- HELPERS -------
 
-/** Generate a 6-digit session code */
+const SESSION_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** Generate a 60-bit session code without predictable Math.random state. */
 function generateSessionCode(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    const random = new Uint8Array(12);
+    crypto.getRandomValues(random);
+    return Array.from(random, (byte) => SESSION_CODE_ALPHABET[byte % SESSION_CODE_ALPHABET.length]).join('');
 }
 
 // ------- SERVICE -------
@@ -160,7 +164,7 @@ class AnchorWatchSyncServiceClass {
     /**
      * The last joined/created session code — from memory, else the persisted
      * session — even when not currently connected. Lets the UI offer a
-     * one-tap reconnect so the user never has to re-type the 6-digit code if
+     * one-tap reconnect so the user never has to re-type the session code if
      * the connection ever drops and doesn't auto-recover.
      */
     getLastSessionCode(): string | null {
@@ -241,7 +245,7 @@ class AnchorWatchSyncServiceClass {
 
     /**
      * Create a new watch session as VESSEL device.
-     * Returns the 6-digit session code for the shore device to join.
+     * Returns the 12-character session code for the shore device to join.
      * Session is persisted so it survives app crashes.
      */
     async createSession(): Promise<string | null> {
@@ -249,8 +253,20 @@ class AnchorWatchSyncServiceClass {
             return null;
         }
 
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user) return null;
+
         this.role = 'vessel';
         this.sessionCode = generateSessionCode();
+
+        const { error: sessionError } = await supabase.rpc('create_anchor_watch_session', {
+            p_session_code: this.sessionCode,
+        });
+        if (sessionError) {
+            log.warn('createSession: secure session creation failed', sessionError.message);
+            this.sessionCode = null;
+            return null;
+        }
 
         const joined = await this.joinChannel();
         if (!joined) {
@@ -266,7 +282,7 @@ class AnchorWatchSyncServiceClass {
 
     /**
      * Join an existing watch session as SHORE device.
-     * @param code The 6-digit session code from the vessel device.
+     * @param code The 12-character session code from the vessel device.
      * Session is persisted so it survives app crashes.
      */
     async joinSession(code: string): Promise<boolean> {
@@ -274,12 +290,21 @@ class AnchorWatchSyncServiceClass {
             return false;
         }
 
-        if (!/^\d{6}$/.test(code)) {
+        const normalizedCode = code.trim().toUpperCase();
+        if (!/^[A-HJ-NP-Z2-9]{12}$/.test(normalizedCode)) {
             return false;
         }
 
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user) return false;
+
+        const { data: sessionJoined, error: joinError } = await supabase.rpc('join_anchor_watch_session', {
+            p_session_code: normalizedCode,
+        });
+        if (joinError || !sessionJoined) return false;
+
         this.role = 'shore';
-        this.sessionCode = code;
+        this.sessionCode = normalizedCode;
 
         const joined = await this.joinChannel();
 
@@ -287,7 +312,7 @@ class AnchorWatchSyncServiceClass {
             // Persist session for crash recovery
             this.persistSession();
             // Register push token for alarm notifications
-            this.registerPushToken(code);
+            this.registerPushToken(normalizedCode);
         }
 
         return joined;
@@ -359,6 +384,7 @@ class AnchorWatchSyncServiceClass {
         try {
             const { error } = await supabase.from('anchor_alarm_events').insert({
                 session_code: this.sessionCode,
+                user_id: (await supabase.auth.getUser()).data.user?.id,
                 distance_m: data.distance,
                 swing_radius_m: data.swingRadius,
                 vessel_lat: data.vesselLat ?? null,
@@ -498,6 +524,7 @@ class AnchorWatchSyncServiceClass {
 
             this.channel = supabase.channel(channelName, {
                 config: {
+                    private: true,
                     broadcast: { self: false, ack: true },
                     presence: { key: this.role },
                 },
@@ -673,9 +700,13 @@ class AnchorWatchSyncServiceClass {
             }
 
             // Register token to Supabase
+            const { data: authData } = await supabase.auth.getUser();
+            if (!authData.user) return;
+
             const { error } = await supabase.from('anchor_alarm_tokens').upsert(
                 {
                     session_code: sessionCode,
+                    user_id: authData.user.id,
                     device_token: token,
                     platform: 'ios',
                 },

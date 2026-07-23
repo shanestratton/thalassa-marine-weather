@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
+import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryService';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { triggerHaptic } from '../../utils/system';
 import { Share } from '@capacitor/share';
@@ -61,13 +61,9 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
             // Prepare photo file:// URIs for native share
             const fileUris: string[] = [];
             if (Capacitor.isNativePlatform()) {
-                const photoUrls = (entry.photos || []).filter(
-                    (p) =>
-                        p.startsWith('http://') ||
-                        p.startsWith('https://') ||
-                        p.startsWith('blob:') ||
-                        p.startsWith('data:'),
-                );
+                const photoUrls = (
+                    await Promise.all((entry.photos || []).map((photo) => DiaryService.resolvePhotoUrl(photo)))
+                ).filter((photo): photo is string => Boolean(photo));
                 // Download/convert each photo to cache and collect file:// URIs
                 await Promise.all(
                     photoUrls.map(async (url, i) => {

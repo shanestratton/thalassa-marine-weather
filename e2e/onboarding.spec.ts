@@ -1,52 +1,33 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Onboarding Wizard', () => {
+test.describe('First-run legal gate', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
-    test('onboarding renders with vessel type selection', async ({ page }) => {
+    test('shows the navigation disclaimer before app content', async ({ page }) => {
         await page.goto('/');
-        // Fresh user should land on onboarding
-        await page.waitForTimeout(2000);
-
-        // Check for onboarding content — vessel type step
-        const body = await page.textContent('body');
-        const hasOnboarding =
-            body?.includes('Sailboat') ||
-            body?.includes('Powerboat') ||
-            body?.includes('Crew Member') ||
-            body?.includes('vessel') ||
-            body?.includes('Welcome');
-
-        // If onboarding shows, verify it has interactive elements
-        if (hasOnboarding) {
-            // Should have clickable vessel type buttons
-            const buttons = await page.locator('button').count();
-            expect(buttons).toBeGreaterThan(0);
-        }
+        const dialog = page.getByRole('dialog', { name: 'Important Notice' });
+        await expect(dialog).toBeVisible();
+        await expect(dialog.getByText('Not for Navigation')).toBeVisible();
     });
 
-    test('onboarding has accessible heading structure', async ({ page }) => {
+    test('requires reading before acceptance and then opens the app', async ({ page }) => {
         await page.goto('/');
-        await page.waitForTimeout(2000);
+        const disclaimer = page.getByRole('document', { name: 'Navigation disclaimer text' });
+        await expect(page.getByRole('button', { name: /Accept navigation disclaimer/i })).toHaveCount(0);
+        await disclaimer.evaluate((element) => element.scrollTo(0, element.scrollHeight));
 
-        // Page should have at least one heading
-        const headings = await page.locator('h1, h2, h3').count();
-        expect(headings).toBeGreaterThan(0);
+        const accept = page.getByRole('button', { name: /Accept navigation disclaimer/i });
+        await expect(accept).toBeVisible();
+        await accept.click();
+        await expect(page.getByRole('dialog', { name: 'Important Notice' })).toHaveCount(0);
+        await expect(page.getByRole('heading', { name: 'Welcome aboard' })).toBeVisible();
     });
 
-    test('onboarding buttons have sufficient touch targets', async ({ page }) => {
+    test('accept control meets the mobile touch-target minimum', async ({ page }) => {
         await page.goto('/');
-        await page.waitForTimeout(2000);
-
-        const buttons = page.locator('button');
-        const count = await buttons.count();
-
-        for (let i = 0; i < Math.min(count, 5); i++) {
-            const box = await buttons.nth(i).boundingBox();
-            if (box) {
-                // Apple HIG: 44px minimum touch target
-                expect(box.height).toBeGreaterThanOrEqual(40);
-            }
-        }
+        const disclaimer = page.getByRole('document', { name: 'Navigation disclaimer text' });
+        await disclaimer.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+        const box = await page.getByRole('button', { name: /Accept navigation disclaimer/i }).boundingBox();
+        expect(box?.height).toBeGreaterThanOrEqual(44);
     });
 });

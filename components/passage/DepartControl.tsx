@@ -83,9 +83,7 @@ export const DepartControl: React.FC = () => {
                 {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
                     clipped in the card) — wheels on iOS, dropdowns on desktop. */}
                 <TimePicker24
-                    value={
-                        timeStr ? { h: Number(timeStr.slice(0, 2)), m: Number(timeStr.slice(3, 5)) } : null
-                    }
+                    value={timeStr ? { h: Number(timeStr.slice(0, 2)), m: Number(timeStr.slice(3, 5)) } : null}
                     dateStr={dateStr}
                     onChange={(h, m) => {
                         triggerHaptic('light');
@@ -103,7 +101,7 @@ export const DepartControl: React.FC = () => {
                         triggerHaptic('light');
                         (document.activeElement as HTMLElement | null)?.blur?.();
                     }}
-                    className="h-9 flex-1 rounded-xl bg-sky-500/20 text-[11px] font-black uppercase tracking-widest text-sky-300 active:scale-95"
+                    className="min-h-[44px] flex-1 rounded-xl bg-sky-500/20 text-[11px] font-black uppercase tracking-widest text-sky-300 active:scale-95"
                 >
                     OK
                 </button>

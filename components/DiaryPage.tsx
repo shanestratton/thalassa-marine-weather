@@ -480,14 +480,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setRecordingTime(0);
     };
     // ── Audio Playback ─────────────────────────────────────────
-    const togglePlayback = (url: string) => {
+    const togglePlayback = async (url: string) => {
         if (isPlaying && audioPlayerRef.current) {
             audioPlayerRef.current.pause();
             audioPlayerRef.current = null;
             setIsPlaying(false);
             return;
         }
-        const audio = new Audio(url);
+        const resolvedUrl = await DiaryService.resolveAudioUrl(url);
+        if (!resolvedUrl) return;
+        const audio = new Audio(resolvedUrl);
         audioPlayerRef.current = audio;
         audio.play();
         setIsPlaying(true);

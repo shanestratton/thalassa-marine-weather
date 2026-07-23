@@ -51,9 +51,13 @@ import {
     saveCurrentTrackToPlaylist,
 } from './integrations/appleMusic';
 import { draftEmail, inboxSummary, readEmail, searchEmails, sendDraft } from './integrations/gmail';
+import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const SUPABASE_KEY =
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 const HAIKU_MODEL = 'claude-haiku-4-5';
 /**
@@ -878,13 +882,10 @@ async function postAnthropicAttempt(
     const ctrl = new AbortController();
     const watchdog = setTimeout(() => ctrl.abort(), ANTHROPIC_REQUEST_TIMEOUT_MS);
     try {
+        const headers = await getAuthenticatedFunctionHeaders();
         const r = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                apikey: SUPABASE_KEY,
-            },
+            headers,
             body: JSON.stringify(body),
             signal: ctrl.signal,
         });
@@ -978,13 +979,10 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
         // server-side default. Voice picker is non-load-bearing.
     }
     try {
+        const headers = await getAuthenticatedFunctionHeaders();
         const r = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                apikey: SUPABASE_KEY,
-            },
+            headers,
             body: JSON.stringify(voice_id ? { text, voice_id } : { text }),
             signal: ctrl.signal,
         });

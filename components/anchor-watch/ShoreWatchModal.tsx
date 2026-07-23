@@ -1,6 +1,6 @@
 /**
  * ShoreWatchModal — Join a remote anchor watch session from shore.
- * Allows entering a 6-digit session code to connect to a vessel.
+ * Allows entering a secure 12-character session code to connect to a vessel.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -49,8 +49,8 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     <div className={t.modal.body}>
                         <p className="text-sm text-slate-400 leading-relaxed">
                             Monitor your vessel&apos;s anchor from shore. Enter the{' '}
-                            <span className="text-white font-bold">6-digit session code</span> displayed on the vessel
-                            device to connect.
+                            <span className="text-white font-bold">12-character session code</span> displayed on the
+                            vessel device to connect.
                         </p>
 
                         {/* How it works */}
@@ -63,7 +63,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                                 </div>
                                 <div className="flex items-start gap-2">
                                     <span className="text-emerald-400 text-sm mt-px">2.</span>
-                                    <p className="text-sm text-slate-300">Note the 6-digit code shown on screen</p>
+                                    <p className="text-sm text-slate-300">Note the 12-character code shown on screen</p>
                                 </div>
                                 <div className="flex items-start gap-2">
                                     <span className="text-emerald-400 text-sm mt-px">3.</span>
@@ -83,14 +83,21 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                             <div className="flex gap-2 items-center">
                                 <input
                                     type="text"
-                                    inputMode="numeric"
-                                    maxLength={6}
-                                    placeholder="000000"
+                                    inputMode="text"
+                                    maxLength={12}
+                                    placeholder="ABCD2345WXYZ"
                                     value={sessionCode}
-                                    onChange={(e) => onSessionCodeChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                    onChange={(e) =>
+                                        onSessionCodeChange(
+                                            e.target.value
+                                                .toUpperCase()
+                                                .replace(/[^A-HJ-NP-Z2-9]/g, '')
+                                                .slice(0, 12),
+                                        )
+                                    }
                                     className={`flex-1 min-w-0 ${t.input.code} text-lg`}
                                     autoFocus
-                                    aria-label="6-digit session code"
+                                    aria-label="12-character session code"
                                 />
                                 <button
                                     aria-label="Join this vessel"
@@ -98,7 +105,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                                         onJoin();
                                         onClose();
                                     }}
-                                    disabled={sessionCode.length !== 6}
+                                    disabled={sessionCode.length !== 12}
                                     className="shrink-0 px-5 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-lg text-white text-sm font-bold transition-all disabled:opacity-30 active:scale-95"
                                 >
                                     Join

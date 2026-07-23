@@ -1,8 +1,8 @@
-// Supabase Edge Function: Capture Escrow Payment via 4-Digit PIN
+// Supabase Edge Function: Capture Escrow Payment via 6-Digit PIN
 // Deploy: supabase functions deploy capture-escrow-payment
 //
 // Flow:
-// 1. Seller enters buyer's 4-digit PIN
+// 1. Seller enters buyer's 6-digit PIN
 // 2. RPC `verify_escrow_pin` validates PIN in database
 // 3. If valid, this function captures the Stripe PaymentIntent
 // 4. 94% goes to seller via Connect, 6% retained as platform fee
@@ -23,6 +23,12 @@ serve(async (req) => {
     }
 
     try {
+        if (Deno.env.get('MARKETPLACE_ENABLED') !== 'true') {
+            return new Response(JSON.stringify({ error: 'Marketplace payments are not currently available' }), {
+                status: 503,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
         const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
         if (!stripeKey) throw new Error('STRIPE_SECRET_KEY not configured');
 
@@ -51,7 +57,7 @@ serve(async (req) => {
 
         const { escrow_id, pin } = await req.json();
 
-        if (!escrow_id || !pin) {
+        if (!escrow_id || typeof pin !== 'string' || !/^\d{6}$/.test(pin)) {
             return new Response(JSON.stringify({ error: 'escrow_id and pin are required' }), {
                 status: 400,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -81,7 +87,11 @@ serve(async (req) => {
         // Step 2: Capture the Stripe Payment Intent
         const paymentIntentId = verifyResult.payment_intent_id;
 
-        const capturedPI = await stripe.paymentIntents.capture(paymentIntentId);
+        const capturedPI = await stripe.paymentIntents.capture(
+            paymentIntentId,
+            {},
+            { idempotencyKey: `thalassa-escrow-${verifyResult.escrow_id}` },
+        );
 
         if (capturedPI.status !== 'succeeded') {
             return new Response(JSON.stringify({ error: `Capture failed: ${capturedPI.status}` }), {
@@ -91,13 +101,14 @@ serve(async (req) => {
         }
 
         // Step 3: Update escrow status to 'released'
-        await supabaseAdmin
+        const { error: releaseError } = await supabaseAdmin
             .from('marketplace_escrow')
             .update({
                 escrow_status: 'released',
                 updated_at: new Date().toISOString(),
             })
             .eq('id', verifyResult.escrow_id);
+        if (releaseError) throw new Error(`Captured payment but escrow update failed: ${releaseError.message}`);
 
         // Step 4: Mark listing as 'sold'
         const { data: escrow } = await supabaseAdmin

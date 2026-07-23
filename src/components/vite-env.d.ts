@@ -11,6 +11,7 @@ interface ImportMetaEnv {
     readonly VITE_MAPBOX_ACCESS_TOKEN: string;
     readonly VITE_SUPABASE_URL: string;
     readonly VITE_SUPABASE_KEY: string;
+    readonly VITE_SUPABASE_ANON_KEY?: string;
     readonly VITE_WORLDTIDES_API_KEY: string;
     readonly VITE_WORLD_TIDES_API_KEY: string;
     readonly VITE_TRANSISTOR_LICENSE_KEY: string;

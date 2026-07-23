@@ -65,7 +65,7 @@ function getSupabaseUrl(): string {
 function getSupabaseKey(): string {
     try {
         const env = import.meta.env;
-        if (env?.VITE_SUPABASE_KEY) return env.VITE_SUPABASE_KEY;
+        return env?.VITE_SUPABASE_ANON_KEY || env?.VITE_SUPABASE_KEY || '';
     } catch {
         /* SSR */
     }

@@ -9,10 +9,8 @@
  *   import { captureException, setUser } from './services/sentry';
  */
 
-import { createLogger } from '../utils/createLogger';
-
-const log = createLogger('sentry');
 type SentryModule = typeof import('@sentry/react');
+type SentryBreadcrumb = Parameters<SentryModule['addBreadcrumb']>[0];
 
 let _sentry: SentryModule | null = null;
 let _loading: Promise<SentryModule> | null = null;
@@ -70,52 +68,74 @@ function loadSentry(): Promise<SentryModule> {
 }
 
 // Kick off loading after initial paint (2s delay)
-if (typeof window !== 'undefined') {
-    setTimeout(() => loadSentry(), 2000);
+if (typeof window !== 'undefined' && DSN) {
+    setTimeout(() => {
+        void loadSentry().catch(() => {
+            /* Telemetry must never affect app availability. */
+        });
+    }, 2000);
 }
 
 // ── Thin async wrappers ─────────────────────────────────────
 
 export const captureException = (err: unknown, scope?: Record<string, unknown>) => {
+    if (!DSN) return;
     if (_sentry) {
         _sentry.captureException(err, scope);
     } else {
-        loadSentry().then((s) => s.captureException(err, scope));
-        log.error('[Sentry:deferred]', err);
+        // Do not log through createLogger here. createLogger.error forwards
+        // back to captureException, so doing so before the SDK resolves forms
+        // an asynchronous recursion that can exhaust the heap during an early
+        // startup/network failure.
+        void loadSentry()
+            .then((s) => s.captureException(err, scope))
+            .catch(() => {
+                /* The originating logger already emitted the error. */
+            });
     }
 };
 
 export const captureMessage = (msg: string) => {
+    if (!DSN) return;
     if (_sentry) {
         _sentry.captureMessage(msg);
     } else {
-        loadSentry().then((s) => s.captureMessage(msg));
+        void loadSentry()
+            .then((s) => s.captureMessage(msg))
+            .catch(() => undefined);
     }
 };
 
-export const addBreadcrumb = (crumb: Record<string, unknown>) => {
+export const addBreadcrumb = (crumb: SentryBreadcrumb) => {
+    if (!DSN) return;
     if (_sentry) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        _sentry.addBreadcrumb(crumb as any);
+        _sentry.addBreadcrumb(crumb);
     } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        loadSentry().then((s) => s.addBreadcrumb(crumb as any));
+        void loadSentry()
+            .then((s) => s.addBreadcrumb(crumb))
+            .catch(() => undefined);
     }
 };
 
 export const setUser = (user: { id?: string; email?: string; username?: string } | null) => {
+    if (!DSN) return;
     if (_sentry) {
         _sentry.setUser(user);
     } else {
-        loadSentry().then((s) => s.setUser(user));
+        void loadSentry()
+            .then((s) => s.setUser(user))
+            .catch(() => undefined);
     }
 };
 
 export const setTag = (key: string, value: string) => {
+    if (!DSN) return;
     if (_sentry) {
         _sentry.setTag(key, value);
     } else {
-        loadSentry().then((s) => s.setTag(key, value));
+        void loadSentry()
+            .then((s) => s.setTag(key, value))
+            .catch(() => undefined);
     }
 };
 

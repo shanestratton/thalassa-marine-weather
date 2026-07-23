@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * proxy-openmeteo — Open-Meteo Commercial API Proxy
  *
@@ -39,6 +41,11 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
+    const caller = await requireAuthenticatedQuota(req, 'openmeteo', 120, 3600);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
+    }
+
     const key = Deno.env.get('OPEN_METEO_API_KEY');
     if (!key) {
         return corsResponse(JSON.stringify({ error: 'OPEN_METEO_API_KEY not configured' }), 500);
@@ -55,6 +62,14 @@ Deno.serve(async (req: Request) => {
         const allowedEndpoints = ['forecast', 'marine', 'air-quality', 'elevation'];
         if (!allowedEndpoints.includes(endpoint)) {
             return corsResponse(JSON.stringify({ error: 'Invalid endpoint' }), 400);
+        }
+        if (!params || typeof params !== 'object' || Array.isArray(params) || Object.keys(params).length > 40) {
+            return corsResponse(JSON.stringify({ error: 'Invalid query parameters' }), 400);
+        }
+        for (const [name, value] of Object.entries(params)) {
+            if (!/^[a-z0-9_]+$/i.test(name) || String(value).length > 2000 || name.toLowerCase() === 'apikey') {
+                return corsResponse(JSON.stringify({ error: 'Invalid query parameter' }), 400);
+            }
         }
 
         // Build query string, injecting the API key server-side

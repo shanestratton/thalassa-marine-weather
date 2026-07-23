@@ -10,8 +10,8 @@
  * and always read HH : MM.
  *
  * Behaviour (Shane 2026-07-17):
- * - `value` null shows the CURRENT time (floored to the 5-min step) without
- *   committing it — "leaving now" stays the state until the punter picks.
+ * - `value` null shows the next valid 5-minute slot without committing it —
+ *   "leaving now" stays the state until the punter picks.
  * - Past options are disabled (greyed) when the chosen date is today — you
  *   can't plan to leave an hour ago. Future dates disable nothing.
  */
@@ -35,11 +35,22 @@ interface TimePicker24Props {
 }
 
 export const TimePicker24: React.FC<TimePicker24Props> = ({ value, dateStr, onChange, selectClassName = '' }) => {
-    const now = new Date();
+    // A stable render-session snapshot prevents the select from shifting under
+    // the user's finger and keeps the validation effect deterministic.
+    const now = React.useMemo(() => new Date(), []);
     const isToday = !dateStr || dateStr === localDateStr(now);
-    const h = value?.h ?? now.getHours();
-    const m = Math.floor((value?.m ?? now.getMinutes()) / 5) * 5;
-    const nowBucket = Math.floor(now.getMinutes() / 5) * 5;
+    const nextBucket = React.useMemo(() => new Date((Math.floor(now.getTime() / 300_000) + 1) * 300_000), [now]);
+    const defaultIsTomorrow = localDateStr(nextBucket) !== localDateStr(now);
+    const h = value?.h ?? (defaultIsTomorrow ? 23 : nextBucket.getHours());
+    const m = value?.m ?? (defaultIsTomorrow ? 55 : nextBucket.getMinutes());
+
+    React.useEffect(() => {
+        if (!value || !isToday) return;
+        const selected = new Date(now);
+        selected.setHours(value.h, value.m, 0, 0);
+        if (selected.getTime() > now.getTime() || defaultIsTomorrow) return;
+        onChange(nextBucket.getHours(), nextBucket.getMinutes());
+    }, [defaultIsTomorrow, isToday, nextBucket, now, onChange, value]);
     return (
         <div className="flex min-w-0 items-center gap-1">
             <select
@@ -49,7 +60,7 @@ export const TimePicker24: React.FC<TimePicker24Props> = ({ value, dateStr, onCh
                 className={selectClassName}
             >
                 {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={pad(i)} disabled={isToday && i < now.getHours()}>
+                    <option key={i} value={pad(i)} disabled={isToday && (defaultIsTomorrow || i < now.getHours())}>
                         {pad(i)}
                     </option>
                 ))}
@@ -67,7 +78,11 @@ export const TimePicker24: React.FC<TimePicker24Props> = ({ value, dateStr, onCh
                         <option
                             key={mm}
                             value={pad(mm)}
-                            disabled={isToday && h === now.getHours() && mm < nowBucket}
+                            disabled={
+                                isToday &&
+                                (defaultIsTomorrow ||
+                                    (h === now.getHours() && new Date(now).setHours(h, mm, 0, 0) <= now.getTime()))
+                            }
                         >
                             {pad(mm)}
                         </option>

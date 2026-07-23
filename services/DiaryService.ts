@@ -14,6 +14,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import {
     savePhoto as idbSavePhoto,
     loadPhoto as idbLoadPhoto,
@@ -73,6 +74,7 @@ export const MOOD_CONFIG: Record<DiaryMood, { emoji: string; label: string; colo
 const TABLE = 'diary_entries';
 const PHOTO_BUCKET = 'diary-photos';
 const AUDIO_BUCKET = 'diary-audio';
+const STORAGE_REF_PREFIX = 'storage:';
 const CACHE_KEY = 'thalassa_diary_entries_v2';
 const PENDING_KEY = 'thalassa_diary_pending_v2';
 const DELETED_KEY = 'thalassa_diary_deleted_v1';
@@ -125,6 +127,7 @@ class DiaryServiceClass {
     // Cache mapping idb: references → short-lived blob URLs for <img> rendering.
     // Avoids re-reading IndexedDB on every render.
     private _idbRefToBlobUrl = new Map<string, string>();
+    private _signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
     constructor() {
         // Auto-sync when connectivity resumes
@@ -547,13 +550,13 @@ class DiaryServiceClass {
     }
 
     /**
-     * Given a photo reference (idb:, blob:, data:, http[s]:), return a URL
+     * Given a photo reference, return a URL the UI can pass to an image.
+     * Private Supabase objects are resolved to short-lived signed URLs.
      * the UI can pass to an <img src>. For idb: refs this creates a short-
      * lived blob URL (cached to avoid duplicates across renders).
      */
     async resolvePhotoUrl(ref: string): Promise<string | null> {
         if (!ref) return null;
-        if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
         if (ref.startsWith('data:') || ref.startsWith('blob:')) return ref;
         if (isIdbPhoto(ref)) {
             // Cached blob URL?
@@ -565,7 +568,37 @@ class DiaryServiceClass {
             this._idbRefToBlobUrl.set(ref, url);
             return url;
         }
+        const storagePath = this._extractStoragePath(ref, PHOTO_BUCKET);
+        if (storagePath && supabase) {
+            return this._createSignedStorageUrl(PHOTO_BUCKET, storagePath, ref);
+        }
+        if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
         return ref; // unknown scheme — hand it to the <img> and hope
+    }
+
+    /** Resolve a private diary audio reference before playback/transcription. */
+    async resolveAudioUrl(ref: string): Promise<string | null> {
+        if (!ref) return null;
+        if (ref.startsWith('data:') || ref.startsWith('blob:')) return ref;
+        const storagePath = this._extractStoragePath(ref, AUDIO_BUCKET);
+        if (storagePath && supabase) {
+            return this._createSignedStorageUrl(AUDIO_BUCKET, storagePath, ref);
+        }
+        if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
+        return ref;
+    }
+
+    private async _createSignedStorageUrl(bucket: string, path: string, cacheKey: string): Promise<string | null> {
+        if (!supabase) return null;
+        const cached = this._signedUrlCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) return cached.url;
+        const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+        if (error || !data?.signedUrl) {
+            log.warn(`Could not sign private ${bucket} object:`, error?.message);
+            return null;
+        }
+        this._signedUrlCache.set(cacheKey, { url: data.signedUrl, expiresAt: Date.now() + 55 * 60 * 1000 });
+        return data.signedUrl;
     }
 
     private async _uploadPhotoToStorage(file: File): Promise<string | null> {
@@ -585,9 +618,7 @@ class DiaryServiceClass {
 
             if (error) return null;
 
-            const { data: urlData } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
-
-            return urlData?.publicUrl || null;
+            return `${STORAGE_REF_PREFIX}${PHOTO_BUCKET}:${path}`;
         } catch (e) {
             log.error('Photo upload failed:', e);
             return null;
@@ -634,9 +665,7 @@ class DiaryServiceClass {
 
             if (error) return null;
 
-            const { data: urlData } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
-
-            return urlData?.publicUrl || null;
+            return `${STORAGE_REF_PREFIX}${PHOTO_BUCKET}:${path}`;
         } catch (e) {
             log.error('Blob upload failed:', e);
             return null;
@@ -1252,8 +1281,10 @@ class DiaryServiceClass {
 
     private _extractStoragePath(url: string, bucket: string): string | null {
         try {
+            const privatePrefix = `${STORAGE_REF_PREFIX}${bucket}:`;
+            if (url.startsWith(privatePrefix)) return url.slice(privatePrefix.length);
             const match = url.match(new RegExp(`${bucket}/(.+)$`));
-            return match ? match[1] : null;
+            return match ? decodeURIComponent(match[1].split('?')[0]) : null;
         } catch (e) {
             log.warn('Storage path extraction failed:', e);
             return null;
@@ -1319,15 +1350,12 @@ class DiaryServiceClass {
 
         try {
             const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
-            const supabaseKey = import.meta.env?.VITE_SUPABASE_KEY || '';
             if (!supabaseUrl) return null;
+            const headers = await getAuthenticatedFunctionHeaders();
 
             const res = await fetch(`${supabaseUrl}/functions/v1/gemini-diary`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
+                headers,
                 body: JSON.stringify({
                     action: 'enhance',
                     text: body,
@@ -1380,9 +1408,7 @@ class DiaryServiceClass {
 
             if (error) return null;
 
-            const { data: urlData } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(path);
-
-            return urlData?.publicUrl || null;
+            return `${STORAGE_REF_PREFIX}${AUDIO_BUCKET}:${path}`;
         } catch (e) {
             log.error('Audio blob upload failed:', e);
             return null;
@@ -1409,11 +1435,14 @@ class DiaryServiceClass {
 
         try {
             const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
-            const supabaseKey = import.meta.env?.VITE_SUPABASE_KEY || '';
             if (!supabaseUrl) return null;
+            const headers = await getAuthenticatedFunctionHeaders();
 
-            // Fetch audio as base64
-            const audioRes = await fetch(audioUrl);
+            // Fetch audio as base64. Private bucket refs are signed only for
+            // the current authenticated owner and expire after one hour.
+            const resolvedAudioUrl = await this.resolveAudioUrl(audioUrl);
+            if (!resolvedAudioUrl) return null;
+            const audioRes = await fetch(resolvedAudioUrl);
             const audioBlob = await audioRes.blob();
             // Detect MIME type: explicit param > blob type > fallback
             const detectedMime = mimeType || audioBlob.type || 'audio/mp4';
@@ -1428,10 +1457,7 @@ class DiaryServiceClass {
 
             const res = await fetch(`${supabaseUrl}/functions/v1/gemini-diary`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
+                headers,
                 body: JSON.stringify({
                     action: 'transcribe',
                     audio_base64: base64,

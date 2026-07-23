@@ -1,18 +1,19 @@
 import { test, expect } from '@playwright/test';
+import { ONBOARDED_STORAGE } from './helpers/storageState';
 
-test.describe('Chat — Crew Talk', () => {
+test.describe('Chat — Community', () => {
+    test.use({ storageState: ONBOARDED_STORAGE });
+
     test.beforeEach(async ({ page }) => {
         await page.goto('/');
-        // Navigate to the chat tab
-        const chatTab = page.locator('button, [role="tab"]').filter({ hasText: /chat|crew/i });
-        if ((await chatTab.count()) > 0) {
-            await chatTab.first().click();
-            await page.waitForTimeout(500);
-        }
+        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeVisible();
+        await page.evaluate(() => {
+            window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'chat' } }));
+        });
     });
 
-    test('chat page loads and shows Crew Talk header', async ({ page }) => {
-        await expect(page.getByText(/crew talk/i).first()).toBeVisible({ timeout: 5000 });
+    test('chat page loads and shows the Community header', async ({ page }) => {
+        await expect(page.getByText('Community', { exact: true }).first()).toBeVisible({ timeout: 5000 });
     });
 
     test('channel list renders at least one channel', async ({ page }) => {

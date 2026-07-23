@@ -130,30 +130,14 @@ function routeInshoreMain(
     req: RouteRequest,
     gridOverride?: GridOverride,
 ): RouteResult | RouteFailure {
-    // Try strict first — LNDARE blocks land. With proper ring assembly
-    // (Eulerian/linear-chain fix landed 2026-05-19) this gives accurate
-    // results for most routes. But certain charts represent rivers as
-    // "inside" a giant mainland LNDARE polygon with no inner-ring hole
-    // (verified on AU OC-61-351824 rcid 4500: Brisbane mainland is one
-    // 3503-vert polygon, no holes — the river course is inside it). For
-    // destinations inside such polygons, retry with LNDARE relaxed to
-    // CAUTION (cost 500× water). A* prefers actual water cells massively
-    // over caution, so it won't cross real land masses — only the
-    // chart-says-land-but-really-water river/harbour interior cells get
-    // traversed, flagged red in the polyline so the user verifies.
+    // Try strict first — LNDARE blocks land. If chart topology says the
+    // destination is disconnected, return an honest failure. The former
+    // grid-wide LNDARE relaxation could manufacture a route through real
+    // mainland whenever no water path existed; a red caution line is not an
+    // acceptable substitute for a navigable route.
     const strict = routeInshoreOnce(layers, req, false, [], gridOverride);
     if ('error' in strict) {
-        if (strict.code !== 'destination-disconnected') return strict;
-        // Last resort: strict found NO path because the destination is
-        // inside a giant mainland LNDARE with no inner-ring hole. Relax
-        // GRID-WIDE — A* still prefers real water (8×) over relaxed land
-        // (40×), so it only crosses land where no water route exists at
-        // all. This is the only place we relax globally; the far-snap
-        // path below uses bounded zones instead.
-        console.warn(
-            '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed grid-wide to CAUTION (last resort)',
-        );
-        return routeInshoreOnce(layers, req, true, [], gridOverride);
+        return strict;
     }
 
     // Strict succeeded — but did it start/end where the user actually

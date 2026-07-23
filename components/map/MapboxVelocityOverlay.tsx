@@ -29,7 +29,7 @@ import 'leaflet/dist/leaflet.css';
 // ── Config ────────────────────────────────────────────────────
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
+const SUPABASE_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY) as string;
 const WIND_CACHE_NAME = 'thalassa-wind-cache';
 const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
 
@@ -697,6 +697,33 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             window.L = L;
             await import('leaflet-velocity-ts');
+
+            // leaflet-velocity-ts includes `zoomanim: undefined` in its
+            // CanvasLayer event map whenever Leaflet animations are disabled.
+            // Leaflet warns once on bind and again on unbind for every mount.
+            // Filter only non-functions at the plugin boundary; all valid
+            // resize/move/zoom callbacks remain untouched.
+            const canvasLayerProto = (
+                L as unknown as {
+                    CanvasLayer?: {
+                        prototype?: {
+                            getEvents?: () => Record<string, unknown>;
+                            __thalassaFiltersInvalidEvents?: boolean;
+                        };
+                    };
+                }
+            ).CanvasLayer?.prototype;
+            if (canvasLayerProto?.getEvents && !canvasLayerProto.__thalassaFiltersInvalidEvents) {
+                const originalGetEvents = canvasLayerProto.getEvents;
+                canvasLayerProto.getEvents = function () {
+                    return Object.fromEntries(
+                        Object.entries(originalGetEvents.call(this)).filter(
+                            ([, listener]) => typeof listener === 'function',
+                        ),
+                    );
+                };
+                canvasLayerProto.__thalassaFiltersInvalidEvents = true;
+            }
 
             if (cancelled) return;
 

@@ -176,7 +176,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 // Auto-reconnect didn't land (no comms right now, session aged
                 // out, or it just didn't come back). If the last session was a
                 // SHORE (follower) join, pre-fill the code field so the punter
-                // reconnects in one tap — never re-typing the 6-digit number.
+                // reconnects in one tap — never re-typing the session code.
                 const last = AnchorWatchSyncService.getState();
                 const lastCode = AnchorWatchSyncService.getLastSessionCode();
                 if (last.role === 'shore' && lastCode) {
@@ -424,13 +424,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }, []);
 
     const handleJoinShore = useCallback(async () => {
-        if (sessionCode.length !== 6) return;
+        if (sessionCode.length !== 12) return;
         try {
             const joined = await AnchorWatchSyncService.joinSession(sessionCode);
             if (joined) {
                 setViewMode('shore');
             } else {
-                toast.error('Could not join — check the 6-digit code and try again.');
+                toast.error('Could not join — check the 12-character code and try again.');
             }
         } catch (e) {
             log.error('joinSession failed', e);

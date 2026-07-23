@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * proxy-bosun-fallback — cloud Haiku 4.5 + tools for Thalassa's voice console.
  *
@@ -772,10 +774,22 @@ Deno.serve(async (req: Request) => {
         });
     }
 
+    const caller = await requireAuthenticatedQuota(req, 'bosun_fallback', 30, 3600);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
+    }
+
     const totalStart = Date.now();
     let body: AskRequest;
     try {
-        body = await req.json();
+        const rawBody = await req.text();
+        if (rawBody.length > 20_000_000) {
+            return new Response(JSON.stringify({ error: 'request too large' }), {
+                status: 413,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
+        body = JSON.parse(rawBody) as AskRequest;
     } catch {
         return new Response(JSON.stringify({ error: 'invalid JSON' }), {
             status: 400,
@@ -785,6 +799,12 @@ Deno.serve(async (req: Request) => {
 
     // Resolve transcript: typed text directly, OR Scribe STT on the audio blob.
     let transcript = (body.text || '').trim();
+    if (transcript.length > 10_000 || (body.knowledge?.length ?? 0) > 50_000 || (body.history?.length ?? 0) > 50) {
+        return new Response(JSON.stringify({ error: 'request content exceeds limits' }), {
+            status: 400,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
     let sttMs = 0;
 
     if (!transcript) {

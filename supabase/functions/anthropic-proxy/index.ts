@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * anthropic-proxy — thin pass-through to api.anthropic.com/v1/messages.
  *
@@ -81,6 +83,11 @@ Deno.serve(async (req: Request) => {
         });
     }
 
+    const caller = await requireAuthenticatedQuota(req, 'anthropic', 60, 3600);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
+    }
+
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) {
         return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }), {
@@ -92,8 +99,32 @@ Deno.serve(async (req: Request) => {
     // Read the body verbatim — we don't parse or modify the Anthropic
     // request shape. The client owns it.
     const bodyText = await req.text();
-    if (!bodyText) {
+    if (!bodyText || bodyText.length > 250_000) {
         return new Response(JSON.stringify({ error: 'empty body' }), {
+            status: 400,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
+    try {
+        const parsed = JSON.parse(bodyText) as { model?: string; max_tokens?: number };
+        if (!['claude-haiku-4-5', 'claude-sonnet-4-5'].includes(parsed.model || '')) {
+            return new Response(JSON.stringify({ error: 'unsupported model' }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
+        if (
+            !Number.isInteger(parsed.max_tokens) ||
+            (parsed.max_tokens as number) < 1 ||
+            (parsed.max_tokens as number) > 4096
+        ) {
+            return new Response(JSON.stringify({ error: 'invalid max_tokens' }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
+    } catch {
+        return new Response(JSON.stringify({ error: 'invalid JSON' }), {
             status: 400,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });

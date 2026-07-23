@@ -48,19 +48,17 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             // 3. Queue for APNs push delivery (so it arrives when app is backgrounded)
             if (supabase && user?.id) {
                 supabase
-                    .from('push_notification_queue')
-                    .insert({
-                        recipient_user_id: user.id,
-                        notification_type: 'weather_alert',
-                        title,
-                        body,
-                        data: {
+                    .rpc('queue_self_push', {
+                        p_notification_type: 'weather_alert',
+                        p_title: title,
+                        p_body: body,
+                        p_data: {
                             alert_type: id,
                             location: weatherData.locationName || 'Unknown',
                         },
                     })
                     .then(({ error }) => {
-                        if (error) log.warn('Push queue insert failed:', error.message);
+                        if (error) log.warn('Push request failed:', error.message);
                         else log.info('Weather alert queued for push:', id);
                     });
             }

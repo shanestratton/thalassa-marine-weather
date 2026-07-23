@@ -22,9 +22,13 @@
 
 import { blobToBase64 } from './audioRecorder';
 import type { ThalassaContext, VoiceHistoryTurn, VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
+import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const SUPABASE_KEY =
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 // Cloud Haiku in tool-use mode can chain Scribe STT + thalassa_weather +
 // final synthesis + ElevenLabs TTS. Each adds 1-5s; cold Edge Function
@@ -69,13 +73,10 @@ async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
 
     let response: Response;
     try {
+        const headers = await getAuthenticatedFunctionHeaders();
         response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                apikey: SUPABASE_KEY,
-            },
+            headers,
             body: JSON.stringify(body),
             signal: ctrl.signal,
         });

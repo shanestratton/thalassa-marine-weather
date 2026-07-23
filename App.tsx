@@ -475,14 +475,6 @@ const App: React.FC = () => {
             </Suspense>
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
-                {/* Skip to content — keyboard accessibility */}
-                <a
-                    href="#main-content"
-                    className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[9999] focus:px-4 focus:py-2 focus:bg-sky-600 focus:text-white focus:rounded-lg focus:text-sm focus:font-bold focus:outline-none focus:ring-2 focus:ring-white"
-                >
-                    Skip to content
-                </a>
-
                 {/* The full-width strip ConnectivityBanner used to live here.
                     Removed 2026-05-08 — three concrete problems it was causing:
                       (a) On Dashboard, the strip took ~70px of flex flow,
@@ -619,7 +611,7 @@ const App: React.FC = () => {
                                 {canUseBosunVoice && (
                                     <button
                                         onClick={() => setPage('voice')}
-                                        className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
+                                        className="w-12 h-12 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
                                         aria-label="Open Bosun voice console"
                                         title="Talk to Bosun"
                                     >
@@ -900,7 +892,7 @@ const App: React.FC = () => {
                         </main>
                     </PullToRefresh>
                 ) : (
-                    <div className="flex-grow w-full relative bg-slate-900 overflow-hidden">
+                    <main id="main-content" className="flex-grow w-full relative bg-slate-900 overflow-hidden">
                         <ErrorBoundary boundaryName="MapView">
                             <Suspense
                                 fallback={
@@ -971,7 +963,7 @@ const App: React.FC = () => {
                             {canUseBosunVoice && !tracerActive && (
                                 <button
                                     onClick={() => setPage('voice')}
-                                    className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
+                                    className="w-12 h-12 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
                                     aria-label="Open Bosun voice console"
                                     title="Talk to Bosun"
                                 >
@@ -994,7 +986,7 @@ const App: React.FC = () => {
                                     setPage(previousView || 'dashboard');
                                 }}
                                 aria-label="Back"
-                                className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
+                                className="w-12 h-12 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
                             >
                                 <svg
                                     className="w-5 h-5 text-white"
@@ -1011,7 +1003,7 @@ const App: React.FC = () => {
                                 </svg>
                             </button>
                         </div>
-                    </div>
+                    </main>
                 )}
 
                 {/* BOTTOM FADE removed — was obscuring Start Tracking button on Log page */}

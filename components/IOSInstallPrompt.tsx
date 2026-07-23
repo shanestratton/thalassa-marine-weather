@@ -36,7 +36,7 @@ export const IOSInstallPrompt = () => {
     if (!show) return null;
 
     return (
-        <div className="fixed bottom-6 left-4 right-4 z-[100] animate-in fade-in slide-in-from-bottom-8 duration-700">
+        <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 right-4 z-[100] animate-in fade-in slide-in-from-bottom-8 duration-700">
             <div
                 className={`modal-panel-enter bg-slate-900/90 ${t.border.default} rounded-2xl p-4 shadow-2xl relative`}
             >

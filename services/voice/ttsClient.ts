@@ -26,9 +26,13 @@
 
 import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveVoiceId } from './voicePresets';
+import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const SUPABASE_KEY =
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 const TTS_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
@@ -109,13 +113,10 @@ export async function synthesise(
             voice_id,
         };
         if (opts?.voiceSettings) body.voice_settings = opts.voiceSettings;
+        const headers = await getAuthenticatedFunctionHeaders();
         const r = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                apikey: SUPABASE_KEY,
-            },
+            headers,
             body: JSON.stringify(body),
             signal: ctrl.signal,
         });

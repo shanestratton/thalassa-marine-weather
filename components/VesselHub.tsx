@@ -73,8 +73,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // Which device speaks for this boat (services/skipperDevice.ts). Read from
     // the live store rather than the `settings` prop so a takeover on another
     // device reflects here as soon as settings sync brings it down.
-    const skipperClaim = (ctx as { skipperDevice?: import('../services/skipperDevice').SkipperClaim })
-        ?.skipperDevice ?? null;
+    const skipperClaim =
+        (ctx as { skipperDevice?: import('../services/skipperDevice').SkipperClaim })?.skipperDevice ?? null;
     const skipperClaimHeld = holdsClaim(skipperClaim);
 
     // ── Anchor state ──
@@ -447,8 +447,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // richer label ("Armed — 45.0m", plus a triangle icon on DRAG ALARM) when the
     // tiles went four-across; the radius is one tap away on the Anchor screen,
     // and the colour-coded dot — which pulses on alarm — does the shouting.
-    const anchorLabelShort: string =
-        anchorStatus === 'alarm' ? 'DRAGGING' : anchorStatus === 'armed' ? 'Armed' : 'Off';
+    const anchorLabelShort: string = anchorStatus === 'alarm' ? 'DRAGGING' : anchorStatus === 'armed' ? 'Armed' : 'Off';
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
 
     // BOAT BINDER SCREEN. Rendered instead of the hub — same wrapper and scroll
@@ -480,54 +479,54 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <span className="text-lg font-black tracking-wide text-white">Boat Binder</span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
-                        {/* — Passage subgroup — */}
-                        <BinderSubLabel>Passage</BinderSubLabel>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<CrewIcon color="#cbd5e1" />}
-                                label="Passage Planning"
-                                status={
-                                    passageCrewCount > 0
-                                        ? `${passageCrewCount} crew`
-                                        : pendingCrewInvites > 0
-                                          ? `${pendingCrewInvites} Pending`
-                                          : 'Plan Your Voyage'
-                                }
-                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('crew');
-                                }}
-                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<GpxIcon color="#cbd5e1" />}
-                                label="Import GPX"
-                                status="OpenCPN • Navionics"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('gpx-import');
-                                }}
-                            />
-                        </div>
+                    {/* — Passage subgroup — */}
+                    <BinderSubLabel>Passage</BinderSubLabel>
+                    <div style={GLASS.listContainer}>
+                        <OfficeRow
+                            icon={<CrewIcon color="#cbd5e1" />}
+                            label="Passage Planning"
+                            status={
+                                passageCrewCount > 0
+                                    ? `${passageCrewCount} crew`
+                                    : pendingCrewInvites > 0
+                                      ? `${pendingCrewInvites} Pending`
+                                      : 'Plan Your Voyage'
+                            }
+                            statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('crew');
+                            }}
+                            badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<GpxIcon color="#cbd5e1" />}
+                            label="Import GPX"
+                            status="OpenCPN • Navionics"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('gpx-import');
+                            }}
+                        />
+                    </div>
 
-                        {/* — Inventory & Stores subgroup — */}
-                        <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<BoxIcon color="#cbd5e1" />}
-                                label="Ship's Stores"
-                                status="Provisions & Spares"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('inventory');
-                                }}
-                            />
-                            <ListDivider />
-                            {/* Galley — orphan-audit fix 2026-05-17. The
+                    {/* — Inventory & Stores subgroup — */}
+                    <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
+                    <div style={GLASS.listContainer}>
+                        <OfficeRow
+                            icon={<BoxIcon color="#cbd5e1" />}
+                            label="Ship's Stores"
+                            status="Provisions & Spares"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('inventory');
+                            }}
+                        />
+                        <ListDivider />
+                        {/* Galley — orphan-audit fix 2026-05-17. The
                                 GalleyPage docstring claimed it was
                                 "accessible directly from VesselHub Ship's
                                 Office grid" but the tile had silently been
@@ -538,118 +537,118 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 PaywallGate is auto-applied by viewRegistry
                                 via gatedFeature: 'galley', so free users
                                 hit an upgrade prompt — not a broken page. */}
-                            <OfficeRow
-                                icon={<GalleyIcon color="#cbd5e1" />}
-                                label="Galley"
-                                status="Meal Planning"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('galley');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ClipboardIcon color="#cbd5e1" />}
-                                label="Equipment"
-                                status={expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'}
-                                statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('equipment');
-                                }}
-                                badge={expiringEquipCount > 0 ? expiringEquipCount : undefined}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
-                                label="Repairs & Maintenance"
-                                status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
-                                statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('maintenance');
-                                }}
-                                badge={overdueCount > 0 ? overdueCount : undefined}
-                                badgeUrgent={overdueCount > 0}
-                            />
-                        </div>
+                        <OfficeRow
+                            icon={<GalleyIcon color="#cbd5e1" />}
+                            label="Galley"
+                            status="Meal Planning"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('galley');
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<ClipboardIcon color="#cbd5e1" />}
+                            label="Equipment"
+                            status={expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'}
+                            statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('equipment');
+                            }}
+                            badge={expiringEquipCount > 0 ? expiringEquipCount : undefined}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
+                            label="Repairs & Maintenance"
+                            status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
+                            statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('maintenance');
+                            }}
+                            badge={overdueCount > 0 ? overdueCount : undefined}
+                            badgeUrgent={overdueCount > 0}
+                        />
+                    </div>
 
-                        {/* — Reference subgroup — */}
-                        <BinderSubLabel>Reference</BinderSubLabel>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<ChecklistIcon color="#cbd5e1" />}
-                                label="Checklists"
-                                status="Safety & Passage"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('checklists');
-                                }}
-                            />
-                            <ListDivider />
-                            {/* Relocated from Watch Status (Shane 2026-07-08) —
+                    {/* — Reference subgroup — */}
+                    <BinderSubLabel>Reference</BinderSubLabel>
+                    <div style={GLASS.listContainer}>
+                        <OfficeRow
+                            icon={<ChecklistIcon color="#cbd5e1" />}
+                            label="Checklists"
+                            status="Safety & Passage"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('checklists');
+                            }}
+                        />
+                        <ListDivider />
+                        {/* Relocated from Watch Status (Shane 2026-07-08) —
                                 planning/reference tools, not daily ops. */}
-                            <OfficeRow
-                                icon={<ChartIcon color="#34d399" />}
-                                label="Weather Window"
-                                status="Go / No-Go Score"
-                                statusColor="#34d399"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('weatherWindow');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<BookIcon color="#38bdf8" />}
-                                label="Skipper's Reference"
-                                status="GRIB · Synoptic · Squalls"
-                                statusColor="#38bdf8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('skipperReference');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ChartIcon color="#cbd5e1" />}
-                                label="Polars"
-                                status={isObserver ? 'Vessel Required' : 'Tuning'}
-                                statusColor={isObserver ? '#6b7280' : '#94a3b8'}
-                                onClick={() => {
-                                    if (isObserver) return;
-                                    triggerHaptic('light');
-                                    onNavigate('polars');
-                                }}
-                                disabled={isObserver}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
-                                label="Documents"
-                                status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
-                                statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('documents');
-                                }}
-                                badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
-                                badgeUrgent={expiringDocsCount > 0}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<NoticeIcon color="#f59e0b" />}
-                                label="Notices to Mariners"
-                                status="NAVAREA • HYDRO"
-                                statusColor="#f59e0b"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('notices');
-                                }}
-                            />
-                        </div>
+                        <OfficeRow
+                            icon={<ChartIcon color="#34d399" />}
+                            label="Weather Window"
+                            status="Go / No-Go Score"
+                            statusColor="#34d399"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('weatherWindow');
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<BookIcon color="#38bdf8" />}
+                            label="Skipper's Reference"
+                            status="GRIB · Synoptic · Squalls"
+                            statusColor="#38bdf8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('skipperReference');
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<ChartIcon color="#cbd5e1" />}
+                            label="Polars"
+                            status={isObserver ? 'Vessel Required' : 'Tuning'}
+                            statusColor={isObserver ? '#6b7280' : '#94a3b8'}
+                            onClick={() => {
+                                if (isObserver) return;
+                                triggerHaptic('light');
+                                onNavigate('polars');
+                            }}
+                            disabled={isObserver}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
+                            label="Documents"
+                            status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
+                            statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('documents');
+                            }}
+                            badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
+                            badgeUrgent={expiringDocsCount > 0}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<NoticeIcon color="#f59e0b" />}
+                            label="Notices to Mariners"
+                            status="NAVAREA • HYDRO"
+                            statusColor="#f59e0b"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('notices');
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
         );
@@ -712,7 +711,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         onNavigate={onNavigate}
                     />
 
-                {/* The 4-bucket IA (2026-05-17) reordered the
+                    {/* The 4-bucket IA (2026-05-17) reordered the
                     sections so Quick Actions (daily ops) sits at the
                     top of the hub, followed by Boat Binder (passage
                     prep + binder material), Wardroom (social/comfort),
@@ -720,24 +719,24 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     "Passage Planning" section's two rows moved into
                     the Passage subgroup of Boat Binder below. */}
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* WATCH STATUS — live operational status grid  */}
-                {/* (was "Quick Actions" with 6 tiles. The Log    */}
-                {/*  Book + Diary tiles were removed 2026-05-17   */}
-                {/*  because both routed to the same destinations  */}
-                {/*  as the new bottom-nav Log tab — pure         */}
-                {/*  duplication of the 5-tab nav restructure.    */}
-                {/*  Live counts that used to live on the Log    */}
-                {/*  Book tile moved to the top of LogPage         */}
-                {/*  itself. The remaining 4 tiles all share a   */}
-                {/*  unifying purpose: live operational status —  */}
-                {/*  Anchor armed/disarmed, Guardian watching,    */}
-                {/*  MOB rest state, Radio active. Section        */}
-                {/*  renamed accordingly. localStorage key 'quick' */}
-                {/*  preserved to retain the expanded state for    */}
-                {/*  existing users.) */}
-                {/* ═══════════════════════════════════════════ */}
-                {/* PINNED TO THE SCREEN (Shane 2026-07-19: "can we have it so the
+                    {/* ═══════════════════════════════════════════ */}
+                    {/* WATCH STATUS — live operational status grid  */}
+                    {/* (was "Quick Actions" with 6 tiles. The Log    */}
+                    {/*  Book + Diary tiles were removed 2026-05-17   */}
+                    {/*  because both routed to the same destinations  */}
+                    {/*  as the new bottom-nav Log tab — pure         */}
+                    {/*  duplication of the 5-tab nav restructure.    */}
+                    {/*  Live counts that used to live on the Log    */}
+                    {/*  Book tile moved to the top of LogPage         */}
+                    {/*  itself. The remaining 4 tiles all share a   */}
+                    {/*  unifying purpose: live operational status —  */}
+                    {/*  Anchor armed/disarmed, Guardian watching,    */}
+                    {/*  MOB rest state, Radio active. Section        */}
+                    {/*  renamed accordingly. localStorage key 'quick' */}
+                    {/*  preserved to retain the expanded state for    */}
+                    {/*  existing users.) */}
+                    {/* ═══════════════════════════════════════════ */}
+                    {/* PINNED TO THE SCREEN (Shane 2026-07-19: "can we have it so the
                     Watch Status items are always on the screen (locked to the
                     screen) as they are quite important"). Anchor, Guardian, MOB
                     and Radio are the live safety states — scrolling down to the
@@ -832,7 +831,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 >
                                     {/* The "· N nearby" suffix does not fit here; the
                                         count replaces the word so it is not lost. */}
-                                    {guardianArmed ? (guardianNearby > 0 ? `${guardianNearby} near` : 'Watching') : 'Off'}
+                                    {guardianArmed
+                                        ? guardianNearby > 0
+                                            ? `${guardianNearby} near`
+                                            : 'Watching'
+                                        : 'Off'}
                                 </p>
                             </button>
 
@@ -951,10 +954,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             }
                             updateSettings({ skipperDevice: buildClaim() });
                         }}
-                        className={`w-full rounded-xl py-2.5 text-[12px] font-black uppercase tracking-widest active:scale-95 ${
-                            skipperClaimHeld
-                                ? 'bg-white/10 text-gray-300'
-                                : 'bg-cyan-500/20 text-cyan-300'
+                        className={`min-h-[44px] w-full rounded-xl py-2.5 text-[12px] font-black uppercase tracking-widest active:scale-95 ${
+                            skipperClaimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
                         }`}
                     >
                         {skipperClaimHeld ? 'Release — let another device take it' : 'I am the skipper on this device'}
@@ -1080,8 +1081,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     style={GLASS.card}
                     className="mb-4 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/[0.03] active:scale-[0.99] card-lift"
                 >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ background: 'rgba(103, 232, 249, 0.12)' }}>
-                        <span aria-hidden className="text-base leading-none">📒</span>
+                    <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
+                    >
+                        <span aria-hidden className="text-base leading-none">
+                            📒
+                        </span>
                     </div>
                     <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-black tracking-wide text-white">Boat Binder</span>
@@ -1753,76 +1759,60 @@ const NavStationHero: React.FC<{
         >
             {/* Top row — vessel name + state pill (and swing arc if anchored) */}
             <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-                <button
-                    type="button"
-                    onClick={handleVesselTap}
-                    aria-label={vesselNameSet ? 'Open vessel settings' : 'Set up your vessel'}
-                    className="flex-1 min-w-0 active:opacity-70 transition-opacity text-left"
-                >
-                    {vesselNameSet ? (
-                        <h2 className="text-lg font-black text-white tracking-tight truncate">{vesselName}</h2>
-                    ) : (
-                        // Empty-state vessel header — was: a barely-
-                        // visible italic 50%-white placeholder that
-                        // most fresh-install users would scroll past
-                        // without noticing. Now: cyan-tinted setup
-                        // CTA with chevron affordance + a sub-line
-                        // that explains the value ("personalise
-                        // routing") so the user understands WHY they
-                        // might tap. No force — DEFAULT_VESSEL still
-                        // lets them plan without configuring; this
-                        // is just an invitation.
-                        <div className="flex flex-col gap-0.5">
-                            <h2 className="text-lg font-black text-sky-300 tracking-tight truncate flex items-center gap-1">
-                                <span>Set up your vessel</span>
-                                <svg
-                                    className="w-4 h-4 text-sky-400/80 shrink-0"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2.5}
-                                    aria-hidden="true"
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                </svg>
-                            </h2>
-                            <p className="text-[11px] font-medium text-slate-400 truncate">
-                                Personalise routing for your boat
-                            </p>
-                            {/* Sign-in restore link — only for un-authed
-                                users. The "Set up your vessel" CTA above
-                                is for fresh starts; this one is for
-                                returning users who already have a vessel
-                                in their Thalassa account and want to
-                                pull it back rather than fill the form
-                                again. Tapping opens the canonical
-                                SignInScreen with the appropriate
-                                contextual prompt — Apple + Google + email
-                                — and authStore's onAuthStateChange does
-                                the rest (cloud-restore path in
-                                useAppController kicks in on sign-in,
-                                back-fills vessel + boat metadata). */}
-                            {!authedUser && (
-                                <span
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={handleSignInTap}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            handleSignInTap(e as unknown as React.MouseEvent);
-                                        }
-                                    }}
-                                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-200/80 hover:text-cyan-100 transition-colors w-fit cursor-pointer"
-                                    aria-label="Already have a Thalassa account? Sign in to restore your saved vessel"
-                                >
-                                    <span>Already have a Thalassa account?</span>
-                                    <span className="text-cyan-300 underline underline-offset-2">Sign in →</span>
-                                </span>
-                            )}
-                        </div>
+                <div className="flex-1 min-w-0">
+                    <button
+                        type="button"
+                        onClick={handleVesselTap}
+                        aria-label={vesselNameSet ? 'Open vessel settings' : 'Set up your vessel'}
+                        className="w-full active:opacity-70 transition-opacity text-left"
+                    >
+                        {vesselNameSet ? (
+                            <h2 className="text-lg font-black text-white tracking-tight truncate">{vesselName}</h2>
+                        ) : (
+                            // Empty-state vessel header — was: a barely-
+                            // visible italic 50%-white placeholder that
+                            // most fresh-install users would scroll past
+                            // without noticing. Now: cyan-tinted setup
+                            // CTA with chevron affordance + a sub-line
+                            // that explains the value ("personalise
+                            // routing") so the user understands WHY they
+                            // might tap. No force — DEFAULT_VESSEL still
+                            // lets them plan without configuring; this
+                            // is just an invitation.
+                            <div className="flex flex-col gap-0.5">
+                                <h2 className="text-lg font-black text-sky-300 tracking-tight truncate flex items-center gap-1">
+                                    <span>Set up your vessel</span>
+                                    <svg
+                                        className="w-4 h-4 text-sky-400/80 shrink-0"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2.5}
+                                        aria-hidden="true"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </h2>
+                                <p className="text-[11px] font-medium text-slate-400 truncate">
+                                    Personalise routing for your boat
+                                </p>
+                            </div>
+                        )}
+                    </button>
+                    {/* A sibling button, never nested inside the vessel setup
+                        button, so keyboard and screen-reader activation are valid. */}
+                    {!vesselNameSet && !authedUser && (
+                        <button
+                            type="button"
+                            onClick={handleSignInTap}
+                            className="mt-1 inline-flex min-h-[44px] w-fit items-center gap-1 text-[11px] font-semibold text-cyan-200/80 hover:text-cyan-100 transition-colors"
+                            aria-label="Already have a Thalassa account? Sign in to restore your saved vessel"
+                        >
+                            <span>Already have a Thalassa account?</span>
+                            <span className="text-cyan-300 underline underline-offset-2">Sign in →</span>
+                        </button>
                     )}
-                </button>
+                </div>
                 {showSwing ? (
                     <button
                         type="button"
@@ -1917,7 +1907,7 @@ const NavStationHero: React.FC<{
                 type="button"
                 onClick={handlePositionTap}
                 aria-label="Open chart at current position"
-                className="w-full flex items-center gap-2 px-4 pt-1.5 pb-2 active:opacity-70 transition-opacity text-left"
+                className="min-h-[44px] w-full flex items-center gap-2 px-4 pt-1.5 pb-2 active:opacity-70 transition-opacity text-left"
             >
                 {/* GPS pill — dot + lat/lon + time-since-fix.
                     2026-04-28: decoupled from network online/offline state.

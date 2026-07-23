@@ -483,7 +483,10 @@ export async function fetchPressureEye(approxLat: number, approxLon: number): Pr
         const west = approxLon - BOX;
 
         const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-        const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+        const supabaseKey =
+            (typeof import.meta !== 'undefined' &&
+                (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+            '';
         if (!supabaseUrl) return null;
 
         const url = `${supabaseUrl}/functions/v1/fetch-pressure-grid`;

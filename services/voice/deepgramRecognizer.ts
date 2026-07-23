@@ -32,17 +32,22 @@
  *                                → JSON {is_final, transcript} messages
  *                                → onPartial / onFirstPartial callbacks
  *
- * Auth: ephemeral token from /functions/v1/deepgram-token (60s TTL),
- * passed via Sec-WebSocket-Protocol because browsers can't set the
- * Authorization header on WebSockets.
+ * Auth: a signed-in user mints a 60-second, one-use proxy ticket via
+ * /functions/v1/deepgram-token. The proxy consumes that ticket before
+ * it opens the upstream Deepgram socket; no provider credential reaches
+ * the browser or native web view.
  */
 
 import { Capacitor } from '@capacitor/core';
+import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
 
 // ── Module-level config ────────────────────────────────────────────────
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const SUPABASE_KEY =
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 /**
  * Cloudflare Worker URL for the Deepgram WebSocket proxy. When set,
@@ -175,22 +180,7 @@ async function raceTimeout<T>(p: Promise<T>, timeoutMs = CLEANUP_TIMEOUT_MS): Pr
     return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
 }
 
-/**
- * Token cache. Pre-warmed on console open via prewarmDeepgram() so the
- * cold-start path can skip the ~150-300ms token mint round-trip when a
- * fresh token is already in hand. Tokens come back with `expires_in=30`
- * (ephemeral path) or no expiry (long-lived fallback); we conservatively
- * cap the cache at 20s either way to leave headroom for the WS handshake
- * to complete inside the token's actual TTL.
- */
-interface TokenCacheEntry {
-    token: string;
-    expiresAt: number;
-}
-let tokenCache: TokenCacheEntry | null = null;
-const TOKEN_CACHE_MAX_AGE_MS = 20_000;
-
-async function fetchDeepgramToken(): Promise<string> {
+async function mintDeepgramProxyTicket(): Promise<string> {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
         throw new Error('Deepgram token mint unavailable: Supabase credentials missing');
     }
@@ -198,13 +188,10 @@ async function fetchDeepgramToken(): Promise<string> {
     const ctrl = new AbortController();
     const watchdog = setTimeout(() => ctrl.abort(), 10_000);
     try {
+        const headers = await getAuthenticatedFunctionHeaders();
         const r = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                apikey: SUPABASE_KEY,
-            },
+            headers,
             body: JSON.stringify({}),
             signal: ctrl.signal,
         });
@@ -213,33 +200,17 @@ async function fetchDeepgramToken(): Promise<string> {
             throw new Error(`Deepgram token mint ${r.status}: ${text.slice(0, 200)}`);
         }
         const data = (await r.json()) as { access_token?: string };
-        if (!data.access_token) throw new Error('Deepgram token mint returned no access_token');
+        if (!data.access_token) throw new Error('Deepgram ticket mint returned no ticket');
         return data.access_token;
     } catch (err) {
         const e = err as Error;
         if (e.name === 'AbortError') {
-            throw new Error('Deepgram token mint timed out');
+            throw new Error('Deepgram ticket mint timed out');
         }
         throw e;
     } finally {
         clearTimeout(watchdog);
     }
-}
-
-async function mintDeepgramToken(): Promise<string> {
-    // Cache hit: serve a token that's still inside its conservative
-    // freshness window. On a hit we skip the entire Supabase round-trip,
-    // which on a typical iOS connection saves 150-300ms off cold start.
-    const cached = tokenCache;
-    if (cached && Date.now() < cached.expiresAt) {
-        emitEvent('[DG] token cache hit');
-        return cached.token;
-    }
-    const t0 = Date.now();
-    const token = await fetchDeepgramToken();
-    emitEvent(`[DG] token minted in ${Date.now() - t0}ms`);
-    tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_MAX_AGE_MS };
-    return token;
 }
 
 /**
@@ -598,13 +569,13 @@ function buildDeepgramUrlParams(sampleRate: number): URLSearchParams {
     return params;
 }
 
-function buildProxyWsUrl(sampleRate: number): string | null {
+function buildProxyWsUrl(sampleRate: number, ticket: string): string | null {
     if (!DEEPGRAM_PROXY_URL || !SUPABASE_KEY) return null;
     const params = buildDeepgramUrlParams(sampleRate);
     const cfHost = DEEPGRAM_PROXY_URL.replace(/^https:/, 'wss:')
         .replace(/^http:/, 'ws:')
         .replace(/\/+$/, '');
-    return `${cfHost}/?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
+    return `${cfHost}/?${params.toString()}&ticket=${encodeURIComponent(ticket)}`;
 }
 
 /**
@@ -624,7 +595,16 @@ export async function prewarmDeepgramWebSocket(): Promise<boolean> {
         return true;
     }
     releasePrewarmedWebSocket();
-    const wsUrl = buildProxyWsUrl(PREWARM_ASSUMED_SAMPLE_RATE);
+    if (!DEEPGRAM_PROXY_URL) return false;
+
+    let ticket: string;
+    try {
+        ticket = await mintDeepgramProxyTicket();
+    } catch (err) {
+        emitEvent(`[DG] prewarm ticket failed: ${(err as Error).message}`);
+        return false;
+    }
+    const wsUrl = buildProxyWsUrl(PREWARM_ASSUMED_SAMPLE_RATE, ticket);
     if (!wsUrl) return false;
 
     const t0 = Date.now();
@@ -773,30 +753,6 @@ export async function prewarmWorkerConnection(): Promise<boolean> {
 }
 
 /**
- * Pre-warm the Deepgram token cache. Call from the BosunConsole on open
- * so the very first tap-to-talk skips the token mint round-trip — the
- * worst single contributor to cold-start latency. Refreshing on every
- * call is cheap because we only refetch when the cache is stale.
- *
- * Resolves to true on successful warm; false on failure (no exception
- * thrown). The voice console treats both the same — start-time mint
- * will retry with a clean error path.
- */
-export async function prewarmDeepgram(): Promise<boolean> {
-    if (tokenCache && Date.now() < tokenCache.expiresAt) return true;
-    try {
-        const t0 = Date.now();
-        const token = await fetchDeepgramToken();
-        tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_MAX_AGE_MS };
-        emitEvent(`[DG] prewarm minted token in ${Date.now() - t0}ms`);
-        return true;
-    } catch (err) {
-        emitEvent(`[DG] prewarm failed: ${(err as Error).message}`);
-        return false;
-    }
-}
-
-/**
  * Inline AudioWorklet code: takes Float32 mic samples, converts to Int16
  * (linear16 PCM, the format Deepgram expects), and posts the buffer to
  * the main thread for forwarding to the WebSocket.
@@ -926,27 +882,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     });
     let flushRequested = false;
 
-    // ── 1. Mint token (only when Supabase fallback is in use) ──────
-    // The Cloudflare Worker proxy holds the Deepgram API key
-    // server-side and authenticates upstream itself, so the iOS
-    // client doesn't need a Deepgram token at all when going through
-    // the Worker — saves 150-300ms off cold start.
-    let token = '';
-    if (!DEEPGRAM_PROXY_URL) {
-        emitEvent('[DG] start: minting token (Supabase path)…');
-        const tokenStart = Date.now();
-        try {
-            token = await mintDeepgramToken();
-        } catch (err) {
-            emitEvent(`[DG] token mint failed: ${(err as Error).message}`);
-            throw err;
-        }
-        emitEvent(`[DG] token ready (${Date.now() - tokenStart}ms)`);
-    } else {
-        emitEvent('[DG] cloudflare path — skipping token mint');
-    }
-
-    // ── 2. Acquire mic stream ───────────────────────────────────────
+    // ── 1. Acquire mic stream ───────────────────────────────────────
     // Prefer the prewarmed stream from BosunConsole's on-open hook —
     // saves the ~1.0-1.4s iOS getUserMedia / AVAudioSession activation
     // cost from the tap-to-ready critical path. Falls back to a fresh
@@ -975,7 +911,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         emitEvent(`[DG] mic stream acquired (${Date.now() - micStart}ms)`);
     }
 
-    // ── 3. Open AudioContext + load worklet ────────────────────────
+    // ── 2. Open AudioContext + load worklet ────────────────────────
     // Use the pre-warmed context if BosunConsole called
     // prewarmAudioContext() on open. This skips ~200-400ms of cold
     // start because the AudioContext construction and worklet module
@@ -1080,7 +1016,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         throw new Error(`Failed to load PCM worklet: ${msg}`);
     }
 
-    // ── 4. Build WebSocket URL with parameters ─────────────────────
+    // ── 3. Build WebSocket URL with parameters ─────────────────────
     const params = new URLSearchParams({
         model: DEEPGRAM_MODEL,
         encoding: 'linear16',
@@ -1102,7 +1038,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         params.append('keyterm', term);
     }
 
-    // ── 5. Connect WebSocket via Supabase proxy ─────────────────────
+    // ── 4. Connect WebSocket through the authenticated proxy ────────
     // We don't connect directly to api.deepgram.com from the iOS
     // client. iOS WKWebView's WebSocket implementation has issues
     // with multi-element Sec-WebSocket-Protocol arrays — both with
@@ -1117,11 +1053,6 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // no client-side length quirks) and bridges audio + transcript
     // frames bidirectionally.
     //
-    // The `token` parameter passed in here is intentionally unused for
-    // the upstream auth (the proxy holds the key) but we keep the
-    // round-trip to deepgram-token because it warms the network path
-    // and confirms the function is reachable before we open the WS.
-    void token;
     if (!SUPABASE_URL || !SUPABASE_KEY) {
         stream.getTracks().forEach((t) => t.stop());
         await audioContext.close().catch(() => {});
@@ -1132,21 +1063,38 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     //      — stable under iOS audio load, designed for WS bridging
     //   2. Supabase Edge Function (fallback / cutover)
     //      — dies after ~1s with iOS-paced packets, kept for testing
-    // Both endpoints use the same `?apikey=<anon JWT>` auth pattern.
-    let wsUrl: string;
-    let proxyKind: string;
-    if (DEEPGRAM_PROXY_URL) {
-        const cfHost = DEEPGRAM_PROXY_URL.replace(/^https:/, 'wss:')
-            .replace(/^http:/, 'ws:')
-            .replace(/\/+$/, '');
-        wsUrl = `${cfHost}/?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
-        proxyKind = 'cloudflare-worker';
-    } else {
-        const sbHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
-        wsUrl = `${sbHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
-        proxyKind = 'supabase-edge';
+    // Both endpoints consume the same one-use ticket before opening upstream.
+    // Claiming first matters: a prewarmed socket has already consumed its
+    // one-use ticket. Minting another ticket in that case wastes quota and
+    // leaves an unnecessary credential in memory until it expires.
+    const prewarmedSocket = claimPrewarmedWebSocket(sampleRate);
+    let wsUrl = '';
+    if (!prewarmedSocket) {
+        emitEvent('[DG] start: minting secure proxy ticket…');
+        const ticketStart = Date.now();
+        let ticket: string;
+        try {
+            ticket = await mintDeepgramProxyTicket();
+        } catch (err) {
+            stream.getTracks().forEach((track) => track.stop());
+            await audioContext.close().catch(() => {});
+            emitEvent(`[DG] proxy ticket mint failed: ${(err as Error).message}`);
+            throw err;
+        }
+        emitEvent(`[DG] proxy ticket ready (${Date.now() - ticketStart}ms)`);
+
+        if (DEEPGRAM_PROXY_URL) {
+            const cfHost = DEEPGRAM_PROXY_URL.replace(/^https:/, 'wss:')
+                .replace(/^http:/, 'ws:')
+                .replace(/\/+$/, '');
+            wsUrl = `${cfHost}/?${params.toString()}&ticket=${encodeURIComponent(ticket)}`;
+            emitEvent('[DG] using cloudflare-worker proxy');
+        } else {
+            const sbHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+            wsUrl = `${sbHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}&ticket=${encodeURIComponent(ticket)}`;
+            emitEvent('[DG] using supabase-edge proxy');
+        }
     }
-    emitEvent(`[DG] using ${proxyKind} proxy`);
 
     async function tryConnect(strategy: 'supabase-proxy'): Promise<WebSocket> {
         const stratStart = Date.now();
@@ -1230,9 +1178,8 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // stale prewarm, or sample-rate mismatch.
     let ws: WebSocket;
     const wsStart = Date.now();
-    const prewarmed = claimPrewarmedWebSocket(sampleRate);
-    if (prewarmed) {
-        ws = prewarmed;
+    if (prewarmedSocket) {
+        ws = prewarmedSocket;
         emitEvent(`[DG] reused prewarmed WebSocket (saved ~150-300ms)`);
     } else {
         try {
@@ -1246,7 +1193,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     }
     emitEvent(`[DG] proxy ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
 
-    // ── 6. Wire incoming Deepgram messages ──────────────────────────
+    // ── 5. Wire incoming Deepgram messages ──────────────────────────
     let totalMessagesReceived = 0;
     ws.addEventListener('message', (event: MessageEvent<string>) => {
         totalMessagesReceived++;
@@ -1318,7 +1265,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         emitEvent('[DG] ws error');
     });
 
-    // ── 7. Wire mic → worklet → ws ─────────────────────────────────
+    // ── 6. Wire mic → worklet → ws ─────────────────────────────────
     let workletNode: AudioWorkletNode | null = null;
     let micSource: MediaStreamAudioSourceNode | null = null;
     let firstChunkSent = false;

@@ -3,7 +3,7 @@
 //
 // Zero-Mediation Escrow Flow:
 // 1. Creates a Stripe PaymentIntent with capture_method = 'manual' (auth-only hold)
-// 2. Generates a random 4-digit PIN for the buyer
+// 2. Generates a cryptographically-random 6-digit PIN for the buyer
 // 3. Creates escrow record with 48h expiry
 // 4. Returns client_secret + PIN to buyer
 // 5. Seller enters PIN → triggers capture-escrow-payment edge function
@@ -21,9 +21,16 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-/** Generate a random 4-digit PIN (1000-9999) */
+/** Generate a random 6-digit PIN (100000-999999). */
 const generatePin = (): string => {
-    return String(Math.floor(1000 + Math.random() * 9000));
+    const value = new Uint32Array(1);
+    crypto.getRandomValues(value);
+    return String(100000 + (value[0] % 900000));
+};
+
+const hashPin = async (pin: string): Promise<string> => {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
 serve(async (req) => {
@@ -31,7 +38,17 @@ serve(async (req) => {
         return new Response('ok', { headers: corsHeaders });
     }
 
+    let rollbackClient: ReturnType<typeof createClient> | null = null;
+    let rollbackListingId: string | null = null;
+    let rollbackPaymentIntentId: string | null = null;
+    let stripeForRollback: Stripe | null = null;
     try {
+        if (Deno.env.get('MARKETPLACE_ENABLED') !== 'true') {
+            return new Response(JSON.stringify({ error: 'Marketplace payments are not currently available' }), {
+                status: 503,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
         const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
         if (!stripeKey) throw new Error('STRIPE_SECRET_KEY not configured');
 
@@ -39,6 +56,7 @@ serve(async (req) => {
             apiVersion: '2023-10-16',
             httpClient: Stripe.createFetchHttpClient(),
         });
+        stripeForRollback = stripe;
 
         // Auth
         const authHeader = req.headers.get('Authorization');
@@ -52,6 +70,7 @@ serve(async (req) => {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        rollbackClient = supabase;
 
         const token = authHeader.replace('Bearer ', '');
         const {
@@ -114,9 +133,39 @@ serve(async (req) => {
         const platformFeeCents = Math.round((amountCents * PLATFORM_FEE_PERCENT) / 100);
         const sellerPayoutCents = amountCents - platformFeeCents;
         const stripeCurrency = (listing.currency || 'AUD').toLowerCase();
+        if (!Number.isSafeInteger(amountCents) || amountCents < 100 || amountCents > 10_000_000) {
+            return new Response(JSON.stringify({ error: 'Listing price is outside payment limits' }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        if (!['aud', 'nzd', 'usd'].includes(stripeCurrency)) {
+            return new Response(JSON.stringify({ error: 'Unsupported listing currency' }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
 
-        // Generate 4-digit PIN
+        // Claim the listing atomically before creating a Stripe hold. This
+        // prevents two buyers racing through the earlier read-then-write flow.
+        const { data: reserved, error: reserveError } = await supabase
+            .from('marketplace_listings')
+            .update({ status: 'pending', updated_at: new Date().toISOString() })
+            .eq('id', listing.id)
+            .eq('status', 'available')
+            .select('id')
+            .maybeSingle();
+        if (reserveError || !reserved) {
+            return new Response(JSON.stringify({ error: 'Listing was reserved by another buyer' }), {
+                status: 409,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        rollbackListingId = listing.id;
+
+        // Generate 6-digit PIN
         const escrowPin = generatePin();
+        const escrowPinHash = await hashPin(escrowPin);
 
         // Calculate expiry (48 hours from now)
         const expiresAt = new Date(Date.now() + ESCROW_TTL_HOURS * 60 * 60 * 1000).toISOString();
@@ -141,6 +190,7 @@ serve(async (req) => {
             description: `Thalassa Escrow: ${listing.title}`,
             automatic_payment_methods: { enabled: true },
         });
+        rollbackPaymentIntentId = paymentIntent.id;
 
         // Create escrow record with PIN
         const { data: escrow, error: escrowError } = await supabase
@@ -154,7 +204,7 @@ serve(async (req) => {
                 seller_payout_cents: sellerPayoutCents,
                 currency: listing.currency || 'AUD',
                 stripe_payment_intent_id: paymentIntent.id,
-                escrow_pin: escrowPin,
+                escrow_pin: escrowPinHash,
                 escrow_status: 'awaiting_handoff',
                 escrow_expires_at: expiresAt,
             })
@@ -162,13 +212,10 @@ serve(async (req) => {
             .single();
 
         if (escrowError) {
-            // Rollback: cancel the PI if escrow insert fails
-            await stripe.paymentIntents.cancel(paymentIntent.id);
             throw new Error(`Escrow creation failed: ${escrowError.message}`);
         }
-
-        // Mark listing as pending
-        await supabase.from('marketplace_listings').update({ status: 'pending' }).eq('id', listing.id);
+        rollbackListingId = null;
+        rollbackPaymentIntentId = null;
 
         return new Response(
             JSON.stringify({
@@ -185,6 +232,16 @@ serve(async (req) => {
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
     } catch (err) {
+        if (rollbackPaymentIntentId && stripeForRollback) {
+            await stripeForRollback.paymentIntents.cancel(rollbackPaymentIntentId).catch(() => undefined);
+        }
+        if (rollbackListingId && rollbackClient) {
+            await rollbackClient
+                .from('marketplace_listings')
+                .update({ status: 'available', updated_at: new Date().toISOString() })
+                .eq('id', rollbackListingId)
+                .eq('status', 'pending');
+        }
         console.error('Marketplace payment error:', err);
         return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }), {
             status: 500,

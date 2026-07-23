@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { convertLength, convertSpeed } from '../utils';
 import { fetchStormGlassWeather } from './weather/api/stormglass';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 const log = createLogger('Gemini');
 
 // ── Supabase Edge Proxy ──────────────────────────────────────
@@ -53,16 +54,17 @@ const callGeminiProxy = async (opts: {
 }): Promise<string> => {
     const url = getSupabaseUrl();
     if (!url) throw new Error('Supabase URL not configured');
+    const headers = await getAuthenticatedFunctionHeaders();
 
     const res = await fetch(`${url}/functions/v1/proxy-gemini`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
             prompt: opts.prompt,
             systemInstruction: opts.systemInstruction,
             model: opts.model || 'gemini-2.0-flash',
             temperature: opts.temperature ?? 0.7,
-            maxTokens: opts.maxTokens ?? 8192,
+            maxTokens: Math.min(opts.maxTokens ?? 4096, 4096),
             responseMimeType: opts.responseMimeType,
         }),
     });

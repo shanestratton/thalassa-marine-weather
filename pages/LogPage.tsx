@@ -639,7 +639,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 <button
                                     aria-label="Open menu"
                                     onClick={() => setShowMenu(!showMenu)}
-                                    className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                                    className="flex min-h-[44px] min-w-[44px] items-center justify-center p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                 >
                                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                                         <circle cx="10" cy="4" r="1.5" />

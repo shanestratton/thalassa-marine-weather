@@ -45,7 +45,10 @@ const getSupabaseUrl = (): string =>
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
     'https://pcisdplnodrphauixcau.supabase.co';
 
-const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const getSupabaseKey = (): string =>
+    (typeof import.meta !== 'undefined' &&
+        (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+    '';
 
 // ── In-memory cache ──────────────────────────────────────────────
 

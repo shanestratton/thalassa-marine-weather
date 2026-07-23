@@ -212,7 +212,10 @@ export async function fetchMarine(lat: number, lon: number): Promise<MarineReadi
     try {
         const base = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
         if (!base) return null;
-        const key = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+        const key =
+            (typeof import.meta !== 'undefined' &&
+                (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
+            '';
         const url = `${base}/functions/v1/get-marine?${params}${key ? `&apikey=${key}` : ''}`;
         return await hop(url, lat, lon, 'supabase');
     } catch {

@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * proxy-stormglass — StormGlass API Proxy
  *
@@ -40,6 +42,11 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
+    const caller = await requireAuthenticatedQuota(req, 'stormglass', 40, 86400);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
+    }
+
     const key = Deno.env.get('STORMGLASS_API_KEY');
     if (!key) {
         return corsResponse(JSON.stringify({ error: 'STORMGLASS_API_KEY not configured' }), 500);
@@ -60,8 +67,16 @@ Deno.serve(async (req: Request) => {
             'tide/sea-level/point',
             'astronomy/point',
         ];
-        if (!allowedPaths.some((p) => path.startsWith(p))) {
+        if (!allowedPaths.includes(path)) {
             return corsResponse(JSON.stringify({ error: 'Invalid path' }), 400);
+        }
+        if (!params || typeof params !== 'object' || Array.isArray(params) || Object.keys(params).length > 30) {
+            return corsResponse(JSON.stringify({ error: 'Invalid query parameters' }), 400);
+        }
+        for (const [name, value] of Object.entries(params)) {
+            if (!/^[a-z0-9_]+$/i.test(name) || String(value).length > 2000) {
+                return corsResponse(JSON.stringify({ error: 'Invalid query parameter' }), 400);
+            }
         }
 
         // Build query string from params

@@ -4,6 +4,8 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+
 /**
  * elevenlabs-tts — thin TTS forwarder for the iOS orchestrator.
  *
@@ -195,6 +197,11 @@ const DEFAULT_VOICE_SETTINGS = {
     use_speaker_boost: true,
 };
 
+const clampSetting = (value: unknown, fallback: number, min: number, max: number): number => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(max, Math.max(min, numeric)) : fallback;
+};
+
 Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
@@ -204,6 +211,11 @@ Deno.serve(async (req: Request) => {
             status: 405,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });
+    }
+
+    const caller = await requireAuthenticatedQuota(req, 'elevenlabs_tts', 60, 3600);
+    if (caller instanceof Response) {
+        return withCors(caller, CORS);
     }
 
     const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
@@ -225,7 +237,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const text = (body.text || '').trim();
-    if (!text) {
+    if (!text || text.length > 5000) {
         return new Response(JSON.stringify({ error: 'missing text' }), {
             status: 400,
             headers: { ...CORS, 'Content-Type': 'application/json' },
@@ -233,7 +245,29 @@ Deno.serve(async (req: Request) => {
     }
 
     const voiceId = body.voice_id || Deno.env.get('ELEVENLABS_VOICE_ID') || DEFAULT_VOICE_ID;
-    const voiceSettings = { ...DEFAULT_VOICE_SETTINGS, ...(body.voice_settings ?? {}) };
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(voiceId)) {
+        return new Response(JSON.stringify({ error: 'invalid voice id' }), {
+            status: 400,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
+    const requestedSettings = body.voice_settings ?? {};
+    const voiceSettings = {
+        ...DEFAULT_VOICE_SETTINGS,
+        stability: clampSetting(requestedSettings.stability, DEFAULT_VOICE_SETTINGS.stability, 0, 1),
+        similarity_boost: clampSetting(
+            requestedSettings.similarity_boost,
+            DEFAULT_VOICE_SETTINGS.similarity_boost,
+            0,
+            1,
+        ),
+        style: clampSetting(requestedSettings.style, DEFAULT_VOICE_SETTINGS.style, 0, 1),
+        speed: clampSetting(requestedSettings.speed, DEFAULT_VOICE_SETTINGS.speed, 0.7, 1.2),
+        use_speaker_boost:
+            typeof requestedSettings.use_speaker_boost === 'boolean'
+                ? requestedSettings.use_speaker_boost
+                : DEFAULT_VOICE_SETTINGS.use_speaker_boost,
+    };
 
     const t0 = Date.now();
     const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {

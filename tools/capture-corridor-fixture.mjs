@@ -17,6 +17,8 @@
  *     --draft 2.4 --safety 0.2 [--pi http://calypso.local:3001] [--pad 0.1]
  */
 
+import { Buffer } from 'node:buffer';
+
 import { gzipSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -78,8 +80,7 @@ async function main() {
         }
     }
 
-    const markCount =
-        (cells.BOYLAT?.features.length ?? 0) + (cells.BCNLAT?.features.length ?? 0);
+    const markCount = (cells.BOYLAT?.features.length ?? 0) + (cells.BCNLAT?.features.length ?? 0);
     if (markCount === 0) throw new Error('captured corridor has NO lateral marks — wrong bbox or stale cells');
 
     const osm = Object.fromEntries(OSM_KEYS.map((k) => [k, EMPTY_FC()]));
