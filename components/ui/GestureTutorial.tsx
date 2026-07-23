@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { t } from '../../theme';
 
 interface GestureTutorialProps {
@@ -12,10 +13,18 @@ interface GestureTutorialProps {
 export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onNeverShow }) => {
     const [step, setStep] = useState(0);
     const [isVisible, setIsVisible] = useState(false);
+    const fadeTimerRef = useRef<number | null>(null);
+    const dismissTimerRef = useRef<number | null>(null);
+    const isDismissingRef = useRef(false);
+    const primaryActionRef = useRef<HTMLButtonElement>(null);
 
     useEffect(() => {
         // Fade in
-        setTimeout(() => setIsVisible(true), 100);
+        fadeTimerRef.current = window.setTimeout(() => setIsVisible(true), 100);
+        return () => {
+            if (fadeTimerRef.current !== null) window.clearTimeout(fadeTimerRef.current);
+            if (dismissTimerRef.current !== null) window.clearTimeout(dismissTimerRef.current);
+        };
     }, []);
 
     const steps = [
@@ -102,6 +111,22 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
 
     const currentStep = steps[step];
 
+    const handleDismiss = useCallback(() => {
+        if (isDismissingRef.current) return;
+        isDismissingRef.current = true;
+        if (fadeTimerRef.current !== null) {
+            window.clearTimeout(fadeTimerRef.current);
+            fadeTimerRef.current = null;
+        }
+        setIsVisible(false);
+        dismissTimerRef.current = window.setTimeout(onDismiss, 300);
+    }, [onDismiss]);
+
+    const dialogRef = useFocusTrap<HTMLDivElement>(isVisible, {
+        initialFocusRef: primaryActionRef,
+        onEscape: handleDismiss,
+    });
+
     const handleNext = () => {
         if (step < steps.length - 1) {
             setStep(step + 1);
@@ -110,24 +135,30 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
         }
     };
 
-    const handleDismiss = () => {
-        setIsVisible(false);
-        setTimeout(onDismiss, 300);
-    };
-
     return (
         <div
+            role="presentation"
             className={`fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-6 transition-opacity duration-300 ${
                 isVisible ? 'opacity-100' : 'opacity-0'
             }`}
             onClick={handleDismiss}
         >
             <div
-                className="bg-gray-900/95 ${t.border.default} rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-hidden={isVisible ? undefined : true}
+                aria-labelledby="gesture-tutorial-title"
+                aria-describedby="gesture-tutorial-progress gesture-tutorial-description"
+                className={`bg-gray-900/95 ${t.border.default} rounded-2xl p-6 max-w-sm w-full shadow-2xl`}
                 onClick={(e) => e.stopPropagation()}
             >
+                <p id="gesture-tutorial-progress" className="sr-only">
+                    Step {step + 1} of {steps.length}
+                </p>
+
                 {/* Step indicator */}
-                <div className="flex justify-center gap-2 mb-6">
+                <div aria-hidden="true" className="flex justify-center gap-2 mb-6">
                     {steps.map((_, i) => (
                         <div
                             key={i}
@@ -139,27 +170,36 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
                 </div>
 
                 {/* Icon */}
-                <div className="flex justify-center mb-4">{currentStep.icon}</div>
+                <div aria-hidden="true" className="flex justify-center mb-4">
+                    {currentStep.icon}
+                </div>
 
                 {/* Title */}
-                <h3 className="text-white text-xl font-bold text-center mb-2">{currentStep.title}</h3>
+                <h3 id="gesture-tutorial-title" className="text-white text-xl font-bold text-center mb-2">
+                    {currentStep.title}
+                </h3>
 
                 {/* Description */}
-                <p className="text-white/70 text-center mb-6">{currentStep.description}</p>
+                <p id="gesture-tutorial-description" className="text-white/70 text-center mb-6">
+                    {currentStep.description}
+                </p>
 
                 {/* Buttons */}
                 <div className="space-y-3">
                     <button
+                        ref={primaryActionRef}
                         onClick={handleNext}
                         className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors min-h-[48px]"
-                        aria-label="Next tutorial step"
+                        aria-label={
+                            step < steps.length - 1 ? `Next: ${steps[step + 1].title}` : 'Finish gesture tutorial'
+                        }
                     >
                         {step < steps.length - 1 ? 'Next' : 'Get Started'}
                     </button>
 
                     {step === steps.length - 1 && onNeverShow && (
                         <button
-                            aria-label="Never Show"
+                            aria-label="Never show gesture tutorial again"
                             onClick={() => {
                                 onNeverShow();
                                 handleDismiss();
@@ -176,7 +216,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
                     <button
                         onClick={handleDismiss}
                         className="w-full mt-3 py-2 text-white/60 hover:text-white/70 text-sm transition-colors"
-                        aria-label="Dismiss tutorial"
+                        aria-label="Skip gesture tutorial"
                     >
                         Skip tutorial
                     </button>

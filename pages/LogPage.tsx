@@ -31,6 +31,7 @@ import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal'
 import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { useFollowRouteStore } from '../stores/followRouteStore';
 import { useUI } from '../context/UIContext';
@@ -142,6 +143,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // One prompt per voyage — a ref so re-renders don't re-open it.
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
     const followPromptedRef = React.useRef<string | null>(null);
+    const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
+    const dismissFollowPrompt = React.useCallback(() => setFollowPromptVoyageId(null), []);
+    const followPromptDialogRef = useFocusTrap<HTMLDivElement>(followPromptVoyageId !== null, {
+        initialFocusRef: followPromptDismissRef,
+        onEscape: dismissFollowPrompt,
+    });
     const plannedSummaries = React.useMemo(
         () => (state.summaries ?? []).filter((s) => s.isPlannedRoute && s.voyageId),
         [state.summaries],
@@ -1620,18 +1627,27 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 // two previous attempts were.
                 createPortal(
                     <div
+                        role="presentation"
                         className="fixed inset-0 z-[10055] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
-                        onClick={() => setFollowPromptVoyageId(null)}
+                        onClick={dismissFollowPrompt}
                     >
                         <div
+                            ref={followPromptDialogRef}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="follow-route-prompt-title"
+                            aria-describedby="follow-route-prompt-description"
                             className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="shrink-0 border-b border-white/10 px-5 py-4">
-                                <div className="text-sm font-black uppercase tracking-widest text-emerald-300">
+                                <div
+                                    id="follow-route-prompt-title"
+                                    className="text-sm font-black uppercase tracking-widest text-emerald-300"
+                                >
                                     Following a route?
                                 </div>
-                                <div className="mt-0.5 text-[12px] text-gray-400">
+                                <div id="follow-route-prompt-description" className="mt-0.5 text-[12px] text-gray-400">
                                     Pick one to show on your public page — or just record the track.
                                 </div>
                             </div>
@@ -1650,14 +1666,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         'Couldn’t publish — try the Follow button, or Settings',
                                                     );
                                             });
-                                            setFollowPromptVoyageId(null);
+                                            dismissFollowPrompt();
                                         }}
                                     />
                                 ))}
                             </div>
                             <div className="shrink-0 border-t border-white/10 px-5 py-3">
                                 <button
-                                    onClick={() => setFollowPromptVoyageId(null)}
+                                    ref={followPromptDismissRef}
+                                    onClick={dismissFollowPrompt}
                                     className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
                                 >
                                     Just recording

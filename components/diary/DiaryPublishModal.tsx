@@ -7,10 +7,11 @@
  * Publishing provisions the voyage_log_configs row on first use.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryService';
 import { VoyageLogService, voyageLogPublicUrl } from '../../services/VoyageLogService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 type Phase = 'choose' | 'working' | 'done';
 
@@ -29,32 +30,70 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     const [result, setResult] = useState<'published' | 'unpublished' | null>(null);
     const [publicUrl, setPublicUrl] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const titleId = useId();
+    const descriptionId = useId();
+    const safeActionRef = useRef<HTMLButtonElement>(null);
+    const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const previousPhaseRef = useRef<Phase>(phase);
 
     const mood = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
     const photoCount = entry.photos?.length ?? 0;
     const working = phase === 'working';
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: safeActionRef,
+        onEscape: working ? undefined : onClose,
+    });
 
     // Already public? Fetch the share link so it shows on the manage screen.
     useEffect(() => {
         if (!startsPublic) return;
         let cancelled = false;
-        void VoyageLogService.getConfig().then((cfg) => {
-            if (!cancelled && cfg) setPublicUrl(voyageLogPublicUrl(cfg.handle, cfg.api_key));
-        });
+        void VoyageLogService.getConfig()
+            .then((cfg) => {
+                if (!cancelled && cfg) setPublicUrl(voyageLogPublicUrl(cfg.handle, cfg.api_key));
+            })
+            .catch(() => {
+                /* offline — the existing public state remains valid without a fetched link */
+            });
         return () => {
             cancelled = true;
         };
     }, [startsPublic]);
 
+    useEffect(
+        () => () => {
+            if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        },
+        [],
+    );
+
+    useEffect(() => {
+        if (previousPhaseRef.current === 'working' && phase !== 'working') {
+            safeActionRef.current?.focus();
+        }
+        previousPhaseRef.current = phase;
+    }, [phase]);
+
     const handlePublish = async () => {
         setPhase('working');
+        setActionError(null);
         triggerHaptic('medium');
-        const [config, ok] = await Promise.all([
+        const [configResult, publishResult] = await Promise.allSettled([
             VoyageLogService.ensureEnabled(),
             DiaryService.setEntryPublished(entry.id, true),
         ]);
-        if (ok) onPublishChange({ ...entry, is_public: true });
-        if (config) setPublicUrl(voyageLogPublicUrl(config.handle, config.api_key));
+        const published = publishResult.status === 'fulfilled' && publishResult.value;
+        if (!published) {
+            setActionError('This entry could not be published. It is still private; please try again.');
+            setPhase('choose');
+            return;
+        }
+
+        onPublishChange({ ...entry, is_public: true });
+        if (configResult.status === 'fulfilled' && configResult.value) {
+            setPublicUrl(voyageLogPublicUrl(configResult.value.handle, configResult.value.api_key));
+        }
         setResult('published');
         setPhase('done');
         triggerHaptic('light');
@@ -62,12 +101,23 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
 
     const handleUnpublish = async () => {
         setPhase('working');
+        setActionError(null);
         triggerHaptic('medium');
-        const ok = await DiaryService.setEntryPublished(entry.id, false);
-        if (ok) onPublishChange({ ...entry, is_public: false });
-        setResult('unpublished');
-        setPhase('done');
-        triggerHaptic('light');
+        try {
+            const ok = await DiaryService.setEntryPublished(entry.id, false);
+            if (!ok) {
+                setActionError('This entry could not be unpublished. It is still on your Voyage Log.');
+                setPhase('choose');
+                return;
+            }
+            onPublishChange({ ...entry, is_public: false });
+            setResult('unpublished');
+            setPhase('done');
+            triggerHaptic('light');
+        } catch {
+            setActionError('This entry could not be unpublished. It is still on your Voyage Log.');
+            setPhase('choose');
+        }
     };
 
     const handleCopy = async () => {
@@ -76,7 +126,11 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
             await navigator.clipboard.writeText(publicUrl);
             setCopied(true);
             triggerHaptic('light');
-            setTimeout(() => setCopied(false), 2000);
+            if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+            copiedTimerRef.current = setTimeout(() => {
+                setCopied(false);
+                copiedTimerRef.current = null;
+            }, 2000);
         } catch {
             /* clipboard unavailable — the URL is still on screen to copy by hand */
         }
@@ -106,15 +160,33 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     const showLink = !working && result !== 'unpublished' && (startsPublic || result === 'published');
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl shadow-2xl slide-up-enter overflow-hidden">
+        <div
+            role="presentation"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
+                aria-busy={working}
+                className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl shadow-2xl slide-up-enter overflow-hidden"
+            >
                 {/* ── Header ── */}
-                <div className="px-6 pt-6 pb-4 bg-gradient-to-b from-sky-500/10 to-transparent text-center">
+                <div
+                    aria-live="polite"
+                    className="px-6 pt-6 pb-4 bg-gradient-to-b from-sky-500/10 to-transparent text-center"
+                >
                     <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-500/15 border border-sky-500/20 flex items-center justify-center text-3xl">
                         {icon}
                     </div>
-                    <h2 className="mt-3 text-xl font-extrabold text-white">{heading}</h2>
-                    <p className="mt-1 text-[13px] text-gray-400 leading-relaxed">{blurb}</p>
+                    <h2 id={titleId} className="mt-3 text-xl font-extrabold text-white">
+                        {heading}
+                    </h2>
+                    <p id={descriptionId} className="mt-1 text-[13px] text-gray-400 leading-relaxed">
+                        {blurb}
+                    </p>
                 </div>
 
                 {/* ── Entry preview ── */}
@@ -128,6 +200,15 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                         </p>
                     </div>
                 </div>
+
+                {actionError && (
+                    <p
+                        role="alert"
+                        className="mx-6 mb-2 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-[12px] leading-relaxed text-red-200"
+                    >
+                        {actionError}
+                    </p>
+                )}
 
                 {/* ── Share link ── */}
                 {showLink && (
@@ -152,7 +233,10 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                                     />
                                 </svg>
                                 <span className="text-xs font-mono text-sky-300 truncate flex-1">{publicUrl}</span>
-                                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider shrink-0">
+                                <span
+                                    aria-live="polite"
+                                    className="text-[11px] font-bold text-sky-400 uppercase tracking-wider shrink-0"
+                                >
                                     {copied ? 'Copied' : 'Copy'}
                                 </span>
                             </button>
@@ -168,6 +252,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                 <div className="p-6 pt-4 flex gap-3">
                     {phase === 'done' ? (
                         <button
+                            ref={safeActionRef}
                             onClick={onClose}
                             aria-label="Done"
                             className="flex-1 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm transition-colors active:scale-[0.98]"
@@ -192,6 +277,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                                 )}
                             </button>
                             <button
+                                ref={safeActionRef}
                                 onClick={onClose}
                                 disabled={working}
                                 aria-label="Done"
@@ -203,6 +289,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                     ) : (
                         <>
                             <button
+                                ref={safeActionRef}
                                 onClick={onClose}
                                 disabled={working}
                                 aria-label="Keep this entry private"

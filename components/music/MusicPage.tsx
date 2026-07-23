@@ -17,8 +17,9 @@
  * Future iterations: catalog search UI, queue management, radio
  * stations, recommendations. V1 is deliberately tight.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
     getUserPlaylists,
     playPlaylist,
@@ -663,6 +664,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     tracks={detailTracks}
                     loading={detailLoading}
                     error={detailError}
+                    covered={addTracksOpen || confirmDelete !== null}
                     onClose={closeDetail}
                     onPlayAll={() => void handlePlayAll()}
                     onPlayTrack={(trackId) => void handlePlayTrack(trackId)}
@@ -805,6 +807,7 @@ interface PlaylistDetailSheetProps {
     tracks: PlaylistTrack[];
     loading: boolean;
     error: string | null;
+    covered: boolean;
     onClose: () => void;
     onPlayAll: () => void;
     onPlayTrack: (trackId: string) => void;
@@ -817,6 +820,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
     tracks,
     loading,
     error,
+    covered,
     onClose,
     onPlayAll,
     onPlayTrack,
@@ -825,6 +829,12 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
 }) => {
     const [imageFailed, setImageFailed] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const titleId = useId();
+    const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+    const focusTrapRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
     // Trigger the slide-up animation by toggling `mounted` on next
     // frame after mount. Without rAF the initial render and the
     // animated state would batch into the same paint.
@@ -838,6 +848,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
     return (
         <div
             className="fixed inset-0 z-50 flex flex-col"
+            aria-hidden={covered || undefined}
             // Pad the bottom by the global bottom-nav height + safe area
             // so the sheet's bottom edge lands above the nav. Without
             // this, mt-auto pins the sheet to the screen bottom and
@@ -847,8 +858,8 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
         >
             {/* Backdrop — absolute inset-0 so it still covers the
              *  full viewport (including the padding zone behind the nav). */}
-            <button
-                aria-label="Close playlist details"
+            <div
+                role="presentation"
                 onClick={onClose}
                 className={`absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-300 ${
                     mounted ? 'opacity-100' : 'opacity-0'
@@ -859,6 +870,10 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
              *  squashed at the bottom). max-h respects the nav-clear
              *  padding above. */}
             <div
+                ref={focusTrapRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
                 className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
@@ -871,9 +886,10 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 <div className="relative flex justify-center pt-3 pb-1">
                     <div className="w-12 h-1.5 rounded-full bg-white/25" />
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         className="absolute right-3 top-2 w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white active:bg-white/10 transition-colors"
-                        aria-label="Close playlist"
+                        aria-label={`Close ${playlist.name} playlist details`}
                     >
                         <CloseIcon className="w-5 h-5" />
                     </button>
@@ -894,7 +910,9 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         )}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div className="text-white font-bold text-lg truncate leading-tight">{playlist.name}</div>
+                        <div id={titleId} className="text-white font-bold text-lg truncate leading-tight">
+                            {playlist.name}
+                        </div>
                         <div className="text-white/60 text-sm mt-0.5">
                             {loading
                                 ? 'Loading…'
@@ -913,6 +931,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     <button
                         onClick={onPlayAll}
                         disabled={loading || tracks.length === 0}
+                        aria-label={`Play all tracks in ${playlist.name}`}
                         className="w-full py-3 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
                     >
                         <PlayIcon className="w-4 h-4" />
@@ -920,6 +939,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     </button>
                     <button
                         onClick={onAddTracks}
+                        aria-label={`Add tracks to ${playlist.name}`}
                         className="w-full py-3 rounded-2xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                     >
                         <PlusIcon className="w-5 h-5" />
@@ -956,6 +976,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                             <button
                                 key={track.id}
                                 onClick={() => onPlayTrack(track.id)}
+                                aria-label={`Play track ${i + 1}: ${track.title} by ${track.artist}`}
                                 className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl active:bg-white/10 transition-colors text-left"
                             >
                                 <div className="w-8 text-center text-white/40 text-sm font-medium tabular-nums shrink-0">
@@ -982,6 +1003,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     <div className="shrink-0 border-t border-white/10 py-3 flex justify-center bg-black/40 backdrop-blur-sm">
                         <button
                             onClick={onDelete}
+                            aria-label={`Delete ${playlist.name} playlist`}
                             className="text-red-400/80 hover:text-red-300 active:text-red-200 text-xs font-medium px-4 py-2 rounded-lg active:bg-red-500/10 transition-colors"
                         >
                             Delete this playlist
@@ -1024,15 +1046,17 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
      *  first redirect of this session. */
     const [showRedirectExplain, setShowRedirectExplain] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const titleId = useId();
+    const descriptionId = useId();
     const inputRef = useRef<HTMLInputElement | null>(null);
+    const focusTrapRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: inputRef,
+        onEscape: onClose,
+    });
 
     useEffect(() => {
         const id = requestAnimationFrame(() => setMounted(true));
-        const focusId = setTimeout(() => inputRef.current?.focus(), 250);
-        return () => {
-            cancelAnimationFrame(id);
-            clearTimeout(focusId);
-        };
+        return () => cancelAnimationFrame(id);
     }, []);
 
     // Track keyboard for the search input — same pattern as the
@@ -1106,14 +1130,19 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
             className="fixed inset-0 z-[55] flex flex-col"
             style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
         >
-            <button
-                aria-label="Close add tracks"
+            <div
+                role="presentation"
                 onClick={onClose}
                 className={`absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity duration-300 ${
                     mounted ? 'opacity-100' : 'opacity-0'
                 }`}
             />
             <div
+                ref={focusTrapRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
                 className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
@@ -1156,13 +1185,17 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                     <button
                         onClick={onClose}
                         className="w-9 h-9 -ml-2 rounded-full flex items-center justify-center text-white/80 active:bg-white/10 transition-colors shrink-0"
-                        aria-label="Back to playlist"
+                        aria-label={`Back to ${playlistName} playlist details`}
                     >
                         <ChevronLeftIcon className="w-6 h-6" />
                     </button>
                     <div className="flex-1 min-w-0">
-                        <div className="text-white font-bold text-lg leading-tight">Add tracks</div>
-                        <div className="text-white/50 text-xs mt-0.5 truncate">to "{playlistName}"</div>
+                        <div id={titleId} className="text-white font-bold text-lg leading-tight">
+                            Add tracks
+                        </div>
+                        <div id={descriptionId} className="text-white/50 text-xs mt-0.5 truncate">
+                            to "{playlistName}"
+                        </div>
                     </div>
                 </div>
 
@@ -1174,6 +1207,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Song or artist…"
+                        aria-label="Search Apple Music catalog"
                         className="flex-1 bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') void handleSearch();
@@ -1241,6 +1275,9 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redi
         <button
             onClick={onAdd}
             disabled={adding || added}
+            aria-label={`${added ? 'Added' : redirected ? 'Opened' : adding ? 'Adding' : 'Add'} ${song.title} by ${
+                song.artist
+            }${song.album ? ` from ${song.album}` : ''}`}
             className={`w-full flex items-center gap-3 px-2 py-2 rounded-xl transition-colors text-left ${
                 added ? 'bg-emerald-500/10' : redirected ? 'bg-amber-500/10' : 'active:bg-white/10'
             }`}
@@ -1290,14 +1327,21 @@ interface DeleteConfirmSheetProps {
 
 const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, busy, onCancel, onConfirm }) => {
     const [mounted, setMounted] = useState(false);
+    const titleId = useId();
+    const descriptionId = useId();
+    const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+    const focusTrapRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: cancelButtonRef,
+        onEscape: onCancel,
+    });
     useEffect(() => {
         const id = requestAnimationFrame(() => setMounted(true));
         return () => cancelAnimationFrame(id);
     }, []);
     return (
         <div className="fixed inset-0 z-[70]">
-            <button
-                aria-label="Cancel delete"
+            <div
+                role="presentation"
                 onClick={onCancel}
                 className={`absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-300 ${
                     mounted ? 'opacity-100' : 'opacity-0'
@@ -1305,20 +1349,29 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
             />
             <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none">
                 <div
+                    ref={focusTrapRef}
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby={titleId}
+                    aria-describedby={descriptionId}
                     className={`relative w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl border border-white/10 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
                 >
                     <div className="px-5 pt-5 pb-5">
-                        <div className="text-white font-bold text-lg">Delete in Apple Music</div>
-                        <div className="text-white/60 text-sm mt-2 leading-relaxed">
+                        <div id={titleId} className="text-white font-bold text-lg">
+                            Delete in Apple Music
+                        </div>
+                        <div id={descriptionId} className="text-white/60 text-sm mt-2 leading-relaxed">
                             Apple doesn't let third-party apps delete library playlists — only their own Music app can.
                             Tap below and we'll open it for you so you can remove "{playlistName}".
                         </div>
                         <div className="flex gap-2 mt-6">
                             <button
+                                ref={cancelButtonRef}
                                 onClick={onCancel}
                                 disabled={busy}
+                                aria-label={`Cancel deleting ${playlistName} playlist`}
                                 className="flex-1 py-3 rounded-2xl border border-white/15 text-white/70 font-bold active:scale-[0.97] transition-transform disabled:opacity-40"
                             >
                                 Cancel
@@ -1326,6 +1379,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                             <button
                                 onClick={onConfirm}
                                 disabled={busy}
+                                aria-label={`Open Apple Music to delete ${playlistName} playlist`}
                                 className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (
@@ -1355,15 +1409,16 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [mounted, setMounted] = useState(false);
+    const titleId = useId();
+    const descriptionId = useId();
     const inputRef = useRef<HTMLInputElement | null>(null);
+    const focusTrapRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: inputRef,
+        onEscape: onClose,
+    });
     useEffect(() => {
         const id = requestAnimationFrame(() => setMounted(true));
-        // Auto-focus the name field on mount
-        const focusId = setTimeout(() => inputRef.current?.focus(), 250);
-        return () => {
-            cancelAnimationFrame(id);
-            clearTimeout(focusId);
-        };
+        return () => cancelAnimationFrame(id);
     }, []);
 
     const canSubmit = name.trim().length > 0 && !busy;
@@ -1401,8 +1456,8 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
 
     return (
         <div className="fixed inset-0 z-[60]">
-            <button
-                aria-label="Close create playlist"
+            <div
+                role="presentation"
                 onClick={onClose}
                 className={`absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-300 ${
                     mounted ? 'opacity-100' : 'opacity-0'
@@ -1421,13 +1476,20 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                 }}
             >
                 <div
+                    ref={focusTrapRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby={titleId}
+                    aria-describedby={descriptionId}
                     className={`relative w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl border border-white/10 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
                 >
                     <div className="px-5 pt-5 pb-5">
-                        <div className="text-white font-bold text-lg">New playlist</div>
-                        <div className="text-white/50 text-xs mt-1">
+                        <div id={titleId} className="text-white font-bold text-lg">
+                            New playlist
+                        </div>
+                        <div id={descriptionId} className="text-white/50 text-xs mt-1">
                             Give it a name. You can ask Calypso to "save this to my [name]" while a track is playing to
                             add songs.
                         </div>
@@ -1440,6 +1502,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 placeholder="Sundowner mix"
+                                aria-label="Playlist name"
                                 disabled={busy}
                                 maxLength={80}
                                 className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
@@ -1460,6 +1523,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 value={description}
                                 onChange={(e) => setDescription(e.target.value)}
                                 placeholder="What's this playlist for?"
+                                aria-label="Playlist description"
                                 disabled={busy}
                                 maxLength={140}
                                 className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
@@ -1476,6 +1540,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                             <button
                                 onClick={onClose}
                                 disabled={busy}
+                                aria-label="Cancel playlist creation"
                                 className="flex-1 py-3 rounded-2xl border border-white/15 text-white/70 font-bold active:scale-[0.97] transition-transform disabled:opacity-40"
                             >
                                 Cancel
@@ -1483,6 +1548,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                             <button
                                 onClick={() => onSubmit(name, description)}
                                 disabled={!canSubmit}
+                                aria-label="Create new playlist"
                                 className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (

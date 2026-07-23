@@ -31,6 +31,7 @@ import {
     WIND_BUCKETS,
     WIND_NODATA_COLOR,
 } from '../services/shiplog/trackViz';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // Base-map tile templates: light Voyager by day, dark by night watch.
 // Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
@@ -77,6 +78,11 @@ const VESSEL_ICON_HTML = `<div style="
 
 export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpen, onClose, entries }) => {
     const mapRef = useRef<HTMLDivElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
     const mapInstanceRef = useRef<L.Map | null>(null);
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
     const hasFitBoundsRef = useRef(false);
@@ -774,7 +780,13 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     })();
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu">
+        <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Voyage track viewer"
+            className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu"
+        >
             {/* Deep-water filter lives in index.css (.tmv-deepwater img) —
                 it must target the tile IMAGES, not the layer container, or
                 iOS WebKit ignores it on the 3D-composited tiles. */}
@@ -806,11 +818,16 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                     className="absolute right-3 z-[1002] flex flex-col gap-2 items-end"
                     style={{ top: 'max(16px, env(safe-area-inset-top))' }}
                 >
-                    <div className="flex rounded-full bg-slate-900/90 border border-white/15 p-0.5 shadow-xl">
+                    <div
+                        role="group"
+                        aria-label="Track colour mode"
+                        className="flex rounded-full bg-slate-900/90 border border-white/15 p-0.5 shadow-xl"
+                    >
                         {(['wind', 'plain'] as const).map((m) => (
                             <button
                                 key={m}
                                 onClick={() => setColorMode(m)}
+                                aria-pressed={colorMode === m}
                                 className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                     colorMode === m ? 'bg-sky-500 text-white' : 'text-white/60'
                                 }`}
@@ -849,6 +866,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             {/* Back chevron — middle-left of screen */}
             <div className="absolute z-[1001] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                 <button
+                    ref={closeButtonRef}
                     onClick={onClose}
                     aria-label="Close track map viewer"
                     className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95 shrink-0"
@@ -899,7 +917,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                         <span className="text-[11px] text-sky-400 font-bold">⏱ {elapsedLabel}</span>
                                     )}
                                     <button
-                                        aria-label="Show HUD"
+                                        aria-label="Hide voyage details"
                                         onClick={() => setShowHUD(false)}
                                         className="p-2.5 -m-2.5 text-white/60 hover:text-white transition-colors pointer-events-auto"
                                     >
@@ -1118,7 +1136,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                         )}
                                     </div>
                                     <button
-                                        aria-label="Active Waypoint"
+                                        aria-label="Dismiss active waypoint"
                                         onClick={() => setActiveWaypoint(null)}
                                         className="p-2.5 -m-2.5 text-amber-300/60 hover:text-white transition-colors shrink-0"
                                     >
@@ -1145,27 +1163,33 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 )}
 
                 {/* Legend dots — bottom of map */}
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 rounded-lg px-3 py-1.5">
-                    <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                        <span className="text-[11px] text-slate-400">Start</span>
+                {!isTrackLoading && (
+                    <div
+                        aria-label="Track legend"
+                        className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 rounded-lg px-3 py-1.5"
+                    >
+                        <div className="flex items-center gap-1">
+                            <div aria-hidden="true" className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                            <span className="text-[11px] text-slate-400">Start</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div aria-hidden="true" className="w-2 h-2 rounded-full bg-red-500"></div>
+                            <span className="text-[11px] text-slate-400">End</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div aria-hidden="true" className="w-2 h-2 rounded-full bg-amber-500"></div>
+                            <span className="text-[11px] text-slate-400">Turn</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div
+                                aria-hidden="true"
+                                className="w-2 h-2 rounded-full"
+                                style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}
+                            ></div>
+                            <span className="text-[11px] text-slate-400">Vessel</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                        <span className="text-[11px] text-slate-400">End</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                        <span className="text-[11px] text-slate-400">Turn</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <div
-                            className="w-2 h-2 rounded-full"
-                            style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}
-                        ></div>
-                        <span className="text-[11px] text-slate-400">Vessel</span>
-                    </div>
-                </div>
+                )}
             </div>
 
             {/* ═══ SPEED SPARKLINE — sits just above the scrubber, cursor
@@ -1183,6 +1207,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                         <span className="text-[9px] font-mono text-white/40">{sparkline.maxKts.toFixed(0)} kt max</span>
                     </div>
                     <svg
+                        aria-hidden="true"
                         viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
                         preserveAspectRatio="none"
                         className="w-full"
@@ -1211,58 +1236,62 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             )}
 
             {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
-            <div
-                className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
-                style={{
-                    bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
-                    background: 'rgba(15, 23, 42, 0.85)',
-                }}
-            >
-                <style>{`
+            {!isTrackLoading && (
+                <div
+                    className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
+                    style={{
+                        bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
+                        background: 'rgba(15, 23, 42, 0.85)',
+                    }}
+                >
+                    <style>{`
                     .track-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
                     .track-slider::-webkit-slider-runnable-track { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
                     .track-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
                 `}</style>
-                <button
-                    aria-label={isPlaying ? 'Pause playback' : 'Play track'}
-                    onClick={togglePlayback}
-                    className="p-2 -m-2 shrink-0 text-white/70 active:scale-90 transition-transform"
-                >
-                    <span className="w-6 h-6 flex items-center justify-center">
-                        {isPlaying ? (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                                <rect x="1" y="1" width="3" height="8" rx="0.5" />
-                                <rect x="6" y="1" width="3" height="8" rx="0.5" />
-                            </svg>
-                        ) : (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                                <polygon points="2,1 9,5 2,9" />
-                            </svg>
-                        )}
+                    <button
+                        aria-label={isPlaying ? 'Pause playback' : 'Play track'}
+                        onClick={togglePlayback}
+                        className="p-2 -m-2 shrink-0 text-white/70 active:scale-90 transition-transform"
+                    >
+                        <span className="w-6 h-6 flex items-center justify-center">
+                            {isPlaying ? (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                                    <rect x="1" y="1" width="3" height="8" rx="0.5" />
+                                    <rect x="6" y="1" width="3" height="8" rx="0.5" />
+                                </svg>
+                            ) : (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                                    <polygon points="2,1 9,5 2,9" />
+                                </svg>
+                            )}
+                        </span>
+                    </button>
+                    <input
+                        type="range"
+                        min={0}
+                        max={maxIdx}
+                        value={playbackIndex}
+                        aria-label="Track playback position"
+                        aria-valuetext={`${dateLabel} ${timeLabel}`.trim()}
+                        onChange={(e) => {
+                            setIsPlaying(false);
+                            if (playIntervalRef.current) {
+                                clearInterval(playIntervalRef.current);
+                                playIntervalRef.current = null;
+                            }
+                            const idx = parseInt(e.target.value);
+                            setPlaybackIndex(idx);
+                            moveVesselTo(idx);
+                            setShowHUD(true);
+                        }}
+                        className="track-slider flex-1 h-3"
+                    />
+                    <span className="text-[11px] font-bold text-white/60 min-w-[44px] text-right font-mono">
+                        {timeLabel}
                     </span>
-                </button>
-                <input
-                    type="range"
-                    min={0}
-                    max={maxIdx}
-                    value={playbackIndex}
-                    onChange={(e) => {
-                        setIsPlaying(false);
-                        if (playIntervalRef.current) {
-                            clearInterval(playIntervalRef.current);
-                            playIntervalRef.current = null;
-                        }
-                        const idx = parseInt(e.target.value);
-                        setPlaybackIndex(idx);
-                        moveVesselTo(idx);
-                        setShowHUD(true);
-                    }}
-                    className="track-slider flex-1 h-3"
-                />
-                <span className="text-[11px] font-bold text-white/60 min-w-[44px] text-right font-mono">
-                    {timeLabel}
-                </span>
-            </div>
+                </div>
+            )}
         </div>
     );
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
 import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
@@ -21,6 +21,7 @@ import { useDiaryState } from '../hooks/useDiaryState';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { POLISH_INTENSITY, type PolishStyle } from '../types/settings';
+import { useMenuNavigation } from '../hooks/useMenuNavigation';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -92,12 +93,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         isPlaying,
         keyboardHeight,
     } = state;
+    const latestEntriesRef = useRef(entries);
+    latestEntriesRef.current = entries;
     // Setter shims — same API surface, backed by dispatch
     const setEntries = useCallback(
         (v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
-            dispatch({ type: 'SET_ENTRIES', entries: typeof v === 'function' ? v(state.entries) : v });
+            dispatch({ type: 'SET_ENTRIES', entries: typeof v === 'function' ? v(latestEntriesRef.current) : v });
         },
-        [dispatch, state.entries],
+        [dispatch],
     );
     const setSelectedEntry = useCallback(
         (e: DiaryEntry | null) => dispatch({ type: 'SET_SELECTED_ENTRY', entry: e }),
@@ -111,13 +114,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const setMenuOpen = useCallback((v: boolean) => dispatch({ type: 'SET_MENU_OPEN', open: v }), [dispatch]);
     const setSelectedIds = useCallback(
         (v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-            // For backward compat — exit select mode clears IDs
-            if (typeof v === 'function') {
-                const next = v(state.selectedIds);
-                if (next.size === 0) dispatch({ type: 'EXIT_SELECT_MODE' });
-            } else if (v.size === 0) {
-                dispatch({ type: 'EXIT_SELECT_MODE' });
-            }
+            const next = typeof v === 'function' ? v(state.selectedIds) : v;
+            dispatch({ type: 'SET_SELECTED_IDS', ids: next });
         },
         [dispatch, state.selectedIds],
     );
@@ -217,7 +215,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // open, or commit in flight). A Set because a second swipe-delete can start
     // while the first is still pending — both must be guarded from the poll.
     const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
-    const menuRef = useRef<HTMLDivElement>(null);
+    const pageActionsTriggerRef = useRef<HTMLButtonElement>(null);
+    const pageActionsMenuId = useId();
+    const closePageActions = useCallback(() => setMenuOpen(false), [setMenuOpen]);
+    const pageActionsMenuRef = useMenuNavigation<HTMLDivElement>(menuOpen, {
+        triggerRef: pageActionsTriggerRef,
+        onClose: closePageActions,
+    });
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -267,8 +271,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             cleanup?.();
             setKeyboardHeight(0);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [setKeyboardHeight]);
     // ── Load entries ───────────────────────────────────────────
     const refreshEntries = useCallback(() => {
         DiaryService.getEntries(100).then((data) => {
@@ -297,8 +300,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 );
             });
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [setEntries]);
     useEffect(() => {
         DiaryService.getEntries(100).then((data) => {
             setEntries(data);
@@ -343,8 +345,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             }
         }
         setGpsLoading(false);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [setGpsLoading, setLat, setLocationName, setLon]);
     // ── Compose (new) ──────────────────────────────────────────
     /** Build a weather snapshot one-liner from current weather data */
     const buildWeatherSnapshot = useCallback((): string => {
@@ -689,27 +690,30 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Grouped entries ────────────────────────────────────────
     const grouped = useMemo(() => groupByDate(entries), [entries]);
     // ── PDF Export ───────────────────────────────────────────────
-    const exportDiaryPdf = useCallback(async (entriesToPrint: DiaryEntry[]) => {
-        setExportProgress('Preparing...');
-        const { generateDiaryPDF } = await import('../utils/diaryExport');
-        generateDiaryPDF(
-            entriesToPrint,
-            {
-                onProgress: (msg) => setExportProgress(msg),
-                onSuccess: () => {
-                    setExportProgress(null);
-                    setSelectMode(false);
-                    setSelectedIds(new Set());
+    const exportDiaryPdf = useCallback(
+        async (entriesToPrint: DiaryEntry[], delivery: 'download' | 'share') => {
+            setExportProgress(delivery === 'download' ? 'Preparing download...' : 'Preparing share...');
+            const { generateDiaryPDF } = await import('../utils/diaryExport');
+            await generateDiaryPDF(
+                entriesToPrint,
+                {
+                    onProgress: (msg) => setExportProgress(msg),
+                    onSuccess: () => {
+                        setExportProgress(null);
+                        setSelectMode(false);
+                        setSelectedIds(new Set());
+                    },
+                    onError: (err) => {
+                        setExportProgress(null);
+                        log.error('Diary PDF export error:', err);
+                    },
                 },
-                onError: (err) => {
-                    setExportProgress(null);
-                    log.error('Diary PDF export error:', err);
-                },
-            },
-            settings.firstName || undefined,
-        );
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+                settings.firstName || undefined,
+                delivery,
+            );
+        },
+        [setExportProgress, setSelectMode, setSelectedIds, settings.firstName],
+    );
     const toggleEntrySelection = useCallback(
         (id: string) => {
             // Enter select mode on first selection
@@ -790,7 +794,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             {/* Export progress overlay */}
             {exportProgress && (
-                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-50 gap-4">
+                <div
+                    role="status"
+                    aria-live="polite"
+                    aria-label={exportProgress}
+                    className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-50 gap-4"
+                >
                     <div className="w-10 h-10 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                     <p className="text-sm font-bold text-white">{exportProgress}</p>
                 </div>
@@ -813,11 +822,15 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     }
                     action={
                         entries.length > 0 ? (
-                            <div className="relative" ref={menuRef}>
+                            <div className="relative">
                                 <button
+                                    ref={pageActionsTriggerRef}
                                     onClick={() => setMenuOpen(!menuOpen)}
                                     className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                    aria-label="Page actions"
+                                    aria-label={menuOpen ? 'Close diary actions' : 'Open diary actions'}
+                                    aria-expanded={menuOpen}
+                                    aria-haspopup="menu"
+                                    aria-controls={menuOpen ? pageActionsMenuId : undefined}
                                 >
                                     <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
                                         <circle cx="12" cy="5" r="1.5" />
@@ -827,14 +840,43 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                 </button>
                                 {menuOpen && (
                                     <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        <div
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            className="fixed inset-0 z-40"
+                                            onClick={closePageActions}
+                                        />
+                                        <div
+                                            ref={pageActionsMenuRef}
+                                            id={pageActionsMenuId}
+                                            role="menu"
+                                            aria-label="Diary entry actions"
+                                            className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                        >
+                                            {selectedIds.size < entries.length && (
+                                                <>
+                                                    <button
+                                                        role="menuitem"
+                                                        aria-label="Select all diary entries"
+                                                        onClick={() => {
+                                                            setSelectedIds(new Set(entries.map((entry) => entry.id)));
+                                                            closePageActions();
+                                                        }}
+                                                        className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
+                                                    >
+                                                        <CheckIcon className="w-4 h-4 text-sky-400" />
+                                                        Select All
+                                                    </button>
+                                                    <div role="separator" className="border-t border-white/5" />
+                                                </>
+                                            )}
                                             <button
-                                                aria-label="Open diary entry options menu"
+                                                role="menuitem"
+                                                aria-label="Download selected diary entries"
                                                 onClick={() => {
-                                                    setMenuOpen(false);
+                                                    closePageActions();
                                                     const sel = entries.filter((e) => selectedIds.has(e.id));
-                                                    if (sel.length > 0) exportDiaryPdf(sel);
+                                                    if (sel.length > 0) void exportDiaryPdf(sel, 'download');
                                                 }}
                                                 disabled={selectedIds.size === 0}
                                                 className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -854,13 +896,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                 </svg>
                                                 Download Selected
                                             </button>
-                                            <div className="border-t border-white/5" />
+                                            <div role="separator" className="border-t border-white/5" />
                                             <button
-                                                aria-label="Open diary entry options menu"
+                                                role="menuitem"
+                                                aria-label="Share selected diary entries"
                                                 onClick={() => {
-                                                    setMenuOpen(false);
+                                                    closePageActions();
                                                     const sel = entries.filter((e) => selectedIds.has(e.id));
-                                                    if (sel.length > 0) exportDiaryPdf(sel);
+                                                    if (sel.length > 0) void exportDiaryPdf(sel, 'share');
                                                 }}
                                                 disabled={selectedIds.size === 0}
                                                 className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -882,12 +925,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                             </button>
                                             {selectedIds.size > 0 && (
                                                 <>
-                                                    <div className="border-t border-white/5" />
+                                                    <div role="separator" className="border-t border-white/5" />
                                                     <button
-                                                        aria-label="Select diary entries for bulk actions"
+                                                        role="menuitem"
+                                                        aria-label="Clear diary entry selection"
                                                         onClick={() => {
                                                             setSelectedIds(new Set());
-                                                            setMenuOpen(false);
+                                                            closePageActions();
                                                         }}
                                                         className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
                                                     >

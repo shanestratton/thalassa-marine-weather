@@ -159,6 +159,8 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
 /**
  * Generate the Captain's Diary PDF using jsPDF
  * Matches the Official Deck Log style: navy header, gold accents, compass rose watermark
+ * `delivery` keeps the Download and Share UI actions honest while preserving
+ * the historical auto-share behavior for callers that do not specify one.
  */
 export async function generateDiaryPDF(
     entries: DiaryEntry[],
@@ -168,6 +170,7 @@ export async function generateDiaryPDF(
         onError?: (error: string) => void;
     },
     userName?: string,
+    delivery: 'auto' | 'download' | 'share' = 'auto',
 ): Promise<void> {
     try {
         if (entries.length === 0) {
@@ -493,7 +496,12 @@ export async function generateDiaryPDF(
         const pdfBlob = pdf.output('blob');
         const pdfFile = new File([pdfBlob], pdfFilename, { type: 'application/pdf' });
 
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        if (
+            delivery !== 'download' &&
+            navigator.share &&
+            navigator.canShare &&
+            navigator.canShare({ files: [pdfFile] })
+        ) {
             try {
                 await navigator.share({
                     title: "Captain's Diary",

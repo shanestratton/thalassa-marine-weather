@@ -10,7 +10,7 @@
  *
  * Glassmorphism backdrop with blur, tap-to-dismiss, back chevron.
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useId, useRef, useState, useCallback } from 'react';
 import type { TimestampedMetric } from '../../services/NmeaStore';
 import { CompassGauge } from './gauges/CompassGauge';
 import { ArcGauge } from './gauges/ArcGauge';
@@ -18,6 +18,7 @@ import { DepthGauge } from './gauges/DepthGauge';
 import { TachGauge } from './gauges/TachGauge';
 import { BarGauge } from './gauges/BarGauge';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export type GaugeMetricId =
     | 'tws'
@@ -44,6 +45,10 @@ interface NmeaGaugeOverlayProps {
 
 export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, metric, onClose }) => {
     const [visible, setVisible] = useState(false);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const closingRef = useRef(false);
+    const titleId = useId();
 
     // ── Keel offset (persisted in localStorage) ──
     const OFFSET_KEY = 'thalassa_keel_offset';
@@ -68,16 +73,28 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
 
     // Animate in
     useEffect(() => {
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => setVisible(true));
+        let secondFrame: number | null = null;
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => setVisible(true));
         });
+        return () => {
+            cancelAnimationFrame(firstFrame);
+            if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+            if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+        };
     }, []);
 
-    const handleClose = () => {
+    const handleClose = useCallback(() => {
+        if (closingRef.current) return;
+        closingRef.current = true;
         triggerHaptic('light');
         setVisible(false);
-        setTimeout(onClose, 300); // Wait for fade-out
-    };
+        closeTimerRef.current = setTimeout(onClose, 300); // Wait for fade-out
+    }, [onClose]);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: handleClose,
+    });
 
     // Build gauge config
     const gaugeConfig: Record<GaugeMetricId, GaugeConfig> = {
@@ -227,6 +244,10 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
 
     return (
         <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             className={`fixed inset-0 z-[9999] flex flex-col transition-all duration-300 ${
                 visible ? 'opacity-100' : 'opacity-0'
             } bg-slate-950`}
@@ -237,6 +258,7 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
                 style={{ paddingTop: 'calc(env(safe-area-inset-top, 20px) + 12px)' }}
             >
                 <button
+                    ref={closeButtonRef}
                     onClick={handleClose}
                     aria-label="Go back"
                     className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center press"
@@ -252,7 +274,10 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
                     </svg>
                 </button>
 
-                <span className="flex-1 text-center text-sm font-black text-white uppercase tracking-widest pr-12">
+                <span
+                    id={titleId}
+                    className="flex-1 text-center text-sm font-black text-white uppercase tracking-widest pr-12"
+                >
                     {config.title}
                 </span>
             </div>

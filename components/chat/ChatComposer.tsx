@@ -2,8 +2,9 @@
  * ChatComposer — Channel message compose bar with attachments.
  * Extracted from ChatPage to reduce monolith complexity.
  */
-import React from 'react';
+import React, { useCallback, useId, useRef } from 'react';
 import { type ClientFilterResult } from '../../services/ContentModerationService';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 
 export interface ChatComposerProps {
     messageText: string;
@@ -42,155 +43,193 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
         onOpenPinDrop,
         onOpenPoiPicker,
         onOpenTrackPicker,
-    }) => (
-        <div className="flex-shrink-0 relative">
-            <div className="absolute inset-0 bg-gradient-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
-            <div
-                className={`relative px-4 pt-2 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}
-            >
-                {/* Client filter warning */}
-                {filterWarning && (
-                    <div className="mb-2 p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.12] fade-slide-down">
-                        <p className="text-[11px] text-amber-400/80 mb-2">⚠️ {filterWarning.warning}</p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => {
-                                    setFilterWarning(null);
-                                    setMessageText('');
-                                }}
-                                aria-label="Edit message"
-                                className="flex-1 py-2.5 rounded-lg bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]"
-                            >
-                                Edit message
-                            </button>
-                            {!filterWarning.blocked && (
-                                <button
-                                    onClick={() => onSend(true)}
-                                    aria-label="Send message anyway"
-                                    className="flex-1 py-2.5 rounded-lg bg-amber-500/10 text-xs text-amber-400 hover:bg-amber-500/20 transition-colors min-h-[44px]"
-                                >
-                                    Send anyway
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                )}
+    }) => {
+        const attachTriggerRef = useRef<HTMLButtonElement>(null);
+        const attachMenuId = useId();
+        const closeAttachMenu = useCallback(() => setShowAttachMenu(false), [setShowAttachMenu]);
+        const attachMenuRef = useMenuNavigation<HTMLDivElement>(showAttachMenu, {
+            triggerRef: attachTriggerRef,
+            onClose: closeAttachMenu,
+        });
+        const chooseAttachment = useCallback(
+            (openPicker: () => void) => {
+                closeAttachMenu();
+                openPicker();
+            },
+            [closeAttachMenu],
+        );
 
-                {isMuted ? (
-                    <div className="flex items-center justify-center gap-2 py-2 rounded-xl bg-red-500/[0.04] border border-red-500/[0.06]">
-                        <span className="text-[11px] text-red-400/50">
-                            🔇 Muted until {mutedUntil?.toLocaleTimeString()}
-                        </span>
-                    </div>
-                ) : (
-                    <div className="flex items-center gap-2" role="toolbar" aria-label="Message compose">
-                        {/* ➕ Attach button */}
-                        <div className="relative">
+        return (
+            <div className="flex-shrink-0 relative">
+                <div className="absolute inset-0 bg-gradient-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
+                <div
+                    className={`relative px-4 pt-2 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}
+                >
+                    {/* Client filter warning */}
+                    {filterWarning && (
+                        <div className="mb-2 p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.12] fade-slide-down">
+                            <p className="text-[11px] text-amber-400/80 mb-2">⚠️ {filterWarning.warning}</p>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setFilterWarning(null);
+                                        setMessageText('');
+                                    }}
+                                    aria-label="Edit message"
+                                    className="flex-1 py-2.5 rounded-lg bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]"
+                                >
+                                    Edit message
+                                </button>
+                                {!filterWarning.blocked && (
+                                    <button
+                                        onClick={() => onSend(true)}
+                                        aria-label="Send message anyway"
+                                        className="flex-1 py-2.5 rounded-lg bg-amber-500/10 text-xs text-amber-400 hover:bg-amber-500/20 transition-colors min-h-[44px]"
+                                    >
+                                        Send anyway
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {isMuted ? (
+                        <div className="flex items-center justify-center gap-2 py-2 rounded-xl bg-red-500/[0.04] border border-red-500/[0.06]">
+                            <span className="text-[11px] text-red-400/50">
+                                🔇 Muted until {mutedUntil?.toLocaleTimeString()}
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2" role="toolbar" aria-label="Message compose">
+                            {/* ➕ Attach button */}
+                            <div className="relative">
+                                <button
+                                    ref={attachTriggerRef}
+                                    onClick={() => setShowAttachMenu(!showAttachMenu)}
+                                    aria-label={showAttachMenu ? 'Close attachment menu' : 'Open attachment menu'}
+                                    aria-expanded={showAttachMenu}
+                                    aria-haspopup="menu"
+                                    aria-controls={showAttachMenu ? attachMenuId : undefined}
+                                    className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all duration-200 flex-shrink-0 active:scale-90 ${
+                                        showAttachMenu
+                                            ? 'bg-sky-500/15 border border-sky-500/25 rotate-45'
+                                            : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
+                                    }`}
+                                >
+                                    <span
+                                        className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`}
+                                    >
+                                        ➕
+                                    </span>
+                                </button>
+
+                                {/* Attach menu flyout */}
+                                {showAttachMenu && (
+                                    <>
+                                        <div
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            className="fixed inset-0 z-40"
+                                            onClick={closeAttachMenu}
+                                        />
+                                        <div
+                                            ref={attachMenuRef}
+                                            id={attachMenuId}
+                                            role="menu"
+                                            aria-label="Share an attachment"
+                                            className="absolute bottom-12 left-0 z-50 w-56 rounded-2xl bg-slate-900 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down"
+                                        >
+                                            <button
+                                                role="menuitem"
+                                                onClick={() => chooseAttachment(onOpenPinDrop)}
+                                                aria-label="Drop a pin to share location"
+                                                className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                            >
+                                                <p className="text-sm text-white/85 font-medium">Drop a Pin</p>
+                                                <p className="text-[11px] text-white/50 mt-0.5">Share your location</p>
+                                            </button>
+                                            <div role="separator" className="h-px bg-white/[0.06]" />
+                                            <button
+                                                role="menuitem"
+                                                onClick={() => chooseAttachment(onOpenPoiPicker)}
+                                                aria-label="Share a point of interest"
+                                                className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                            >
+                                                <p className="text-sm text-white/85 font-medium">Share Point</p>
+                                                <p className="text-[11px] text-white/50 mt-0.5">
+                                                    Pick any spot on the map
+                                                </p>
+                                            </button>
+                                            <div role="separator" className="h-px bg-white/[0.06]" />
+                                            <button
+                                                role="menuitem"
+                                                onClick={() => chooseAttachment(onOpenTrackPicker)}
+                                                aria-label="Share a voyage track"
+                                                className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                            >
+                                                <p className="text-sm text-white/85 font-medium">Share Voyage Track</p>
+                                                <p className="text-[11px] text-white/50 mt-0.5">From your ship's log</p>
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                             <button
-                                onClick={() => setShowAttachMenu(!showAttachMenu)}
-                                aria-label={showAttachMenu ? 'Close attachment menu' : 'Open attachment menu'}
-                                aria-expanded={showAttachMenu}
-                                className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all duration-200 flex-shrink-0 active:scale-90 ${
-                                    showAttachMenu
-                                        ? 'bg-sky-500/15 border border-sky-500/25 rotate-45'
+                                onClick={() => setIsQuestion(!isQuestion)}
+                                aria-label={
+                                    isQuestion ? 'Unmark as question' : 'Mark as question — questions get priority'
+                                }
+                                aria-pressed={isQuestion}
+                                className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm transition-all duration-200 flex-shrink-0 active:scale-90 ${
+                                    isQuestion
+                                        ? 'bg-amber-500/15 border border-amber-500/25 shadow-lg shadow-amber-500/10'
                                         : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
                                 }`}
                             >
-                                <span
-                                    className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`}
-                                >
-                                    ➕
-                                </span>
+                                📢
                             </button>
-
-                            {/* Attach menu flyout */}
-                            {showAttachMenu && (
-                                <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
-                                    <div className="absolute bottom-12 left-0 z-50 w-56 rounded-2xl bg-slate-900 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down">
-                                        <button
-                                            onClick={onOpenPinDrop}
-                                            aria-label="Drop a pin to share location"
-                                            className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
-                                        >
-                                            <p className="text-sm text-white/85 font-medium">Drop a Pin</p>
-                                            <p className="text-[11px] text-white/50 mt-0.5">Share your location</p>
-                                        </button>
-                                        <div className="h-px bg-white/[0.06]" />
-                                        <button
-                                            onClick={onOpenPoiPicker}
-                                            aria-label="Share a point of interest"
-                                            className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
-                                        >
-                                            <p className="text-sm text-white/85 font-medium">Share Point</p>
-                                            <p className="text-[11px] text-white/50 mt-0.5">Pick any spot on the map</p>
-                                        </button>
-                                        <div className="h-px bg-white/[0.06]" />
-                                        <button
-                                            onClick={onOpenTrackPicker}
-                                            aria-label="Share a voyage track"
-                                            className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
-                                        >
-                                            <p className="text-sm text-white/85 font-medium">Share Voyage Track</p>
-                                            <p className="text-[11px] text-white/50 mt-0.5">From your ship's log</p>
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                        <button
-                            onClick={() => setIsQuestion(!isQuestion)}
-                            aria-label={isQuestion ? 'Unmark as question' : 'Mark as question — questions get priority'}
-                            aria-pressed={isQuestion}
-                            className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm transition-all duration-200 flex-shrink-0 active:scale-90 ${
-                                isQuestion
-                                    ? 'bg-amber-500/15 border border-amber-500/25 shadow-lg shadow-amber-500/10'
-                                    : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
-                            }`}
-                        >
-                            📢
-                        </button>
-                        <div className="flex-1 relative">
-                            <input
-                                ref={inputRef as React.RefObject<HTMLInputElement>}
-                                type="text"
-                                value={messageText}
-                                onChange={(e) => {
-                                    setMessageText(e.target.value);
-                                    setFilterWarning(null);
-                                }}
-                                onKeyDown={(e) => e.key === 'Enter' && onSend()}
-                                placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
-                                aria-label={isQuestion ? 'Ask the crew a question' : 'Type a message'}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
-                            />
-                        </div>
-                        <button
-                            onClick={() => onSend()}
-                            disabled={!messageText.trim()}
-                            aria-label="Send message"
-                            className="w-11 h-11 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
-                        >
-                            <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className={messageText.trim() ? 'text-white' : 'text-white/40'}
+                            <div className="flex-1 relative">
+                                <input
+                                    ref={inputRef as React.RefObject<HTMLInputElement>}
+                                    type="text"
+                                    value={messageText}
+                                    onChange={(e) => {
+                                        setMessageText(e.target.value);
+                                        setFilterWarning(null);
+                                    }}
+                                    onKeyDown={(e) => e.key === 'Enter' && onSend()}
+                                    placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
+                                    aria-label={isQuestion ? 'Ask the crew a question' : 'Type a message'}
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
+                                />
+                            </div>
+                            <button
+                                onClick={() => onSend()}
+                                disabled={!messageText.trim()}
+                                aria-label="Send message"
+                                className="w-11 h-11 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
                             >
-                                <path d="M22 2L11 13" />
-                                <path d="M22 2l-7 20-4-9-9-4z" />
-                            </svg>
-                        </button>
-                    </div>
-                )}
+                                <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className={messageText.trim() ? 'text-white' : 'text-white/40'}
+                                >
+                                    <path d="M22 2L11 13" />
+                                    <path d="M22 2l-7 20-4-9-9-4z" />
+                                </svg>
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
-    ),
+        );
+    },
 );
 
 ChatComposer.displayName = 'ChatComposer';

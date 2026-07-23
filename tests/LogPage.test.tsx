@@ -5,8 +5,12 @@
  * We mock the heavy dependencies and test rendering & key interactions.
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const logPageStateOverrides = vi.hoisted(() => ({
+    state: {} as Record<string, unknown>,
+}));
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -69,6 +73,9 @@ vi.mock('../pages/log/LogSubComponents', () => ({
             {label}
         </button>
     ),
+    FollowRouteChoice: ({ summary }: { summary: { voyageId: string } }) => (
+        <button>Follow route {summary.voyageId}</button>
+    ),
 }));
 vi.mock('../pages/log/VoyageDialogs', () => ({ VoyageChoiceDialog: () => null, StopVoyageDialog: () => null }));
 vi.mock('../pages/log/ExportSheet', () => ({ ExportSheet: () => null }));
@@ -106,6 +113,8 @@ vi.mock('../hooks/useLogPageState', () => ({
             expandedVoyages: new Set(),
             gpsStatus: 'none' as const,
             filters: { types: ['auto', 'manual', 'waypoint'], searchQuery: '' },
+            summaries: [],
+            ...logPageStateOverrides.state,
         },
         dispatch: vi.fn(),
         settings: { units: { speed: 'kts', temp: 'C', length: 'ft', distance: 'nm' }, isPro: true },
@@ -264,6 +273,7 @@ import { LogPage } from '../pages/LogPage';
 describe('LogPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        for (const key of Object.keys(logPageStateOverrides.state)) delete logPageStateOverrides.state[key];
     });
 
     it('renders without crashing', () => {
@@ -294,5 +304,60 @@ describe('LogPage', () => {
             const { rerender } = render(<LogPage />);
             rerender(<LogPage />);
         }).not.toThrow();
+    });
+
+    it('contains the follow-route prompt, defaults to recording, and restores its opener on Escape', () => {
+        const view = () => (
+            <>
+                <button>Cast off</button>
+                <LogPage />
+            </>
+        );
+        const { rerender } = render(view());
+        const opener = screen.getByRole('button', { name: 'Cast off' });
+        opener.focus();
+
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [
+                {
+                    id: 'active-fix',
+                    voyageId: 'active-voyage',
+                    latitude: -27.5,
+                    longitude: 153,
+                    timestamp: '2026-07-23T00:00:00.000Z',
+                },
+            ],
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        rerender(view());
+
+        const dialog = screen.getByRole('dialog', { name: 'Following a route?' });
+        const dismiss = screen.getByRole('button', { name: 'Just recording' });
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(dialog).toHaveAccessibleDescription('Pick one to show on your public page — or just record the track.');
+        expect(dismiss).toHaveFocus();
+
+        const routeChoice = screen.getByRole('button', { name: 'Follow route planned-voyage' });
+        fireEvent.keyDown(dismiss, { key: 'Tab' });
+        expect(routeChoice).toHaveFocus();
+        fireEvent.keyDown(routeChoice, { key: 'Tab', shiftKey: true });
+        expect(dismiss).toHaveFocus();
+        fireEvent.keyDown(dismiss, { key: 'Escape' });
+
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
     });
 });

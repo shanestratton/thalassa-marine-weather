@@ -11,7 +11,8 @@
  *
  * Persists completion to localStorage.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const TOOLTIP_KEY = 'thalassa_tooltip_tour_v2';
 
@@ -84,26 +85,41 @@ const STEPS: TooltipStep[] = [
 export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onComplete }) => {
     const [step, setStep] = useState(0);
     const [visible, setVisible] = useState(false);
+    const nextButtonRef = useRef<HTMLButtonElement>(null);
+    const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const completingRef = useRef(false);
+    const titleId = useId();
+    const descriptionId = useId();
 
     useEffect(() => {
-        setTimeout(() => setVisible(true), 400);
+        const revealTimer = setTimeout(() => setVisible(true), 400);
+        return () => {
+            clearTimeout(revealTimer);
+            if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+        };
     }, []);
+
+    const completeTour = useCallback(() => {
+        if (completingRef.current) return;
+        completingRef.current = true;
+        setVisible(false);
+        localStorage.setItem(TOOLTIP_KEY, 'done');
+        completionTimerRef.current = setTimeout(() => onComplete?.(), 300);
+    }, [onComplete]);
 
     const handleNext = useCallback(() => {
         if (step < STEPS.length - 1) {
             setStep((s) => s + 1);
         } else {
-            setVisible(false);
-            localStorage.setItem(TOOLTIP_KEY, 'done');
-            setTimeout(() => onComplete?.(), 300);
+            completeTour();
         }
-    }, [step, onComplete]);
+    }, [step, completeTour]);
 
-    const handleSkip = useCallback(() => {
-        setVisible(false);
-        localStorage.setItem(TOOLTIP_KEY, 'done');
-        setTimeout(() => onComplete?.(), 300);
-    }, [onComplete]);
+    const handleSkip = completeTour;
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: nextButtonRef,
+        onEscape: handleSkip,
+    });
 
     const current = STEPS[step];
     const positionClass =
@@ -115,6 +131,8 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
 
     return (
         <div
+            role="presentation"
+            aria-hidden={!visible}
             className={`fixed inset-0 z-[9999] flex justify-center ${positionClass} px-6 transition-all duration-300 ${
                 visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
@@ -122,6 +140,11 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
             onClick={handleSkip}
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
                 className="relative max-w-sm w-full bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-bottom-4 duration-500"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -130,6 +153,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                     {STEPS.map((_, i) => (
                         <div
                             key={i}
+                            aria-hidden="true"
                             className={`h-1.5 rounded-full transition-all duration-300 ${
                                 i === step ? 'w-6 bg-sky-400' : i < step ? 'w-1.5 bg-sky-400/50' : 'w-1.5 bg-white/15'
                             }`}
@@ -143,8 +167,12 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                         {current.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-black text-white uppercase tracking-wider mb-1">{current.title}</h4>
-                        <p className="text-sm text-white/60 leading-relaxed">{current.description}</p>
+                        <h4 id={titleId} className="text-sm font-black text-white uppercase tracking-wider mb-1">
+                            {current.title}
+                        </h4>
+                        <p id={descriptionId} className="text-sm text-white/60 leading-relaxed">
+                            {current.description}
+                        </p>
                     </div>
                 </div>
 
@@ -158,7 +186,8 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                         Skip
                     </button>
                     <button
-                        aria-label="Next onboarding tip"
+                        ref={nextButtonRef}
+                        aria-label={step < STEPS.length - 1 ? 'Next onboarding tip' : 'Finish onboarding tips'}
                         onClick={handleNext}
                         className="px-5 py-2 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 rounded-lg text-sky-400 text-sm font-bold uppercase tracking-wider transition-all active:scale-[0.97]"
                     >
@@ -167,7 +196,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                 </div>
 
                 {/* Step counter */}
-                <p className="text-center text-[11px] text-white/60 font-bold mt-3">
+                <p aria-live="polite" className="text-center text-[11px] text-white/60 font-bold mt-3">
                     {step + 1} of {STEPS.length}
                 </p>
             </div>

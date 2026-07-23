@@ -31,7 +31,7 @@ describe('ChildCard', () => {
 
     it('sets aria-expanded=true when open', () => {
         render(<ChildCard {...defaultProps} isOpen={true} />);
-        const button = screen.getByRole('button', { name: /Ship's Galley/ });
+        const button = screen.getByRole('button', { name: "Ship's Galley — Meals & Stores" });
         expect(button.getAttribute('aria-expanded')).toBe('true');
     });
 
@@ -54,7 +54,38 @@ describe('ChildCard', () => {
 
     it('renders back button in full-screen overlay', () => {
         render(<ChildCard {...defaultProps} isOpen={true} />);
-        expect(screen.getByLabelText('Back to passage planning')).toBeDefined();
+        expect(
+            screen.getByRole('button', { name: "Close Ship's Galley and return to passage planning" }),
+        ).toBeDefined();
+    });
+
+    it('exposes the full-screen detail as a labelled modal dialog', () => {
+        render(<ChildCard {...defaultProps} isOpen={true} />);
+
+        const dialog = screen.getByRole('dialog', { name: "Ship's Galley" });
+        expect(dialog.getAttribute('aria-modal')).toBe('true');
+        expect(dialog.getAttribute('aria-describedby')).toBeTruthy();
+    });
+
+    it('focuses the close action and restores the opener after Escape', () => {
+        const Harness = () => {
+            const [isOpen, setIsOpen] = React.useState(false);
+            return <ChildCard {...defaultProps} isOpen={isOpen} onToggle={() => setIsOpen((open) => !open)} />;
+        };
+
+        render(<Harness />);
+        const opener = screen.getByRole('button', { name: "Ship's Galley — Meals & Stores" });
+        opener.focus();
+        fireEvent.click(opener);
+
+        const closeButton = screen.getByRole('button', {
+            name: "Close Ship's Galley and return to passage planning",
+        });
+        expect(document.activeElement).toBe(closeButton);
+
+        fireEvent.keyDown(closeButton, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: "Ship's Galley" })).toBeNull();
+        expect(document.activeElement).toBe(opener);
     });
 
     it('applies correct color theme', () => {
