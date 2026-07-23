@@ -105,6 +105,8 @@ describe('direct dialog accessibility', () => {
         const onClose = vi.fn();
         render(<CheckoutModal listing={listing} isOpen onClose={onClose} onCashDeal={vi.fn()} />);
         const close = screen.getByRole('button', { name: 'Close marketplace checkout' });
+        expect(screen.getByRole('button', { name: 'Secure escrow unavailable during beta' })).toBeDisabled();
+        expect(screen.getByText(/secure card holds are disabled for this beta/i)).toBeInTheDocument();
         expect(close).toHaveFocus();
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();

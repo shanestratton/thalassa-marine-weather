@@ -20,9 +20,37 @@ serve(async (req) => {
     if (authorizationFailure) return authorizationFailure;
 
     try {
-        const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
-        if (!stripeKey || !supabaseUrl || !serviceRoleKey) {
+        if (!supabaseUrl || !serviceRoleKey) {
+            return jsonResponse({ error: 'Server dependencies are not configured' }, 500);
+        }
+        const supabase = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+        });
+
+        if (Deno.env.get('MARKETPLACE_ENABLED') !== 'true') {
+            // Never silently strand an authorization created before the kill
+            // switch was applied. A non-success keeps the cron visible until
+            // an operator reconciles every unresolved Stripe reference.
+            const { count, error: unresolvedError } = await supabase
+                .from('marketplace_escrow')
+                .select('id', { count: 'exact', head: true })
+                .in('escrow_status', ['awaiting_handoff', 'capture_pending', 'expired', 'canceled'])
+                .not('stripe_payment_intent_id', 'is', null)
+                .is('stripe_canceled_at', null);
+            if (unresolvedError) {
+                console.error(`[sweep-expired-escrows] Disabled-state audit failed: ${unresolvedError.message}`);
+                return jsonResponse({ error: 'Disabled payment-state audit failed' }, 503);
+            }
+            if ((count ?? 0) > 0) {
+                console.error(`[sweep-expired-escrows] Payments disabled with ${count} unresolved escrow record(s)`);
+                return jsonResponse({ error: 'Unresolved escrow records require operator reconciliation' }, 503);
+            }
+            return jsonResponse({ success: true, skipped: true, reason: 'payments_disabled' });
+        }
+
+        const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
+        if (!stripeKey) {
             return jsonResponse({ error: 'Server dependencies are not configured' }, 500);
         }
 
@@ -32,10 +60,6 @@ serve(async (req) => {
             timeout: STRIPE_TIMEOUT_MS,
             maxNetworkRetries: 1,
         });
-        const supabase = createClient(supabaseUrl, serviceRoleKey, {
-            auth: { persistSession: false, autoRefreshToken: false },
-        });
-
         const { data, error } = await supabase.rpc('claim_marketplace_escrow_reconciliation', {
             p_limit: 10,
         });

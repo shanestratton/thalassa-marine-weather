@@ -24,6 +24,7 @@ import {
 } from '../../services/GalleyRecipeService';
 import { type ShoppingListSummary, getShoppingList } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { ChefPlate } from './ChefPlate';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { CaptainsTable } from './CaptainsTable';
@@ -849,6 +850,11 @@ const SlotPicker: React.FC<{
                             className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
                             aria-label="Search recipes"
                         />
+                        {!FEATURE_VISIBILITY.spoonacular && (
+                            <p className="px-1 pt-2 text-[11px] leading-relaxed text-gray-500" role="status">
+                                Beta mode searches your saved and community recipes only.
+                            </p>
+                        )}
                     </div>
 
                     {/* Results + Custom meal (all scrollable) */}

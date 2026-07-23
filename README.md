@@ -106,17 +106,16 @@ thalassa-marine-weather/
 
 Copy `.env.example` to `.env` and configure:
 
-| Variable                 | Required | Description                                           |
-| ------------------------ | -------- | ----------------------------------------------------- |
-| `VITE_SUPABASE_URL`      | ✅       | Supabase project URL                                  |
-| `VITE_SUPABASE_ANON_KEY` | ✅       | Supabase anonymous key (public, RLS-protected)        |
-| `VITE_MAPBOX_TOKEN`      | ✅       | Mapbox GL access token for map rendering              |
-| `VITE_OWM_API_KEY`       | ⚡       | OpenWeatherMap API key (temp/cloud tile overlays)     |
-| `VITE_RAINBOW_API_KEY`   | ⚡       | Rainbow.ai API key (1km precipitation forecast tiles) |
-| `VITE_APP_VERSION`       | —        | App version string (auto-set by CI)                   |
-| `VITE_SENTRY_DSN`        | —        | Sentry DSN for error reporting                        |
+| Variable                   | Required | Description                                       |
+| -------------------------- | -------- | ------------------------------------------------- |
+| `VITE_SUPABASE_URL`        | ✅       | Supabase project URL                              |
+| `VITE_SUPABASE_ANON_KEY`   | ✅       | Supabase anonymous key (public, RLS-protected)    |
+| `VITE_MAPBOX_ACCESS_TOKEN` | ✅       | Mapbox GL access token for map rendering          |
+| `VITE_OWM_API_KEY`         | ⚡       | OpenWeatherMap API key (temp/cloud tile overlays) |
+| `VITE_APP_VERSION`         | —        | App version string (auto-set by CI)               |
+| `VITE_SENTRY_DSN`          | —        | Sentry DSN for error reporting                    |
 
-> **⚡ Optional but recommended** — these enable premium weather overlays. Without them, core forecasting still works via Supabase Edge Function proxies.
+> **⚡ Optional but recommended.** Paid provider credentials—including Rainbow.ai, Open-Meteo, Spoonacular, WeatherKit, Stripe, and voice/AI keys—belong only in Supabase/worker secrets. Never prefix them with `VITE_`; Vite embeds every such value in the browser and native bundle.
 
 ---
 

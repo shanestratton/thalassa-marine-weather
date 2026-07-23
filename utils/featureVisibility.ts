@@ -1,6 +1,7 @@
 /**
  * featureVisibility — launch-visibility flags for features that need a
- * critical mass of users before they're worth surfacing.
+ * critical mass of users or a production-ready third-party integration
+ * before they're worth surfacing.
  *
  * Distinct from managers/FeatureGate (that's paywall TIERS — free vs
  * premium). These flags are "the code exists and works, but we're not
@@ -21,4 +22,9 @@ export const FEATURE_VISIBILITY = {
     marketplace: false,
     /** Crew Finder / Lonely Hearts (crew + berth connections). */
     crewFinder: false,
+    /**
+     * Paid Spoonacular catalogue, generated meal plans, and provider images.
+     * Personal, community, and offline galley features remain available.
+     */
+    spoonacular: false,
 } as const;

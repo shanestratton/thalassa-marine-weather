@@ -144,8 +144,13 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
         expect(functionSource('sweep-expired-escrows')).toContain('requireServiceRolePost(');
         for (const functionName of ['create-marketplace-payment', 'capture-escrow-payment', 'sweep-expired-escrows']) {
             const edge = functionSource(functionName);
+            expect(edge).toContain("Deno.env.get('MARKETPLACE_ENABLED') !== 'true'");
             expect(edge).toContain('timeout: STRIPE_TIMEOUT_MS');
             expect(edge).toContain('maxNetworkRetries: 1');
         }
+        const sweep = functionSource('sweep-expired-escrows');
+        expect(sweep).toContain("reason: 'payments_disabled'");
+        expect(sweep).toContain("'stripe_canceled_at'");
+        expect(sweep).toContain('Unresolved escrow records require operator reconciliation');
     });
 });

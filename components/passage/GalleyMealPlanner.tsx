@@ -1,5 +1,5 @@
 /**
- * GalleyMealPlanner — Spoonacular-powered meal plan for passage provisioning.
+ * GalleyMealPlanner — optional online meal plan for passage provisioning.
  *
  * Generates real recipes for each day of a passage, with:
  *  - Recipe cards (image, cook time, servings)
@@ -19,6 +19,7 @@ import {
 import { calculateProvisions, type ProvisionSummary } from '../../services/PassageProvisionsService';
 import { triggerHaptic } from '../../utils/system';
 import { safeExternalHttpUrl, safeImageUrl } from '../../utils/safeUrl';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { SafeImage } from '../ui/SafeImage';
 
 interface GalleyMealPlannerProps {
@@ -111,6 +112,21 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
 
         navigator.clipboard.writeText(text);
     }, [shoppingList, days, crew]);
+
+    if (!FEATURE_VISIBILITY.spoonacular) {
+        return (
+            <div className="space-y-3">
+                <div
+                    role="status"
+                    className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-relaxed text-amber-200"
+                >
+                    <span className="font-bold">Beta mode:</span> Online recipe generation is disabled. Offline meal
+                    ideas remain available below.
+                </div>
+                {fallbackContent}
+            </div>
+        );
+    }
 
     // ── No plan yet — show generate button ──
     if (!plan && !showFallback) {

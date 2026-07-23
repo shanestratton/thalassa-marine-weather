@@ -547,7 +547,9 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     </div>
 
                                     {recipe.source_url && (
-                                        <p className="text-[11px] text-gray-500">🔗 via Spoonacular · saved offline</p>
+                                        <p className="text-[11px] text-gray-500">
+                                            🔗 Imported recipe · available offline
+                                        </p>
                                     )}
                                 </div>
                             ))

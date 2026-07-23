@@ -491,7 +491,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                             </div>
                         )}
 
-                        {/* Meal planner — Spoonacular-powered with static fallback */}
+                        {/* Meal planner — static during beta; online provider remains gated */}
                         <GalleyMealPlanner
                             days={totalDaysCeil}
                             crew={effectiveCrewCount}
