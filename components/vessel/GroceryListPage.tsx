@@ -23,6 +23,7 @@ import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 
 import { ZONE_EMOJI } from '../chat/galleyTokens';
@@ -102,8 +103,6 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
         setPriceItem(item);
         setPriceValue('');
         setStoreName('');
-        // Focus the input after render
-        setTimeout(() => priceInputRef.current?.focus(), 150);
     }, []);
 
     // Confirm purchase with optional price + store
@@ -153,6 +152,16 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
     const [addUnit, setAddUnit] = useState('each');
     const [addZone, setAddZone] = useState<MarketZone>('General');
     const addNameRef = useRef<HTMLInputElement>(null);
+    const closePriceDialog = useCallback(() => setPriceItem(null), []);
+    const closeAddDialog = useCallback(() => setShowAddForm(false), []);
+    const priceDialogRef = useFocusTrap<HTMLDivElement>(!!priceItem, {
+        initialFocusRef: priceInputRef,
+        onEscape: closePriceDialog,
+    });
+    const addDialogRef = useFocusTrap<HTMLDivElement>(showAddForm, {
+        initialFocusRef: addNameRef,
+        onEscape: closeAddDialog,
+    });
 
     const handleAddItem = useCallback(async () => {
         if (!addName.trim()) return;
@@ -406,10 +415,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
 
             {/* ═══ Add Item FAB ═══ */}
             <button
-                onClick={() => {
-                    setShowAddForm(true);
-                    setTimeout(() => addNameRef.current?.focus(), 150);
-                }}
+                onClick={() => setShowAddForm(true)}
                 className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/30 flex items-center justify-center active:scale-90 transition-transform"
                 aria-label="Add item"
             >
@@ -426,22 +432,56 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
 
             {/* ═══ Price Input Modal ═══ */}
             {priceItem && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setPriceItem(null)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                <div
+                    className="fixed inset-0 z-50 flex items-end justify-center"
+                    onClick={closePriceDialog}
+                    role="presentation"
+                >
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" />
                     <div
+                        ref={priceDialogRef}
                         className="relative w-full max-w-md mx-4 mb-[calc(5rem+env(safe-area-inset-bottom)+8px)] p-5 rounded-2xl bg-slate-900 border border-white/[0.08] shadow-2xl animate-in slide-in-from-bottom duration-200"
                         onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="grocery-purchase-title"
+                        aria-describedby="grocery-purchase-item"
                     >
-                        <h3 className="text-sm font-black text-white mb-1">✅ Mark as Purchased</h3>
-                        <p className="text-[11px] text-gray-400 mb-4">{priceItem.ingredient_name}</p>
+                        <button
+                            type="button"
+                            onClick={closePriceDialog}
+                            className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+                            aria-label={`Cancel marking ${priceItem.ingredient_name} as purchased`}
+                        >
+                            <svg
+                                className="w-5 h-5 text-gray-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                aria-hidden="true"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                        <h3 id="grocery-purchase-title" className="text-sm font-black text-white mb-1 pr-10">
+                            ✅ Mark as Purchased
+                        </h3>
+                        <p id="grocery-purchase-item" className="text-[11px] text-gray-400 mb-4">
+                            {priceItem.ingredient_name}
+                        </p>
 
                         {/* Price input */}
-                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label
+                            htmlFor="grocery-purchase-price"
+                            className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                        >
                             Price (optional)
                         </label>
                         <div className="flex items-center gap-2 mt-1 mb-4">
                             <span className="text-lg font-bold text-gray-500">$</span>
                             <input
+                                id="grocery-purchase-price"
                                 ref={priceInputRef}
                                 type="number"
                                 inputMode="decimal"
@@ -456,10 +496,14 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Store name */}
-                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label
+                            htmlFor="grocery-purchase-store"
+                            className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                        >
                             Store (optional)
                         </label>
                         <input
+                            id="grocery-purchase-store"
                             type="text"
                             value={storeName}
                             onChange={(e) => setStoreName(e.target.value)}
@@ -472,6 +516,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                     key={s}
                                     type="button"
                                     onClick={() => setStoreName(s)}
+                                    aria-pressed={storeName === s}
                                     className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                         storeName === s
                                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -488,6 +533,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                             <button
                                 onClick={handleSkipPrice}
                                 disabled={!!purchasingId}
+                                aria-label={`Mark ${priceItem.ingredient_name} as purchased without a price`}
                                 className="flex-1 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-[11px] font-bold text-gray-400 uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
                             >
                                 Skip Price
@@ -495,6 +541,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                             <button
                                 onClick={handleConfirmPurchase}
                                 disabled={!!purchasingId}
+                                aria-label={`Confirm purchase of ${priceItem.ingredient_name}`}
                                 className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
                             >
                                 {purchasingId ? '⏳ Saving…' : '✅ Confirm'}
@@ -506,20 +553,51 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
 
             {/* ═══ Add Item Modal ═══ */}
             {showAddForm && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowAddForm(false)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                <div
+                    className="fixed inset-0 z-50 flex items-end justify-center"
+                    onClick={closeAddDialog}
+                    role="presentation"
+                >
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" />
                     <div
+                        ref={addDialogRef}
                         className="relative w-full max-w-md mx-4 p-5 rounded-2xl bg-slate-900 border border-white/[0.08] shadow-2xl animate-in slide-in-from-bottom duration-200"
                         style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                         onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="grocery-add-title"
                     >
-                        <h3 className="text-sm font-black text-white mb-4">➕ Add to Shopping List</h3>
+                        <button
+                            type="button"
+                            onClick={closeAddDialog}
+                            className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+                            aria-label="Cancel adding grocery item"
+                        >
+                            <svg
+                                className="w-5 h-5 text-gray-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                aria-hidden="true"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                        <h3 id="grocery-add-title" className="text-sm font-black text-white mb-4 pr-10">
+                            ➕ Add to Shopping List
+                        </h3>
 
                         {/* Item name */}
-                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label
+                            htmlFor="grocery-add-name"
+                            className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                        >
                             Item Name
                         </label>
                         <input
+                            id="grocery-add-name"
                             ref={addNameRef}
                             type="text"
                             value={addName}
@@ -532,10 +610,14 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         {/* Qty + Unit row */}
                         <div className="flex gap-2 mb-3">
                             <div className="flex-1">
-                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                                <label
+                                    htmlFor="grocery-add-quantity"
+                                    className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                                >
                                     Qty
                                 </label>
                                 <input
+                                    id="grocery-add-quantity"
                                     type="number"
                                     inputMode="decimal"
                                     min="1"
@@ -545,10 +627,14 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div className="flex-1">
-                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                                <label
+                                    htmlFor="grocery-add-unit"
+                                    className="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
+                                >
                                     Unit
                                 </label>
                                 <select
+                                    id="grocery-add-unit"
                                     value={addUnit}
                                     onChange={(e) => setAddUnit(e.target.value)}
                                     className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-emerald-500/50 appearance-none"
@@ -569,30 +655,34 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Zone picker */}
-                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
-                            Aisle / Zone
-                        </label>
-                        <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
-                            {ALL_ZONES.map((z) => (
-                                <button
-                                    key={z}
-                                    type="button"
-                                    onClick={() => setAddZone(z)}
-                                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
-                                        addZone === z
-                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                            : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'
-                                    }`}
-                                >
-                                    {ZONE_EMOJI[z]} {z}
-                                </button>
-                            ))}
-                        </div>
+                        <fieldset>
+                            <legend className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                                Aisle / Zone
+                            </legend>
+                            <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
+                                {ALL_ZONES.map((z) => (
+                                    <button
+                                        key={z}
+                                        type="button"
+                                        onClick={() => setAddZone(z)}
+                                        aria-pressed={addZone === z}
+                                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
+                                            addZone === z
+                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'
+                                        }`}
+                                    >
+                                        {ZONE_EMOJI[z]} {z}
+                                    </button>
+                                ))}
+                            </div>
+                        </fieldset>
 
                         {/* Add button */}
                         <button
                             onClick={handleAddItem}
                             disabled={!addName.trim()}
+                            aria-label="Add item to grocery list"
                             className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-30 transition-all"
                         >
                             ➕ Add to List

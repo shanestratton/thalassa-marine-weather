@@ -29,7 +29,22 @@ export function useMenuNavigation<T extends HTMLElement = HTMLDivElement>(
         if (!menu) return;
 
         const items = () => Array.from(menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR));
-        (items()[0] ?? menu).focus();
+        const firstItem = items()[0];
+        const addedTabIndex = !firstItem && !menu.hasAttribute('tabindex');
+        if (addedTabIndex) menu.setAttribute('tabindex', '-1');
+        (firstItem ?? menu).focus();
+        let shouldRestoreFocus = menu.contains(document.activeElement) || document.activeElement === menu;
+
+        const onFocusIn = () => {
+            shouldRestoreFocus = true;
+        };
+        const onFocusOut = (event: FocusEvent) => {
+            const next = event.relatedTarget;
+            // A null relatedTarget is normal when React removes the focused
+            // menu item. Keep restoration armed in that case. A real target
+            // outside the menu means the user intentionally Tabbed away.
+            if (next instanceof Node && !menu.contains(next)) shouldRestoreFocus = false;
+        };
 
         const onKeyDown = (event: KeyboardEvent) => {
             const menuItems = items();
@@ -57,7 +72,17 @@ export function useMenuNavigation<T extends HTMLElement = HTMLDivElement>(
         };
 
         menu.addEventListener('keydown', onKeyDown);
-        return () => menu.removeEventListener('keydown', onKeyDown);
+        menu.addEventListener('focusin', onFocusIn);
+        menu.addEventListener('focusout', onFocusOut);
+        return () => {
+            menu.removeEventListener('keydown', onKeyDown);
+            menu.removeEventListener('focusin', onFocusIn);
+            menu.removeEventListener('focusout', onFocusOut);
+            if (addedTabIndex) menu.removeAttribute('tabindex');
+            if (shouldRestoreFocus) {
+                optionsRef.current.triggerRef.current?.focus({ preventScroll: true });
+            }
+        };
     }, [isOpen]);
 
     return menuRef;

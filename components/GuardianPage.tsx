@@ -22,6 +22,7 @@ import {
 } from '../services/GuardianService';
 import { triggerHaptic } from '../utils/system';
 import { useSettings } from '../context/SettingsContext';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { PageHeader } from './ui/PageHeader';
 import {
     SosIcon,
@@ -65,6 +66,28 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
     // Report form
     const [reportText, setReportText] = useState('');
+
+    // Dialog focus management
+    const setupCloseRef = useRef<HTMLButtonElement>(null);
+    const setupDialogRef = useFocusTrap<HTMLDivElement>(showSetup, {
+        initialFocusRef: setupCloseRef,
+        onEscape: () => setShowSetup(false),
+    });
+    const reportTextRef = useRef<HTMLTextAreaElement>(null);
+    const reportDialogRef = useFocusTrap<HTMLDivElement>(showReport, {
+        initialFocusRef: reportTextRef,
+        onEscape: () => setShowReport(false),
+    });
+    const weatherCancelRef = useRef<HTMLButtonElement>(null);
+    const weatherDialogRef = useFocusTrap<HTMLDivElement>(showWeather, {
+        initialFocusRef: weatherCancelRef,
+        onEscape: () => setShowWeather(false),
+    });
+    const hailCancelRef = useRef<HTMLButtonElement>(null);
+    const hailDialogRef = useFocusTrap<HTMLDivElement>(showHail !== null, {
+        initialFocusRef: hailCancelRef,
+        onEscape: () => setShowHail(null),
+    });
 
     // ARM slider
     const sliderRef = useRef<HTMLDivElement>(null);
@@ -660,14 +683,24 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ═══ MODAL: PROFILE SETUP ═══ */}
             {showSetup && (
-                <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
+                <div
+                    role="presentation"
+                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                >
                     <div
+                        ref={setupDialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="guardian-profile-title"
                         className="w-full max-w-lg bg-slate-900 border-t border-white/10 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto"
                         style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                     >
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-lg font-black text-white">Guardian Profile</h2>
+                            <h2 id="guardian-profile-title" className="text-lg font-black text-white">
+                                Guardian Profile
+                            </h2>
                             <button
+                                ref={setupCloseRef}
                                 onClick={() => setShowSetup(false)}
                                 aria-label="Close profile setup"
                                 className="p-2 hover:bg-white/5 rounded-xl text-gray-400"
@@ -678,10 +711,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
                         <div className="space-y-4">
                             <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                                <label
+                                    htmlFor="guardian-vessel-name"
+                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                >
                                     Vessel Name
                                 </label>
                                 <input
+                                    id="guardian-vessel-name"
                                     type="text"
                                     value={vesselName}
                                     onChange={(e) => setVesselName(e.target.value)}
@@ -690,10 +727,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                                <label
+                                    htmlFor="guardian-owner-name"
+                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                >
                                     Your Name
                                 </label>
                                 <input
+                                    id="guardian-owner-name"
                                     type="text"
                                     value={ownerName}
                                     onChange={(e) => setOwnerName(e.target.value)}
@@ -702,10 +743,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                                <label
+                                    htmlFor="guardian-dog-name"
+                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                >
                                     Dog&apos;s Name 🐕 <span className="text-gray-500">(optional but encouraged)</span>
                                 </label>
                                 <input
+                                    id="guardian-dog-name"
                                     type="text"
                                     value={dogName}
                                     onChange={(e) => setDogName(e.target.value)}
@@ -714,10 +759,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                                <label
+                                    htmlFor="guardian-vessel-bio"
+                                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1"
+                                >
                                     Vessel Bio
                                 </label>
                                 <textarea
+                                    id="guardian-vessel-bio"
                                     value={vesselBio}
                                     onChange={(e) => setVesselBio(e.target.value)}
                                     placeholder="1985 Roberts 38 cruising the Hauraki Gulf..."
@@ -740,8 +789,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ═══ MODAL: REPORT SUSPICIOUS ═══ */}
             {showReport && (
-                <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
+                <div
+                    role="presentation"
+                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                >
                     <div
+                        ref={reportDialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="guardian-report-title"
+                        aria-describedby="guardian-report-description"
                         className="w-full max-w-lg bg-slate-900 border-t border-red-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
                         style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                     >
@@ -767,20 +824,26 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 </svg>
                             </button>
                             <div className="flex-1">
-                                <h2 className="text-lg font-black text-red-400 inline-flex items-center gap-2">
+                                <h2
+                                    id="guardian-report-title"
+                                    className="text-lg font-black text-red-400 inline-flex items-center gap-2"
+                                >
                                     <SosIcon className="w-5 h-5" />
                                     <span>Report Suspicious Activity</span>
                                 </h2>
-                                <p className="text-xs text-gray-400">Broadcast to all Thalassa users within 5 NM</p>
+                                <p id="guardian-report-description" className="text-xs text-gray-400">
+                                    Broadcast to all Thalassa users within 5 NM
+                                </p>
                             </div>
                         </div>
                         <textarea
+                            ref={reportTextRef}
+                            aria-label="Suspicious activity details"
                             value={reportText}
                             onChange={(e) => setReportText(e.target.value)}
                             placeholder="Unknown dinghy moving between boats at 2 AM..."
                             rows={3}
                             className="w-full bg-white/5 border border-red-500/20 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none mb-4"
-                            autoFocus
                         />
                         <div className="flex gap-3">
                             <button
@@ -805,8 +868,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ═══ MODAL: WEATHER ALERT ═══ */}
             {showWeather && (
-                <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
+                <div
+                    role="presentation"
+                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                >
                     <div
+                        ref={weatherDialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="guardian-weather-title"
+                        aria-describedby="guardian-weather-description"
                         className="w-full max-w-lg bg-slate-900 border-t border-sky-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
                         style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                     >
@@ -832,11 +903,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 </svg>
                             </button>
                             <div className="flex-1">
-                                <h2 className="text-lg font-black text-sky-400 inline-flex items-center gap-2">
+                                <h2
+                                    id="guardian-weather-title"
+                                    className="text-lg font-black text-sky-400 inline-flex items-center gap-2"
+                                >
                                     <ThunderstormIcon className="w-5 h-5" />
                                     <span>Weather Alert</span>
                                 </h2>
-                                <p className="text-xs text-gray-400">
+                                <p id="guardian-weather-description" className="text-xs text-gray-400">
                                     Broadcast a weather warning to boats within 5 NM
                                 </p>
                             </div>
@@ -844,7 +918,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div className="space-y-2">
                             {WEATHER_TEMPLATES.map((t) => (
                                 <button
-                                    aria-label="Send weather broadcast alert"
+                                    aria-label={`Send weather alert: ${t.text}`}
                                     key={t.text}
                                     onClick={() => handleWeatherBroadcast(t.text)}
                                     className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-left flex items-center gap-3 hover:bg-sky-500/10 hover:border-sky-500/20 transition-all active:scale-[0.98]"
@@ -855,6 +929,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             ))}
                         </div>
                         <button
+                            ref={weatherCancelRef}
                             aria-label="Cancel weather alert"
                             onClick={() => setShowWeather(false)}
                             className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
@@ -867,19 +942,32 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ═══ MODAL: HAIL ═══ */}
             {showHail && (
-                <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
-                    <div className="w-full max-w-lg bg-slate-900 border-t border-emerald-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300">
-                        <h2 className="text-lg font-black text-emerald-400 mb-1 inline-flex items-center gap-2">
+                <div
+                    role="presentation"
+                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                >
+                    <div
+                        ref={hailDialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="guardian-hail-title"
+                        aria-describedby="guardian-hail-description"
+                        className="w-full max-w-lg bg-slate-900 border-t border-emerald-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
+                    >
+                        <h2
+                            id="guardian-hail-title"
+                            className="text-lg font-black text-emerald-400 mb-1 inline-flex items-center gap-2"
+                        >
                             <FlagIcon className="w-5 h-5" />
                             <span>Hail {showHail.vessel_name || 'Vessel'}</span>
                         </h2>
-                        <p className="text-xs text-gray-400 mb-4">
+                        <p id="guardian-hail-description" className="text-xs text-gray-400 mb-4">
                             Send a quick message to {showHail.owner_name || 'the crew'}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                             {HAIL_MESSAGES.map((h) => (
                                 <button
-                                    aria-label="Send hail message to nearby vessel"
+                                    aria-label={`Send "${h.text}" to ${showHail.vessel_name || 'nearby vessel'}`}
                                     key={h.text}
                                     onClick={() => handleHail(showHail, h.text)}
                                     className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all active:scale-[0.95]"
@@ -890,6 +978,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             ))}
                         </div>
                         <button
+                            ref={hailCancelRef}
                             aria-label="Cancel hail message"
                             onClick={() => setShowHail(null)}
                             className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"

@@ -10,7 +10,7 @@
  * All animations use Framer Motion tight mechanical springs.
  */
 
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useId, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS, isParkedLayer } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
@@ -467,11 +467,17 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const fabRef = useRef<HTMLButtonElement>(null);
+    const lastCategoryRef = useRef<string | null>(null);
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+    const categoryMenuId = useId();
 
-    const categories = useMemo(() => buildCategories(tacticalState, chartsState), [tacticalState, chartsState]);
+    const categories = useMemo(
+        () => buildCategories(tacticalState, chartsState).filter((category) => category.items.length > 0),
+        [tacticalState, chartsState],
+    );
 
     // ── Arc layout parameters ──
     // Categories fan out DOWN-LEFT from the FAB. With the FAB anchored at
@@ -498,19 +504,28 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
     // ── Handlers ─────────────────────────────────────────────
 
+    const closeMenu = useCallback((restoreFocus = true) => {
+        if (holdTimer.current) {
+            clearTimeout(holdTimer.current);
+            holdTimer.current = null;
+        }
+        setIsOpen(false);
+        setActiveCategory(null);
+        setHoveredItem(null);
+        setIsDragging(false);
+        lastCategoryRef.current = null;
+        if (restoreFocus) fabRef.current?.focus({ preventScroll: true });
+    }, []);
+
     const handleTap = useCallback(() => {
         if (isDragging) return;
-        setIsOpen((v) => {
-            if (v) {
-                setActiveCategory(null);
-                setHoveredItem(null);
-            }
-            return !v;
-        });
+        if (isOpen) closeMenu();
+        else setIsOpen(true);
         triggerHaptic('light');
-    }, [isDragging]);
+    }, [closeMenu, isDragging, isOpen]);
 
     const handlePointerDown = useCallback((e: React.PointerEvent) => {
+        if (holdTimer.current) clearTimeout(holdTimer.current);
         dragStartPos.current = { x: e.clientX, y: e.clientY };
         holdTimer.current = setTimeout(() => {
             setIsOpen(true);
@@ -543,15 +558,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                     triggerHaptic('medium');
                 }
                 // Close after selection
-                setIsOpen(false);
-                setActiveCategory(null);
-                setHoveredItem(null);
+                closeMenu();
             }
             setIsDragging(false);
         }
 
         dragStartPos.current = null;
-    }, [isDragging, hoveredItem, activeCategory, categories, selectInGroup, toggleLayer]);
+    }, [isDragging, hoveredItem, activeCategory, categories, selectInGroup, toggleLayer, closeMenu]);
 
     const handlePointerMove = useCallback(
         (e: React.PointerEvent) => {
@@ -599,6 +612,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     );
 
     const handleCategoryTap = useCallback((catId: string) => {
+        lastCategoryRef.current = catId;
         setActiveCategory((prev) => (prev === catId ? null : catId));
         triggerHaptic('light');
     }, []);
@@ -617,11 +631,77 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             triggerHaptic('medium');
 
             // Close on selection
-            setIsOpen(false);
-            setActiveCategory(null);
-            setHoveredItem(null);
+            closeMenu();
         },
-        [selectInGroup, toggleLayer],
+        [selectInGroup, toggleLayer, closeMenu],
+    );
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const frame = requestAnimationFrame(() => {
+            if (activeCategory) {
+                containerRef.current
+                    ?.querySelector<HTMLElement>('[data-helm-item], [data-helm-grid-clear]')
+                    ?.focus({ preventScroll: true });
+            } else {
+                const categoryId = lastCategoryRef.current ?? categories[0]?.id;
+                const category = Array.from(
+                    containerRef.current?.querySelectorAll<HTMLElement>('[data-helm-category]') ?? [],
+                ).find((element) => element.dataset.helmCategory === categoryId);
+                category?.focus({ preventScroll: true });
+            }
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [activeCategory, categories, isOpen]);
+
+    useEffect(
+        () => () => {
+            if (holdTimer.current) clearTimeout(holdTimer.current);
+        },
+        [],
+    );
+
+    const handleMenuKeyDown = useCallback(
+        (event: React.KeyboardEvent) => {
+            if (!isOpen) return;
+
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                if (activeCategory) {
+                    setActiveCategory(null);
+                    setHoveredItem(null);
+                } else {
+                    closeMenu();
+                }
+                return;
+            }
+
+            const selector = activeCategory
+                ? '[data-helm-item], [data-helm-grid-clear]'
+                : '[data-helm-category], [data-helm-tier-clear]';
+            const controls = Array.from(containerRef.current?.querySelectorAll<HTMLElement>(selector) ?? []);
+            if (controls.length === 0) return;
+            const currentIndex = controls.indexOf(event.target as HTMLElement);
+            let nextIndex: number | null = null;
+
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % controls.length;
+            } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                nextIndex =
+                    currentIndex < 0 ? controls.length - 1 : (currentIndex - 1 + controls.length) % controls.length;
+            } else if (event.key === 'Home') {
+                nextIndex = 0;
+            } else if (event.key === 'End') {
+                nextIndex = controls.length - 1;
+            }
+
+            if (nextIndex !== null) {
+                event.preventDefault();
+                controls[nextIndex]?.focus({ preventScroll: true });
+            }
+        },
+        [activeCategory, closeMenu, isOpen],
     );
 
     // ── Check if an item is "active" ──
@@ -682,7 +762,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
     return (
         <div
+            ref={containerRef}
             className={`absolute z-[700] top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
+            onKeyDown={handleMenuKeyDown}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -698,11 +780,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.15 }}
-                        onClick={() => {
-                            setIsOpen(false);
-                            setActiveCategory(null);
-                            setHoveredItem(null);
-                        }}
+                        role="presentation"
+                        aria-hidden="true"
+                        onClick={() => closeMenu()}
                     />
                 )}
             </AnimatePresence>
@@ -726,6 +806,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         return (
                             <motion.div
                                 key={`grid-${cat.id}`}
+                                role="menu"
+                                aria-label={`${cat.label} layers`}
                                 className="fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 backdrop-blur-xl shadow-2xl"
                                 style={{
                                     // Anchor the grid to the right edge of the viewport, BELOW the
@@ -772,6 +854,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                             <motion.button
                                                 key={`item-${item.id}`}
                                                 data-helm-item={item.id}
+                                                role="menuitemcheckbox"
+                                                aria-checked={active}
+                                                aria-label={`${item.label}${active ? ', on' : ', off'}`}
                                                 custom={i}
                                                 variants={itemVariants}
                                                 initial="hidden"
@@ -819,6 +904,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     only when at least one layer is active. */}
                                 {totalActive > 0 && (
                                     <button
+                                        data-helm-grid-clear
+                                        role="menuitem"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             toggleLayer('none');
@@ -837,8 +924,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                 if (s.enabled) s.onToggle();
                                             });
                                             triggerHaptic('medium');
-                                            setIsOpen(false);
-                                            setActiveCategory(null);
+                                            closeMenu();
                                         }}
                                         className="mt-1 w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
                                     >
@@ -851,69 +937,84 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             </AnimatePresence>
 
             {/* ── Tier 1: Category Nodes (arc from FAB) ── */}
-            <AnimatePresence>
-                {isOpen &&
-                    categories.map((cat, i) => {
-                        const pos = polarToXY(tier1Angles[i], TIER1_RADIUS);
-                        const isActive = activeCategory === cat.id;
-                        const hasActive = categoryHasActive(cat);
+            <div
+                id={categoryMenuId}
+                role={isOpen ? 'menu' : undefined}
+                aria-label={isOpen ? 'Chart layer categories' : undefined}
+                className="contents"
+            >
+                <AnimatePresence>
+                    {isOpen &&
+                        categories.map((cat, i) => {
+                            const pos = polarToXY(tier1Angles[i], TIER1_RADIUS);
+                            const isActive = activeCategory === cat.id;
+                            const hasActive = categoryHasActive(cat);
 
-                        return (
-                            <motion.button
-                                key={`cat-${cat.id}`}
-                                custom={i}
-                                variants={categoryVariants}
-                                initial="hidden"
-                                animate="visible"
-                                exit="exit"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCategoryTap(cat.id);
-                                }}
-                                className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-colors ${
-                                    isActive
-                                        ? `bg-slate-800/90 border-white/20 ${cat.color}`
-                                        : hasActive
-                                          ? `bg-slate-900/80 border-white/10 ${cat.color}`
-                                          : 'bg-slate-900/70 border-white/[0.08] text-gray-500'
-                                } backdrop-blur-xl`}
-                                style={{
-                                    width: 60,
-                                    height: 60,
-                                    // Position: FAB is at right:12px, so offset leftward
-                                    right: -pos.x - 6,
-                                    top: pos.y - 6,
-                                }}
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.92 }}
-                            >
-                                <motion.div
-                                    variants={glowPulse}
-                                    animate={isActive ? 'active' : 'inactive'}
-                                    className="flex flex-col items-center justify-center w-full h-full rounded-2xl"
-                                    style={isActive ? { boxShadow: `0 0 12px 2px ${cat.glowColor}` } : {}}
+                            return (
+                                <motion.button
+                                    key={`cat-${cat.id}`}
+                                    data-helm-category={cat.id}
+                                    role="menuitem"
+                                    aria-haspopup="menu"
+                                    aria-expanded={isActive}
+                                    aria-label={`${cat.label} layers`}
+                                    custom={i}
+                                    variants={categoryVariants}
+                                    initial="hidden"
+                                    animate="visible"
+                                    exit="exit"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCategoryTap(cat.id);
+                                    }}
+                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-colors ${
+                                        isActive
+                                            ? `bg-slate-800/90 border-white/20 ${cat.color}`
+                                            : hasActive
+                                              ? `bg-slate-900/80 border-white/10 ${cat.color}`
+                                              : 'bg-slate-900/70 border-white/[0.08] text-gray-500'
+                                    } backdrop-blur-xl`}
+                                    style={{
+                                        width: 60,
+                                        height: 60,
+                                        // Position: FAB is at right:12px, so offset leftward
+                                        right: -pos.x - 6,
+                                        top: pos.y - 6,
+                                    }}
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.92 }}
                                 >
-                                    <span className="text-xl leading-none">{cat.icon}</span>
-                                    {/* Category label — tight tracking so longer words ("Tactical",
+                                    <motion.div
+                                        variants={glowPulse}
+                                        animate={isActive ? 'active' : 'inactive'}
+                                        className="flex flex-col items-center justify-center w-full h-full rounded-2xl"
+                                        style={isActive ? { boxShadow: `0 0 12px 2px ${cat.glowColor}` } : {}}
+                                    >
+                                        <span className="text-xl leading-none">{cat.icon}</span>
+                                        {/* Category label — tight tracking so longer words ("Tactical",
                                         "Charts") fit inside the 60px bubble without hanging over
                                         the edges. Width clamp + truncate is a safety net for any
                                         future label that still overflows. */}
-                                    <span className="mt-1 max-w-[52px] truncate text-[8px] font-black uppercase leading-none tracking-wider">
-                                        {cat.label}
-                                    </span>
-                                </motion.div>
-                                {hasActive && !isActive && (
-                                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
-                                )}
-                            </motion.button>
-                        );
-                    })}
-            </AnimatePresence>
+                                        <span className="mt-1 max-w-[52px] truncate text-[8px] font-black uppercase leading-none tracking-wider">
+                                            {cat.label}
+                                        </span>
+                                    </motion.div>
+                                    {hasActive && !isActive && (
+                                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
+                                    )}
+                                </motion.button>
+                            );
+                        })}
+                </AnimatePresence>
+            </div>
 
             {/* ── FAB (helm wheel) ── */}
             <motion.button
                 ref={fabRef}
-                aria-label="Toggle layer menu"
+                aria-label={isOpen ? 'Close layer menu' : 'Open layer menu'}
+                aria-expanded={isOpen}
+                aria-haspopup="menu"
+                aria-controls={isOpen ? categoryMenuId : undefined}
                 variants={fabVariants}
                 animate={isOpen ? 'active' : 'idle'}
                 transition={SPRING_TIGHT}
@@ -943,6 +1044,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             <AnimatePresence>
                 {isOpen && !activeCategory && totalActive > 0 && (
                     <motion.button
+                        data-helm-tier-clear
                         initial={{ opacity: 0, scale: 0.85 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.85 }}
@@ -962,8 +1064,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                 if (s.enabled) s.onToggle();
                             });
                             triggerHaptic('medium');
-                            setIsOpen(false);
-                            setActiveCategory(null);
+                            closeMenu();
                         }}
                         className="fixed right-[16px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
                         style={{ top: 384 }}

@@ -141,6 +141,7 @@ export type DiaryAction =
     // Timeline selection
     | { type: 'ENTER_SELECT_MODE' }
     | { type: 'EXIT_SELECT_MODE' }
+    | { type: 'SET_SELECTED_IDS'; ids: Set<string> }
     | { type: 'TOGGLE_ENTRY_SELECTION'; id: string }
     | { type: 'SET_MENU_OPEN'; open: boolean }
     | { type: 'SET_EXPORT_PROGRESS'; progress: string | null }
@@ -262,6 +263,8 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
             return { ...state, selectMode: true };
         case 'EXIT_SELECT_MODE':
             return { ...state, selectMode: false, selectedIds: new Set() };
+        case 'SET_SELECTED_IDS':
+            return { ...state, selectMode: action.ids.size > 0, selectedIds: new Set(action.ids) };
         case 'TOGGLE_ENTRY_SELECTION': {
             const next = new Set(state.selectedIds);
             if (next.has(action.id)) next.delete(action.id);

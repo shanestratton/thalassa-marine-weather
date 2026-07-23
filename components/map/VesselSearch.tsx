@@ -13,6 +13,7 @@ import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { triggerHaptic } from '../../utils/system';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -42,30 +43,56 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
     const [searched, setSearched] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const requestVersionRef = useRef(0);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: inputRef,
+        onEscape: onClose,
+    });
 
-    // Auto-focus on open
+    // Reset transient results on each open; the shared dialog lifecycle moves
+    // focus into the search field and restores the map trigger on close.
     useEffect(() => {
+        requestVersionRef.current += 1;
+        if (debounceRef.current) {
+            clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+        }
         if (visible) {
-            setTimeout(() => inputRef.current?.focus(), 200);
             setQuery('');
             setResults([]);
             setSearched(false);
+            setLoading(false);
         }
+
+        return () => {
+            requestVersionRef.current += 1;
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+                debounceRef.current = null;
+            }
+        };
     }, [visible]);
 
-    const searchVessels = useCallback(async (q: string) => {
+    const searchVessels = useCallback(async (q: string, requestVersion: number) => {
         if (q.length < 2) {
-            setResults([]);
-            setSearched(false);
+            if (requestVersion === requestVersionRef.current) {
+                setResults([]);
+                setSearched(false);
+                setLoading(false);
+            }
             return;
         }
 
-        setLoading(true);
-        setSearched(true);
+        if (requestVersion === requestVersionRef.current) {
+            setLoading(true);
+            setSearched(true);
+        }
 
         if (!supabase) {
-            setResults([]);
-            setLoading(false);
+            if (requestVersion === requestVersionRef.current) {
+                setResults([]);
+                setLoading(false);
+            }
             return;
         }
 
@@ -76,6 +103,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 max_results: 10,
             });
 
+            if (requestVersion !== requestVersionRef.current) return;
             let rows = data;
 
             if (error) {
@@ -91,6 +119,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 }
 
                 const { data: fallbackData, error: fallbackError } = await query.limit(10);
+                if (requestVersion !== requestVersionRef.current) return;
                 if (fallbackError) {
                     log.warn('[VesselSearch] Fallback query error:', fallbackError.message);
                     setResults([]);
@@ -122,19 +151,39 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     }),
                 );
 
-            setResults(merged);
+            if (requestVersion === requestVersionRef.current) setResults(merged);
         } catch (err) {
             log.warn('[VesselSearch] Error:', err);
-            setResults([]);
+            if (requestVersion === requestVersionRef.current) setResults([]);
         } finally {
-            setLoading(false);
+            if (requestVersion === requestVersionRef.current) setLoading(false);
         }
     }, []);
 
     const handleInput = (val: string) => {
         setQuery(val);
         if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => searchVessels(val), 400);
+        const requestVersion = ++requestVersionRef.current;
+        if (val.length < 2) {
+            setResults([]);
+            setSearched(false);
+            setLoading(false);
+            debounceRef.current = null;
+            return;
+        }
+        debounceRef.current = setTimeout(() => {
+            debounceRef.current = null;
+            void searchVessels(val, requestVersion);
+        }, 400);
+    };
+
+    const handleSubmit = () => {
+        if (debounceRef.current) {
+            clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+        }
+        const requestVersion = ++requestVersionRef.current;
+        void searchVessels(query, requestVersion);
     };
 
     const handleSelect = (result: VesselSearchResult) => {
@@ -148,6 +197,10 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
 
     return (
         <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Search vessels"
             style={{
                 position: 'absolute',
                 top: 0,
@@ -202,9 +255,9 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     spellCheck={false}
                     enterKeyHint="search"
                     onKeyDown={(e) => {
-                        if (e.key === 'Escape') onClose();
-                        if (e.key === 'Enter') searchVessels(query);
+                        if (e.key === 'Enter') handleSubmit();
                     }}
+                    aria-label="Vessel name or MMSI"
                 />
                 <button
                     onClick={onClose}

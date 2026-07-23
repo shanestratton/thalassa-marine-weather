@@ -10,7 +10,7 @@
  *
  * Saves via createCustomRecipe() → LocalDB + Supabase.
  */
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useId, useRef, useState } from 'react';
 import {
     createCustomRecipe,
     type RecipeIngredient,
@@ -18,6 +18,7 @@ import {
     type CreateRecipeInput,
 } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface RecipeEditorProps {
     onClose: () => void;
@@ -37,6 +38,21 @@ const GLASS = {
 export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) => {
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const titleId = useId();
+    const stepDescriptionId = useId();
+    const recipeTitleInputId = useId();
+    const photoUrlInputId = useId();
+    const servingsLabelId = useId();
+    const cookTimeInputId = useId();
+    const tagsLabelId = useId();
+    const instructionsInputId = useId();
+    const visibilityLabelId = useId();
+    const titleInputRef = useRef<HTMLInputElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: titleInputRef,
+        onEscape: saving ? undefined : onClose,
+    });
 
     // Form state
     const [title, setTitle] = useState('');
@@ -89,6 +105,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
     const handleSave = async () => {
         if (saving) return;
         setSaving(true);
+        setSaveError(null);
         triggerHaptic('medium');
 
         const input: CreateRecipeInput = {
@@ -102,29 +119,47 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
             visibility,
         };
 
-        const result = await createCustomRecipe(input);
-        setSaving(false);
-
-        if (result) {
+        try {
+            const result = await createCustomRecipe(input);
+            if (!result) {
+                setSaveError('The recipe could not be saved. Check your storage and try again.');
+                return;
+            }
             triggerHaptic('heavy');
             onSaved();
             onClose();
+        } catch {
+            setSaveError('The recipe could not be saved. Check your storage and try again.');
+        } finally {
+            setSaving(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 z-[1100] flex flex-col bg-black/90">
+        <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={stepDescriptionId}
+            aria-busy={saving}
+            className="fixed inset-0 z-[1100] flex flex-col bg-black/90"
+        >
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
                 <button
                     onClick={onClose}
+                    disabled={saving}
+                    aria-label="Cancel recipe creation"
                     className="text-gray-400 hover:text-white text-sm font-bold transition-colors"
                 >
                     Cancel
                 </button>
                 <div className="text-center">
-                    <h2 className="text-white font-black text-sm tracking-wider">NEW RECIPE</h2>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
+                    <h2 id={titleId} className="text-white font-black text-sm tracking-wider">
+                        NEW RECIPE
+                    </h2>
+                    <p id={stepDescriptionId} className="text-[11px] text-gray-500 mt-0.5">
                         Step {step} of {totalSteps}
                     </p>
                 </div>
@@ -135,6 +170,12 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
             <div className="px-4 pb-4">
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                     <div
+                        role="progressbar"
+                        aria-label="Recipe creation progress"
+                        aria-valuemin={1}
+                        aria-valuemax={totalSteps}
+                        aria-valuenow={step}
+                        aria-valuetext={`Step ${step} of ${totalSteps}`}
                         className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-300"
                         style={{ width: `${(step / totalSteps) * 100}%` }}
                     />
@@ -146,24 +187,32 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                 {step === 1 && (
                     <div className="space-y-4 animate-in fade-in duration-200">
                         <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            <label
+                                htmlFor={recipeTitleInputId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2"
+                            >
                                 Recipe Title
                             </label>
                             <input
+                                ref={titleInputRef}
+                                id={recipeTitleInputId}
                                 type="text"
                                 value={title}
                                 onChange={(e) => setTitle(e.target.value)}
                                 placeholder="e.g., Mum's Fish Curry"
                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-none focus:border-amber-500/50 transition-colors"
-                                autoFocus
                             />
                         </div>
 
                         <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            <label
+                                htmlFor={photoUrlInputId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2"
+                            >
                                 Photo URL <span className="text-gray-500">(optional)</span>
                             </label>
                             <input
+                                id={photoUrlInputId}
                                 type="url"
                                 value={imageUrl}
                                 onChange={(e) => setImageUrl(e.target.value)}
@@ -189,21 +238,29 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                 {step === 2 && (
                     <div className="space-y-4 animate-in fade-in duration-200">
                         <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            <p
+                                id={servingsLabelId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2"
+                            >
                                 Servings
-                            </label>
-                            <div className="flex items-center gap-4">
+                            </p>
+                            <div role="group" aria-labelledby={servingsLabelId} className="flex items-center gap-4">
                                 <button
                                     onClick={() => setServings(Math.max(1, servings - 1))}
+                                    aria-label="Decrease recipe servings"
                                     className="w-10 h-10 rounded-full bg-white/10 text-white text-xl font-bold flex items-center justify-center active:scale-90 transition-transform"
                                 >
                                     −
                                 </button>
-                                <span className="text-2xl font-black text-white min-w-[3ch] text-center">
+                                <span
+                                    aria-live="polite"
+                                    className="text-2xl font-black text-white min-w-[3ch] text-center"
+                                >
                                     {servings}
                                 </span>
                                 <button
                                     onClick={() => setServings(servings + 1)}
+                                    aria-label="Increase recipe servings"
                                     className="w-10 h-10 rounded-full bg-white/10 text-white text-xl font-bold flex items-center justify-center active:scale-90 transition-transform"
                                 >
                                     +
@@ -212,14 +269,18 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                         </div>
 
                         <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            <label
+                                htmlFor={cookTimeInputId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2"
+                            >
                                 Cook Time (minutes)
                             </label>
-                            <div className="flex items-center gap-3">
+                            <div role="group" aria-label="Cook time presets" className="flex items-center gap-3">
                                 {[15, 30, 45, 60, 90].map((t) => (
                                     <button
                                         key={t}
                                         onClick={() => setCookTime(t)}
+                                        aria-pressed={cookTime === t}
                                         className={`px-3 py-2 rounded-lg text-sm font-bold transition-all ${
                                             cookTime === t
                                                 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
@@ -231,7 +292,9 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                 ))}
                             </div>
                             <input
+                                id={cookTimeInputId}
                                 type="number"
+                                min={1}
                                 value={cookTime}
                                 onChange={(e) => setCookTime(parseInt(e.target.value, 10) || 0)}
                                 className="w-full mt-3 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-amber-500/50 transition-colors"
@@ -239,14 +302,18 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                         </div>
 
                         <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            <p
+                                id={tagsLabelId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2"
+                            >
                                 Tags
-                            </label>
-                            <div className="flex flex-wrap gap-2">
+                            </p>
+                            <div role="group" aria-labelledby={tagsLabelId} className="flex flex-wrap gap-2">
                                 {MEAL_TAGS.map((tag) => (
                                     <button
                                         key={tag}
                                         onClick={() => toggleTag(tag)}
+                                        aria-pressed={tags.includes(tag)}
                                         className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
                                             tags.includes(tag)
                                                 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
@@ -267,6 +334,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Ingredients</p>
                             <button
                                 onClick={addIngredient}
+                                aria-label="Add ingredient"
                                 className="text-[11px] font-bold text-amber-400 hover:text-amber-300 transition-colors"
                             >
                                 + Add
@@ -277,8 +345,11 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                             <div key={i} style={GLASS} className="p-3 flex items-center gap-2">
                                 <input
                                     type="number"
+                                    min={0}
+                                    step="any"
                                     value={ing.amount}
                                     onChange={(e) => updateIngredient(i, 'amount', parseFloat(e.target.value) || 0)}
+                                    aria-label={`Ingredient ${i + 1} amount`}
                                     className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-sm text-center outline-none"
                                     placeholder="Qty"
                                 />
@@ -286,6 +357,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                     type="text"
                                     value={ing.unit}
                                     onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
+                                    aria-label={`Ingredient ${i + 1} unit`}
                                     className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-sm outline-none"
                                     placeholder="Unit"
                                 />
@@ -293,12 +365,14 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                     type="text"
                                     value={ing.name}
                                     onChange={(e) => updateIngredient(i, 'name', e.target.value)}
+                                    aria-label={`Ingredient ${i + 1} name`}
                                     className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
                                     placeholder="Ingredient name"
                                 />
                                 {ingredients.length > 1 && (
                                     <button
                                         onClick={() => removeIngredient(i)}
+                                        aria-label={`Remove ingredient ${i + 1}`}
                                         className="text-red-400/60 hover:text-red-400 text-lg font-bold transition-colors shrink-0"
                                     >
                                         ×
@@ -312,10 +386,14 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                 {step === 4 && (
                     <div className="animate-in fade-in duration-200">
                         <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            <label
+                                htmlFor={instructionsInputId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2"
+                            >
                                 Cooking Instructions
                             </label>
                             <textarea
+                                id={instructionsInputId}
                                 value={instructions}
                                 onChange={(e) => setInstructions(e.target.value)}
                                 placeholder="Step 1: Heat olive oil in a heavy-based pan...&#10;Step 2: Add onion and garlic...&#10;Step 3: ..."
@@ -352,13 +430,17 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                         </div>
 
                         {/* Visibility toggle */}
-                        <div style={GLASS} className="p-4">
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+                        <div style={GLASS} role="group" aria-labelledby={visibilityLabelId} className="p-4">
+                            <p
+                                id={visibilityLabelId}
+                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3"
+                            >
                                 Who can see this recipe?
-                            </label>
+                            </p>
                             <div className="grid grid-cols-2 gap-3">
                                 <button
                                     onClick={() => setVisibility('personal')}
+                                    aria-pressed={visibility === 'personal'}
                                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                                         visibility === 'personal'
                                             ? 'border-cyan-500/50 bg-cyan-500/10'
@@ -371,6 +453,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                 </button>
                                 <button
                                     onClick={() => setVisibility('shared')}
+                                    aria-pressed={visibility === 'shared'}
                                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                                         visibility === 'shared'
                                             ? 'border-amber-500/50 bg-amber-500/10'
@@ -389,10 +472,16 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
 
             {/* Footer nav */}
             <div className="fixed bottom-0 left-0 right-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-black via-black/95 to-transparent">
+                {saveError && (
+                    <p role="alert" className="mb-3 text-center text-xs font-bold text-red-300">
+                        {saveError}
+                    </p>
+                )}
                 <div className="flex items-center gap-3">
                     {step > 1 && (
                         <button
                             onClick={() => setStep(step - 1)}
+                            aria-label={`Back to step ${step - 1}`}
                             className="px-6 py-3.5 rounded-xl bg-white/10 text-white text-sm font-bold transition-all active:scale-95"
                         >
                             Back
@@ -402,6 +491,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                         <button
                             onClick={() => canProceed() && setStep(step + 1)}
                             disabled={!canProceed()}
+                            aria-label={`Continue to step ${step + 1}`}
                             className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
                                 canProceed()
                                     ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black'
@@ -414,6 +504,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                         <button
                             onClick={handleSave}
                             disabled={saving}
+                            aria-label={saving ? 'Saving recipe' : 'Save recipe'}
                             className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
                             {saving ? (

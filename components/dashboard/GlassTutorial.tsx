@@ -17,9 +17,12 @@
  * native web platforms (where the launch experience differs).
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const STORAGE_KEY = 'thalassa_glass_tutorial_seen';
+const ONBOARDING_STORAGE_KEY = 'thalassa_onboarding_complete';
+const ONBOARDING_COMPLETE_EVENT = 'thalassa:intro-overlay-complete';
 
 interface Slide {
     title: string;
@@ -66,19 +69,46 @@ export const GlassTutorial: React.FC = () => {
     // no flash.
     const [visible, setVisible] = useState(false);
     const [current, setCurrent] = useState(0);
+    const pendingShowRef = useRef(false);
 
     useEffect(() => {
-        const handler = () => {
+        const showIfUnseen = () => {
             try {
                 if (localStorage.getItem(STORAGE_KEY)) return; // already seen
             } catch {
                 /* ok */
             }
+            pendingShowRef.current = false;
             setVisible(true);
             setCurrent(0);
         };
+
+        const handler = () => {
+            try {
+                if (localStorage.getItem(STORAGE_KEY)) return;
+                if (!localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
+                    pendingShowRef.current = true;
+                    return;
+                }
+            } catch {
+                // The intro and Glass events are dispatched together for new
+                // accounts. Defer in private mode too so two modals never stack.
+                pendingShowRef.current = true;
+                return;
+            }
+            showIfUnseen();
+        };
+
+        const handleOnboardingComplete = () => {
+            if (pendingShowRef.current) showIfUnseen();
+        };
+
         window.addEventListener('thalassa:show-glass-tutorial', handler);
-        return () => window.removeEventListener('thalassa:show-glass-tutorial', handler);
+        window.addEventListener(ONBOARDING_COMPLETE_EVENT, handleOnboardingComplete);
+        return () => {
+            window.removeEventListener('thalassa:show-glass-tutorial', handler);
+            window.removeEventListener(ONBOARDING_COMPLETE_EVENT, handleOnboardingComplete);
+        };
     }, []);
 
     const dismiss = useCallback(() => {
@@ -89,6 +119,12 @@ export const GlassTutorial: React.FC = () => {
         }
         setVisible(false);
     }, []);
+
+    const primaryActionRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: primaryActionRef,
+        onEscape: dismiss,
+    });
 
     const next = useCallback(() => {
         if (current < SLIDES.length - 1) {
@@ -104,11 +140,22 @@ export const GlassTutorial: React.FC = () => {
     const isLast = current === SLIDES.length - 1;
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+        <div
+            role="presentation"
+            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6"
+        >
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-300">
-                <div className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
+                <div
+                    ref={dialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="glass-tutorial-title"
+                    aria-describedby="glass-tutorial-progress glass-tutorial-description"
+                    className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+                >
                     {/* Visual area — gradient backdrop with the animated illustration */}
                     <div
+                        aria-hidden="true"
                         className={`relative h-48 bg-gradient-to-br ${slide.gradient} flex items-center justify-center`}
                     >
                         {slide.visual}
@@ -116,12 +163,19 @@ export const GlassTutorial: React.FC = () => {
 
                     {/* Copy */}
                     <div className="px-6 pt-5 pb-6">
-                        <h2 className="text-xl font-extrabold text-white mb-1.5">{slide.title}</h2>
-                        <p className="text-sm text-white/60 leading-relaxed mb-6">{slide.subtitle}</p>
+                        <p id="glass-tutorial-progress" className="sr-only">
+                            Tip {current + 1} of {SLIDES.length}
+                        </p>
+                        <h2 id="glass-tutorial-title" className="text-xl font-extrabold text-white mb-1.5">
+                            {slide.title}
+                        </h2>
+                        <p id="glass-tutorial-description" className="text-sm text-white/60 leading-relaxed mb-6">
+                            {slide.subtitle}
+                        </p>
 
                         {/* Dots + nav */}
                         <div className="flex items-center justify-between">
-                            <div className="flex gap-2">
+                            <div aria-hidden="true" className="flex gap-2">
                                 {SLIDES.map((_, i) => (
                                     <div
                                         key={i}
@@ -134,7 +188,7 @@ export const GlassTutorial: React.FC = () => {
                             <div className="flex items-center gap-3">
                                 {!isLast && (
                                     <button
-                                        aria-label="Skip tutorial"
+                                        aria-label="Skip Glass tutorial"
                                         onClick={dismiss}
                                         className="text-sm text-white/30 hover:text-white/60 transition-colors"
                                     >
@@ -142,7 +196,10 @@ export const GlassTutorial: React.FC = () => {
                                     </button>
                                 )}
                                 <button
-                                    aria-label={isLast ? 'Finish tutorial' : 'Next tip'}
+                                    ref={primaryActionRef}
+                                    aria-label={
+                                        isLast ? 'Finish Glass tutorial' : `Next tip: ${SLIDES[current + 1].title}`
+                                    }
                                     onClick={next}
                                     className="px-5 py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/30 transition-all active:scale-95"
                                 >

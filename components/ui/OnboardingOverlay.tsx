@@ -1,8 +1,9 @@
 /**
- * OnboardingOverlay — 3-screen first-time user walkthrough.
+ * OnboardingOverlay — 4-screen first-time user walkthrough.
  * Shown once on first app open. Auto-dismissed, stored in localStorage.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
     WaveIcon,
     MapIcon,
@@ -16,6 +17,7 @@ import {
 } from '../Icons';
 
 const STORAGE_KEY = 'thalassa_onboarding_complete';
+const COMPLETE_EVENT = 'thalassa:intro-overlay-complete';
 
 interface OnboardingSlide {
     Icon: React.FC<{ className?: string }>;
@@ -121,7 +123,14 @@ export const OnboardingOverlay: React.FC = () => {
             /* noop */
         }
         setVisible(false);
+        window.dispatchEvent(new CustomEvent(COMPLETE_EVENT));
     }, []);
+
+    const primaryActionRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: primaryActionRef,
+        onEscape: dismiss,
+    });
 
     const next = useCallback(() => {
         if (current < slides.length - 1) {
@@ -137,12 +146,22 @@ export const OnboardingOverlay: React.FC = () => {
     const isLast = current === slides.length - 1;
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 p-6">
+        <div role="presentation" className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 p-6">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-300">
                 {/* Card */}
-                <div className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
+                <div
+                    ref={dialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="onboarding-overlay-title"
+                    aria-describedby="onboarding-overlay-progress onboarding-overlay-description"
+                    className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+                >
                     {/* Hero gradient */}
-                    <div className={`relative h-48 bg-gradient-to-br ${slide.accent} flex items-center justify-center`}>
+                    <div
+                        aria-hidden="true"
+                        className={`relative h-48 bg-gradient-to-br ${slide.accent} flex items-center justify-center`}
+                    >
                         <span className="text-white/90" style={{ filter: 'drop-shadow(0 4px 20px rgba(0,0,0,0.3))' }}>
                             <slide.Icon className="w-20 h-20" />
                         </span>
@@ -154,8 +173,15 @@ export const OnboardingOverlay: React.FC = () => {
 
                     {/* Content */}
                     <div className="px-6 pt-5 pb-6">
-                        <h2 className="text-xl font-extrabold text-white mb-1">{slide.title}</h2>
-                        <p className="text-sm text-white/50 mb-5">{slide.subtitle}</p>
+                        <p id="onboarding-overlay-progress" className="sr-only">
+                            Step {current + 1} of {slides.length}
+                        </p>
+                        <h2 id="onboarding-overlay-title" className="text-xl font-extrabold text-white mb-1">
+                            {slide.title}
+                        </h2>
+                        <p id="onboarding-overlay-description" className="text-sm text-white/50 mb-5">
+                            {slide.subtitle}
+                        </p>
 
                         <div className="space-y-3">
                             {slide.features.map((f, i) => (
@@ -173,7 +199,7 @@ export const OnboardingOverlay: React.FC = () => {
                         {/* Dots + buttons */}
                         <div className="flex items-center justify-between mt-8">
                             {/* Dots */}
-                            <div className="flex gap-2">
+                            <div aria-hidden="true" className="flex gap-2">
                                 {slides.map((_, i) => (
                                     <div
                                         key={i}
@@ -185,7 +211,7 @@ export const OnboardingOverlay: React.FC = () => {
                             <div className="flex items-center gap-3">
                                 {!isLast && (
                                     <button
-                                        aria-label="Close onboarding overlay"
+                                        aria-label="Skip onboarding"
                                         onClick={dismiss}
                                         className="text-sm text-white/30 hover:text-white/60 transition-colors"
                                     >
@@ -193,7 +219,8 @@ export const OnboardingOverlay: React.FC = () => {
                                     </button>
                                 )}
                                 <button
-                                    aria-label="Next onboarding step"
+                                    ref={primaryActionRef}
+                                    aria-label={isLast ? 'Finish onboarding' : `Next: ${slides[current + 1].title}`}
                                     onClick={next}
                                     className="px-5 py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/30 transition-all active:scale-95"
                                 >

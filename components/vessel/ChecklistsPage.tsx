@@ -4,7 +4,8 @@
  * Sub-components extracted to ./checklists/:
  *   - SwipeableItemCard: swipeable heading/detail card with reorder controls
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('ChecklistsPage');
@@ -26,6 +27,7 @@ import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
 
 interface ChecklistsPageProps {
@@ -76,6 +78,17 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const [showRun, setShowRun] = useState(false);
     const [runItems, setRunItems] = useState<ChecklistRunItem[]>([]);
     const [runId, setRunId] = useState('');
+    const runTitleId = useId();
+    const pageActionsButtonRef = useRef<HTMLButtonElement>(null);
+    const runCloseButtonRef = useRef<HTMLButtonElement>(null);
+    const exitRun = useCallback(() => {
+        setShowRun(false);
+        setRunItems([]);
+    }, []);
+    const runDialogRef = useFocusTrap(showRun, {
+        initialFocusRef: runCloseButtonRef,
+        onEscape: exitRun,
+    });
 
     // ── Load ──
     const loadEntries = useCallback(() => {
@@ -216,6 +229,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
     // ── Run mode ──
     const startRun = useCallback(() => {
+        pageActionsButtonRef.current?.focus();
         setHeaderMenuOpen(false);
         const details = entries.filter((e) => e.type === 'detail');
         if (details.length === 0) {
@@ -347,6 +361,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     action={
                         <div className="relative">
                             <button
+                                type="button"
+                                ref={pageActionsButtonRef}
                                 onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
@@ -362,6 +378,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
+                                            type="button"
                                             aria-label="Run checklist inspection"
                                             onClick={startRun}
                                             disabled={totalDetails === 0}
@@ -653,197 +670,239 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 )}
 
                 {/* ═══ RUN CHECKLIST OVERLAY ═══ */}
-                {showRun && (
-                    <div
-                        className="fixed inset-0 z-[999] bg-slate-950 flex flex-col"
-                        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
-                    >
-                        {/* Run header */}
-                        <div className="shrink-0 px-4 pb-3">
-                            <div className="flex items-center justify-between mb-3">
-                                <button
-                                    aria-label="Exit checklist run"
-                                    onClick={() => {
-                                        setShowRun(false);
-                                        setRunItems([]);
-                                    }}
-                                    className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors"
-                                >
-                                    <svg
-                                        className="w-5 h-5 text-gray-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
+                {showRun &&
+                    createPortal(
+                        <div
+                            ref={runDialogRef}
+                            className="fixed inset-0 z-[999] bg-slate-950 flex flex-col"
+                            style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby={runTitleId}
+                        >
+                            {/* Run header */}
+                            <div className="shrink-0 px-4 pb-3">
+                                <div className="flex items-center justify-between mb-3">
+                                    <button
+                                        type="button"
+                                        ref={runCloseButtonRef}
+                                        aria-label="Exit checklist run"
+                                        onClick={exitRun}
+                                        className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors"
                                     >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M15.75 19.5L8.25 12l7.5-7.5"
-                                        />
-                                    </svg>
-                                </button>
-                                <h2 className="text-lg font-black text-white tracking-wide">Run Checklist</h2>
-                                <div className="w-9" />
-                            </div>
+                                        <svg
+                                            className="w-5 h-5 text-gray-400"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M15.75 19.5L8.25 12l7.5-7.5"
+                                            />
+                                        </svg>
+                                    </button>
+                                    <h2 id={runTitleId} className="text-lg font-black text-white tracking-wide">
+                                        Run Checklist
+                                    </h2>
+                                    <div className="w-9" />
+                                </div>
 
-                            {/* Progress bar */}
-                            <div className="relative h-2 rounded-full bg-white/[0.06] overflow-hidden mb-1">
+                                {/* Progress bar */}
                                 <div
-                                    className="absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out"
-                                    style={{
-                                        width: `${runProgress * 100}%`,
-                                        background:
-                                            runFailCount > 0
-                                                ? 'linear-gradient(90deg, rgba(239,68,68,0.6) 0%, rgba(239,68,68,0.8) 100%)'
-                                                : 'linear-gradient(90deg, rgba(16,185,129,0.4) 0%, rgba(16,185,129,0.8) 100%)',
-                                    }}
-                                />
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">
-                                    {runCheckedCount}/{runTotal} checked
-                                </span>
-                                <div className="flex items-center gap-3">
-                                    {runPassCount > 0 && (
-                                        <span className="text-[11px] text-emerald-400 font-bold">✓ {runPassCount}</span>
-                                    )}
-                                    {runFailCount > 0 && (
-                                        <span className="text-[11px] text-red-400 font-bold">✗ {runFailCount}</span>
-                                    )}
+                                    className="relative h-2 rounded-full bg-white/[0.06] overflow-hidden mb-1"
+                                    role="progressbar"
+                                    aria-label="Checklist completion"
+                                    aria-valuemin={0}
+                                    aria-valuemax={runTotal}
+                                    aria-valuenow={runCheckedCount}
+                                    aria-valuetext={`${runCheckedCount} of ${runTotal} checked`}
+                                >
+                                    <div
+                                        className="absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out"
+                                        style={{
+                                            width: `${runProgress * 100}%`,
+                                            background:
+                                                runFailCount > 0
+                                                    ? 'linear-gradient(90deg, rgba(239,68,68,0.6) 0%, rgba(239,68,68,0.8) 100%)'
+                                                    : 'linear-gradient(90deg, rgba(16,185,129,0.4) 0%, rgba(16,185,129,0.8) 100%)',
+                                        }}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">
+                                        {runCheckedCount}/{runTotal} checked
+                                    </span>
+                                    <div className="flex items-center gap-3">
+                                        {runPassCount > 0 && (
+                                            <span className="text-[11px] text-emerald-400 font-bold">
+                                                ✓ {runPassCount}
+                                            </span>
+                                        )}
+                                        {runFailCount > 0 && (
+                                            <span className="text-[11px] text-red-400 font-bold">✗ {runFailCount}</span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Run items list */}
-                        <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-5">
-                            {runGrouped.map((group) => (
-                                <div key={group.heading}>
-                                    {/* Section header */}
-                                    <div className="flex items-center gap-2 mb-2.5 sticky top-0 bg-slate-950 py-1 z-10">
-                                        <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                        <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
-                                            {group.heading}
-                                        </span>
-                                    </div>
+                            {/* Run items list */}
+                            <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-5">
+                                {runGrouped.map((group) => (
+                                    <div key={group.heading}>
+                                        {/* Section header */}
+                                        <div className="flex items-center gap-2 mb-2.5 sticky top-0 bg-slate-950 py-1 z-10">
+                                            <div className="w-1 h-4 rounded-full bg-emerald-500" />
+                                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                                {group.heading}
+                                            </span>
+                                        </div>
 
-                                    <div className="space-y-2">
-                                        {group.items.map((item) => {
-                                            const styles = STATUS_STYLES[item.status];
-                                            return (
-                                                <div
-                                                    key={item.entry_id}
-                                                    className={`rounded-xl border ${styles.border} ${styles.bg} overflow-hidden transition-all duration-200`}
-                                                >
+                                        <div className="space-y-2">
+                                            {group.items.map((item) => {
+                                                const styles = STATUS_STYLES[item.status];
+                                                const nextStatus: RunItemStatus =
+                                                    item.status === 'unchecked'
+                                                        ? 'pass'
+                                                        : item.status === 'pass'
+                                                          ? 'fail'
+                                                          : 'unchecked';
+                                                const statusLabel =
+                                                    item.status === 'unchecked'
+                                                        ? 'not checked'
+                                                        : item.status === 'pass'
+                                                          ? 'passed'
+                                                          : 'failed';
+                                                const nextStatusLabel =
+                                                    nextStatus === 'unchecked'
+                                                        ? 'not checked'
+                                                        : nextStatus === 'pass'
+                                                          ? 'passed'
+                                                          : 'failed';
+                                                return (
                                                     <div
-                                                        className="flex items-center gap-3 p-3.5 cursor-pointer active:scale-[0.98] transition-transform"
-                                                        onClick={() => toggleRunItem(item.entry_id)}
+                                                        key={item.entry_id}
+                                                        className={`rounded-xl border ${styles.border} ${styles.bg} overflow-hidden transition-all duration-200`}
                                                     >
-                                                        {/* Status checkbox */}
-                                                        <div
-                                                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${
-                                                                item.status === 'pass'
-                                                                    ? 'bg-emerald-500/20'
-                                                                    : item.status === 'fail'
-                                                                      ? 'bg-red-500/20'
-                                                                      : 'bg-white/5'
-                                                            }`}
-                                                        >
-                                                            {item.status === 'pass' && (
-                                                                <svg
-                                                                    className="w-4 h-4 text-emerald-400"
-                                                                    fill="none"
-                                                                    viewBox="0 0 24 24"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth={3}
+                                                        <div className="flex items-center gap-2 p-3.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleRunItem(item.entry_id)}
+                                                                className="flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg active:scale-[0.98] transition-transform"
+                                                                aria-label={`${item.text}: ${statusLabel}. Change status to ${nextStatusLabel}`}
+                                                            >
+                                                                {/* Status checkbox */}
+                                                                <span
+                                                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${
+                                                                        item.status === 'pass'
+                                                                            ? 'bg-emerald-500/20'
+                                                                            : item.status === 'fail'
+                                                                              ? 'bg-red-500/20'
+                                                                              : 'bg-white/5'
+                                                                    }`}
+                                                                    aria-hidden="true"
                                                                 >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        d="M5 13l4 4L19 7"
-                                                                    />
-                                                                </svg>
-                                                            )}
+                                                                    {item.status === 'pass' && (
+                                                                        <svg
+                                                                            className="w-4 h-4 text-emerald-400"
+                                                                            fill="none"
+                                                                            viewBox="0 0 24 24"
+                                                                            stroke="currentColor"
+                                                                            strokeWidth={3}
+                                                                        >
+                                                                            <path
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                                d="M5 13l4 4L19 7"
+                                                                            />
+                                                                        </svg>
+                                                                    )}
+                                                                    {item.status === 'fail' && (
+                                                                        <svg
+                                                                            className="w-4 h-4 text-red-400"
+                                                                            fill="none"
+                                                                            viewBox="0 0 24 24"
+                                                                            stroke="currentColor"
+                                                                            strokeWidth={3}
+                                                                        >
+                                                                            <path
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                                d="M6 18L18 6M6 6l12 12"
+                                                                            />
+                                                                        </svg>
+                                                                    )}
+                                                                    {item.status === 'unchecked' && (
+                                                                        <span className="w-4 h-4 rounded border-2 border-gray-500/40" />
+                                                                    )}
+                                                                </span>
+
+                                                                {/* Label */}
+                                                                <span
+                                                                    className={`text-sm font-medium flex-1 ${styles.text} ${
+                                                                        item.status === 'pass'
+                                                                            ? 'line-through opacity-60'
+                                                                            : ''
+                                                                    }`}
+                                                                >
+                                                                    {item.text}
+                                                                </span>
+                                                            </button>
+
+                                                            {/* R&M flag button (visible when failed) */}
                                                             {item.status === 'fail' && (
-                                                                <svg
-                                                                    className="w-4 h-4 text-red-400"
-                                                                    fill="none"
-                                                                    viewBox="0 0 24 24"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth={3}
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Flag ${item.text} for repair and maintenance`}
+                                                                    aria-pressed={item.flagged_rm}
+                                                                    onClick={() => toggleRmFlag(item.entry_id)}
+                                                                    className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                                                                        item.flagged_rm
+                                                                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                                            : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
+                                                                    }`}
                                                                 >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        d="M6 18L18 6M6 6l12 12"
-                                                                    />
-                                                                </svg>
-                                                            )}
-                                                            {item.status === 'unchecked' && (
-                                                                <div className="w-4 h-4 rounded border-2 border-gray-500/40" />
+                                                                    🔧 R&M
+                                                                </button>
                                                             )}
                                                         </div>
-
-                                                        {/* Label */}
-                                                        <span
-                                                            className={`text-sm font-medium flex-1 ${styles.text} ${
-                                                                item.status === 'pass' ? 'line-through opacity-60' : ''
-                                                            }`}
-                                                        >
-                                                            {item.text}
-                                                        </span>
-
-                                                        {/* R&M flag button (visible when failed) */}
-                                                        {item.status === 'fail' && (
-                                                            <button
-                                                                aria-label="Flag for repair and maintenance"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    toggleRmFlag(item.entry_id);
-                                                                }}
-                                                                className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
-                                                                    item.flagged_rm
-                                                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                                                        : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
-                                                                }`}
-                                                            >
-                                                                🔧 R&M
-                                                            </button>
-                                                        )}
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
 
-                        {/* Complete button */}
-                        <div
-                            className="shrink-0 px-4 pt-3 bg-slate-950"
-                            style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
-                        >
-                            <button
-                                aria-label="Complete checklist run"
-                                onClick={completeRun}
-                                className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${
-                                    runFailCount > 0
-                                        ? 'bg-gradient-to-r from-red-600 to-red-700 shadow-red-500/20'
-                                        : runCheckedCount === runTotal
-                                          ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
-                                          : 'bg-gradient-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
-                                }`}
+                            {/* Complete button */}
+                            <div
+                                className="shrink-0 px-4 pt-3 bg-slate-950"
+                                style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
                             >
-                                {runCheckedCount === runTotal
-                                    ? runFailCount > 0
-                                        ? `Complete — ${runFailCount} Failed`
-                                        : '✅ All Passed — Complete'
-                                    : `Complete (${runCheckedCount}/${runTotal})`}
-                            </button>
-                        </div>
-                    </div>
-                )}
+                                <button
+                                    type="button"
+                                    aria-label="Complete checklist run"
+                                    onClick={completeRun}
+                                    className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${
+                                        runFailCount > 0
+                                            ? 'bg-gradient-to-r from-red-600 to-red-700 shadow-red-500/20'
+                                            : runCheckedCount === runTotal
+                                              ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
+                                              : 'bg-gradient-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
+                                    }`}
+                                >
+                                    {runCheckedCount === runTotal
+                                        ? runFailCount > 0
+                                            ? `Complete — ${runFailCount} Failed`
+                                            : '✅ All Passed — Complete'
+                                        : `Complete (${runCheckedCount}/${runTotal})`}
+                                </button>
+                            </div>
+                        </div>,
+                        document.body,
+                    )}
             </div>
         </div>
     );

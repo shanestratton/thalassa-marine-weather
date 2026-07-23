@@ -41,6 +41,7 @@ import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
 import { Capacitor } from '@capacitor/core';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 export const RoutePlanner: React.FC<{
     onTriggerUpgrade: () => void;
@@ -194,6 +195,15 @@ export const RoutePlanner: React.FC<{
 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
+    const mapDialogCloseRef = useRef<HTMLButtonElement>(null);
+    const closeMapDialog = useCallback(() => {
+        setIsMapOpen(false);
+        setTempMapSelection(null);
+    }, [setIsMapOpen]);
+    const mapDialogRef = useFocusTrap(isMapOpen, {
+        initialFocusRef: mapDialogCloseRef,
+        onEscape: closeMapDialog,
+    });
 
     // ── Route picker modal (PLAN front door, Shane 2026-07-16): pick a saved
     // route or a past sea voyage RIGHT HERE and get taken straight to it on
@@ -203,8 +213,19 @@ export const RoutePlanner: React.FC<{
         loading: boolean;
         items: Array<{ key: string; title: string; sub: string; go: () => void }>;
     }>(null);
+    const routePickerRequestRef = useRef(0);
+    const routePickerCloseRef = useRef<HTMLButtonElement>(null);
+    const closeRoutePicker = useCallback(() => {
+        routePickerRequestRef.current += 1;
+        setRoutePicker(null);
+    }, []);
+    const routePickerDialogRef = useFocusTrap(routePicker !== null, {
+        initialFocusRef: routePickerCloseRef,
+        onEscape: closeRoutePicker,
+    });
     const openRoutePicker = useCallback(
         async (kind: 'voyage' | 'saved') => {
+            const requestId = ++routePickerRequestRef.current;
             setRoutePicker({ kind, loading: true, items: [] });
             try {
                 if (kind === 'saved') {
@@ -221,6 +242,7 @@ export const RoutePlanner: React.FC<{
                             setPage('map');
                         },
                     }));
+                    if (requestId !== routePickerRequestRef.current) return;
                     setRoutePicker({ kind, loading: false, items });
                 } else {
                     const { fetchSeaVoyageChoices } = await import('../services/shiplog/RoutesAndTracks');
@@ -234,10 +256,12 @@ export const RoutePlanner: React.FC<{
                             setPage('map');
                         },
                     }));
+                    if (requestId !== routePickerRequestRef.current) return;
                     setRoutePicker({ kind, loading: false, items });
                 }
             } catch (err) {
                 log.warn(`route picker load failed: ${err instanceof Error ? err.message : String(err)}`);
+                if (requestId !== routePickerRequestRef.current) return;
                 setRoutePicker({ kind, loading: false, items: [] });
             }
         },
@@ -334,7 +358,17 @@ export const RoutePlanner: React.FC<{
             {/* FULL SCREEN MAP MODAL - PORTALED TO ESCAPE TRANSFORMS */}
             {isMapOpen &&
                 createPortal(
-                    <div className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col">
+                    <div
+                        ref={mapDialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={
+                            mapSelectionTarget
+                                ? `Select ${mapSelectionTarget === 'origin' ? 'origin' : 'destination'} on map`
+                                : 'Route map'
+                        }
+                        className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col"
+                    >
                         <div className="relative flex-1">
                             <MapHub
                                 mapboxToken={mapboxToken}
@@ -370,10 +404,9 @@ export const RoutePlanner: React.FC<{
                             style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
                         >
                             <button
-                                onClick={() => {
-                                    setIsMapOpen(false);
-                                    setTempMapSelection(null);
-                                }}
+                                ref={mapDialogCloseRef}
+                                type="button"
+                                onClick={closeMapDialog}
                                 aria-label="Go back to previous page"
                                 className="bg-slate-900/90 hover:bg-slate-800 text-white p-3 rounded-full shadow-2xl border border-white/20 transition-all hover:scale-110 active:scale-95"
                             >
@@ -932,19 +965,29 @@ export const RoutePlanner: React.FC<{
                     // dvh + safe-area padding so a long list cannot run off either
                     // end on a phone.
                     <div
+                        role="presentation"
                         className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
-                        onClick={() => setRoutePicker(null)}
+                        onClick={closeRoutePicker}
                     >
                         <div
+                            ref={routePickerDialogRef}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="route-picker-title"
                             className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
-                                <span className="text-sm font-black uppercase tracking-widest text-sky-300">
+                                <span
+                                    id="route-picker-title"
+                                    className="text-sm font-black uppercase tracking-widest text-sky-300"
+                                >
                                     {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
                                 </span>
                                 <button
-                                    onClick={() => setRoutePicker(null)}
+                                    ref={routePickerCloseRef}
+                                    type="button"
+                                    onClick={closeRoutePicker}
                                     className="text-sm font-bold text-gray-400"
                                 >
                                     Close

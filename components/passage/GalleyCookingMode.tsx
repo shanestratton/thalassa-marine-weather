@@ -8,9 +8,10 @@
  *  - Meal completion triggers DELTA subtractions from Ship's Stores
  *  - Leftover management on completion
  */
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { startCooking, completeMeal, saveLeftovers, skipMeal, type MealPlan } from '../../services/MealPlanService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface GalleyCookingModeProps {
     meal: MealPlan;
@@ -43,13 +44,52 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
     const [showComplete, setShowComplete] = useState(false);
     const [servingsConsumed, setServingsConsumed] = useState(meal.servings_planned);
     const [showLeftovers, setShowLeftovers] = useState(false);
+    const [starting, setStarting] = useState(false);
+    const [skipping, setSkipping] = useState(false);
     const [finishing, setFinishing] = useState(false);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const titleId = useId();
+    const servingsLabelId = useId();
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const firstStepRef = useRef<HTMLButtonElement>(null);
+    const wasCookingRef = useRef(isCooking);
+    const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const workflowBusy = starting || skipping || finishing;
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: workflowBusy ? undefined : onClose,
+    });
+
+    useEffect(
+        () => () => {
+            if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+        },
+        [],
+    );
+
+    useEffect(() => {
+        if (!wasCookingRef.current && isCooking) firstStepRef.current?.focus();
+        wasCookingRef.current = isCooking;
+    }, [isCooking]);
 
     const handleStartCooking = useCallback(async () => {
-        await startCooking(meal.id);
-        setIsCooking(true);
-        triggerHaptic('medium');
-    }, [meal.id]);
+        if (starting) return;
+        setStarting(true);
+        setActionError(null);
+        try {
+            const started = await startCooking(meal.id);
+            if (!started) {
+                setActionError('Cooking mode could not be started. Please try again.');
+                return;
+            }
+            setIsCooking(true);
+            triggerHaptic('medium');
+        } catch {
+            setActionError('Cooking mode could not be started. Please try again.');
+        } finally {
+            setStarting(false);
+        }
+    }, [meal.id, starting]);
 
     const handleToggleStep = useCallback(
         (idx: number) => {
@@ -62,48 +102,98 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             }
             setCheckedSteps(next);
 
-            // All steps done?
+            if (completionTimerRef.current) {
+                clearTimeout(completionTimerRef.current);
+                completionTimerRef.current = null;
+            }
+
             if (next.size === steps.length) {
-                setTimeout(() => setShowComplete(true), 300);
+                completionTimerRef.current = setTimeout(() => {
+                    setShowComplete(true);
+                    completionTimerRef.current = null;
+                }, 300);
+            } else {
+                setShowComplete(false);
             }
         },
         [checkedSteps, steps.length],
     );
 
     const handleComplete = useCallback(async () => {
+        if (finishing) return;
         setFinishing(true);
-        await completeMeal(meal.id, servingsConsumed);
+        setActionError(null);
+        try {
+            const completed = await completeMeal(meal.id, servingsConsumed);
+            if (!completed) {
+                setActionError("The meal could not be completed, so Ship's Stores were not updated.");
+                return;
+            }
 
-        if (showLeftovers && servingsConsumed < meal.servings_planned) {
-            const remaining = meal.servings_planned - servingsConsumed;
-            await saveLeftovers(meal.id, remaining);
+            if (showLeftovers && servingsConsumed < meal.servings_planned) {
+                const remaining = meal.servings_planned - servingsConsumed;
+                try {
+                    await saveLeftovers(meal.id, remaining);
+                } catch {
+                    // The meal is already completed and stores have already been
+                    // subtracted. Do not offer a retry that could subtract twice.
+                }
+            }
+
+            triggerHaptic('heavy');
+            onComplete();
+        } catch {
+            setActionError("The meal could not be completed, so Ship's Stores were not updated.");
+        } finally {
+            setFinishing(false);
         }
-
-        triggerHaptic('heavy');
-        onComplete();
-    }, [meal.id, meal.servings_planned, servingsConsumed, showLeftovers, onComplete]);
+    }, [finishing, meal.id, meal.servings_planned, servingsConsumed, showLeftovers, onComplete]);
 
     const handleSkip = useCallback(async () => {
-        await skipMeal(meal.id);
-        triggerHaptic('light');
-        onClose();
-    }, [meal.id, onClose]);
+        if (skipping) return;
+        setSkipping(true);
+        setActionError(null);
+        try {
+            const skipped = await skipMeal(meal.id);
+            if (!skipped) {
+                setActionError('The meal could not be skipped. Please try again.');
+                return;
+            }
+            triggerHaptic('light');
+            onClose();
+        } catch {
+            setActionError('The meal could not be skipped. Please try again.');
+        } finally {
+            setSkipping(false);
+        }
+    }, [meal.id, onClose, skipping]);
 
     const progress = steps.length > 0 ? checkedSteps.size / steps.length : 0;
 
     return (
-        <div className="fixed inset-0 z-50 bg-[#0a0e14] text-white flex flex-col">
+        <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-busy={workflowBusy}
+            className="fixed inset-0 z-50 bg-[#0a0e14] text-white flex flex-col"
+        >
             {/* ── Header ── */}
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/10">
                 <div>
-                    <h2 className="text-lg font-bold text-amber-300 uppercase tracking-widest">🍳 Cooking Mode</h2>
+                    <h2 id={titleId} className="text-lg font-bold text-amber-300 uppercase tracking-widest">
+                        🍳 Cooking Mode
+                    </h2>
                     <p className="text-sm text-gray-400 mt-0.5">{meal.title}</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-500">{meal.servings_planned} serves</span>
                     <button
-                        aria-label="Close Cooking Mode"
+                        ref={closeButtonRef}
+                        aria-label="Close cooking mode"
                         onClick={onClose}
+                        disabled={workflowBusy}
                         className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 text-lg transition-colors"
                     >
                         ✕
@@ -113,7 +203,15 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
 
             {/* ── Progress Bar ── */}
             <div className="px-5 py-2">
-                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                <div
+                    role="progressbar"
+                    aria-label="Cooking progress"
+                    aria-valuemin={0}
+                    aria-valuemax={steps.length}
+                    aria-valuenow={checkedSteps.size}
+                    aria-valuetext={`${checkedSteps.size} of ${steps.length} steps complete`}
+                    className="h-2 bg-white/5 rounded-full overflow-hidden"
+                >
                     <div
                         className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-500"
                         style={{ width: `${progress * 100}%` }}
@@ -151,6 +249,14 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
 
             {/* ── Steps ── */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+                {actionError && (
+                    <p
+                        role="alert"
+                        className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+                    >
+                        {actionError}
+                    </p>
+                )}
                 {!isCooking ? (
                     <div className="flex flex-col items-center justify-center h-full gap-6">
                         <div className="text-6xl">🔥</div>
@@ -159,25 +265,27 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                             Starting will reserve your ingredients and begin the timer.
                         </p>
                         <button
-                            aria-label="Start Cooking"
                             onClick={handleStartCooking}
+                            disabled={starting || skipping}
                             className="px-8 py-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-2xl text-sm font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.97]"
                         >
-                            🔥 Start Cooking
+                            {starting ? '⏳ Starting…' : '🔥 Start Cooking'}
                         </button>
                         <button
-                            aria-label="Skip Meal"
                             onClick={handleSkip}
+                            disabled={starting || skipping}
                             className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
                         >
-                            Skip this meal →
+                            {skipping ? 'Skipping…' : 'Skip this meal →'}
                         </button>
                     </div>
                 ) : (
                     steps.map((step, i) => (
                         <button
                             key={i}
-                            aria-label={`Step ${i + 1}`}
+                            ref={i === 0 ? firstStepRef : undefined}
+                            aria-label={`${checkedSteps.has(i) ? 'Mark incomplete' : 'Mark complete'}: Step ${i + 1}, ${step}`}
+                            aria-pressed={checkedSteps.has(i)}
                             onClick={() => handleToggleStep(i)}
                             className={`w-full flex items-start gap-4 p-4 rounded-xl border transition-all active:scale-[0.98] text-left ${
                                 checkedSteps.has(i)
@@ -214,19 +322,23 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                     </h3>
 
                     {/* Servings consumed */}
-                    <div className="flex items-center gap-3">
-                        <label className="text-xs text-gray-400">Servings consumed:</label>
+                    <div role="group" aria-labelledby={servingsLabelId} className="flex items-center gap-3">
+                        <span id={servingsLabelId} className="text-xs text-gray-400">
+                            Servings consumed:
+                        </span>
                         <div className="flex items-center gap-2">
                             <button
-                                aria-label="Decrease Servings"
+                                aria-label="Decrease servings consumed"
                                 onClick={() => setServingsConsumed(Math.max(1, servingsConsumed - 1))}
                                 className="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-colors"
                             >
                                 −
                             </button>
-                            <span className="text-lg font-bold text-white w-8 text-center">{servingsConsumed}</span>
+                            <span aria-live="polite" className="text-lg font-bold text-white w-8 text-center">
+                                {servingsConsumed}
+                            </span>
                             <button
-                                aria-label="Increase Servings"
+                                aria-label="Increase servings consumed"
                                 onClick={() =>
                                     setServingsConsumed(Math.min(meal.servings_planned * 2, servingsConsumed + 1))
                                 }
@@ -240,7 +352,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                     {/* Leftovers toggle */}
                     {servingsConsumed < meal.servings_planned && (
                         <button
-                            aria-label="Toggle Save Leftovers"
+                            aria-pressed={showLeftovers}
                             onClick={() => setShowLeftovers(!showLeftovers)}
                             className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
                                 showLeftovers
@@ -257,7 +369,6 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
 
                     {/* Complete button */}
                     <button
-                        aria-label="Complete Meal"
                         onClick={handleComplete}
                         disabled={finishing}
                         className="w-full py-4 bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 rounded-xl text-sm font-bold uppercase tracking-widest text-emerald-300 transition-all active:scale-[0.97] disabled:opacity-50"

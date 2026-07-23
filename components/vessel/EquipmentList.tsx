@@ -25,6 +25,7 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SwipeableEquipmentCard, CATEGORIES, CATEGORY_ICONS } from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
 
@@ -58,6 +59,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     // Context menu bottom sheet state
     const [contextItem, setContextItem] = useState<EquipmentItem | null>(null);
+    const contextCloseRef = React.useRef<HTMLButtonElement>(null);
+    const contextDialogRef = useFocusTrap<HTMLDivElement>(!!contextItem, {
+        initialFocusRef: contextCloseRef,
+        onEscape: () => setContextItem(null),
+    });
 
     // 3-dot menu state
     const [menuOpen, setMenuOpen] = useState(false);
@@ -299,7 +305,8 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <div className="grid grid-cols-3 gap-1.5">
                         {CATEGORIES.map((cat) => (
                             <button
-                                aria-label="Select equipment category"
+                                aria-label={`Select ${cat.label} category`}
+                                aria-pressed={newCategory === cat.id}
                                 key={cat.id}
                                 onClick={() => setNewCategory(cat.id)}
                                 className={`py-1 rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -548,18 +555,24 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <div
                         className="fixed inset-0 z-[999] flex items-center justify-center px-3"
                         onClick={() => setContextItem(null)}
+                        role="presentation"
                     >
-                        <div className="absolute inset-0 bg-black/60" />
+                        <div className="absolute inset-0 bg-black/60" aria-hidden="true" />
                         <div
+                            ref={contextDialogRef}
                             className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto"
                             style={{ maxHeight: 'calc(100dvh - 12rem)' }}
                             onClick={(e) => e.stopPropagation()}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="equipment-actions-title"
                         >
                             {/* Close X */}
                             <button
+                                ref={contextCloseRef}
                                 onClick={() => setContextItem(null)}
                                 className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                                aria-label="Close context menu"
+                                aria-label={`Close actions for ${contextItem.equipment_name}`}
                             >
                                 <svg
                                     className="w-5 h-5 text-gray-400"
@@ -576,8 +589,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <div className="flex items-center gap-3 mb-5">
                                 <span className="text-lg">{CATEGORY_ICONS[contextItem.category] || '📋'}</span>
                                 <div className="flex-1 min-w-0">
-                                    <h3 className="text-lg font-black text-white truncate">
+                                    <h3 id="equipment-actions-title" className="text-lg font-black text-white truncate">
                                         {contextItem.equipment_name}
+                                        <span className="sr-only"> equipment actions</span>
                                     </h3>
                                     <p className="text-xs text-slate-400 font-bold">
                                         {contextItem.make} — {contextItem.model}
@@ -589,7 +603,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <div className="space-y-2">
                                 {/* View Details */}
                                 <button
-                                    aria-label="View equipment details"
+                                    aria-label={`View details for ${contextItem.equipment_name}`}
                                     onClick={() => {
                                         setSelectedItem(contextItem);
                                         setContextItem(null);
@@ -620,7 +634,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {/* Copy Serial */}
                                 {contextItem.serial_number && (
                                     <button
-                                        aria-label="Copy serial number to clipboard"
+                                        aria-label={`Copy serial number for ${contextItem.equipment_name}`}
                                         onClick={() => {
                                             handleCopySerial(contextItem.serial_number);
                                             setContextItem(null);
@@ -652,7 +666,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {/* Open Manual */}
                                 {contextItem.manual_uri && (
                                     <button
-                                        aria-label="Open equipment manual PDF"
+                                        aria-label={`Open manual for ${contextItem.equipment_name}`}
                                         onClick={() => {
                                             window.open(contextItem.manual_uri!, '_blank');
                                             setContextItem(null);
@@ -678,7 +692,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                                 {/* Edit */}
                                 <button
-                                    aria-label="Edit equipment details"
+                                    aria-label={`Edit ${contextItem.equipment_name}`}
                                     onClick={() => {
                                         openEditForm(contextItem);
                                         setSelectedItem(contextItem);
@@ -704,7 +718,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                                 {/* Delete */}
                                 <button
-                                    aria-label="Delete this equipment item"
+                                    aria-label={`Delete ${contextItem.equipment_name}`}
                                     onClick={() => {
                                         handleDelete(contextItem.id);
                                     }}

@@ -12,13 +12,14 @@
  *   - Filesystem for temp PDF storage (required for iOS share)
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useId, useRef } from 'react';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory, Encoding as _Encoding } from '@capacitor/filesystem';
 import { generatePassageBrief, type PassageBriefData } from '../../services/PassageBriefService';
 import { generatePassagePdf, getPassagePdfFileName } from '../../services/PassagePdfService';
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 
 const log = createLogger('SharePassage');
 
@@ -30,6 +31,13 @@ interface SharePassageButtonProps {
 const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, className = '' }) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [sharing, setSharing] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const menuId = useId();
+    const closeMenu = useCallback(() => setMenuOpen(false), []);
+    const menuRef = useMenuNavigation<HTMLDivElement>(menuOpen, {
+        triggerRef,
+        onClose: closeMenu,
+    });
 
     const handleShareText = useCallback(async () => {
         if (!briefData) return;
@@ -114,6 +122,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
         <div className={`relative ${className}`}>
             {/* Main FAB */}
             <button
+                ref={triggerRef}
                 onClick={() => {
                     setMenuOpen((v) => !v);
                     triggerHaptic('light');
@@ -129,7 +138,10 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     }
                     ${sharing ? 'opacity-60 animate-pulse' : ''}
                 `}
-                aria-label="Share passage plan"
+                aria-label={menuOpen ? 'Close share passage menu' : 'Open share passage menu'}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                aria-controls={menuOpen ? menuId : undefined}
             >
                 <span className="text-lg">📤</span>
             </button>
@@ -137,10 +149,14 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
             {/* Dropdown */}
             {menuOpen && (
                 <div
+                    ref={menuRef}
+                    id={menuId}
+                    role="menu"
+                    aria-label="Share passage plan"
                     className="absolute bottom-14 right-0 w-52 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
                     style={{ backdropFilter: 'blur(24px)' }}
                 >
-                    <div className="px-3 py-2 border-b border-white/[0.06]">
+                    <div role="presentation" className="px-3 py-2 border-b border-white/[0.06]">
                         <p className="text-[11px] font-bold text-white/40 uppercase tracking-widest">
                             Share Passage Plan
                         </p>
@@ -148,6 +164,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
 
                     {/* Quick Brief (text) */}
                     <button
+                        role="menuitem"
                         onClick={handleShareText}
                         disabled={sharing}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10"
@@ -159,10 +176,11 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         </div>
                     </button>
 
-                    <div className="h-px bg-white/[0.04] mx-3" />
+                    <div role="separator" className="h-px bg-white/[0.04] mx-3" />
 
                     {/* PDF Export */}
                     <button
+                        role="menuitem"
                         onClick={handleSharePdf}
                         disabled={sharing}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10"
@@ -177,7 +195,8 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     {/* Close on outside tap */}
                     <div className="px-3 py-1.5 border-t border-white/[0.06]">
                         <button
-                            onClick={() => setMenuOpen(false)}
+                            role="menuitem"
+                            onClick={closeMenu}
                             className="w-full text-center text-[11px] text-gray-500 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
                         >
                             Cancel
@@ -187,7 +206,9 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
             )}
 
             {/* Click-away overlay when menu open */}
-            {menuOpen && <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />}
+            {menuOpen && (
+                <div role="presentation" aria-hidden="true" className="fixed inset-0 z-40" onClick={closeMenu} />
+            )}
         </div>
     );
 };

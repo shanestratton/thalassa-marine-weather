@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 // tz-lookup ships no types — declared in src/tz-lookup.d.ts.
 import tzlookup from 'tz-lookup';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export interface PhotoLightboxMetadata {
     /** ISO timestamp the photo was captured at. */
@@ -55,8 +56,14 @@ const formatLocalCaptureTime = (capturedAt: string, lat: number | null, lon: num
 
 /** Fullscreen, swipeable photo viewer for the Voyage Log. */
 export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex = 0, caption, metadata, onClose }) => {
-    const [index, setIndex] = useState(startIndex);
+    const safeStartIndex = photos.length > 0 ? Math.min(Math.max(Math.trunc(startIndex), 0), photos.length - 1) : 0;
+    const [index, setIndex] = useState(safeStartIndex);
     const touchStartX = useRef<number | null>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(photos.length > 0, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     const go = useCallback(
         (delta: number) => {
@@ -66,14 +73,8 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
     );
 
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-            else if (e.key === 'ArrowLeft') go(-1);
-            else if (e.key === 'ArrowRight') go(1);
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [go, onClose]);
+        setIndex(safeStartIndex);
+    }, [safeStartIndex]);
 
     if (photos.length === 0) return null;
 
@@ -92,8 +93,22 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
 
     return (
         <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Photo viewer"
             className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm"
             onClick={onClose}
+            onKeyDown={(event) => {
+                if (photos.length <= 1) return;
+                if (event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    go(-1);
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    go(1);
+                }
+            }}
             onTouchStart={(e) => {
                 touchStartX.current = e.touches[0].clientX;
             }}
@@ -105,7 +120,11 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                     {multi ? `${index + 1} / ${photos.length}` : ''}
                 </span>
                 <button
-                    onClick={onClose}
+                    ref={closeButtonRef}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onClose();
+                    }}
                     aria-label="Close photo viewer"
                     className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
                 >
@@ -119,7 +138,11 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
             <div className="flex-1 flex items-center justify-center min-h-0 px-4 relative">
                 <img
                     src={photos[index]}
-                    alt=""
+                    alt={
+                        caption
+                            ? `${caption}, photo ${index + 1} of ${photos.length}`
+                            : `Photo ${index + 1} of ${photos.length}`
+                    }
                     onClick={(e) => e.stopPropagation()}
                     className="max-h-full max-w-full object-contain rounded-lg shadow-2xl select-none"
                 />
