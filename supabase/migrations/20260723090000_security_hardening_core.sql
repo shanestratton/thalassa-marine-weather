@@ -732,6 +732,49 @@ GRANT EXECUTE ON FUNCTION public.queue_watch_schedule_push(TEXT, UUID, TEXT, TEX
 -- Guardian: exact locations stay private; discovery and broadcasts are bounded
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- Some early production installs created guardian_alerts with sender_user_id
+-- before the canonical Guardian migration was recorded. CREATE TABLE IF NOT
+-- EXISTS cannot reconcile that shape, so bring those installs forward without
+-- discarding their alert history.
+ALTER TABLE public.guardian_alerts
+    ADD COLUMN IF NOT EXISTS source_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS source_mmsi BIGINT,
+    ADD COLUMN IF NOT EXISTS source_vessel_name TEXT,
+    ADD COLUMN IF NOT EXISTS target_mmsi BIGINT,
+    ADD COLUMN IF NOT EXISTS radius_nm REAL DEFAULT 5;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'guardian_alerts'
+          AND column_name = 'sender_user_id'
+    ) THEN
+        EXECUTE $migration$
+            UPDATE public.guardian_alerts
+            SET source_user_id = sender_user_id
+            WHERE source_user_id IS NULL
+              AND sender_user_id IS NOT NULL
+        $migration$;
+    END IF;
+END;
+$$;
+
+UPDATE public.guardian_alerts AS alert
+SET source_vessel_name = profile.vessel_name
+FROM public.guardian_profiles AS profile
+WHERE alert.source_user_id = profile.user_id
+  AND alert.source_vessel_name IS NULL;
+
+CREATE INDEX IF NOT EXISTS guardian_alerts_source_idx
+    ON public.guardian_alerts(source_user_id, created_at DESC)
+    WHERE source_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS guardian_alerts_target_idx
+    ON public.guardian_alerts(target_user_id, created_at DESC)
+    WHERE target_user_id IS NOT NULL;
+
 DROP POLICY IF EXISTS "Guardian profiles are readable by authenticated users" ON public.guardian_profiles;
 CREATE POLICY "Users read own guardian profile" ON public.guardian_profiles FOR SELECT TO authenticated
 USING (user_id = auth.uid());
