@@ -2,30 +2,42 @@
  * SoundCheckModal — Pre-anchor confirmation for alarm readiness.
  * Displays safety checklist (mute override, volume, app foreground).
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface SoundCheckModalProps {
     onConfirm: () => void;
     onCancel: () => void;
 }
 
-export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onConfirm, onCancel }) =>
-    createPortal(
+export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onConfirm, onCancel }) => {
+    const cancelButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: cancelButtonRef,
+        onEscape: onCancel,
+    });
+
+    return createPortal(
         <div
-            role="dialog"
-            aria-modal="true"
             className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6"
             onClick={onCancel}
+            role="presentation"
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sound-check-title"
                 className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
                 <div className="px-5 pt-5 pb-3 text-center">
                     <div className="text-4xl mb-3">🔊</div>
-                    <h2 className="text-lg font-black text-white tracking-tight">Sound Check</h2>
+                    <h2 id="sound-check-title" className="text-lg font-black text-white tracking-tight">
+                        Sound Check
+                    </h2>
                     <p className="text-sm text-slate-400 mt-1 leading-relaxed">
                         Before you anchor up, make sure your alarm will wake you.
                     </p>
@@ -70,6 +82,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 {/* Actions */}
                 <div className="px-5 pb-5 flex gap-2.5">
                     <button
+                        ref={cancelButtonRef}
                         aria-label="Cancel this action"
                         onClick={onCancel}
                         className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.06] text-sm font-bold text-slate-400 hover:text-white transition-colors"
@@ -91,7 +104,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
             </div>
         </div>,
         document.body,
-    ),
-);
+    );
+});
 
 SoundCheckModal.displayName = 'SoundCheckModal';

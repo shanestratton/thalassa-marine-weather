@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { t } from '../theme';
 import { MarineWeatherReport, UnitPreferences } from '../types';
 import { WindIcon, WaveIcon, CompassIcon, ArrowRightIcon, XIcon } from './Icons';
 import { RetryCard } from './ui/RetryCard';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface ForecastSheetProps {
     data: MarineWeatherReport | null;
@@ -32,7 +33,27 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
         const [isDragging, setIsDragging] = useState(false);
         const startY = useRef<number>(0);
         const currentY = useRef<number>(0);
-        const sheetRef = useRef<HTMLDivElement>(null);
+        const closeButtonRef = useRef<HTMLButtonElement>(null);
+        const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        const requestClose = useCallback(() => {
+            setIsVisible(false);
+            if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = setTimeout(() => {
+                closeTimerRef.current = null;
+                onClose();
+            }, 300);
+        }, [onClose]);
+        const sheetRef = useFocusTrap<HTMLDivElement>(isOpen, {
+            initialFocusRef: closeButtonRef,
+            onEscape: requestClose,
+        });
+
+        useEffect(
+            () => () => {
+                if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+            },
+            [],
+        );
 
         useEffect(() => {
             if (isOpen) {
@@ -99,18 +120,18 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                 {/* Backdrop for click-to-dismiss */}
                 {isOpen && (
                     <div
-                        role="dialog"
-                        aria-modal="true"
+                        role="presentation"
+                        aria-hidden="true"
                         className={`fixed inset-0 z-[1100] bg-black/40 transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
-                        onClick={() => {
-                            setIsVisible(false);
-                            setTimeout(onClose, 300);
-                        }}
+                        onClick={requestClose}
                     />
                 )}
 
                 <div
                     ref={sheetRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Weather forecast summary"
                     className={`fixed inset-x-4 bottom-24 z-[1110] transition-transform duration-500 cubic-bezier(0.32, 0.72, 0, 1) md:mx-auto md:max-w-2xl`}
                     style={{
                         transform: isDragging ? `translateY(${offsetY}px)` : `translateY(${isVisible ? '0%' : '120%'})`,
@@ -132,11 +153,9 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
 
                             {/* Close Button */}
                             <button
+                                ref={closeButtonRef}
                                 aria-label="Close forecast sheet"
-                                onClick={() => {
-                                    setIsVisible(false);
-                                    setTimeout(onClose, 300);
-                                }}
+                                onClick={requestClose}
                                 className="absolute top-4 right-4 z-50 p-2 bg-white/10 hover:bg-white/20 rounded-full text-gray-300 hover:text-white transition-colors"
                             >
                                 <XIcon className="w-5 h-5" />
