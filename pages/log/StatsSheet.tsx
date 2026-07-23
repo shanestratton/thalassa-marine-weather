@@ -2,7 +2,8 @@
  * StatsSheet — Statistics action sheet extracted from LogPage.
  * Shows "Selected Voyage" and "All Voyages" stat options.
  */
-import React from 'react';
+import React, { useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { ShipLogEntry } from '../../types';
 
 interface StatsSheetProps {
@@ -25,6 +26,11 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
     currentVoyageId,
     voyageGroups,
 }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const sheetRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
     const effectiveVoyageId = selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
     // Counts come from the voyage SUMMARIES (one row per voyage, carrying
     // entryCount) so they're accurate across the whole history without the
@@ -44,7 +50,13 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
         .reduce((sum: number, v: any) => sum + (v.entryCount || 0), 0);
 
     return (
-        <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+        <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stats-sheet-title"
+            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+        >
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
@@ -63,9 +75,12 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                                 />
                             </svg>
                         </div>
-                        <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
+                        <h2 id="stats-sheet-title" className="text-lg font-bold text-white">
+                            Voyage Statistics
+                        </h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         aria-label="Close"
                         onClick={onClose}
                         className="p-2 text-slate-400 hover:text-white transition-colors"

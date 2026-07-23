@@ -27,7 +27,7 @@
  *    hover state, so `group-hover:opacity-100` would have left the
  *    icon permanently invisible on touch.
  */
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { useSettings } from '../../context/SettingsContext';
@@ -39,6 +39,7 @@ import {
     toPlannerString,
 } from '../../utils/savedLocations';
 import { triggerHaptic } from '../../utils/system';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 
 interface SavedLocationsPickerProps {
     /** Current input value (the planner's "Name (lat, lon)" format). */
@@ -66,7 +67,11 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
     const { settings, updateSettings } = useSettings();
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
-    const popoverRef = useRef<HTMLDivElement>(null);
+    const menuId = useId();
+    const popoverRef = useMenuNavigation<HTMLDivElement>(open, {
+        triggerRef: buttonRef,
+        onClose: () => setOpen(false),
+    });
     const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
     const savedList = useMemo(
@@ -98,7 +103,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
         };
     }, [open]);
 
-    // Close on outside-click / Escape. The popover lives in a portal
+    // Close on outside-click. The popover lives in a portal
     // so we check BOTH the button AND the popover for the click
     // target — anything outside both is "outside".
     useEffect(() => {
@@ -109,25 +114,25 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
             const inPopover = popoverRef.current?.contains(target);
             if (!inButton && !inPopover) setOpen(false);
         };
-        const handleKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setOpen(false);
-        };
         document.addEventListener('mousedown', handleClick);
         document.addEventListener('touchstart', handleClick);
-        document.addEventListener('keydown', handleKey);
         return () => {
             document.removeEventListener('mousedown', handleClick);
             document.removeEventListener('touchstart', handleClick);
-            document.removeEventListener('keydown', handleKey);
         };
-    }, [open]);
+    }, [open, popoverRef]);
+
+    const closeAndRestore = () => {
+        setOpen(false);
+        requestAnimationFrame(() => buttonRef.current?.focus({ preventScroll: true }));
+    };
 
     const handleSaveCurrent = () => {
         if (!currentName) return;
         triggerHaptic('light');
         const patch = buildSaveLocationPatch(settings.savedLocations, settings.savedLocationCoords, value);
         if (patch) updateSettings(patch);
-        setOpen(false);
+        closeAndRestore();
     };
 
     const handleUnsaveCurrent = () => {
@@ -135,7 +140,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
         triggerHaptic('light');
         const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, currentName);
         updateSettings(patch);
-        setOpen(false);
+        closeAndRestore();
     };
 
     const handlePick = (locName: string) => {
@@ -143,13 +148,14 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
         if (!loc) return;
         triggerHaptic('light');
         onPick(toPlannerString(loc));
-        setOpen(false);
+        closeAndRestore();
     };
 
     const handleRemove = (locName: string) => {
         triggerHaptic('light');
         const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, locName);
         updateSettings(patch);
+        closeAndRestore();
     };
 
     const accent = ACCENTS[target];
@@ -192,6 +198,8 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                 title={`Save / recall ${target === 'origin' ? 'departure' : 'destination'}`}
                 aria-label={`Save or recall a saved ${target === 'origin' ? 'departure' : 'destination'} location`}
                 aria-expanded={open}
+                aria-haspopup="menu"
+                aria-controls={open ? menuId : undefined}
             >
                 <StarIcon className="w-4 h-4" filled={alreadySaved} />
             </button>
@@ -199,18 +207,22 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
             {open &&
                 createPortal(
                     <div
+                        id={menuId}
                         ref={popoverRef}
                         style={popoverStyle}
                         className="rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden text-white"
                         role="menu"
+                        aria-label={`Saved ${target} locations`}
+                        tabIndex={-1}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Save / unsave the current input value */}
-                        <div className="p-3 border-b border-white/10">
+                        <div role="none" className="p-3 border-b border-white/10">
                             {currentName ? (
                                 alreadySaved ? (
                                     <button
                                         type="button"
+                                        role="menuitem"
                                         onClick={handleUnsaveCurrent}
                                         className="w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-red-500/10 transition-colors"
                                     >
@@ -227,6 +239,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                                 ) : (
                                     <button
                                         type="button"
+                                        role="menuitem"
                                         onClick={handleSaveCurrent}
                                         className={`w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-white/5 transition-colors ${accent.text}`}
                                     >
@@ -248,24 +261,26 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                         </div>
 
                         {/* Saved locations list */}
-                        <div className="max-h-72 overflow-y-auto">
+                        <div role="none" className="max-h-72 overflow-y-auto">
                             {savedList.length === 0 ? (
                                 <div className="text-xs text-gray-500 italic p-4 text-center">
                                     No saved locations yet. Save a place from the route planner or your weather page to
                                     recall it here later.
                                 </div>
                             ) : (
-                                <div className="py-1">
+                                <div role="none" className="py-1">
                                     <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold px-3 pt-2 pb-1">
                                         Saved
                                     </div>
                                     {savedList.map((loc) => (
                                         <div
                                             key={loc.name}
+                                            role="none"
                                             className="flex items-center gap-2 px-3 hover:bg-white/5 transition-colors"
                                         >
                                             <button
                                                 type="button"
+                                                role="menuitem"
                                                 onClick={() => handlePick(loc.name)}
                                                 className="flex items-center gap-2 flex-1 min-w-0 text-left py-2"
                                             >
@@ -284,6 +299,7 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                                             </button>
                                             <button
                                                 type="button"
+                                                role="menuitem"
                                                 onClick={() => handleRemove(loc.name)}
                                                 className="p-2 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                                                 aria-label={`Remove ${loc.name}`}

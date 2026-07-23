@@ -3,6 +3,7 @@
  * Full-screen panel for browsing community tracks and importing GPX files.
  */
 import React, { useRef, useState } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ImportSheetProps {
     onClose: () => void;
@@ -18,10 +19,21 @@ export const ImportSheet: React.FC<ImportSheetProps> = ({
     onImportComplete: _onImportComplete,
 }) => {
     const gpxFileInputRef = useRef<HTMLInputElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
     const [isImportingGPX, setIsImportingGPX] = useState(false);
+    const sheetRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     return (
-        <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+        <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-sheet-title"
+            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+        >
             {/* Header bar */}
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between">
@@ -41,9 +53,12 @@ export const ImportSheet: React.FC<ImportSheetProps> = ({
                                 />
                             </svg>
                         </div>
-                        <h2 className="text-lg font-bold text-white">Import Tracks</h2>
+                        <h2 id="import-sheet-title" className="text-lg font-bold text-white">
+                            Import Tracks
+                        </h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         aria-label="Close"
                         onClick={onClose}
                         className="p-2 text-slate-400 hover:text-white transition-colors"

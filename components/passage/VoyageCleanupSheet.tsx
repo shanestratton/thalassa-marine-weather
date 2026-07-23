@@ -20,9 +20,10 @@
  * Accessible from the LegPickerDropdown's footer link.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { deleteVoyageById, getAllVoyagesForUser, type Voyage, type VoyageStatus } from '../../services/VoyageService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface VoyageCleanupSheetProps {
     isOpen: boolean;
@@ -53,6 +54,11 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
     const [loading, setLoading] = useState(false);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [confirmId, setConfirmId] = useState<string | null>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     const refresh = useCallback(async () => {
         setLoading(true);
@@ -125,20 +131,31 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
     const combinedCount = voyages.length + routes.length;
 
     return (
-        <div className="fixed inset-0 z-[10000] bg-black/80 flex items-stretch justify-center" onClick={onClose}>
+        <div
+            className="fixed inset-0 z-[10000] bg-black/80 flex items-stretch justify-center"
+            onClick={onClose}
+            role="presentation"
+        >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="voyage-cleanup-title"
                 className="w-full max-w-lg bg-[#0a0e14] flex flex-col overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-white/[0.06] shrink-0">
                     <div>
-                        <h2 className="text-base font-black text-white">Manage Saved Trips</h2>
+                        <h2 id="voyage-cleanup-title" className="text-base font-black text-white">
+                            Manage Saved Trips
+                        </h2>
                         <p className="text-[11px] text-amber-400/60 uppercase tracking-widest mt-0.5">
                             {loading ? 'Loading…' : `${combinedCount} saved`}
                         </p>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
                         aria-label="Close cleanup sheet"

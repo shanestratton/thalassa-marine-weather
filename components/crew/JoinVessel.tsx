@@ -9,11 +9,12 @@
  * Works offline via local mesh: code is cached and validated
  * against a local invite list synced from the skipper's device.
  */
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { supabase } from '../../services/supabase';
 import { redeemManifestCode } from '../../services/CrewService';
 import { syncNow } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface JoinVesselProps {
     onJoined: (vesselName: string) => void;
@@ -27,11 +28,11 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
     const [errorMsg, setErrorMsg] = useState('');
     const [offlinePending, setOfflinePending] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-    // Auto-focus first input
-    useEffect(() => {
-        inputRefs.current[0]?.focus();
-    }, []);
+    const firstInputRef = useRef<HTMLInputElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: firstInputRef,
+        onEscape: onClose,
+    });
 
     const handleInput = useCallback(
         (index: number, value: string) => {
@@ -115,7 +116,13 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
     }, [code]);
 
     return (
-        <div className="fixed inset-0 z-50 bg-[#0a0e14] flex flex-col items-center justify-center px-6">
+        <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="join-vessel-title"
+            className="fixed inset-0 z-50 bg-[#0a0e14] flex flex-col items-center justify-center px-6"
+        >
             {/* Close button */}
             <button
                 onClick={onClose}
@@ -129,7 +136,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 // ── Success: Pending Approval ──
                 <div className="text-center space-y-6">
                     <div className="text-6xl animate-pulse">⚓</div>
-                    <h2 className="text-xl font-bold text-amber-300">
+                    <h2 id="join-vessel-title" className="text-xl font-bold text-amber-300">
                         {offlinePending ? 'Code Saved' : 'Welcome Aboard'}
                     </h2>
                     <p className="text-sm text-gray-400 max-w-[280px]">
@@ -153,7 +160,9 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 // ── Code Entry ──
                 <div className="text-center space-y-8">
                     <div>
-                        <h2 className="text-2xl font-bold text-white mb-2">Join a Vessel</h2>
+                        <h2 id="join-vessel-title" className="text-2xl font-bold text-white mb-2">
+                            Join a Vessel
+                        </h2>
                         <p className="text-sm text-gray-400">Enter the 6-digit manifest code from your Skipper</p>
                     </div>
 
@@ -165,6 +174,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                                 <input
                                     ref={(el) => {
                                         inputRefs.current[i] = el;
+                                        if (i === 0) firstInputRef.current = el;
                                     }}
                                     type="text"
                                     inputMode="text"

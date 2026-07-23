@@ -301,7 +301,6 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                             </svg>
                         </button>
                         <button
-                            ref={backButtonRef}
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white text-xs"
                             aria-label="Close recipe detail"
@@ -313,6 +312,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                     <div className="relative flex items-center justify-center h-32 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-t-3xl">
                         <span className="text-5xl">{getFallbackIcon(recipe.supabaseId)}</span>
                         <button
+                            ref={backButtonRef}
                             onClick={onClose}
                             className="absolute top-3 left-3 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white active:scale-90 transition-transform"
                             aria-label="Back to Recipe Library"

@@ -2,7 +2,8 @@
  * ShareSheet — Share action sheet extracted from LogPage.
  * Shows community share + browse community options.
  */
-import React from 'react';
+import React, { useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ShareSheetProps {
     onClose: () => void;
@@ -21,8 +22,20 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
     hasNonDeviceEntries,
     selectedVoyageId,
 }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const sheetRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     return (
-        <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+        <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-sheet-title"
+            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+        >
             {/* Header bar */}
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between">
@@ -42,9 +55,12 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                                 />
                             </svg>
                         </div>
-                        <h2 className="text-lg font-bold text-white">Share</h2>
+                        <h2 id="share-sheet-title" className="text-lg font-bold text-white">
+                            Share
+                        </h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         aria-label="Close"
                         onClick={onClose}
                         className="p-2 text-slate-400 hover:text-white transition-colors"
