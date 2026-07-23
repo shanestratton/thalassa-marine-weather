@@ -208,6 +208,26 @@ export default function MapContainer({
         };
     }, [passageLine]);
 
+    // The followed route's WAYPOINTS — the vertices of the plan line, tagged
+    // so start and finish can be drawn larger than the intermediate marks
+    // (Shane 2026-07-23: "show the waypoints on the route"). One Point feature
+    // per vertex; `role` drives the size/colour match expression in the layer.
+    const passageWaypointsGeojson = useMemo<FeatureCollection<Point> | null>(() => {
+        if (!passageLine || passageLine.length < 2) return null;
+        const last = passageLine.length - 1;
+        return {
+            type: 'FeatureCollection',
+            features: passageLine.map(
+                (coord, i) =>
+                    ({
+                        type: 'Feature',
+                        properties: { role: i === 0 ? 'start' : i === last ? 'finish' : 'mark' },
+                        geometry: { type: 'Point', coordinates: coord },
+                    }) satisfies Feature<Point>,
+            ),
+        };
+    }, [passageLine]);
+
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
     const pinnedEntries = useMemo(() => entries.filter(hasCoords), [entries]);
     const allCoords = useMemo<[number, number][]>(
@@ -372,20 +392,54 @@ export default function MapContainer({
                     <Layer id="night-fill" type="fill" paint={{ 'fill-color': '#000814', 'fill-opacity': 0.32 }} />
                 </Source>
 
-                {/* The followed route — dashed violet, drawn UNDER the live
-                    track so the boat's actual path reads on top. The one route
-                    the boat is currently following (Shane 2026-07-17). */}
+                {/* The followed route — the one route the boat is currently
+                    following (Shane 2026-07-17). Drawn UNDER the live track so
+                    the boat's actual path reads on top.
+
+                    Glow + solid core instead of the old dashed hairline (Shane
+                    2026-07-23: "change the route from a dashed line to something
+                    more hip"), matching the in-app tracer line so the public
+                    page reads as the same product. Violet keeps it distinct
+                    from the sky-blue sailed track. */}
                 {passageGeojson && (
                     <Source id="passage-route" type="geojson" data={passageGeojson}>
+                        <Layer
+                            id="passage-glow"
+                            type="line"
+                            layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                            paint={{ 'line-color': '#a78bfa', 'line-width': 9, 'line-blur': 6, 'line-opacity': 0.3 }}
+                        />
                         <Layer
                             id="passage-line"
                             type="line"
                             layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                            paint={{ 'line-color': '#c4b5fd', 'line-width': 3, 'line-opacity': 0.95 }}
+                        />
+                    </Source>
+                )}
+
+                {/* Route waypoints — start (green) and finish (red) larger than
+                    the violet intermediate marks. Its own Source so it mounts
+                    ABOVE the route line; still below the live track and boat. */}
+                {passageWaypointsGeojson && (
+                    <Source id="passage-waypoints" type="geojson" data={passageWaypointsGeojson}>
+                        <Layer
+                            id="passage-waypoint-dots"
+                            type="circle"
                             paint={{
-                                'line-color': '#a78bfa',
-                                'line-width': 2.5,
-                                'line-opacity': 0.9,
-                                'line-dasharray': [2, 2],
+                                'circle-radius': ['match', ['get', 'role'], 'mark', 3.5, 6],
+                                'circle-color': [
+                                    'match',
+                                    ['get', 'role'],
+                                    'start',
+                                    '#34d399',
+                                    'finish',
+                                    '#f87171',
+                                    '#c4b5fd',
+                                ],
+                                'circle-stroke-color': '#ffffff',
+                                'circle-stroke-width': ['match', ['get', 'role'], 'mark', 1, 2],
+                                'circle-opacity': 0.95,
                             }}
                         />
                     </Source>
@@ -651,20 +705,22 @@ export default function MapContainer({
                 button from the public page"). The barb layer and its Open-Meteo
                 fetch stay wired and cost nothing while windOn is false — flip this
                 to bring the control back. */}
-            {PUBLIC_WIND_TOGGLE_VISIBLE && <button
-                onClick={() => setWindOn((v) => !v)}
-                aria-label="Toggle wind barbs"
-                className={`absolute top-14 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                    windOn ? 'bg-sky-600 text-white' : 'bg-slate-900/80 text-slate-300 hover:bg-white/10'
-                }`}
-            >
-                {windLoading ? (
-                    <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                ) : (
-                    <span aria-hidden>🌬️</span>
-                )}
-                Wind
-            </button>}
+            {PUBLIC_WIND_TOGGLE_VISIBLE && (
+                <button
+                    onClick={() => setWindOn((v) => !v)}
+                    aria-label="Toggle wind barbs"
+                    className={`absolute top-14 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                        windOn ? 'bg-sky-600 text-white' : 'bg-slate-900/80 text-slate-300 hover:bg-white/10'
+                    }`}
+                >
+                    {windLoading ? (
+                        <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                        <span aria-hidden>🌬️</span>
+                    )}
+                    Wind
+                </button>
+            )}
 
             {/* Compass rose — chart-style decoration, bottom-left */}
             <div className="absolute bottom-4 left-4 z-10">

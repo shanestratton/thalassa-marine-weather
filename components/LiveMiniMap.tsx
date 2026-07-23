@@ -161,28 +161,28 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             const coords = sorted.map((e) => [e.latitude!, e.longitude!] as [number, number]);
             const isPlanned = sorted.some((e) => e.source === 'planned_route');
 
-            // Bolder colour that reads on the light Voyager base.
-            const mainColor = isPlanned ? '#a78bfa' : '#38bdf8';
+            // Glow + core, matching the chart-page tracer and the public
+            // page (Shane 2026-07-23: the old white-cased hairline "looked like
+            // shit"). Violet = the route being followed, sky-blue = the track
+            // actually sailed; the glow is the same hue as its core so it reads
+            // as light coming off the line rather than an outline around it.
+            const coreColor = isPlanned ? '#c4b5fd' : '#7dd3fc';
+            const glowColor = isPlanned ? '#a78bfa' : '#38bdf8';
 
-            // Track lines
             if (coords.length >= 2) {
-                // White casing — crisp "chart route" outline on any base.
                 L.polyline(coords, {
-                    color: '#ffffff',
-                    weight: 5,
-                    opacity: 0.7,
+                    color: glowColor,
+                    weight: 9,
+                    opacity: 0.28,
                     lineCap: 'round',
                     lineJoin: 'round',
                 }).addTo(lg);
-
-                // Main line
                 L.polyline(coords, {
-                    color: mainColor,
+                    color: coreColor,
                     weight: 2.5,
                     opacity: 1,
                     lineCap: 'round',
                     lineJoin: 'round',
-                    dashArray: isPlanned ? '8 6' : undefined,
                 }).addTo(lg);
             }
 
