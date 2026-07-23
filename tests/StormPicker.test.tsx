@@ -54,7 +54,7 @@ describe('StormPicker', () => {
         expect(input.onClose).toHaveBeenCalledOnce();
         expect(triggerHaptic).toHaveBeenCalledWith('medium');
 
-        fireEvent.keyDown(window, { key: 'Escape' });
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
         expect(input.onClose).toHaveBeenCalledTimes(2);
     });
 

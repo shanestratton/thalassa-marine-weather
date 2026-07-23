@@ -112,7 +112,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         };
     }, [isOpen]);
 
-    const focusTrapRef = useFocusTrap(isOpen);
+    const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
 
     /** Detect Supabase rate-limit errors */
     const isRateLimited = (err: unknown): boolean => {

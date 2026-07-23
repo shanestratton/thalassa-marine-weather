@@ -156,7 +156,7 @@ describe('LiveTideAckModal', () => {
         expect(accept).toHaveFocus();
         fireEvent.keyDown(accept, { key: 'Tab' });
         expect(cancel).toHaveFocus();
-        fireEvent.keyDown(window, { key: 'Escape' });
+        fireEvent.keyDown(cancel, { key: 'Escape' });
         expect(onCancel).toHaveBeenCalledOnce();
 
         rerender(

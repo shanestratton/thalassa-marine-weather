@@ -17,10 +17,11 @@
  * Visuals match the rest of the chart-screen chip family — slate
  * translucent, blur, 16px radius, soft border.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export type RouteTrackVariant = 'route' | 'track';
 
@@ -60,9 +61,11 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
-    const wrapRef = useRef<HTMLDivElement>(null);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
-    const priorFocusRef = useRef<HTMLElement | null>(null);
+    const wrapRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
     const meta = VARIANT_META[variant];
     const deviceClass = useDeviceClass();
     const sheetMinWidth = pickByDevice(deviceClass, 280, 420);
@@ -108,51 +111,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
             document.removeEventListener('mousedown', onDoc);
             document.removeEventListener('touchstart', onDoc);
         };
-    }, [visible, onClose]);
-
-    useEffect(() => {
-        if (!visible || typeof document === 'undefined') return;
-        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        closeButtonRef.current?.focus();
-        return () => {
-            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
-            priorFocusRef.current = null;
-        };
-    }, [visible]);
-
-    useEffect(() => {
-        if (!visible || typeof window === 'undefined') return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [visible, onClose]);
-
-    const trapFocus = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-        if (event.key !== 'Tab') return;
-        const dialog = wrapRef.current;
-        if (!dialog) return;
-        const targets = Array.from(
-            dialog.querySelectorAll<HTMLElement>(
-                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ),
-        );
-        if (targets.length === 0) {
-            event.preventDefault();
-            dialog.focus();
-            return;
-        }
-        const first = targets[0];
-        const last = targets[targets.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-        }
-    }, []);
+    }, [visible, onClose, wrapRef]);
 
     if (!visible) return null;
 
@@ -165,7 +124,6 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
             aria-modal="true"
             aria-label={`${meta.title} picker`}
             tabIndex={-1}
-            onKeyDown={trapFocus}
         >
             <div
                 className="flex flex-col"

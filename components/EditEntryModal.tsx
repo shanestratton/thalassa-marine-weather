@@ -26,7 +26,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
         }
     }, [entry]);
 
-    const focusTrapRef = useFocusTrap(isOpen);
+    const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
 
     if (!isOpen || !entry) return null;
 

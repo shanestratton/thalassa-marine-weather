@@ -1,16 +1,12 @@
 /**
- * useFocusTrap — Trap keyboard focus within a container element
+ * Shared keyboard focus management for modal dialogs and sheets.
  *
- * When active, Tab and Shift+Tab cycle through focusable elements
- * within the container instead of escaping to the page behind.
- * Critical for modal accessibility (WCAG 2.4.3).
- *
- * Usage:
- *   const trapRef = useFocusTrap(isOpen);
- *   return <div ref={trapRef}>...modal content...</div>;
+ * When active, focus moves into the container, Tab and Shift+Tab stay
+ * inside it, Escape can invoke the supplied dismiss action, and focus is
+ * restored to the control that opened the dialog when it closes.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 const FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -21,64 +17,85 @@ const FOCUSABLE_SELECTOR = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
-export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(isActive: boolean): React.RefObject<T | null> {
+export interface FocusTrapOptions {
+    /** Preferred element to focus when the dialog opens. Defaults to the first focusable descendant. */
+    initialFocusRef?: RefObject<HTMLElement | null>;
+    /** Optional Escape-key action. */
+    onEscape?: () => void;
+}
+
+function focusableElements(container: HTMLElement): HTMLElement[] {
+    return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+}
+
+export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
+    isActive: boolean,
+    options: FocusTrapOptions = {},
+): RefObject<T | null> {
     const containerRef = useRef<T | null>(null);
     const previousFocusRef = useRef<HTMLElement | null>(null);
-
-    const handleKeyDown = useCallback((e: KeyboardEvent) => {
-        if (e.key !== 'Tab') return;
-
-        const container = containerRef.current;
-        if (!container) return;
-
-        const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-        if (focusable.length === 0) return;
-
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-
-        if (e.shiftKey) {
-            // Shift+Tab: wrap from first to last
-            if (document.activeElement === first) {
-                e.preventDefault();
-                last.focus();
-            }
-        } else {
-            // Tab: wrap from last to first
-            if (document.activeElement === last) {
-                e.preventDefault();
-                first.focus();
-            }
-        }
-    }, []);
+    const optionsRef = useRef(options);
+    optionsRef.current = options;
 
     useEffect(() => {
-        if (!isActive) return;
+        if (!isActive || typeof document === 'undefined') return;
 
         const container = containerRef.current;
         if (!container) return;
 
-        // Save current focus to restore later
-        previousFocusRef.current = document.activeElement as HTMLElement;
+        previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-        // Focus the first focusable element in the container
-        const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-        if (focusable.length > 0) {
-            // Small delay to ensure DOM is rendered
-            requestAnimationFrame(() => focusable[0].focus());
-        }
+        const descendants = focusableElements(container);
+        const preferred = optionsRef.current.initialFocusRef?.current;
+        const initialTarget = preferred && container.contains(preferred) ? preferred : descendants[0];
+        const addedTabIndex = !initialTarget && !container.hasAttribute('tabindex');
+        if (addedTabIndex) container.setAttribute('tabindex', '-1');
+        (initialTarget ?? container).focus();
 
-        // Trap keyboard events
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && container.contains(document.activeElement)) {
+                const onEscape = optionsRef.current.onEscape;
+                if (onEscape) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onEscape();
+                }
+                return;
+            }
+            if (event.key !== 'Tab') return;
+
+            const focusable = focusableElements(container);
+            if (focusable.length === 0) {
+                event.preventDefault();
+                container.focus();
+                return;
+            }
+
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            const activeElement = document.activeElement;
+
+            if (!container.contains(activeElement)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            } else if (event.shiftKey && activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
         document.addEventListener('keydown', handleKeyDown);
 
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
-            // Restore previous focus
-            if (previousFocusRef.current && previousFocusRef.current.focus) {
-                previousFocusRef.current.focus();
-            }
+            if (addedTabIndex) container.removeAttribute('tabindex');
+            if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
+            previousFocusRef.current = null;
         };
-    }, [isActive, handleKeyDown]);
+    }, [isActive]);
 
     return containerRef;
 }

@@ -76,7 +76,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     const currentWatch = getWatchPeriod(now.getHours());
 
     // MUST be called before any early returns (Rules of Hooks)
-    const focusTrapRef = useFocusTrap(isOpen);
+    const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
 
     if (!isOpen) return null;
 

@@ -8,7 +8,8 @@
  * - Loading state on confirm button
  * - Accessible keyboard and screen reader support
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ConfirmDialogProps {
     /** Whether the dialog is visible */
@@ -41,40 +42,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 }) => {
     const [loading, setLoading] = useState(false);
     const cancelRef = useRef<HTMLButtonElement>(null);
-    const confirmRef = useRef<HTMLButtonElement>(null);
-
-    // Focus trap: auto-focus cancel, cycle tab between buttons, Escape to close
-    useEffect(() => {
-        if (!isOpen) return;
-        cancelRef.current?.focus();
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                onCancel();
-                return;
-            }
-            if (e.key !== 'Tab') return;
-
-            const focusable = [cancelRef.current, confirmRef.current].filter(Boolean) as HTMLElement[];
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-
-            if (e.shiftKey) {
-                if (document.activeElement === first) {
-                    e.preventDefault();
-                    last.focus();
-                }
-            } else {
-                if (document.activeElement === last) {
-                    e.preventDefault();
-                    first.focus();
-                }
-            }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, onCancel]);
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+        initialFocusRef: cancelRef,
+        onEscape: onCancel,
+    });
 
     const handleConfirm = useCallback(async () => {
         setLoading(true);
@@ -98,6 +69,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
+            ref={dialogRef}
         >
             <div className="absolute inset-0 bg-black/60" />
             <div
@@ -155,7 +127,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                     </button>
                     <button
                         aria-label="Confirm action"
-                        ref={confirmRef}
                         onClick={handleConfirm}
                         disabled={loading}
                         className={`flex-1 py-3 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}

@@ -19,6 +19,7 @@ import {
     MODEL_ATTRIBUTION_LINE,
     SPITFIRE_MODEL,
 } from '../../services/weather/forecastModels';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -45,15 +46,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     spitfireAvailable = false,
     spitfireLocationName,
 }) => {
-    // ESC closes the sheet
-    useEffect(() => {
-        if (!visible) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [visible, onClose]);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
 
     // Lock body scroll while open
     useEffect(() => {
@@ -116,6 +109,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             role="dialog"
             aria-modal="true"
             aria-label="Choose a forecast model"
+            ref={dialogRef}
         >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" />
@@ -170,6 +164,12 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         className="w-full py-2.5 rounded-xl bg-sky-500/10 border border-sky-400/20 text-sky-300 text-sm font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-colors"
                     >
                         Refresh now
+                    </button>
+                    <button
+                        onClick={onClose}
+                        className="w-full rounded-xl border border-white/[0.06] bg-white/[0.04] py-2.5 text-sm font-bold uppercase tracking-wider text-slate-300 transition-colors hover:bg-white/[0.08]"
+                    >
+                        Close
                     </button>
                     <p className="text-[9px] text-gray-600 text-center">{MODEL_ATTRIBUTION_LINE}</p>
                 </div>

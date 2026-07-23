@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useRef } from 'react';
 import type { TideOffsetRead } from '../../services/TideOffsetService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export const TIDE_DEPTH_ACK_KEY = 'thalassa_tide_depth_ack_v1';
 
@@ -176,53 +177,11 @@ export interface LiveTideAckModalProps {
 }
 
 export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckModalProps) {
-    const dialogRef = useRef<HTMLDivElement>(null);
     const cancelButtonRef = useRef<HTMLButtonElement>(null);
-    const priorFocusRef = useRef<HTMLElement | null>(null);
-
-    useEffect(() => {
-        if (!visible || typeof document === 'undefined') return;
-        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        cancelButtonRef.current?.focus();
-        return () => {
-            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
-            priorFocusRef.current = null;
-        };
-    }, [visible]);
-
-    useEffect(() => {
-        if (!visible || typeof window === 'undefined') return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onCancel();
-        };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [visible, onCancel]);
-
-    const trapFocus = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-        if (event.key !== 'Tab') return;
-        const dialog = dialogRef.current;
-        if (!dialog) return;
-        const targets = Array.from(
-            dialog.querySelectorAll<HTMLElement>(
-                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ),
-        );
-        if (targets.length === 0) {
-            event.preventDefault();
-            dialog.focus();
-            return;
-        }
-        const first = targets[0];
-        const last = targets[targets.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-        }
-    }, []);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: cancelButtonRef,
+        onEscape: onCancel,
+    });
 
     if (!visible) return null;
 
@@ -240,7 +199,6 @@ export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckMod
                 aria-modal="true"
                 aria-labelledby="live-tide-depth-title"
                 tabIndex={-1}
-                onKeyDown={trapFocus}
             >
                 <h2
                     id="live-tide-depth-title"

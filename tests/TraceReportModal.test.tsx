@@ -77,7 +77,7 @@ describe('TraceReportModal', () => {
         render(<TraceReportModal {...input} />);
 
         fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-        fireEvent.keyDown(window, { key: 'Escape' });
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
 
         expect(input.onClose).toHaveBeenCalledTimes(2);
     });
