@@ -9,6 +9,7 @@ export default tseslint.config(
         ignores: [
             'dist/**',
             'build/**',
+            'coverage/**',
             '.next/**',
             'node_modules/**',
             'supabase/functions/**',
@@ -236,6 +237,20 @@ export default tseslint.config(
             'no-console': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-unused-vars': 'off',
+        },
+    },
+
+    // Standalone command-line tools and server processes use stdout as their
+    // operator interface. Console output is intentional there; application UI
+    // code remains covered by the stricter rule above.
+    {
+        files: [
+            'tools/**/*.{js,mjs,cjs,ts}',
+            'pi-cache/src/**/*.ts',
+            'cloudflare-worker/src/**/*.ts',
+        ],
+        rules: {
+            'no-console': 'off',
         },
     },
 

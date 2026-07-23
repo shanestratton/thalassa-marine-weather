@@ -37,7 +37,7 @@
  * 100 NM coastal route doesn't produce thousands of rows.
  */
 
-import type { Feature, Geometry, LineString, MultiLineString, Position } from 'geojson';
+import type { Geometry, LineString, MultiLineString, Position } from 'geojson';
 import { useEffect, useState } from 'react';
 import pointToLineDistance from '@turf/point-to-line-distance';
 import { lineString as turfLineString, point as turfPoint } from '@turf/helpers';

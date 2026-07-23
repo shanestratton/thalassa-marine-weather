@@ -400,7 +400,7 @@ function buildRectrcRiverChain(rectrc: Feature[]): Position[] {
         }
     });
     const chain: Position[] = [];
-    let cur = headEnd === 0 ? segs[headIdx].slice() : segs[headIdx].slice().reverse();
+    const cur = headEnd === 0 ? segs[headIdx].slice() : segs[headIdx].slice().reverse();
     used[headIdx] = true;
     chain.push(...cur);
     // Repeatedly append the nearest unused segment endpoint to the chain tail.
@@ -602,7 +602,6 @@ function osmWaterFeatures(): Feature[] {
 
 describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real ENC', () => {
     it('sanity: RECTRC river chain + DRGARE assembled from the real cells', () => {
-        // eslint-disable-next-line no-console
         console.log(
             'SANITY cells=',
             cells.length,
@@ -627,13 +626,13 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
 
     it('VARIANT A — chart-only (no OSM overlay): runs + measures hug', () => {
         const { route, prov, hug } = runVariant('none');
-        // eslint-disable-next-line no-console
+
         console.log('\n=== VARIANT A (chart-only / no OSM overlay) ===');
-        // eslint-disable-next-line no-console
+
         console.log('prov  :', prov);
-        // eslint-disable-next-line no-console
+
         console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
-        // eslint-disable-next-line no-console
+
         console.log(
             `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
                 `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
@@ -647,13 +646,13 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
 
     it('VARIANT B — chart NAVLNE baseline comparison', () => {
         const { route, prov, hug } = runVariant('chart');
-        // eslint-disable-next-line no-console
+
         console.log('\n=== VARIANT B (chart NAVLNE baseline) ===');
-        // eslint-disable-next-line no-console
+
         console.log('prov  :', prov);
-        // eslint-disable-next-line no-console
+
         console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
-        // eslint-disable-next-line no-console
+
         console.log(
             `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
                 `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
@@ -670,15 +669,15 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
         }
         const { route, prov, hug } = runVariant('osm');
-        // eslint-disable-next-line no-console
+
         console.log('\n=== VARIANT C (REAL OSM navLines → NAVLINE) ===');
-        // eslint-disable-next-line no-console
+
         console.log('osmNavLines:', osmNav.length);
-        // eslint-disable-next-line no-console
+
         console.log('prov  :', prov);
-        // eslint-disable-next-line no-console
+
         console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
-        // eslint-disable-next-line no-console
+
         console.log(
             `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
                 `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
@@ -732,21 +731,21 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                     `${j + 20}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
                     `c${route.canalMask?.[j + 20] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[j + 20] ? 1 : 0}`,
             );
-        // eslint-disable-next-line no-console
+
         console.log('\n=== VARIANT D (REAL OSM + regional marker chains) ===');
-        // eslint-disable-next-line no-console
+
         console.log('regional:', regional);
-        // eslint-disable-next-line no-console
+
         console.log('prov  :', prov);
-        // eslint-disable-next-line no-console
+
         console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
-        // eslint-disable-next-line no-console
+
         console.log('newportPts:', newportPts.join(' | '));
-        // eslint-disable-next-line no-console
+
         console.log('indexedNewportPts:', indexedNewportPts.join(' | '));
-        // eslint-disable-next-line no-console
+
         console.log('handoffPts:', handoffPts.join(' | '));
-        // eslint-disable-next-line no-console
+
         console.log(
             `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
                 `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
@@ -777,13 +776,13 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             `mean=${x.hug.meanRectrcM.toFixed(0)}m signed=${x.hug.meanSignedM.toFixed(0)}m ` +
             `p90=${x.hug.p90RectrcM.toFixed(0)}m max=${x.hug.maxRectrcM.toFixed(0)}m ` +
             `inDRGARE=${(x.hug.fracInsideDrgare * 100).toFixed(0)}%`;
-        // eslint-disable-next-line no-console
+
         console.log('\n=== DIFF A vs B vs C (offset from RECTRC river centreline) ===');
-        // eslint-disable-next-line no-console
+
         console.log(`A none : ${fmt(a)}\n         prov: ${a.prov}`);
-        // eslint-disable-next-line no-console
+
         console.log(`B chart: ${fmt(b)}\n         prov: ${b.prov}`);
-        // eslint-disable-next-line no-console
+
         console.log(`C OSM  : ${fmt(c)}\n         prov: ${c.prov}`);
         // The protect fix is ACTIVE in the engine here, so C's provenance reflects
         // the AFTER state. To capture BEFORE, run with the engine RECTRC-protect
@@ -858,7 +857,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 if (caution[i]) canalSegsInCaution++;
             }
         }
-        // eslint-disable-next-line no-console
+
         console.log(
             `\n=== CANAL SNAP (engine output) ===\nNewport canal interior: mean=${off.mean.toFixed(1)}m (n=${off.n})\n` +
                 `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}\n` +
@@ -883,7 +882,6 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
         const res = routeInshore(layers, REQ_BASE as RouteRequest);
         if ('error' in res) {
-            // eslint-disable-next-line no-console
             console.log(`MAIN CHANNEL DIAG: route failed (${res.code ?? '?'})`);
             expect(true).toBe(true);
             return;
@@ -916,7 +914,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} offLine=${lines.length ? offTo(lat, lon).toFixed(0) : '∞'}m`,
             );
         });
-        // eslint-disable-next-line no-console
+
         console.log(
             `\n=== MAIN CHANNEL DIAG (north exit) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
                 `OSM canal-line vertices by lat band: marina[-27.216..-27.208]=${bandPts(-27.216, -27.208)} ` +
@@ -952,7 +950,6 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         }
         const res = routeInshore(layers, REQ_BASE as RouteRequest);
         if ('error' in res) {
-            // eslint-disable-next-line no-console
             console.log(`VARIANT F: route failed (${res.code ?? '?'})`);
             expect(true).toBe(true);
             return;
@@ -998,7 +995,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                     `waterOff=${twoWall ? off.toFixed(0) + 'm' : 'open'} (E${isNaN(e) ? '∞' : e.toFixed(0)}/W${isNaN(w) ? '∞' : w.toFixed(0)})`,
             );
         });
-        // eslint-disable-next-line no-console
+
         console.log(
             `\n=== VARIANT F (inject mapbox-water) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
                 `injected ${water.length} water polys | measured ${measured} two-walled vtx, worst off-centre = ${worstOff.toFixed(0)}m\n` +
@@ -1051,7 +1048,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                     `offChain=${chains.length ? offChain(lon, lat).toFixed(0) + 'm' : '∞'}`,
             );
         });
-        // eslint-disable-next-line no-console
+
         console.log(
             `\n=== VARIANT G (regional + water = device repro) ===\nprov: ${prov}\n` +
                 `chains: [${chains.map((c) => c.length).join(',')}] midpoints in Newport band: ` +
@@ -1069,7 +1066,6 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
         const res = routeInshore(layers, { ...REQ_BASE, toLat: -27.182, toLon: 153.0935 } as RouteRequest);
         if ('error' in res) {
-            // eslint-disable-next-line no-console
             console.log(`north-exit route failed: ${res.error} (${res.code ?? '?'})`);
             // Not a hard fail — the gate corridor may be too short to route on the
             // chart-only cells; the device (full data) is the oracle. Report + skip.
@@ -1079,7 +1075,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const prov = res.debug?.threeTier ?? '';
         const channelSegs = (res.channelMask ?? res.tier4Mask ?? []).filter(Boolean).length;
         const channelMaskLen = (res.channelMask ?? res.tier4Mask ?? []).length;
-        // eslint-disable-next-line no-console
+
         console.log(
             `\n=== TIER-2 channel (north exit through the gate) ===\nprov: ${prov}\n` +
                 `channel segments (yellow): ${channelSegs}/${channelMaskLen}`,

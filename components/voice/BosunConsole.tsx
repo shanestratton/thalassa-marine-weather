@@ -338,7 +338,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      *   'error'      probe threw an exception; check srStatusError
      */
     const [srStatus, setSrStatus] = useState<'unknown' | 'available' | 'denied' | 'unsupported' | 'error'>('unknown');
-    const [srStatusError, setSrStatusError] = useState<string | null>(null);
+    const [, setSrStatusError] = useState<string | null>(null);
 
     /**
      * Deepgram availability status, probed on console open. The probe is
@@ -854,7 +854,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 }
             })();
         },
-        [setOneButton],
+        [setErrorMessage, setOneButton],
     );
 
     const appendTurn = useCallback(
@@ -977,7 +977,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, runOrchestrator, setOneButton, setQuotaTrace, turns],
+        [handleResponse, runOrchestrator, setErrorMessage, setOneButton, setQuotaTrace, turns],
     );
 
     const sendTextQuery = useCallback(
@@ -994,7 +994,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, runOrchestrator, setOneButton],
+        [handleResponse, runOrchestrator, setErrorMessage, setOneButton],
     );
 
     /**
@@ -1054,7 +1054,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 rearmPrewarm();
             }
         },
-        [rearmPrewarm, sendVoiceQuery, setOneButton],
+        [rearmPrewarm, sendVoiceQuery, setErrorMessage, setOneButton],
     );
 
     // ── Tap handlers ────────────────────────────────────────────────────
@@ -1430,6 +1430,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             buttonState,
             activeTarget,
             sendVoiceQuery,
+            setErrorMessage,
             setOneButton,
             stopAudio,
             unlockAudio,
@@ -1619,7 +1620,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 underlying srEventLog state + the various event-tap
                 hooks are kept intact so we can re-add a developer-mode
                 toggle later if needed without rewiring everything. */}
-            {false && srEventLog.length > 0 && (
+            {import.meta.env.DEV && srEventLog.length > 0 && (
                 <details className="shrink-0 px-5 pt-1">
                     <summary className="text-[9px] uppercase tracking-widest text-gray-500 cursor-pointer select-none">
                         SR debug ({srEventLog.length})

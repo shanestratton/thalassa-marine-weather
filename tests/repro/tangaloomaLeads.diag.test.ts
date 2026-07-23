@@ -17,7 +17,7 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
-import type { Feature, FeatureCollection, LineString, Position } from 'geojson';
+import type { FeatureCollection, Position } from 'geojson';
 import {
     routeInshore,
     type InshoreLayers,

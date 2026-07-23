@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { Suspense, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { lazyRetry } from '../utils/lazyRetry';
 
@@ -16,12 +16,15 @@ import { StatusBadges } from './dashboard/StatusBadges';
 // the normal case. Lives in the bottom badges container, next to the
 // data-source badges, to avoid disturbing the hand-calc'd top layout stack.
 import { StalenessBanner } from './dashboard/StalenessBanner';
-import { GlassTutorial } from './dashboard/GlassTutorial';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
 
 const LogPage = lazyRetry(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage_Dash');
+const GlassTutorial = lazyRetry(
+    () => import('./dashboard/GlassTutorial').then((module) => ({ default: module.GlassTutorial })),
+    'GlassTutorial',
+);
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
@@ -797,7 +800,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 (gated internally via localStorage) with 3 slides covering
                 chevron → Essential mode + horizontal hour swipe + vertical
                 day swipe gestures. */}
-                <GlassTutorial />
+                <Suspense fallback={null}>
+                    <GlassTutorial />
+                </Suspense>
 
                 <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
                     {' '}

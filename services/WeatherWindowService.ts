@@ -268,8 +268,6 @@ export const WeatherWindowService = {
             // the card can show windows around any chosen departure
             // date within the forecast horizon.
             for (let i = 0; i + step <= times.length && windows.length < 64; i += step) {
-                const sliceWind = windSpeed.slice(i, i + step);
-                const sliceWave = waveHeight.slice(i, i + step);
                 const sliceDir = windDir.slice(i, i + step);
                 const slicePrecip = precip.slice(i, i + step);
 

@@ -59,7 +59,6 @@ import { WelcomeBanner } from './chat/WelcomeBanner';
 import { AuthBanner } from './chat/AuthBanner';
 import { triggerHaptic } from '../utils/system';
 import { SignInScreen } from './SignInScreen';
-import { supabase } from '../services/supabase';
 import { TypingIndicator } from './chat/TypingIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useChatMessages } from '../hooks/chat/useChatMessages';

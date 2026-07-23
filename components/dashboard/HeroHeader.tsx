@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
@@ -8,7 +8,6 @@ import { getPinnedMetricDisplay } from './metricDisplayHelpers';
 import { CoachMark } from '../ui/CoachMark';
 import { triggerHaptic } from '../../utils/system';
 import { useDroppable } from '@dnd-kit/core';
-import { AnimatePresence, motion } from 'framer-motion';
 
 /**
  * ConditionText — simple text sizing based on string length.
@@ -68,7 +67,6 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     data,
     units,
     isLive,
-    isDay,
     dateLabel,
     timeLabel,
     timeZone: _timeZone,
@@ -156,99 +154,83 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     }
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
-                    {/* Animated swap — AnimatePresence drives a crossfade +
-                        subtle scale between whichever metric is currently
-                        pinned. `mode="wait"` ensures the old content fully
-                        exits before the new content enters, avoiding a
-                        double-layered flash. The motion.div is keyed by
-                        heroMetric so every swap triggers a fresh enter/exit
-                        cycle. */}
-                    <AnimatePresence mode="wait" initial={false}>
-                        <motion.div
-                            key={heroMetric}
-                            initial={{ opacity: 0, scale: 0.92, y: 6 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.92, y: -6 }}
-                            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-                            className="flex flex-col items-start w-full"
-                        >
-                            {pinnedDisplay ? (
-                                <>
-                                    {/* Pinned-metric mode: small label + value + unit.
+                    {/* Keying remounts this wrapper when the pinned metric
+                        changes. A tiny CSS animation preserves the visual
+                        hand-off without loading an animation runtime into the
+                        app's initial bundle. */}
+                    <div key={heroMetric} className="metric-swap-enter flex flex-col items-start w-full">
+                        {pinnedDisplay ? (
+                            <>
+                                {/* Pinned-metric mode: small label + value + unit.
                                         Uses typography proportional to the temp slot so
                                         the header doesn't jump height on pin/unpin. */}
-                                    <span className="text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
-                                        {pinnedDisplay.label}
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
+                                    {pinnedDisplay.label}
+                                </span>
+                                <div className="flex items-baseline gap-1 leading-none">
+                                    <span
+                                        className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
+                                    >
+                                        {pinnedDisplay.value}
                                     </span>
-                                    <div className="flex items-baseline gap-1 leading-none">
+                                    {pinnedDisplay.unit && (
+                                        <span className="text-base font-bold text-white/60">{pinnedDisplay.unit}</span>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            (() => {
+                                const tempStr = (
+                                    data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--'
+                                ).toString();
+                                const len = tempStr.length;
+                                const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
+                                // The ° ring sits high inside its own em box — well
+                                // above cap height — so pinning the column's BOX top
+                                // to the digits' BOX top left the ring floating above
+                                // the numerals (Shane 2026-07-18: "the degree symbol
+                                // is too high, it needs to be in line with the top of
+                                // the font for the temp"). Drop it by the digits'
+                                // cap-height inset, which scales with the temp size —
+                                // a fixed nudge would be right for one size class and
+                                // wrong for the other two. Tune here if it reads low.
+                                const ringDropPx = len > 3 ? 4 : len > 2 ? 5 : 6;
+                                return (
+                                    <div className="flex items-stretch">
                                         <span
-                                            className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
+                                            className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
+                                            aria-label={`Temperature ${tempStr} degrees ${units.temp}`}
                                         >
-                                            {pinnedDisplay.value}
+                                            {tempStr}
                                         </span>
-                                        {pinnedDisplay.unit && (
-                                            <span className="text-base font-bold text-white/60">
-                                                {pinnedDisplay.unit}
-                                            </span>
-                                        )}
-                                    </div>
-                                </>
-                            ) : (
-                                (() => {
-                                    const tempStr = (
-                                        data.airTemperature !== null
-                                            ? convertTemp(data.airTemperature, units.temp)
-                                            : '--'
-                                    ).toString();
-                                    const len = tempStr.length;
-                                    const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
-                                    // The ° ring sits high inside its own em box — well
-                                    // above cap height — so pinning the column's BOX top
-                                    // to the digits' BOX top left the ring floating above
-                                    // the numerals (Shane 2026-07-18: "the degree symbol
-                                    // is too high, it needs to be in line with the top of
-                                    // the font for the temp"). Drop it by the digits'
-                                    // cap-height inset, which scales with the temp size —
-                                    // a fixed nudge would be right for one size class and
-                                    // wrong for the other two. Tune here if it reads low.
-                                    const ringDropPx = len > 3 ? 4 : len > 2 ? 5 : 6;
-                                    return (
-                                        <div className="flex items-stretch">
-                                            <span
-                                                className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
-                                                aria-label={`Temperature ${tempStr} degrees ${units.temp}`}
-                                            >
-                                                {tempStr}
-                                            </span>
-                                            {/* ° ring (top) and unit letter (baseline) as a matched
+                                        {/* ° ring (top) and unit letter (baseline) as a matched
                                                 pair: SAME font + size + weight so they share one
                                                 centre line and read as a stacked °C. The column
                                                 stretches the full temp height, justify-between pins
                                                 ring-to-top / letter-to-baseline, items-center keeps
                                                 them collinear. Both mono 22px — no tracking (it
                                                 shifts a single glyph off centre). */}
-                                            <div
-                                                className="flex flex-col items-center justify-between self-stretch"
-                                                aria-hidden="true"
+                                        <div
+                                            className="flex flex-col items-center justify-between self-stretch"
+                                            aria-hidden="true"
+                                        >
+                                            <span
+                                                className={`text-[22px] font-mono font-bold leading-none ${getTempColor()}`}
+                                                style={{ transform: `translateY(${ringDropPx}px)` }}
                                             >
-                                                <span
-                                                    className={`text-[22px] font-mono font-bold leading-none ${getTempColor()}`}
-                                                    style={{ transform: `translateY(${ringDropPx}px)` }}
-                                                >
-                                                    °
-                                                </span>
-                                                <span
-                                                    className={`text-[22px] font-mono font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
-                                                >
-                                                    {units.temp}
-                                                </span>
-                                            </div>
+                                                °
+                                            </span>
+                                            <span
+                                                className={`text-[22px] font-mono font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
+                                            >
+                                                {units.temp}
+                                            </span>
                                         </div>
-                                    );
-                                })()
-                            )}
-                        </motion.div>
-                    </AnimatePresence>
+                                    </div>
+                                );
+                            })()
+                        )}
+                    </div>
                     {/* Tiny "edit" affordance in the top-right — only appears
                         on hover on desktop or remains subtly visible on mobile
                         so new users have a visual cue that this area is

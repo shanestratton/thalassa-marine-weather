@@ -113,8 +113,9 @@ export function useEncTestRouteLayer(
 
     // Cleanup on full unmount (rare — MapHub stays mounted for the session).
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
         return () => {
-            const map = mapRef.current;
             if (!map || !mountedRef.current) return;
             try {
                 if (map.getLayer(CAUTION_LAYER_ID)) map.removeLayer(CAUTION_LAYER_ID);
@@ -125,5 +126,5 @@ export function useEncTestRouteLayer(
             }
             mountedRef.current = false;
         };
-    }, [mapRef]);
+    }, [mapRef, mapReady]);
 }

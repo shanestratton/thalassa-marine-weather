@@ -405,8 +405,6 @@ async function prefetchBuoys(cache: Cache, _config: ProxyConfig, pf: PrefetchCon
     // NOAA NDBC Active Stations — free JSON API (no key needed)
     // Returns stations within a bounding box around the boat's location
     const degRadius = pf.radius || 5;
-    const url = `https://www.ndbc.noaa.gov/data/stations/station_table.txt`;
-
     // Fallback: use the NDBC RSS observation search which returns nearby buoy data
     const rssUrl = `https://www.ndbc.noaa.gov/rss/ndbc_obs_search.php?lat=${pf.lat}N&lon=${Math.abs(pf.lon)}${pf.lon >= 0 ? 'E' : 'W'}&radius=${Math.round(degRadius * 60)}`;
 

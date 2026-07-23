@@ -263,25 +263,21 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // the SAME cache the Glass page reads — no parallel pipeline.
     // Refreshes are handled by the orchestrator's schedule (already
     // running in WeatherContext); we don't poll here.
+    const weatherLatitudeBucket = position ? Math.round(position.latitude * 10) : null;
+    const weatherLongitudeBucket = position ? Math.round(position.longitude * 10) : null;
     useEffect(() => {
         if (weatherData) return; // already populated — orchestrator handles refresh
-        if (!position || !isOnline) return;
+        if (weatherLatitudeBucket === null || weatherLongitudeBucket === null || !isOnline) return;
         // Round to 0.1° to dedupe near-identical re-renders.
-        const lat = Math.round(position.latitude * 10) / 10;
-        const lon = Math.round(position.longitude * 10) / 10;
+        const lat = weatherLatitudeBucket / 10;
+        const lon = weatherLongitudeBucket / 10;
         // silent=true so the orchestrator doesn't show a loading
         // overlay — the Nav Station hero chips just stay empty until
         // the data lands.
         fetchWeather('Current Position', false, { lat, lon }, false, true).catch(() => {
             /* offline — chips stay empty */
         });
-    }, [
-        weatherData,
-        position && Math.round(position.latitude * 10),
-        position && Math.round(position.longitude * 10),
-        isOnline,
-        fetchWeather,
-    ]);
+    }, [weatherData, weatherLatitudeBucket, weatherLongitudeBucket, isOnline, fetchWeather]);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');
@@ -2065,16 +2061,6 @@ const ChevronRight: React.FC = () => (
     </svg>
 );
 
-const CompassIcon: React.FC = () => (
-    <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"
-        />
-    </svg>
-);
-
 const ShieldIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
         <path
@@ -2112,12 +2098,6 @@ const MobIcon: React.FC<{ color: string }> = ({ color }) => (
         <circle cx="12" cy="12" r="9" />
         <circle cx="12" cy="12" r="4.5" />
         <circle cx="12" cy="12" r="1.5" fill={color} />
-    </svg>
-);
-
-const PlusIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
     </svg>
 );
 
@@ -2251,12 +2231,6 @@ const NoticeIcon: React.FC<{ color: string }> = ({ color }) => (
             strokeLinejoin="round"
             d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
         />
-    </svg>
-);
-
-const MusicNoteIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill={color} aria-hidden="true">
-        <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
     </svg>
 );
 

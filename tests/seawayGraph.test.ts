@@ -46,9 +46,6 @@ const BC_FEATURES = [
     bcFeature(21, 2, -27.3636, 153.17057),
 ];
 
-const BC1 = { lat: -27.30965, lon: 153.20804 };
-const BC21 = { lat: -27.3636, lon: 153.17057 };
-
 const angleDiff = (a: number, b: number): number => {
     let d = Math.abs(a - b) % 360;
     if (d > 180) d = 360 - d;

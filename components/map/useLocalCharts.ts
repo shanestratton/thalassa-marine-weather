@@ -176,19 +176,20 @@ export function useLocalCharts(
 
     // Cleanup on unmount
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        const addedLayers = addedLayersRef.current;
         return () => {
-            const map = mapRef.current;
             if (!map) return;
-            for (const chartFile of addedLayersRef.current) {
+            for (const chartFile of addedLayers) {
                 const layerId = `${LAYER_PREFIX}${chartFile}`;
                 const sourceId = `${SOURCE_PREFIX}${chartFile}`;
                 if (map.getLayer(layerId)) map.removeLayer(layerId);
                 if (map.getSource(sourceId)) map.removeSource(sourceId);
             }
-            addedLayersRef.current.clear();
+            addedLayers.clear();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [mapRef, mapReady]);
 
     // Fly to chart bounds — or fall back to the user's current location
     // when bounds are missing from the MBTiles metadata.

@@ -340,7 +340,6 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
  * Generate PDF and return as a data URI for sharing.
  */
 export function generatePassagePdfDataUri(data: PassageBriefData): string {
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     // Re-use the same generator logic but output as data URI
     const blob = generatePassagePdf(data);
     // For data URI, we need to re-generate

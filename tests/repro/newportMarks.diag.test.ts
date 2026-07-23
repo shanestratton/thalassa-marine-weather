@@ -50,25 +50,24 @@ describe.skipIf(!PI_UP)('Newport marks — fairlead reconstruction diagnostic', 
         const port = exit.filter((m) => m.side === 'port');
         const stbd = exit.filter((m) => m.side === 'stbd');
 
-        // eslint-disable-next-line no-console
         console.log(
             `\nPARSED marks total=${marks.length}  exit-area=${exit.length} (port=${port.length} stbd=${stbd.length})`,
         );
-        // eslint-disable-next-line no-console
+
         console.log(
             'exit keys:',
             JSON.stringify([...new Set(exit.map((m) => `${m.key}:${m.seq}:${m.side[0]}`))].slice(0, 30)),
         );
 
         const channels = groupChannels(marks);
-        // eslint-disable-next-line no-console
+
         console.log(`\ngroupChannels → ${channels.length} channels:`);
         for (const ch of channels) {
             const p = ch.filter((m) => m.side === 'port').length;
             const s = ch.filter((m) => m.side === 'stbd').length;
             const lats = ch.map((m) => m.lat);
             const inExit = ch.some((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
-            // eslint-disable-next-line no-console
+
             console.log(
                 `  key=${ch[0].key} n=${ch.length} (p=${p}/s=${s}) latRange=[${Math.min(...lats).toFixed(3)},${Math.max(
                     ...lats,
@@ -94,7 +93,7 @@ describe.skipIf(!PI_UP)('Newport marks — fairlead reconstruction diagnostic', 
                 maxTurnDeg = Math.max(maxTurnDeg, d);
             }
             const valid = centre.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)).length;
-            // eslint-disable-next-line no-console
+
             console.log(
                 `\ncorridorCenterline(key=${ch[0].key}) → ${centre.length} pts, ${valid} finite, maxTurn=${maxTurnDeg.toFixed(
                     0,
@@ -117,7 +116,7 @@ describe.skipIf(!PI_UP)('Newport marks — fairlead reconstruction diagnostic', 
             }
             if (best) gateCount++;
         }
-        // eslint-disable-next-line no-console
+
         console.log(`\nnearest-gate pairing (≤${MAX_GATE_M}m): ${gateCount} gates from ${port.length} port marks`);
         expect(marks.length).toBeGreaterThan(0);
     });

@@ -8,7 +8,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
-import { useNmeaStore, NmeaStatusDot } from '../nmea/useNmeaStore';
+import { NmeaStatusDot } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -33,7 +33,6 @@ const DEVICE_PRESETS = [
 ] as const;
 
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
-    const state = useNmeaStore();
     // One-time migrations: clear old defaults so new YDWG-02 defaults take effect
     if (localStorage.getItem('nmea_host') === '192.168.1.1') localStorage.removeItem('nmea_host');
     if (localStorage.getItem('nmea_port') === '10110') localStorage.removeItem('nmea_port');

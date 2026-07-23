@@ -8,7 +8,7 @@ Extracts from OSM via Overpass API:
 
 Builds IALA channel centerlines by pairing port+starboard marks.
 Adds safe water exit geofences (North West Channel, South Passage).
-Outputs: public/data/waterway_zones.geojson
+Outputs: data/legacy-routing/waterway_zones.geojson
 
 Bounding box: Noosa (-26.38) to Gold Coast (-28.17), coast to past Stradbroke
 """
@@ -416,7 +416,7 @@ for f in all_features:
 
 geojson = {"type": "FeatureCollection", "features": deduped}
 
-output_path = os.path.join('..', 'public', 'data', 'waterway_zones.geojson')
+output_path = os.path.join('..', 'data', 'legacy-routing', 'waterway_zones.geojson')
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 with open(output_path, 'w') as f:
     json.dump(geojson, f)

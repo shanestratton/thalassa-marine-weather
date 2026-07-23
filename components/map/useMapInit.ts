@@ -7,9 +7,6 @@
  */
 
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
-import { createLogger } from '../../utils/createLogger';
-
-const log = createLogger('useMapInit');
 import mapboxgl from 'mapbox-gl';
 import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
@@ -107,7 +104,6 @@ export function useMapInit(opts: UseMapInitOptions) {
         initialZoom,
         minimalLabels,
         embedded,
-        center,
         location,
         onLocationSelect,
         initialCenter,
@@ -1354,9 +1350,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         // parse/glaze) UNDER the style+tile network wait instead of after it —
         // the largest single warm-boot win (z10-boot audit #4). No-ops below
         // the merge floor (the wide no-fix fallback boot) or with no cells.
-        void import('./useEncVectorLayer')
-            .then(({ prewarmEncMerge }) => prewarmEncMerge(map))
-            .catch(() => undefined);
+        void import('./useEncVectorLayer').then(({ prewarmEncMerge }) => prewarmEncMerge(map)).catch(() => undefined);
 
         // Dev-only escape hatch: layer/source forensics from the browser
         // console ("why isn't X painting") without prop-drilling a debug

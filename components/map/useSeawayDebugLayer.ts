@@ -189,8 +189,9 @@ export function useSeawayDebugLayer(
 
     // Cleanup on full unmount (rare — MapHub stays mounted for the session).
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
         return () => {
-            const map = mapRef.current;
             if (!map || !mountedRef.current) return;
             try {
                 for (const id of [LYR_GATE_LABELS, LYR_GATES, LYR_REJECTED, LYR_EDGES]) {
@@ -204,5 +205,5 @@ export function useSeawayDebugLayer(
             }
             mountedRef.current = false;
         };
-    }, [mapRef]);
+    }, [mapRef, mapReady]);
 }

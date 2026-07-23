@@ -241,72 +241,6 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
 }
 
 /**
- * Ray-casting point-in-polygon for a single ring.
- * Coordinates are [lon, lat]. Returns true if (lon, lat) is inside.
- */
-function pointInRing(lon: number, lat: number, ring: Position[]): boolean {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i][0];
-        const yi = ring[i][1];
-        const xj = ring[j][0];
-        const yj = ring[j][1];
-        const intersects = yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
-        if (intersects) inside = !inside;
-    }
-    return inside;
-}
-
-/**
- * Point-in-(Polygon|MultiPolygon). Outer ring contains; inner rings
- * (holes) subtract. Polygon[0] is outer, Polygon[1+] are holes.
- */
-function pointInGeometry(lon: number, lat: number, geom: Polygon | MultiPolygon): boolean {
-    if (geom.type === 'Polygon') {
-        if (!pointInRing(lon, lat, geom.coordinates[0])) return false;
-        for (let h = 1; h < geom.coordinates.length; h++) {
-            if (pointInRing(lon, lat, geom.coordinates[h])) return false; // in hole
-        }
-        return true;
-    }
-    // MultiPolygon
-    for (const poly of geom.coordinates) {
-        if (!pointInRing(lon, lat, poly[0])) continue;
-        let inHole = false;
-        for (let h = 1; h < poly.length; h++) {
-            if (pointInRing(lon, lat, poly[h])) {
-                inHole = true;
-                break;
-            }
-        }
-        if (!inHole) return true;
-    }
-    return false;
-}
-
-/**
- * Compute the bbox of a polygon/multipolygon geometry as
- * [minLon, minLat, maxLon, maxLat]. Used to skip cells that can't
- * possibly be inside the polygon.
- */
-function geometryBbox(geom: Polygon | MultiPolygon): [number, number, number, number] {
-    let minLon = Infinity,
-        minLat = Infinity,
-        maxLon = -Infinity,
-        maxLat = -Infinity;
-    const rings = geom.type === 'Polygon' ? [geom.coordinates[0]] : geom.coordinates.map((p) => p[0]);
-    for (const ring of rings) {
-        for (const [lon, lat] of ring) {
-            if (lon < minLon) minLon = lon;
-            if (lon > maxLon) maxLon = lon;
-            if (lat < minLat) minLat = lat;
-            if (lat > maxLat) maxLat = lat;
-        }
-    }
-    return [minLon, minLat, maxLon, maxLat];
-}
-
-/**
  * Scanline polygon rasterizer — visit every grid cell strictly inside
  * a Polygon or MultiPolygon, calling `callback(x, y)` per cell.
  *
@@ -333,12 +267,11 @@ function geometryBbox(geom: Polygon | MultiPolygon): [number, number, number, nu
  * Holes work naturally with parity: a hole edge contributes a
  * crossing that flips the inside flag back to outside for that span.
  *
- * Vertex-exactly-on-scanline handling is the strict-greater test
- * `(yi > lat) !== (yj > lat)` — same convention as the existing
- * pointInRing, so the two paths agree on edge cases (cells whose
- * centre lies on a polygon boundary).
+ * Vertex-exactly-on-scanline handling uses the strict-greater test
+ * `(yi > lat) !== (yj > lat)`, avoiding double-counted vertices when a
+ * cell centre lies on a polygon boundary.
  *
- * Cost vs old per-cell pointInGeometry:
+ * Cost vs the former per-cell ray cast:
  *   • E vertices, R rows, W cells/row, polygon covers ~R×W cells
  *   • Old: R × W × E ray-cast vertex ops
  *   • New: R × E (edge scan) + R × W (fill) ≈ R × (E + W)
@@ -692,17 +625,6 @@ function buildNavGrid(
         }
     }
 
-    // Helper to convert a polygon bbox to grid coordinate range.
-    const polyToCellRange = (
-        polyBbox: [number, number, number, number],
-    ): { x0: number; x1: number; y0: number; y1: number } => {
-        const x0 = Math.max(0, Math.floor((polyBbox[0] - minLon) / dLon));
-        const x1 = Math.min(width - 1, Math.ceil((polyBbox[2] - minLon) / dLon));
-        const y0 = Math.max(0, Math.floor((polyBbox[1] - minLat) / dLat));
-        const y1 = Math.min(height - 1, Math.ceil((polyBbox[3] - minLat) / dLat));
-        return { x0, x1, y0, y1 };
-    };
-
     // ── Pass 1: DEPARE — assign depth values + flag authoritative ───
     // Done first so a subsequent LNDARE pass overrides shallow water
     // with land-block on cells where both apply (rare but possible).
@@ -958,7 +880,6 @@ function buildNavGrid(
     // disconnected-destination retry isn't choked by coastline gaps.
     const coastline = layers.COASTLINE?.features ?? [];
     const tPassCoast = Date.now();
-    let coastCellsBlocked = 0;
     for (const f of coastline) {
         const g = f.geometry;
         if (!g) continue;
@@ -983,7 +904,6 @@ function buildNavGrid(
                     } else {
                         cells[idx] = BLOCKED;
                         hardBlocked[idx] = 1;
-                        coastCellsBlocked++;
                     }
                 }
             }
@@ -2426,7 +2346,7 @@ function routeInshoreOnce(
 
     // String-pull the A* output to remove stair-step artifacts.
     const smoothedCells = smoothPath(grid, cells);
-    tPhase = mark('smoothPath', tPhase);
+    mark('smoothPath', tPhase);
     const totalMs = Date.now() - t0Total;
     const breakdown = Object.entries(timings)
         .map(([k, v]) => `${k}=${v}ms`)

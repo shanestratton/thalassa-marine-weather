@@ -9,7 +9,7 @@ import { useLocationStore } from './stores/LocationStore';
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon } from './components/Icons';
+import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { LocationStarMenu } from './components/LocationStarMenu';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
@@ -21,11 +21,6 @@ import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 import { isBuilderDeepLink } from './services/deepLink';
-// NAV_ICON_CHAT no longer imported — Scuttlebutt was demoted off the
-// bottom nav in the Week 2 5-tab restructure. Chat is still
-// reachable via the Vessel hub's Wardroom section and any
-// setPage('chat') call sites (push notification tap-target, etc).
-import { NAV_ICON_MAP, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
 import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
@@ -1064,16 +1059,15 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img
-                                        src={NAV_ICON_MAP}
-                                        alt=""
-                                        draggable={false}
-                                        className="w-full h-full object-contain"
+                                    <div
+                                        className="w-full h-full flex items-center justify-center text-cyan-300"
                                         style={{
                                             WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                             maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                         }}
-                                    />
+                                    >
+                                        <MapIcon className="w-7 h-7" />
+                                    </div>
                                 }
                                 label="Charts"
                                 // Plotting lives on the map surface but BELONGS to
@@ -1152,16 +1146,15 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img
-                                        src={NAV_ICON_VESSEL}
-                                        alt=""
-                                        draggable={false}
-                                        className="w-full h-full object-contain"
+                                    <div
+                                        className="w-full h-full flex items-center justify-center text-cyan-300"
                                         style={{
                                             WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                             maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                         }}
-                                    />
+                                    >
+                                        <SailBoatIcon className="w-7 h-7" />
+                                    </div>
                                 }
                                 label="Vessel"
                                 active={isVesselView || currentView === 'chat'}

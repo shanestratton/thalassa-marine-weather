@@ -355,17 +355,6 @@ export function buildNavGrid(
         }
     }
 
-    // Helper to convert a polygon bbox to grid coordinate range.
-    const polyToCellRange = (
-        polyBbox: [number, number, number, number],
-    ): { x0: number; x1: number; y0: number; y1: number } => {
-        const x0 = Math.max(0, Math.floor((polyBbox[0] - minLon) / dLon));
-        const x1 = Math.min(width - 1, Math.ceil((polyBbox[2] - minLon) / dLon));
-        const y0 = Math.max(0, Math.floor((polyBbox[1] - minLat) / dLat));
-        const y1 = Math.min(height - 1, Math.ceil((polyBbox[3] - minLat) / dLat));
-        return { x0, x1, y0, y1 };
-    };
-
     // ── Pass 1: DEPARE — assign depth values + flag authoritative ───
     // Done first so a subsequent LNDARE pass overrides shallow water
     // with land-block on cells where both apply (rare but possible).
@@ -723,7 +712,6 @@ export function buildNavGrid(
     // disconnected-destination retry isn't choked by coastline gaps.
     const coastline = layers.COASTLINE?.features ?? [];
     const tPassCoast = Date.now();
-    let coastCellsBlocked = 0;
     for (const f of coastline) {
         const g = f.geometry;
         if (!g) continue;
@@ -749,7 +737,6 @@ export function buildNavGrid(
                         cells[idx] = BLOCKED;
                         hardBlocked[idx] = 1;
                         landBlocked[idx] = 1;
-                        coastCellsBlocked++;
                     }
                 }
             }

@@ -64,7 +64,7 @@ describe('findSavedAt', () => {
     it('skips malformed entries instead of throwing', () => {
         const saved = {
             Bad: { lat: NaN, lon: 148.7 },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             Missing: undefined as any,
             Good: AIRLIE,
         };

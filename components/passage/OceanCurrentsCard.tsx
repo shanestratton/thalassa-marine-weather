@@ -30,7 +30,6 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     departure,
     destination,
     distanceNM,
-    activeVoyage,
     onReviewedChange,
 }) => {
     const [briefing, setBriefing] = useState<CurrentBriefing | null>(null);

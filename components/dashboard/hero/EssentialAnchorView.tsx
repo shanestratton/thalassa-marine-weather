@@ -220,8 +220,11 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
     // Poll nearby AIS every 30s while anchored. Same radius + limit as
     // AnchorWatchPage so the radar overlay feels identical between the
     // two surfaces.
+    const anchorState = snapshot?.state ?? 'idle';
+    const anchorLatitude = snapshot?.anchorPosition?.latitude ?? null;
+    const anchorLongitude = snapshot?.anchorPosition?.longitude ?? null;
     useEffect(() => {
-        if (!snapshot || snapshot.state === 'idle' || !snapshot.anchorPosition) {
+        if (anchorState === 'idle' || anchorLatitude === null || anchorLongitude === null) {
             setAisTargets([]);
             return;
         }
@@ -279,7 +282,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
             cancelled = true;
             clearInterval(id);
         };
-    }, [snapshot?.state, snapshot?.anchorPosition]);
+    }, [anchorState, anchorLatitude, anchorLongitude]);
 
     // Guard: if anchor watch is idle the caller shouldn't have rendered
     // us, but belt-and-braces so we don't render an empty canvas.

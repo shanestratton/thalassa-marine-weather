@@ -21,7 +21,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     configureNetwork,
-    getNetworkStatus,
     isProvisioningReachable,
     scanNetworks,
     setupApContext,

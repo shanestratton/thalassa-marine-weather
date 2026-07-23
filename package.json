@@ -5,7 +5,8 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "tsc && vite build",
+        "build": "NODE_OPTIONS=--max-old-space-size=4096 tsc && vite build",
+        "check:bundle": "node scripts/check-bundle-size.js",
         "preview": "vite preview",
         "cap:sync": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap sync",
         "cap:ios": "cap open ios",
@@ -15,8 +16,9 @@
         "test:coverage": "vitest --coverage",
         "test:watch": "vitest --watch",
         "test:e2e": "playwright test",
-        "lint": "eslint .",
+        "lint": "eslint . && npm run lint:migrations",
         "lint:fix": "eslint . --fix",
+        "lint:migrations": "node scripts/audit-supabase-migrations.mjs",
         "lint:routes": "node scripts/audit-orphan-routes.mjs --strict",
         "format": "prettier --write '**/*.{ts,tsx,json,md}' --ignore-path .gitignore",
         "format:check": "prettier --check '**/*.{ts,tsx,json,md}' --ignore-path .gitignore",
@@ -107,8 +109,8 @@
         "@types/sql.js": "^1.4.11",
         "@types/suncalc": "^1.9.2",
         "@vitejs/plugin-react": "^4.2.1",
-        "@vitest/coverage-v8": "^4.0.18",
-        "@vitest/ui": "^4.0.18",
+        "@vitest/coverage-v8": "4.1.10",
+        "@vitest/ui": "4.1.10",
         "autoprefixer": "^10.4.17",
         "eslint": "^10.0.3",
         "eslint-config-prettier": "^10.1.8",
@@ -124,7 +126,7 @@
         "typescript": "^5.4.5",
         "typescript-eslint": "^8.57.0",
         "vite": "^7.3.0",
-        "vitest": "^4.0.18"
+        "vitest": "4.1.10"
     },
     "lint-staged": {
         "*.{ts,tsx}": [

@@ -292,17 +292,25 @@ export function useSeamarkLayer(
 
     // Cleanup on unmount
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
         return () => {
-            closePopup();
-            const map = mapRef.current;
+            popupRef.current?.remove();
+            popupRef.current = null;
+            popupRootRef.current?.unmount();
+            popupRootRef.current = null;
             if (!map) return;
-            if (map.getLayer(LAYER_SYMBOLS)) map.removeLayer(LAYER_SYMBOLS);
-            if (map.getLayer(LAYER_HITAREA)) map.removeLayer(LAYER_HITAREA);
-            if (map.getLayer(LAYER_ALWAYS_VISIBLE)) map.removeLayer(LAYER_ALWAYS_VISIBLE);
-            if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+            try {
+                if (map.getLayer(LAYER_SYMBOLS)) map.removeLayer(LAYER_SYMBOLS);
+                if (map.getLayer(LAYER_HITAREA)) map.removeLayer(LAYER_HITAREA);
+                if (map.getLayer(LAYER_ALWAYS_VISIBLE)) map.removeLayer(LAYER_ALWAYS_VISIBLE);
+                if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+            } catch {
+                // The owning map may already have removed its style during
+                // teardown or a development hot reload.
+            }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [mapRef, mapReady]);
 
     // ── Helpers ──────────────────────────────────────────────────────────
 

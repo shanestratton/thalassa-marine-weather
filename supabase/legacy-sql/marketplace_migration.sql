@@ -1,3 +1,4 @@
+-- LEGACY REFERENCE ONLY — insecure prototype retained for history.
 -- ============================================================
 -- THALASSA MARKETPLACE — Supabase Migration
 -- Peer-to-peer marine gear exchange with PostGIS geo-filtering

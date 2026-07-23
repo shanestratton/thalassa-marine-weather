@@ -242,10 +242,9 @@ describe.skipIf(!PI_UP)('followChannelGates — Newport exit, two-parallel-chann
             })
             .filter(Boolean) as { mid: LL; p: LL; s: LL }[];
         gates.sort((a, b) => projAlongPerp(a.mid).along - projAlongPerp(b.mid).along);
-        // eslint-disable-next-line no-console
+
         console.log(`\nnear marks: ${near.length} (port=${nport.length} stbd=${nstbd.length}); gates (along order):`);
         for (const g of gates)
-            // eslint-disable-next-line no-console
             console.log(
                 `   gate mid lat=${g.mid.lat.toFixed(4)} lon=${g.mid.lon.toFixed(4)} ${
                     onLand(grid, g.mid) ? 'ON-LAND' : ''
@@ -254,7 +253,7 @@ describe.skipIf(!PI_UP)('followChannelGates — Newport exit, two-parallel-chann
         // Sample the OLD pre-splice centreline ([sub[0], …mids, sub[end]] — straight
         // stubs) for land crossings, to document WHY it failed. The fixed function
         // splices the gates into the A* sub instead (asserted below).
-        // eslint-disable-next-line no-console
+
         console.log('pre-splice straight-stub land crossings (the bug):');
         const chain = [span[0], ...gates.map((g) => g.mid), span[span.length - 1]];
         for (let i = 0; i < chain.length - 1; i++) {
@@ -268,7 +267,6 @@ describe.skipIf(!PI_UP)('followChannelGates — Newport exit, two-parallel-chann
                 if (onLand(grid, q)) hits.push(`${q.lat.toFixed(4)},${q.lon.toFixed(4)}`);
             }
             if (hits.length)
-                // eslint-disable-next-line no-console
                 console.log(
                     `   seg ${i} (${i === 0 ? 'ENTRY' : i === chain.length - 2 ? 'EXIT' : 'body'}) crosses land ×${hits.length}: ${hits[0]}…${hits[hits.length - 1]}`,
                 );
@@ -279,7 +277,6 @@ describe.skipIf(!PI_UP)('followChannelGates — Newport exit, two-parallel-chann
             declineReason = r;
         });
 
-        // eslint-disable-next-line no-console
         console.log(`\nfollowChannelGates → ${centre ? `${centre.length} pts` : `null (decline=${declineReason})`}`);
         if (centre) {
             const crossings = centre.filter((p) => onLand(grid, p));
@@ -289,13 +286,12 @@ describe.skipIf(!PI_UP)('followChannelGates — Newport exit, two-parallel-chann
                 const dM = Math.abs(centre[i].lon - centre[i - 1].lon) * mPerLon(centre[i].lat);
                 maxJumpM = Math.max(maxJumpM, dM);
             }
-            // eslint-disable-next-line no-console
+
             console.log(
                 `centre lon range=[${Math.min(...lons).toFixed(4)},${Math.max(...lons).toFixed(4)}] ` +
                     `maxEastWestJump=${maxJumpM.toFixed(0)}m landCrossings=${crossings.length}`,
             );
             for (const p of centre.slice(0, 40))
-                // eslint-disable-next-line no-console
                 console.log(`   ${onLand(grid, p) ? 'LAND ' : '     '}lat=${p.lat.toFixed(4)} lon=${p.lon.toFixed(4)}`);
         }
 

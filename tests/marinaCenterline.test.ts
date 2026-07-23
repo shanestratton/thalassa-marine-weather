@@ -258,7 +258,6 @@ describe('routeMarina — corridor bias keeps the route in the channel, not the 
         expect(withBias).not.toBeNull();
         const withBiasMax = Math.max(...withBias!.cells.map((c) => distToCorridor(c, corridor)));
 
-        // eslint-disable-next-line no-console
         console.log(
             `[corridor-bias] max off-corridor: noBias=${noBiasMax.toFixed(1)} → withBias=${withBiasMax.toFixed(1)} cells`,
         );
@@ -327,7 +326,7 @@ describe('routeMarina — corridor bias rounds bends instead of hugging the insi
 
         const flatMin = cornerMin(flat!.cells);
         const gatedMin = cornerMin(gated!.cells);
-        // eslint-disable-next-line no-console
+
         console.log(
             `[bend-gate] corner min clearance: flat=${flatMin.toFixed(1)} → gated=${gatedMin.toFixed(1)} cells`,
         );
@@ -356,7 +355,7 @@ describe('routeMarina — corridor bias rounds bends instead of hugging the insi
         const r = routeMarina(depth, { width: sw, height: sh }, { x: 14, y: 3 }, { x: 14, y: sh - 4 }, base, corridor);
         expect(r).not.toBeNull();
         const maxOff = Math.max(...r!.cells.map((c) => Math.abs(c.x - 14)));
-        // eslint-disable-next-line no-console
+
         console.log(`[straight-gate] max off-centre = ${maxOff} cells`);
         expect(maxOff).toBeLessThanOrEqual(1);
     });

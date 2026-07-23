@@ -266,7 +266,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     useEffect(() => {
         if (settingsLoading) return;
         if (!versionChecked) return;
-        log.warn('[WeatherContext] Init starting (settingsLoading=false, versionChecked=true)');
+        log.info('[WeatherContext] Init starting (settingsLoading=false, versionChecked=true)');
         orchestrator.loadCacheAndInit();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settingsLoading, versionChecked]);

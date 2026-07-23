@@ -56,15 +56,7 @@ import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { piCache } from '../../services/PiCacheService';
-import {
-    type WeatherLayer,
-    getTileUrl,
-    getWindColor,
-    SEA_STATE_LAYERS,
-    ATMOSPHERE_LAYERS,
-    isParkedLayer,
-    LAYER_FRAME_ZOOM,
-} from './mapConstants';
+import { type WeatherLayer, getTileUrl, getWindColor, isParkedLayer, LAYER_FRAME_ZOOM } from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
     initIsobarLayers,
@@ -251,8 +243,6 @@ export function useWeatherLayers(
     // Fast boolean flags
     const _hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
     const _hasRain = activeLayers.has('rain');
-    const hasPressure = activeLayers.has('pressure');
-
     // Legacy setter — sets exactly one layer (for backward compat with MapUI etc.)
     const setActiveLayer = useCallback((layer: WeatherLayer) => {
         if (layer === 'none') setUserLayers(new Set());

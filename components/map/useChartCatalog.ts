@@ -118,19 +118,20 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
 
     // Cleanup on unmount
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        const addedLayers = addedLayersRef.current;
         return () => {
-            const map = mapRef.current;
             if (!map) return;
-            for (const id of addedLayersRef.current) {
+            for (const id of addedLayers) {
                 const layerId = `${LAYER_PREFIX}${id}`;
                 const sourceId = `${SOURCE_PREFIX}${id}`;
                 if (map.getLayer(layerId)) map.removeLayer(layerId);
                 if (map.getSource(sourceId)) map.removeSource(sourceId);
             }
-            addedLayersRef.current.clear();
+            addedLayers.clear();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [mapRef, mapReady]);
 
     // Fly to a chart's coverage area — or fall back to the user's current
     // location when bounds are missing.

@@ -2,27 +2,18 @@
  * JoinVessel — 6-Digit Manifest Code onboarding screen.
  *
  * Crew enters the code (e.g., "XP-5501"), which:
- *  1. Validates against manifest_invites table
- *  2. Links crew_user_id to vessel_crew
- *  3. Sets status to 'pending' until Skipper approves
- *  4. Triggers full sync of Ship's Stores + Meal Plans
+ *  1. Redeems the bearer code through a rate-limited database function
+ *  2. Atomically links crew_user_id to vessel_crew
+ *  3. Triggers full sync of Ship's Stores + Meal Plans
  *
  * Works offline via local mesh: code is cached and validated
  * against a local invite list synced from the skipper's device.
  */
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '../../services/supabase';
+import { redeemManifestCode } from '../../services/CrewService';
 import { syncNow } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
-
-interface ManifestInvite {
-    id: string;
-    owner_id: string;
-    owner_email?: string;
-    code: string;
-    status: string;
-    created_at: string;
-}
 
 interface JoinVesselProps {
     onJoined: (vesselName: string) => void;
@@ -34,6 +25,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
     const [status, setStatus] = useState<'idle' | 'checking' | 'pending' | 'error'>('idle');
     const [vesselName, setVesselName] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
+    const [offlinePending, setOfflinePending] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
     // Auto-focus first input
@@ -87,6 +79,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
             try {
                 localStorage.setItem('thalassa_pending_manifest', formatted);
                 setStatus('pending');
+                setOfflinePending(true);
                 setVesselName('Vessel (offline)');
                 triggerHaptic('medium');
             } catch (e) {
@@ -98,74 +91,17 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
         }
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) {
-                setErrorMsg('You must be signed in');
-                setStatus('error');
-                return;
-            }
-
-            // 1. Look up the invite code
-            const { data: invite, error: invErr } = await supabase
-                .from('manifest_invites')
-                .select('*')
-                .eq('code', formatted)
-                .eq('status', 'active')
-                .maybeSingle();
-
-            if (invErr || !invite) {
-                setErrorMsg('Invalid or expired code');
+            const result = await redeemManifestCode(formatted);
+            if (!result.success) {
+                setErrorMsg(result.error || 'Invalid or expired code');
                 setStatus('error');
                 triggerHaptic('heavy');
                 return;
             }
-
-            const inv = invite as ManifestInvite;
-
-            // 2. Check code hasn't expired (24h default)
-            const created = new Date(inv.created_at).getTime();
-            if (Date.now() - created > 24 * 60 * 60 * 1000) {
-                setErrorMsg('Code has expired');
-                setStatus('error');
-                return;
-            }
-
-            // 3. Link to vessel_crew (pending until skipper approves)
-            const { error: crewErr } = await supabase.from('vessel_crew').upsert(
-                {
-                    owner_id: inv.owner_id,
-                    crew_user_id: user.id,
-                    crew_email: user.email || '',
-                    owner_email: inv.owner_email || '',
-                    status: 'pending',
-                    role: 'deckhand',
-                },
-                { onConflict: 'crew_user_id,owner_id' },
-            );
-
-            if (crewErr) {
-                setErrorMsg('Failed to join vessel');
-                setStatus('error');
-                return;
-            }
-
-            // 4. Mark invite as used
-            await supabase.from('manifest_invites').update({ status: 'used', used_by: user.id }).eq('id', inv.id);
-
-            // 5. Get vessel name
-            const { data: vessel } = await supabase
-                .from('vessel_identity')
-                .select('vessel_name')
-                .eq('user_id', inv.owner_id)
-                .maybeSingle();
-
-            const vName = (vessel as { vessel_name?: string } | null)?.vessel_name || 'Vessel';
-            setVesselName(vName);
+            setVesselName(result.vesselName || 'Vessel');
+            setOfflinePending(false);
             setStatus('pending');
 
-            // 6. Trigger full sync of Ship's Stores + Meal Plans
             triggerHaptic('medium');
             syncNow().catch(() => {
                 /* will sync when approved */
@@ -193,12 +129,19 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 // ── Success: Pending Approval ──
                 <div className="text-center space-y-6">
                     <div className="text-6xl animate-pulse">⚓</div>
-                    <h2 className="text-xl font-bold text-amber-300">Request Sent</h2>
+                    <h2 className="text-xl font-bold text-amber-300">
+                        {offlinePending ? 'Code Saved' : 'Welcome Aboard'}
+                    </h2>
                     <p className="text-sm text-gray-400 max-w-[280px]">
-                        You&apos;ve requested to join <span className="text-white font-bold">{vesselName}</span>. The
-                        Skipper will approve you from their device.
+                        {offlinePending ? (
+                            <>Your code will be validated securely as soon as this device reconnects.</>
+                        ) : (
+                            <>
+                                You&apos;ve joined <span className="text-white font-bold">{vesselName}</span>.
+                            </>
+                        )}
                     </p>
-                    <p className="text-xs text-gray-500">Ship&apos;s Stores and Meal Plans will sync once approved.</p>
+                    <p className="text-xs text-gray-500">Ship&apos;s Stores and Meal Plans will sync when available.</p>
                     <button
                         onClick={() => onJoined(vesselName)}
                         className="px-8 py-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm font-bold text-amber-300 uppercase tracking-widest hover:bg-amber-500/20 transition-colors"

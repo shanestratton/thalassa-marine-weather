@@ -53,26 +53,6 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
         savetiles.addTo(map);
         controlRef.current = savetiles;
 
-        // Listen for save/load events
-        let totalTiles = 0;
-        let savedTiles = 0;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        tileLayer.on('savestart', (e: any) => {
-            totalTiles = e._tilesforSave?.length || 0;
-            savedTiles = 0;
-        });
-
-        tileLayer.on('savetileend', () => {
-            savedTiles++;
-            // Save-complete toast removed — see comment in confirm()
-            // above. Tile count visible in settings cache badge.
-        });
-
-        tileLayer.on('loadend', () => {});
-
-        tileLayer.on('tilesremoved', () => {});
-
         return () => {
             if (controlRef.current && map) {
                 map.removeControl(controlRef.current);

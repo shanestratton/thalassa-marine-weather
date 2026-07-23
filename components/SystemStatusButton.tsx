@@ -10,7 +10,7 @@
  * When 0 active: hidden
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
@@ -25,7 +25,6 @@ import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
-import { toast } from './Toast';
 
 // ── Types ──
 

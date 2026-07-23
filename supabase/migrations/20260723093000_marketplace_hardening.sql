@@ -163,17 +163,17 @@ BEGIN
     SELECT l.id, l.seller_id, l.title, l.description, l.price, l.currency,
            l.category, l.condition, l.images, l.location_name, l.status,
            l.created_at, l.updated_at,
-           ST_Distance(l.location::geography,
-               ST_SetSRID(ST_MakePoint(user_lon, user_lat), 4326)::geography) / 1852.0
+           extensions.ST_Distance(l.location::extensions.geography,
+               extensions.ST_SetSRID(extensions.ST_MakePoint(user_lon, user_lat), 4326)::extensions.geography) / 1852.0
     FROM public.marketplace_listings l
     WHERE l.status = 'available' AND l.location IS NOT NULL
-      AND ST_DWithin(l.location::geography,
-          ST_SetSRID(ST_MakePoint(user_lon, user_lat), 4326)::geography,
+      AND extensions.ST_DWithin(l.location::extensions.geography,
+          extensions.ST_SetSRID(extensions.ST_MakePoint(user_lon, user_lat), 4326)::extensions.geography,
           LEAST(GREATEST(radius_nm, 1), 200) * 1852.0)
       AND (filter_category IS NULL OR l.category = filter_category)
-    ORDER BY ST_Distance(
-        l.location::geography,
-        ST_SetSRID(ST_MakePoint(user_lon, user_lat), 4326)::geography
+    ORDER BY extensions.ST_Distance(
+        l.location::extensions.geography,
+        extensions.ST_SetSRID(extensions.ST_MakePoint(user_lon, user_lat), 4326)::extensions.geography
     ) ASC
     LIMIT LEAST(GREATEST(result_limit, 1), 100);
 END;

@@ -145,8 +145,9 @@ export function useChlRasterLayer(
 
     // Unmount cleanup.
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
         return () => {
-            const map = mapRef.current;
             if (!map) return;
             try {
                 if (layerRef.current && map.getLayer(LAYER_ID)) {
@@ -157,7 +158,7 @@ export function useChlRasterLayer(
             }
             layerRef.current = null;
         };
-    }, [mapRef]);
+    }, [mapRef, mapReady]);
 }
 
 /** Exposed so the legend / attribution chip can check the flag state. */

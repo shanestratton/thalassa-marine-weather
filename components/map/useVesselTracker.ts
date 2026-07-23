@@ -156,9 +156,13 @@ function ensureTrailLayers(map: mapboxgl.Map) {
 }
 
 function removeTrailLayers(map: mapboxgl.Map) {
-    if (map.getLayer(TRAIL_LAYER)) map.removeLayer(TRAIL_LAYER);
-    if (map.getLayer(TRAIL_GLOW_LAYER)) map.removeLayer(TRAIL_GLOW_LAYER);
-    if (map.getSource(TRAIL_SOURCE)) map.removeSource(TRAIL_SOURCE);
+    try {
+        if (map.getLayer(TRAIL_LAYER)) map.removeLayer(TRAIL_LAYER);
+        if (map.getLayer(TRAIL_GLOW_LAYER)) map.removeLayer(TRAIL_GLOW_LAYER);
+        if (map.getSource(TRAIL_SOURCE)) map.removeSource(TRAIL_SOURCE);
+    } catch {
+        // The owning map may already have removed its style during teardown.
+    }
 }
 
 function updateTrailData(map: mapboxgl.Map, coords: [number, number][]) {
@@ -266,6 +270,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             // Keep trail coords in memory so they reappear on re-toggle
             return;
         }
+        const map = mapRef.current;
 
         // One watch path — GpsService abstracts BgGeo (native) vs browser
         // geolocation (web). ensureRunning keeps the vessel marker live even
@@ -296,10 +301,9 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 markerRef.current = null;
                 elementRef.current = null;
             }
-            const map = mapRef.current;
             if (map) removeTrailLayers(map);
         };
-    }, [mapReady, visible, updateMarker]);
+    }, [mapReady, visible, updateMarker, mapRef]);
 
     // Fly-to-vessel
     const flyToVessel = useCallback(() => {

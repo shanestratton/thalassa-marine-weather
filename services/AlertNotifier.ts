@@ -29,7 +29,7 @@
  */
 
 import { AlarmAudioService } from './AlarmAudioService';
-import { speak, type SpokenHandle, synthesise } from './voice/ttsClient';
+import { type SpokenHandle, synthesise } from './voice/ttsClient';
 import { useVoiceHistoryStore } from '../stores/voiceHistoryStore';
 import type { AlertEvent } from '../types/alerts';
 

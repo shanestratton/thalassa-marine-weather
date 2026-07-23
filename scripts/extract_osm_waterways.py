@@ -154,7 +154,7 @@ geojson = {
     "features": all_features
 }
 
-output_path = os.path.join('..', 'public', 'data', 'waterway_zones.geojson')
+output_path = os.path.join('..', 'data', 'legacy-routing', 'waterway_zones.geojson')
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 with open(output_path, 'w') as f:
     json.dump(geojson, f)

@@ -10,7 +10,6 @@
  * entry point the merge calls.
  */
 import type { Feature } from 'geojson';
-import type { Point } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import type { GeometryJobMsg, GeometryWorkerReply, GlazeCellJob } from './geometryWorkerProtocol';
 import { coverageVertexCount, type FineCoverage } from './clipDepareOverlap';

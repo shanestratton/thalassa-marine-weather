@@ -28,11 +28,6 @@ const generatePin = (): string => {
     return String(100000 + (value[0] % 900000));
 };
 
-const hashPin = async (pin: string): Promise<string> => {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-};
-
 serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
@@ -165,8 +160,6 @@ serve(async (req) => {
 
         // Generate 6-digit PIN
         const escrowPin = generatePin();
-        const escrowPinHash = await hashPin(escrowPin);
-
         // Calculate expiry (48 hours from now)
         const expiresAt = new Date(Date.now() + ESCROW_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -204,7 +197,8 @@ serve(async (req) => {
                 seller_payout_cents: sellerPayoutCents,
                 currency: listing.currency || 'AUD',
                 stripe_payment_intent_id: paymentIntent.id,
-                escrow_pin: escrowPinHash,
+                // The database hashes this with bcrypt before storage.
+                escrow_pin: escrowPin,
                 escrow_status: 'awaiting_handoff',
                 escrow_expires_at: expiresAt,
             })

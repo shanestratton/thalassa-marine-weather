@@ -53,8 +53,6 @@ import fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import AdmZip from 'adm-zip';
 import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
 

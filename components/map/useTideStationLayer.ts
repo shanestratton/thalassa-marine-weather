@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { createRoot, type Root } from 'react-dom/client';
+import type { Root } from 'react-dom/client';
 import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
 

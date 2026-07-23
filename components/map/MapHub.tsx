@@ -44,13 +44,7 @@ import { MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 import { promoteTraceLayers } from './isobarLayerSetup';
 
-import {
-    type MapHubProps,
-    type WeatherLayer,
-    SEA_STATE_LAYERS,
-    ATMOSPHERE_LAYERS,
-    LAYER_FRAME_ZOOM,
-} from './mapConstants';
+import { type MapHubProps, type WeatherLayer, LAYER_FRAME_ZOOM } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
@@ -104,7 +98,6 @@ import {
     type TideCurveWindow,
     type TideOffsetRead,
 } from '../../services/TideOffsetService';
-import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { TraceReportModal } from './TraceReportModal';
 import {
@@ -176,7 +169,7 @@ import {
 // Legend swatches import the REAL glaze constants — they were hand-copied
 // hexes and went stale the moment the palette moved (same drift class as
 // MapHub's old SATELLITE_HIDE_LAYERS copy).
-import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, ENC_HAZARD_MAGENTA, SHALLOW_CAUTION_COLOR } from './encDepthStyle';
+import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, SHALLOW_CAUTION_COLOR } from './encDepthStyle';
 // Chart-key glyphs + swatch colours, imported from the modules that RENDER them
 // so the legend cannot drift from the chart (audit 2026-07-19).
 import { seamarkIconDataUri } from './seamarkIcons';
@@ -798,6 +791,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
+    const flashTraceFeedback = useCallback((msg: string) => {
+        setTraceFeedback(msg);
+        setTimeout(() => setTraceFeedback(null), 1800);
+    }, []);
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
      *  "Sail anyway?" and only the second tap sails. Never a hard block. */
     const [sailArmed, setSailArmed] = useState(false);
@@ -1686,7 +1683,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // won't drag (its spot IS the previous leg's arrival).
             if (rec.tag) rec.tag.textContent = locked ? '🔒 START' : 'START';
         });
-    }, [capturedCoords, coordCaptureMode, selectedPin, legAnchor]);
+    }, [capturedCoords, coordCaptureMode, selectedPin, legAnchor, flashTraceFeedback]);
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
@@ -1717,10 +1714,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [coordCaptureMode, capturedCoords, legVerdicts]);
     // ── Tracer actions: save / export-as-fairway / sail ──
-    const flashTraceFeedback = useCallback((msg: string) => {
-        setTraceFeedback(msg);
-        setTimeout(() => setTraceFeedback(null), 1800);
-    }, []);
     // Open a saved route straight into the card (Shane 2026-07-17: "a way,
     // when you are in the web page, to bring up the previous tracks"). On the
     // standalone /plan page there's no PLAN front door, so this is the ONLY
@@ -2010,7 +2003,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // straight shot was already the clean line".
             return { fixed, added: fixed > 0 ? pins.length - capturedCoords.length : 0 };
         },
-        [capturedCoords],
+        [capturedCoords, tracerCtxFromLru, tracerCtxHold],
     );
     const onFixLeg = useCallback(
         (i: number) => {
@@ -2671,7 +2664,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // mount (reload, deploy, tab-bounce) re-grades nothing.
             persistLegVerdicts(cache, draftNow, draftAssumed, getEncRegistryVersion());
         })();
-    }, [capturedCoords, coordCaptureMode, settings.vessel]);
+    }, [capturedCoords, coordCaptureMode, settings.vessel, tracerCtxFromLru, tracerCtxHold]);
     // Tide windows for sub-keel legs — async per shallow SPOT, cached by the
     // spot's position+depth (never by leg index: indices shift on insert/
     // delete, but the shallow patch itself doesn't move). Cached labels
@@ -3070,10 +3063,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // explicitly turned it off keep their preference (usePersistedState
     // reads localStorage first). Toggle still works to dim down to the
     // simpler GPS dot via useLocationDot.
-    const [vesselTrackingVisible, setVesselTrackingVisible] = usePersistedState(
-        'thalassa_map_vessel_tracking_visible',
-        true,
-    );
+    const [vesselTrackingVisible] = usePersistedState('thalassa_map_vessel_tracking_visible', true);
     const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
     const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
     // Satellite BASE imagery (Esri World Imagery raster under every custom
@@ -3475,10 +3465,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         // unmounts while ON (cycle-5 audit #5). This cleanup also runs on every
         // re-toggle (harmless: off-then-on nets to the correct state).
         return () => {
-            const m = mapRef.current;
-            if (!m) return;
             try {
-                setEncNightDim(m, false);
+                setEncNightDim(map, false);
             } catch {
                 /* map/style torn down */
             }
@@ -3707,11 +3695,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // overlay must never outlive the session that turned it on. The toggle
     // (Charts → modes gear → "Seaway Graph") still works for a debugging
     // session; a restart always starts clean.
-    const [seawayDebugVisible, setSeawayDebugVisible] = useState(false);
+    const [seawayDebugVisible] = useState(false);
     const [skChartIds, setSkChartIds] = usePersistedStringSet('thalassa_map_sk_chart_ids');
-    const [skChartOpacity, setSkChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
+    const [skChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
     const [localChartIds, setLocalChartIds] = usePersistedStringSet('thalassa_map_local_chart_ids');
-    const [localChartOpacity, setLocalChartOpacity] = usePersistedState('thalassa_map_local_chart_opacity', 0.7);
+    const [localChartOpacity] = usePersistedState('thalassa_map_local_chart_opacity', 0.7);
 
     // Charts start hidden — user enables them via the Charts layer toggle.
     // AvNavService still discovers available charts in the background so
@@ -4651,7 +4639,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [weatherCoords?.lat, weatherCoords?.lon, embedded, pickerMode, isPinView]);
 
     // ── GPS Vessel Tracker Layer ──
-    const { flyToVessel } = useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible);
+    useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible);
 
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);
@@ -4787,7 +4775,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 chartCatalog.flyToSource(catalogSrc);
             }
         },
-        [skChartIds, localChartIds, chartCatalog, skCharts, localCharts],
+        [skChartIds, localChartIds, chartCatalog, skCharts, localCharts, setLocalChartIds, setSkChartIds],
     );
 
     // ── Interactive Sea Marks (OpenSeaMap / Overpass API) ──
@@ -4795,10 +4783,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     //   'identify' mode (invisible hit targets, still click-to-identify)
     // When no charts: 'full' mode (renders IALA icons + click-to-identify)
     const seamarkMode = chartsActive || encActive ? ('identify' as const) : ('full' as const);
-    const seamark = useSeamarkLayer(mapRef, mapReady, seamarkVisible, seamarkMode);
+    useSeamarkLayer(mapRef, mapReady, seamarkVisible, seamarkMode);
 
     // ── Tide Station Markers ──
-    const tideStations = useTideStationLayer(mapRef, mapReady, tideStationsVisible);
+    useTideStationLayer(mapRef, mapReady, tideStationsVisible);
     useAnchorageLayer(mapRef, mapReady, anchorageVisible);
 
     // ── Notices to Mariners + low bridges on the chart (📄 / 🌉 tap-to-read) ──
@@ -4818,13 +4806,16 @@ export const MapHub: React.FC<MapHubProps> = ({
      * re-renders ~10x/second as the hour advances) it was rebuilding those
      * callbacks on every frame for no reason.
      */
-    const windOnGuards = useCallback((layer: string) => {
-        // Wind and lightning are mutually exclusive (see the boot-time
-        // resolver below) — enforced on BOTH edges, because a one-sided
-        // guard just means whichever you tap second wins.
-        setLightningVisible(false);
-        void layer;
-    }, []);
+    const windOnGuards = useCallback(
+        (layer: string) => {
+            // Wind and lightning are mutually exclusive (see the boot-time
+            // resolver below) — enforced on BOTH edges, because a one-sided
+            // guard just means whichever you tap second wins.
+            setLightningVisible(false);
+            void layer;
+        },
+        [setLightningVisible],
+    );
 
     /**
      * Ease to the layer's own framing zoom on its OFF -> ON edge.
@@ -5080,23 +5071,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!map || !mapReady) return;
         encSetPlottingMode(map, coordCaptureMode);
         return () => {
-            const m = mapRef.current;
-            if (m) {
-                try {
-                    encSetPlottingMode(m, false);
-                } catch {
-                    /* layers unmounted — nothing to lower */
-                }
+            try {
+                encSetPlottingMode(map, false);
+            } catch {
+                /* layers unmounted — nothing to lower */
             }
         };
     }, [mapReady, coordCaptureMode]);
-
-    // ── ENC test route line ──
-    // One-off rendering of `tryInshoreRoute` output triggered by the
-    // EncRouteButton chip. Independent of the passage-planner pipeline so
-    // we can demo on-chart routing without the planner UI in scope.
-    const [encTestRoute, setEncTestRoute] = useState<EncTestRoute | null>(null);
-    useEncTestRouteLayer(mapRef, mapReady, encTestRoute);
 
     // Seaway Graph debug overlay — compiles gates/edges from the installed
     // cells for the viewport whenever the toggle is on (Phase 10).
@@ -6965,7 +6946,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setChartKeyOpen((v) => !v);
                         }}
                         aria-label="What the chart colours and numbers mean"
-                        className="absolute bottom-1 left-1/2 z-[9980] flex min-h-[44px] -translate-x-1/2 items-center whitespace-nowrap rounded-md bg-slate-900/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95"
+                        className="absolute bottom-[calc(17rem+env(safe-area-inset-bottom))] left-1/2 z-[9980] flex min-h-[44px] -translate-x-1/2 items-center whitespace-nowrap rounded-md bg-slate-900/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95 sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))]"
                     >
                         {tideDepthMode && tideOffsetInfo
                             ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
@@ -6977,7 +6958,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     flight must never read as "no chart here". */}
                 {encHydration.remaining > 0 && encVisible && !embedded && !pickerMode && !isPinView && (
                     <div
-                        className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg"
+                        className="pointer-events-none absolute bottom-[calc(20rem+env(safe-area-inset-bottom))] left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg sm:bottom-[calc(7.25rem+env(safe-area-inset-bottom))]"
                         aria-live="polite"
                     >
                         Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})

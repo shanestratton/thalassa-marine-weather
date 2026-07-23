@@ -228,8 +228,6 @@ async function assemble(from: [number, number], to: [number, number]): Promise<I
 }
 
 function describeRoute(label: string, r: RouteResult): void {
-    let routeM = 0;
-    for (let i = 1; i < r.polyline.length; i++) routeM += distM(r.polyline[i - 1], r.polyline[i]);
     console.log(`\n== ${label} ==`);
     console.log(
         `  ${r.distanceNM.toFixed(2)} NM  |  caution ${(r.cautionMask ?? []).filter(Boolean).length}/${(r.cautionMask ?? []).length} segs  |  shallowRuns ${(r.shallowRuns ?? []).length}`,

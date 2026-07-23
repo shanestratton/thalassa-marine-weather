@@ -23,9 +23,7 @@ import { join } from 'node:path';
 const COMMAND_PIPE = '/tmp/OCPN_PIPEX';
 
 const CMD_READ_ESENC = 0; // legacy .oesenc format
-const CMD_TEST_AVAIL = 1;
 const CMD_EXIT = 2;
-const CMD_READ_ESENC_HDR = 3;
 const CMD_READ_OESU = 8; // current .oesu format
 
 export interface OexserverdOptions {
