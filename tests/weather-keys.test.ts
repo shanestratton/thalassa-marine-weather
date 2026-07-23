@@ -4,7 +4,7 @@
  * Tests API key resolution, suffix display, and key-present checks.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock the rate limiter (imported by keys.ts)
 vi.mock('../utils/rateLimiter', () => ({

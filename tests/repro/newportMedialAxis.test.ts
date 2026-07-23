@@ -125,7 +125,7 @@ describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* h
                 const p = cellLL(x, y);
                 waterMask[idx(x, y)] = inAny(p.lon, p.lat, lndare) ? 0 : 1;
             }
-        // eslint-disable-next-line no-console
+
         console.log(
             `navigable-depth (DEPARE≥${NAV_M}m ∪ DRGARE) cells=${navCells} — note: disconnected (deep water breaks at the bar).`,
         );
@@ -373,11 +373,11 @@ describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* h
             canalHalfWidthCells: 40,
             bias: 8,
         });
-        // eslint-disable-next-line no-console
+
         console.log(
             `\nrouteMarina DEFAULT (depthWeight=15): meanClear=${def ? (def.meanClearanceCells * CELL_M).toFixed(0) : 'null'}m min=${def ? (def.minClearanceCells * CELL_M).toFixed(0) : 'null'}m`,
         );
-        // eslint-disable-next-line no-console
+
         console.log(
             `routeMarina FIXED   (depthWeight=0):  meanClear=${fixed ? (fixed.meanClearanceCells * CELL_M).toFixed(0) : 'null'}m min=${fixed ? (fixed.minClearanceCells * CELL_M).toFixed(0) : 'null'}m`,
         );
@@ -399,25 +399,24 @@ describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* h
             const travel = Math.atan2((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_LAT);
             return { L: rayToLand(pts[bi], travel - Math.PI / 2), R: rayToLand(pts[bi], travel + Math.PI / 2) };
         };
-        // eslint-disable-next-line no-console
+
         console.log('\ncross-sections (L=dist to left bank, R=dist to right bank, off=|L-R|):');
         for (const lat of [-27.208, -27.204, -27.2, -27.196, -27.192, -27.188]) {
             const s = lrAt(shortest, lat),
                 m = lrAt(medial, lat);
             if (s && m && (s.L < 400 || s.R < 400))
-                // eslint-disable-next-line no-console
                 console.log(
                     `  lat ${lat}:  SHORTEST L=${s.L.toFixed(0)} R=${s.R.toFixed(0)} off=${Math.abs(s.L - s.R).toFixed(0)}m  |  ` +
                         `MEDIAL L=${m.L.toFixed(0)} R=${m.R.toFixed(0)} off=${Math.abs(m.L - m.R).toFixed(0)}m`,
                 );
         }
-        // eslint-disable-next-line no-console
+
         console.log(`\ngrid ${W}×${H} @${CELL_M}m  water cells=${waterMask.reduce((a, b) => a + b, 0)}`);
-        // eslint-disable-next-line no-console
+
         console.log(
             `SHORTEST PATH : pts=${shortest.length} bankSamples=${bs.samples} |L-R|mean=${bs.meanAbsDiff.toFixed(0)}m  nearestBank mean=${bs.meanClear.toFixed(0)}m min=${bs.minClear.toFixed(0)}m`,
         );
-        // eslint-disable-next-line no-console
+
         console.log(
             `MEDIAL AXIS   : pts=${medial.length} bankSamples=${bm.samples} |L-R|mean=${bm.meanAbsDiff.toFixed(0)}m  nearestBank mean=${bm.meanClear.toFixed(0)}m min=${bm.minClear.toFixed(0)}m`,
         );
@@ -426,7 +425,7 @@ describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* h
         expect(medial.length).toBeGreaterThan(2);
         // THE PROOF: through the SAME water, the medial axis sits ~equidistant from
         // both banks (|L-R|→small) and holds more clearance; shortest-path hugs.
-        // eslint-disable-next-line no-console
+
         console.log(
             `\n→ medial axis |L-R| ${bm.meanAbsDiff.toFixed(0)}m vs shortest ${bs.meanAbsDiff.toFixed(0)}m ` +
                 `(${(bs.meanAbsDiff / Math.max(bm.meanAbsDiff, 1)).toFixed(1)}× more centred); ` +

@@ -77,7 +77,7 @@ export async function autoSyncFromPiIfPossible(): Promise<void> {
 async function runAutoSyncOnce(): Promise<void> {
     try {
         if (!piCache.isAvailable()) {
-            log.warn('auto-sync skipped — Pi not reachable (probe failed or disabled)');
+            log.info('auto-sync skipped — Pi not reachable (probe failed or disabled)');
             return;
         }
 

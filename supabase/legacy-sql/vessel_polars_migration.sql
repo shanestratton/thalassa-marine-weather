@@ -1,3 +1,4 @@
+-- LEGACY REFERENCE ONLY — replaced by 20260723095000.
 -- ============================================================
 -- VESSEL POLARS — Polar performance data for weather routing
 -- ============================================================

@@ -249,8 +249,9 @@ export function useMpaLayer(mapRef: React.MutableRefObject<mapboxgl.Map | null>,
 
     // Unmount cleanup on hook teardown.
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
         return () => {
-            const map = mapRef.current;
             popupRef.current?.remove();
             popupRef.current = null;
             if (!map) return;
@@ -269,7 +270,7 @@ export function useMpaLayer(mapRef: React.MutableRefObject<mapboxgl.Map | null>,
                 /* best effort */
             }
         };
-    }, [mapRef]);
+    }, [mapRef, mapReady]);
 }
 
 /** Exposed so the legend / radial menu can check the flag state. */

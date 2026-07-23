@@ -582,7 +582,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
     // Real-data sparkline histories.
     const sogReal = useMetricHistory(state.sog);
-    const twsReal = useMetricHistory(state.tws);
     const depthReal = useMetricHistory(state.depth);
 
     // Chart configs — empty history when nothing's arrived yet, so
@@ -595,13 +594,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         [sogReal.history, sogReal.min, sogReal.max],
     );
     const awsChart = useMemo(() => ({ history: [] as number[], min: 0, max: 1 }), []);
-    const twsChart = useMemo(
-        () =>
-            twsReal.history.length > 5
-                ? { history: twsReal.history, min: Math.max(0, twsReal.min - 5), max: twsReal.max + 5 }
-                : { history: [] as number[], min: 0, max: 1 },
-        [twsReal.history, twsReal.min, twsReal.max],
-    );
     const depthChart = useMemo(
         () =>
             depthReal.history.length > 5

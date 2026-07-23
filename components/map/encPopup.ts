@@ -45,15 +45,6 @@ function valsouRow(depth: unknown): string {
     return `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(n))}</b></div>`;
 }
 
-function fmtRange(min: unknown, max: unknown): string | null {
-    const a = typeof min === 'number' ? min : Number(min);
-    const b = typeof max === 'number' ? max : Number(max);
-    if (!Number.isFinite(a) && !Number.isFinite(b)) return null;
-    if (Number.isFinite(a) && Number.isFinite(b)) return `${a.toFixed(1)}–${b.toFixed(1)} m`;
-    if (Number.isFinite(a)) return `${a.toFixed(1)} m+`;
-    return `≤${b.toFixed(1)} m`;
-}
-
 /**
  * S-57 attribute lookups for the popup. Wreck and obstruction
  * categories are coded ints in the source — we map the most-common

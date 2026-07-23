@@ -237,7 +237,7 @@ describe.skipIf(!PI_UP)('router ↔ tracer consistency — Mooloolaba', () => {
         );
         const crossings = all.filter((c) => !c.known).map((c) => c.label);
         const baselined = all.filter((c) => c.known).map((c) => c.label);
-        // eslint-disable-next-line no-console
+
         console.log(
             `engine polyline ${pins.length} pts → tracer legs ${verdicts.length}: ` +
                 `${verdicts.filter((v) => v.grade === 'clear').length} clear / ` +

@@ -1040,7 +1040,16 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             setPlanningWindow(false);
             setWindowProgress(undefined);
         }
-    }, [isPro, origin, destination, vessel, departureDate, onTriggerUpgrade]);
+    }, [
+        isPro,
+        origin,
+        destination,
+        vessel,
+        departureDate,
+        onTriggerUpgrade,
+        settings.comfortParams,
+        settings.currentNrtEnabled,
+    ]);
 
     /**
      * Apply a chosen scenario from the departure-window sheet:

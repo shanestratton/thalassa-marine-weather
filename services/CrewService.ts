@@ -275,7 +275,7 @@ export async function inviteCrew(
             .select('id, status')
             .eq('owner_id', user.id)
             .eq('crew_user_id', lookup.user_id!);
-        if (voyageId) existingQuery = existingQuery.eq('voyage_id', voyageId);
+        existingQuery = voyageId ? existingQuery.eq('voyage_id', voyageId) : existingQuery.is('voyage_id', null);
         const { data: existing } = await existingQuery.single();
 
         if (existing) {
@@ -307,7 +307,7 @@ export async function inviteCrew(
             owner_email: user.email || '',
             shared_registers: registers,
             status: 'pending',
-            role: 'crew',
+            role: 'deckhand',
             ...(voyageId ? { voyage_id: voyageId } : {}),
         });
 
@@ -627,22 +627,31 @@ export async function getPendingInviteCount(): Promise<number> {
  */
 function generateManifestCode(): string {
     const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // No I/O (confusable)
-    const l1 = letters[Math.floor(Math.random() * letters.length)];
-    const l2 = letters[Math.floor(Math.random() * letters.length)];
-    const num = Math.floor(1000 + Math.random() * 9000); // 4 digits, 1000-9999
+    const random = new Uint32Array(3);
+    crypto.getRandomValues(random);
+    const l1 = letters[random[0] % letters.length];
+    const l2 = letters[random[1] % letters.length];
+    const num = 1000 + (random[2] % 9000);
     return `${l1}${l2}-${num}`;
 }
 
 /**
  * Get the device ID for manifest code locking.
  */
+let fallbackDeviceId: string | null = null;
+
 function getDeviceId(): string {
-    let id = localStorage.getItem('thalassa_device_id');
-    if (!id) {
-        id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        localStorage.setItem('thalassa_device_id', id);
+    try {
+        let id = localStorage.getItem('thalassa_device_id');
+        if (!id) {
+            id = `dev_${crypto.randomUUID()}`;
+            localStorage.setItem('thalassa_device_id', id);
+        }
+        return id;
+    } catch {
+        fallbackDeviceId ??= `dev_${crypto.randomUUID()}`;
+        return fallbackDeviceId;
     }
-    return id;
 }
 
 /**
@@ -661,37 +670,31 @@ export async function createManifestInvite(
         } = await supabase.auth.getUser();
         if (!user) return { success: false, error: 'Not authenticated' };
 
-        // Generate a unique code (retry if collision)
-        let code = generateManifestCode();
-        let attempts = 0;
-        while (attempts < 5) {
-            const { data: existing } = await supabase
-                .from('manifest_invites')
-                .select('id')
-                .eq('invite_code', code)
-                .maybeSingle();
-
-            if (!existing) break;
-            code = generateManifestCode();
-            attempts++;
-        }
-
         const perms: CrewPermissions = {
             ...ROLE_DEFAULT_PERMISSIONS[role],
             ...(permissions || {}),
         };
 
-        const { error } = await supabase.from('manifest_invites').insert({
-            owner_id: user.id,
-            invite_code: code,
-            email: email?.toLowerCase().trim() || null,
-            role,
-            permissions: perms,
-            status: 'pending',
-        });
+        // The code is a bearer credential. Generate it cryptographically and
+        // retry the actual unique insert rather than enumerating other users'
+        // invite rows to check for collisions.
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const code = generateManifestCode();
+            const { error } = await supabase.from('manifest_invites').insert({
+                owner_id: user.id,
+                invite_code: code,
+                email: email?.toLowerCase().trim() || null,
+                role,
+                permissions: perms,
+                status: 'pending',
+            });
 
-        if (error) return { success: false, error: error.message };
-        return { success: true, code };
+            if (!error) return { success: true, code };
+            if (error.code !== '23505') {
+                return { success: false, error: error.message };
+            }
+        }
+        return { success: false, error: 'Could not generate a unique code. Please try again.' };
     } catch (e) {
         return { success: false, error: String(e) };
     }
@@ -701,7 +704,9 @@ export async function createManifestInvite(
  * Redeem a manifest code (Crew action).
  * Links the current user + device to the vessel.
  */
-export async function redeemManifestCode(code: string): Promise<{ success: boolean; error?: string }> {
+export async function redeemManifestCode(
+    code: string,
+): Promise<{ success: boolean; error?: string; vesselName?: string }> {
     if (!supabase) return { success: false, error: 'Not connected' };
 
     try {
@@ -710,64 +715,24 @@ export async function redeemManifestCode(code: string): Promise<{ success: boole
         } = await supabase.auth.getUser();
         if (!user) return { success: false, error: 'Not authenticated' };
 
-        // Find the invite
-        const { data: invite, error: findError } = await supabase
-            .from('manifest_invites')
-            .select('*')
-            .eq('invite_code', code.toUpperCase().trim())
-            .eq('status', 'pending')
-            .gt('expires_at', new Date().toISOString())
-            .maybeSingle();
+        const { data, error } = await supabase.rpc('redeem_manifest_invite', {
+            p_code: code.toUpperCase().trim(),
+            p_device_id: getDeviceId(),
+        });
+        if (error) return { success: false, error: error.message };
 
-        if (findError || !invite) {
-            return { success: false, error: 'Invalid or expired code.' };
+        const result = data as {
+            success?: boolean;
+            error?: string;
+            vessel_name?: string;
+        } | null;
+        if (!result?.success) {
+            return { success: false, error: result?.error || 'Invalid or expired code.' };
         }
-
-        // Check it's not the owner trying to redeem their own code
-        if (invite.owner_id === user.id) {
-            return { success: false, error: "You can't redeem your own code!" };
-        }
-
-        // Check if email-restricted and doesn't match
-        if (invite.email && invite.email !== user.email?.toLowerCase()) {
-            return { success: false, error: 'This code is reserved for a different email.' };
-        }
-
-        const deviceId = getDeviceId();
-
-        // Mark invite as accepted
-        const { error: updateError } = await supabase
-            .from('manifest_invites')
-            .update({
-                status: 'accepted',
-                accepted_by: user.id,
-                accepted_at: new Date().toISOString(),
-                device_id: deviceId,
-            })
-            .eq('id', invite.id);
-
-        if (updateError) return { success: false, error: updateError.message };
-
-        // Create the vessel_crew link with JSONB permissions
-        const { error: crewError } = await supabase.from('vessel_crew').upsert(
-            {
-                owner_id: invite.owner_id,
-                crew_user_id: user.id,
-                crew_email: user.email || '',
-                owner_email: '', // Will be populated on next sync
-                shared_registers: Object.entries(invite.permissions || {})
-                    .filter(([, v]) => v === true)
-                    .map(([k]) => k.replace('can_view_', '').replace('can_edit_', ''))
-                    .filter((v, i, a) => a.indexOf(v) === i) as SharedRegister[],
-                permissions: invite.permissions,
-                status: 'accepted',
-                role: invite.role,
-            },
-            { onConflict: 'owner_id,crew_user_id' },
-        );
-
-        if (crewError) return { success: false, error: crewError.message };
-        return { success: true };
+        return {
+            success: true,
+            vesselName: result.vessel_name || 'Vessel',
+        };
     } catch (e) {
         return { success: false, error: String(e) };
     }

@@ -17,7 +17,7 @@ import os
 # ── Load data ───────────────────────────────────────────────────────
 
 markers = json.load(open('nav_markers.geojson'))
-zones = json.load(open(os.path.join('..', 'public', 'data', 'waterway_zones.geojson')))
+zones = json.load(open(os.path.join('..', 'data', 'legacy-routing', 'waterway_zones.geojson')))
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -165,7 +165,7 @@ zones['features'] = [f for f in zones['features'] if f.get('properties', {}).get
 # Add new IALA centerlines
 zones['features'].extend(centerline_features)
 
-output_path = os.path.join('..', 'public', 'data', 'waterway_zones.geojson')
+output_path = os.path.join('..', 'data', 'legacy-routing', 'waterway_zones.geojson')
 with open(output_path, 'w') as f:
     json.dump(zones, f)
 

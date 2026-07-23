@@ -89,7 +89,7 @@ describe('snapRouteToCanalLines — bend corner-cut (node-vs-segment regression)
         const offs = polyline.map((p) => offToLine(p, canalLine));
         const worst = Math.max(...offs);
         const meanOff = offs.reduce((s, v) => s + v, 0) / offs.length;
-        // eslint-disable-next-line no-console
+
         console.log(
             `[canalSnap.bend] raw worst=${rawWorst.toFixed(0)}m → snapped worst=${worst.toFixed(0)}m mean=${meanOff.toFixed(1)}m onCanal=${onCanal.filter(Boolean).length}/${onCanal.length}`,
         );

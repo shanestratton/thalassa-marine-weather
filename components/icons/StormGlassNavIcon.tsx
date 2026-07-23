@@ -1,7 +1,7 @@
 /**
  * FitzRoy Storm Glass nav icon — teardrop-shaped glass bottle with stylised
  * crystals inside. Sized and toned to match the existing cyan neon nav icons
- * (NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL) so it sits flush in the
+ * map and vessel nav glyphs so it sits flush in the
  * bottom navigation without standing out.
  */
 import React from 'react';

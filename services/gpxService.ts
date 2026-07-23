@@ -379,16 +379,13 @@ function decimateTrackToWaypoints(points: GpxRouteWaypoint[], targetSpacingNM: n
 
     const result: GpxRouteWaypoint[] = [points[0]];
     let lastKept = points[0];
-    let accumDist = 0;
 
     for (let i = 1; i < points.length - 1; i++) {
         const dist = haversineNM(lastKept.lat, lastKept.lon, points[i].lat, points[i].lon);
-        accumDist += haversineNM(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
 
         if (dist >= targetSpacingNM) {
             result.push(points[i]);
             lastKept = points[i];
-            accumDist = 0;
         }
     }
 

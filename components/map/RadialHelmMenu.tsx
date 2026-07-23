@@ -490,17 +490,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     // "SKY/SEA/TACTICAL are all bunched — space them evenly like before").
     // n=3 → chord = 2·115·sin(95/4°) ≈ 93px, cleanly spaced.
     const TIER1_RADIUS = categories.length >= 4 ? 125 : categories.length === 3 ? 115 : 90;
-    const TIER1_CENTER_ANGLE = 150; // Down-left (keeps arc below top edge)
-    const TIER1_SPREAD = categories.length >= 4 ? 105 : categories.length === 3 ? 95 : 60;
-
-    // Tier 2 items are now rendered in a grid, not an arc — these constants
-    // are kept for the drag-hover zone detection in handlePointerMove.
-    const TIER2_RADIUS = 80;
-    const TIER2_CENTER_ANGLE = 145;
-    const TIER2_SPREAD_PER_ITEM = 24;
 
     const tier1Angles = useMemo(
-        () => distributeArc(categories.length, TIER1_CENTER_ANGLE, TIER1_SPREAD),
+        () => distributeArc(categories.length, 150, categories.length >= 4 ? 105 : categories.length === 3 ? 95 : 60),
         [categories.length],
     );
 
@@ -1268,12 +1260,6 @@ const WindIcon = () => (
             strokeLinejoin="round"
             d="M9.59 4.59A2 2 0 1111 8H2m10.59 11.41A2 2 0 1014 16H2m15.73-8.27A2.5 2.5 0 1119.5 12H2"
         />
-    </svg>
-);
-
-const VelocityIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12h6l3-9 3 18 3-9h6" />
     </svg>
 );
 

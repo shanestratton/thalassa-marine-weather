@@ -244,7 +244,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             handlePassageMode(new CustomEvent('thalassa:passage-mode', { detail: pending }));
         }
         return () => window.removeEventListener('thalassa:passage-mode', handlePassageMode);
-    }, []);
+    }, [mapRef]);
 
     // ── Helper: project a point along bearing by distance ──
     const _project = (lat: number, lon: number, bearingDeg: number, distNM: number) => {

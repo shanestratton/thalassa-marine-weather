@@ -1,3 +1,4 @@
+-- LEGACY REFERENCE ONLY — replaced by 20260219000000.
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
 -- ║  Thalassa — Ship's Inventory & Spares                                      ║
 -- ║  Tracks marine gear, spare parts, provisions, and their storage locations  ║

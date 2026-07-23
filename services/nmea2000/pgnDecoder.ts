@@ -51,7 +51,6 @@ const RES_RADIANS = 1e-4; // angular: 1e-4 rad = 0.00573 deg
 const RES_KPH = 1e-2; // speed: 0.01 m/s
 const RES_DEPTH = 1e-2; // depth: 0.01 m
 const RES_TEMP = 1e-2; // temperature: 0.01 K
-const RES_PRESSURE_HPA = 1e-2; // 100 Pa = 1 hPa
 const RAD_TO_DEG = 180 / Math.PI;
 const KELVIN_TO_C = 273.15;
 const MS_TO_KTS = 1.94384;
@@ -77,9 +76,6 @@ const isNA32 = (v: number) => v === NA_UINT32 || v === NA_INT32;
 // All N2K integers are little-endian. Node's Buffer has built-in LE
 // readers but we work with `Uint8Array` to stay portable across
 // browser / RN / Capacitor.
-function readU8(buf: Uint8Array, o: number): number {
-    return buf[o];
-}
 function readI8(buf: Uint8Array, o: number): number {
     const v = buf[o];
     return v < 0x80 ? v : v - 0x100;

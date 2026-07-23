@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_ISOCHRONE_CONFIG } from '../services/isochrone/types';
-import type { IsochroneConfig, IsochroneNode, IsochroneResult, TurnWaypoint } from '../services/isochrone/types';
+import type { IsochroneNode, TurnWaypoint } from '../services/isochrone/types';
 
 describe('DEFAULT_ISOCHRONE_CONFIG', () => {
     it('has 6h time steps', () => {

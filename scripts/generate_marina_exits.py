@@ -17,7 +17,9 @@ def dist_m(lat1, lon1, lat2, lon2):
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    geojson_path = os.path.normpath(os.path.join(script_dir, "..", "public", "data", "waterway_zones.geojson"))
+    geojson_path = os.path.normpath(
+        os.path.join(script_dir, "..", "data", "legacy-routing", "waterway_zones.geojson")
+    )
     exits_path = os.path.normpath(os.path.join(script_dir, "..", "public", "data", "marina_exits.json"))
     
     data = json.load(open(geojson_path))

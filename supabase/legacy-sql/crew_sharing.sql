@@ -1,3 +1,4 @@
+-- LEGACY REFERENCE ONLY — replaced by canonical, non-destructive migrations.
 -- ═══════════════════════════════════════════════════════════════
 -- Thalassa Crew Sharing — SQL Migration
 -- Run in Supabase Dashboard → SQL Editor
@@ -471,4 +472,3 @@ DROP TRIGGER IF EXISTS trg_crew_rewrite_documents ON public.ship_documents;
 CREATE TRIGGER trg_crew_rewrite_documents
     BEFORE INSERT ON public.ship_documents
     FOR EACH ROW EXECUTE FUNCTION crew_rewrite_user_id('documents');
-

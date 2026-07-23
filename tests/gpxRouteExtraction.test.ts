@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { extractGPXRouteWaypoints, type GpxRouteData } from '../services/gpxService';
+import { extractGPXRouteWaypoints } from '../services/gpxService';
 
 // ── Test fixtures ──
 

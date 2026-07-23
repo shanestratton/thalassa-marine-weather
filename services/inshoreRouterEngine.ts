@@ -956,7 +956,7 @@ function routeInshoreOnce(
     const fairingMids = collectFairingMidpoints(layers);
     if (fairingMids.length > 0 && smoothedCells.length >= 3) {
         smoothedCells = fairPath(grid, smoothedCells, fairingMids, isUnvouchedIdx);
-        tPhase = mark('fairing', tPhase);
+        mark('fairing', tPhase);
     }
 
     // Re-anchor state boundaries the smoother legally erased: smoothPath

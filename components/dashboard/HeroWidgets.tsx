@@ -1,18 +1,27 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
-import { ModelComparisonMatrix, type MatrixParam } from './ModelComparisonMatrix';
+import type { MatrixParam } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast, ForecastDay } from '../../types';
 import { resolveForecastModel } from '../../services/weather/forecastModels';
-import { MetricDeepDiveModal, type MetricKey } from './hero/MetricDeepDiveModal';
+import type { MetricKey } from './hero/MetricDeepDiveModal';
 import { convertTemp, convertSpeed, convertLength, convertDistance, convertPrecip } from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useDraggable } from '@dnd-kit/core';
-import { AnimatePresence, motion } from 'framer-motion';
+import { lazyRetry } from '../../utils/lazyRetry';
+
+const ModelComparisonMatrix = lazyRetry(
+    () => import('./ModelComparisonMatrix').then((module) => ({ default: module.ModelComparisonMatrix })),
+    'ModelComparisonMatrix',
+);
+const MetricDeepDiveModal = lazyRetry(
+    () => import('./hero/MetricDeepDiveModal').then((module) => ({ default: module.MetricDeepDiveModal })),
+    'MetricDeepDiveModal',
+);
 
 /**
  * DraggableMetricCell — thin wrapper that makes a grid cell long-pressable
- * as a DnD source AND cross-fades its contents on metric swap.
+ * as a DnD source and animates its contents on metric swap.
  *
  * DnD: Uses the @dnd-kit useDraggable hook; activation is governed by the
  * sensors configured at the DndContext level in Dashboard.tsx (250ms
@@ -23,15 +32,8 @@ import { AnimatePresence, motion } from 'framer-motion';
  * in the cell right now. When heroMetric === 'wind' and the wind cell is
  * rendering temperature instead, the effective id is 'temp'. Dropping
  * temp on the hero = reset, consistent with the single-string state
- * model. It also doubles as the AnimatePresence key, so every change
- * in what's displayed triggers a crossfade.
- *
- * Animation: AnimatePresence with `mode="wait"` runs the old content's
- * exit animation to completion before mounting the new content's entry,
- * eliminating the flash that a pure state swap would cause. The
- * transition uses a spring-friendly cubic-bezier and a sub-quarter-
- * second duration so the swap reads as "considered" without feeling
- * laggy during rapid pin changes.
+ * model. It also doubles as the keyed wrapper, so every display change
+ * triggers the lightweight CSS transition.
  */
 /** Provided by HeroWidgets when the metric deep-dive is available (live NOW card).
  *  Fires with the cell's metric id on a tap. Null = taps do nothing. */
@@ -56,18 +58,9 @@ const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> =
             {...listeners}
             onClick={onMetricTap ? () => !isDragging && onMetricTap(id) : undefined}
         >
-            <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                    key={id}
-                    initial={{ opacity: 0, scale: 0.92 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.92 }}
-                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-                    className="w-full h-full"
-                >
-                    {children}
-                </motion.div>
-            </AnimatePresence>
+            <div key={id} className="metric-swap-enter w-full h-full">
+                {children}
+            </div>
         </div>
     );
 };
@@ -844,22 +837,30 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 </div>
 
                 {/* Model Comparison Matrix — offshore grid-tap or any-cell long-press */}
-                <ModelComparisonMatrix
-                    visible={showMatrix}
-                    onClose={() => setShowMatrix(false)}
-                    selectedModel={glassModel}
-                    initialParam={matrixParam}
-                    coordinates={coordinates}
-                />
+                {showMatrix && (
+                    <Suspense fallback={null}>
+                        <ModelComparisonMatrix
+                            visible
+                            onClose={() => setShowMatrix(false)}
+                            selectedModel={glassModel}
+                            initialParam={matrixParam}
+                            coordinates={coordinates}
+                        />
+                    </Suspense>
+                )}
             </div>
-            <MetricDeepDiveModal
-                metric={deepDive}
-                onClose={() => setDeepDive(null)}
-                units={units}
-                hourly={hourly || []}
-                forecast={forecast || []}
-                coordinates={coordinates}
-            />
+            {deepDive && (
+                <Suspense fallback={null}>
+                    <MetricDeepDiveModal
+                        metric={deepDive}
+                        onClose={() => setDeepDive(null)}
+                        units={units}
+                        hourly={hourly || []}
+                        forecast={forecast || []}
+                        coordinates={coordinates}
+                    />
+                </Suspense>
+            )}
         </MetricTapContext.Provider>
     );
 };

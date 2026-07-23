@@ -19,7 +19,7 @@
  *   - FAIRWY / DRGARE / NAVLINE       → preferred corridor
  */
 import { describe, expect, it } from 'vitest';
-import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouterEngine';
+import { routeInshore, type RouteRequest } from '../services/inshoreRouterEngine';
 import type { FeatureCollection, Feature } from 'geojson';
 
 // ── Synthetic-chart helpers ──────────────────────────────────────────

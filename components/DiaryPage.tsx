@@ -81,7 +81,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         weatherSummary,
         saving,
         polishing,
-        gpsLoading,
         deletedItem,
         selectMode: _selectMode,
         selectedIds,
@@ -474,10 +473,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setIsRecording(false);
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         triggerHaptic('light');
-    };
-    const removeAudio = () => {
-        setAudioUrl(null);
-        setRecordingTime(0);
     };
     // ── Audio Playback ─────────────────────────────────────────
     const togglePlayback = async (url: string) => {

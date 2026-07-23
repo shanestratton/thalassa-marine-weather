@@ -19,7 +19,7 @@ The route should be:
 """
 import json, math
 
-zones = json.load(open('../public/data/waterway_zones.geojson'))
+zones = json.load(open('../data/legacy-routing/waterway_zones.geojson'))
 
 def dist_m(lon1, lat1, lon2, lat2):
     dx = (lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2)) * 111320
@@ -224,7 +224,7 @@ for name, coords in osm_canals.items():
 
 # Save
 import os
-output_path = os.path.join('..', 'public', 'data', 'waterway_zones.geojson')
+output_path = os.path.join('..', 'data', 'legacy-routing', 'waterway_zones.geojson')
 with open(output_path, 'w') as f:
     json.dump(zones, f)
 

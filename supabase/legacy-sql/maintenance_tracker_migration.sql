@@ -1,3 +1,4 @@
+-- LEGACY REFERENCE ONLY — replaced by 20260219000000.
 -- ═══════════════════════════════════════════════════════════════════
 -- Vessel Maintenance & Routine Tracker
 -- Tables: maintenance_tasks, maintenance_history

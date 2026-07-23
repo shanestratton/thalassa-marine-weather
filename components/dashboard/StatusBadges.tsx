@@ -6,12 +6,7 @@ import { useWeather } from '../../context/WeatherContext';
 import { piCache, type PiFetchStats } from '../../services/PiCacheService';
 import { triggerHaptic } from '../../utils/system';
 import { useSettingsStore } from '../../stores/settingsStore';
-import {
-    resolveForecastModel,
-    getForecastModelInfo,
-    isSpitfire,
-    SPITFIRE_MODEL,
-} from '../../services/weather/forecastModels';
+import { resolveForecastModel, getForecastModelInfo, isSpitfire } from '../../services/weather/forecastModels';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
 

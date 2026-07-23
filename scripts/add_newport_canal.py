@@ -14,7 +14,7 @@ import json
 import math
 import os
 
-zones_path = os.path.join('..', 'public', 'data', 'waterway_zones.geojson')
+zones_path = os.path.join('..', 'data', 'legacy-routing', 'waterway_zones.geojson')
 zones = json.load(open(zones_path))
 
 def dist_m(lon1, lat1, lon2, lat2):

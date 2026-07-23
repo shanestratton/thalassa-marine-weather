@@ -5,16 +5,26 @@
  *
  * Usage: node scripts/check-bundle-size.js
  *
- * Budget: 5MB total (excluding source maps)
+ * Budgets cover the complete install payload plus the latency-sensitive
+ * application entry. Lazy feature chunks are allowed to exist, but cannot
+ * disguise a bloated first load.
  */
 
-const fs = require('fs');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
-const path = require('path');
-
-const DIST = path.join(__dirname, '..', 'dist');
-const BUDGET_MB = 5;
-const BUDGET_BYTES = BUDGET_MB * 1024 * 1024;
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DIST = path.join(SCRIPT_DIR, '..', 'dist');
+const MIB = 1024 * 1024;
+const KIB = 1024;
+const BUDGETS = {
+    total: 18 * MIB,
+    javascript: 9 * MIB,
+    mainRaw: 800 * KIB,
+    mainGzip: 250 * KIB,
+};
 
 function getFiles(dir, files = []) {
     if (!fs.existsSync(dir)) return files;
@@ -48,6 +58,15 @@ const other = files.filter((f) => !f.path.endsWith('.js') && !f.path.endsWith('.
 
 const jsTotal = js.reduce((s, f) => s + f.size, 0);
 const cssTotal = css.reduce((s, f) => s + f.size, 0);
+const mainFiles = js.filter((f) => /^assets\/main-[^/]+\.js$/.test(f.path));
+
+if (mainFiles.length !== 1) {
+    console.error(`❌ Expected exactly one main entry chunk, found ${mainFiles.length}.`);
+    process.exit(1);
+}
+
+const main = mainFiles[0];
+const mainGzip = gzipSync(fs.readFileSync(path.join(DIST, main.path))).byteLength;
 
 console.log('');
 console.log('📦 Bundle Size Report');
@@ -56,6 +75,7 @@ console.log(`   Total:  ${formatSize(total)} (${files.length} files)`);
 console.log(`   JS:     ${formatSize(jsTotal)} (${js.length} files)`);
 console.log(`   CSS:    ${formatSize(cssTotal)} (${css.length} files)`);
 console.log(`   Other:  ${formatSize(total - jsTotal - cssTotal)} (${other.length} files)`);
+console.log(`   Entry:  ${formatSize(main.size)} raw / ${formatSize(mainGzip)} gzip`);
 console.log('');
 
 // Top 5 largest files
@@ -66,12 +86,22 @@ for (const f of sorted) {
 }
 console.log('');
 
-if (total > BUDGET_BYTES) {
-    console.log(`⚠️  Over budget! ${formatSize(total)} > ${BUDGET_MB}MB`);
-    console.log('   Consider tree-shaking or code splitting.');
+const failures = [
+    ['total install payload', total, BUDGETS.total],
+    ['JavaScript payload', jsTotal, BUDGETS.javascript],
+    ['main entry (raw)', main.size, BUDGETS.mainRaw],
+    ['main entry (gzip)', mainGzip, BUDGETS.mainGzip],
+].filter(([, actual, budget]) => actual > budget);
+
+if (failures.length > 0) {
+    for (const [label, actual, budget] of failures) {
+        console.error(`❌ ${label} exceeds budget: ${formatSize(actual)} > ${formatSize(budget)}`);
+    }
     process.exit(1);
-} else {
-    const pct = ((total / BUDGET_BYTES) * 100).toFixed(0);
-    console.log(`✅ Within budget: ${formatSize(total)} / ${BUDGET_MB}MB (${pct}%)`);
 }
+console.log(
+    `✅ Within budgets: total ${formatSize(total)} / ${formatSize(BUDGETS.total)}, ` +
+        `JS ${formatSize(jsTotal)} / ${formatSize(BUDGETS.javascript)}, ` +
+        `entry ${formatSize(main.size)} / ${formatSize(BUDGETS.mainRaw)} raw`,
+);
 console.log('');

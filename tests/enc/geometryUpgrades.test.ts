@@ -30,7 +30,7 @@ vi.stubGlobal('Worker', FakeWorker);
 
 import { dispatchGeometryWork, GLAZE_CLONE_HARD_CAP, type GlazeUpgradeItem } from '../../services/enc/geometryUpgrades';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
-import { putMergedData, clearMergedData, getMergedData } from '../../services/enc/mergedDataCache';
+import { putMergedData, clearMergedData } from '../../services/enc/mergedDataCache';
 import {
     clearAllGlazeAssemblies,
     clearGlazeCell,

@@ -21,11 +21,6 @@ import {
     type KnowledgeCategory,
 } from '../../services/CalypsoKnowledgeService';
 
-const CATEGORY_LABEL = KNOWLEDGE_CATEGORIES.reduce(
-    (acc, c) => ({ ...acc, [c.id]: c.label }),
-    {} as Record<KnowledgeCategory, string>,
-);
-
 interface DraftState {
     id: string | null; // null = new entry
     category: KnowledgeCategory;

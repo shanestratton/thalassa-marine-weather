@@ -240,7 +240,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             setProvisioning(false);
             setSshPass(''); // Clear password from memory
         }
-    }, [sshHost, sshUser, sshPass, onSave, runUnifiedDiscovery]);
+    }, [sshHost, sshUser, sshPass, runUnifiedDiscovery]);
 
     // ── Skipper-only gate ──
     if (!isSkipper) {

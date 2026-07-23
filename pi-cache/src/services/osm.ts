@@ -270,7 +270,7 @@ function assembleMultipolygonRings(rel: OverpassRelationGeom): Array<{ ring: Pos
 
     while (remaining.length > 0) {
         const start = remaining.shift()!;
-        let ring = start.coords.slice();
+        const ring = start.coords.slice();
         let extended = true;
         // Chain other segments of the same role that share endpoints.
         while (extended && remaining.length > 0) {

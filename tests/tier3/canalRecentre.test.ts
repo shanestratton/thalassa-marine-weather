@@ -11,7 +11,6 @@ import { describe, it, expect } from 'vitest';
 import type { Polygon } from 'geojson';
 import { recentreCanalRedOnEnc } from '../../services/engine/tierPipeline';
 
-const M_PER_LAT = 110_540;
 const mPerLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
 
 /** A rectangular LNDARE land block as {geom,bbox} the function consumes. */
@@ -65,7 +64,7 @@ describe('recentreCanalRedOnEnc — ENC-channel centring (Newport main channel)'
         // to a centred straight line — fewer points, still dead centre).
         const offs = polyline.map(([lon, lat]) => Math.abs(offFromCentreM(lon, lat)));
         const worst = Math.max(...offs);
-        // eslint-disable-next-line no-console
+
         console.log(
             `[recentre] raw worst=${rawWorst.toFixed(1)}m → out worst=${worst.toFixed(1)}m (n=${polyline.length})`,
         );
@@ -138,7 +137,7 @@ describe('recentreCanalRedOnEnc — ENC-channel centring (Newport main channel)'
             [chain],
         );
         const worst = Math.max(...polyline.map(([lon, lat]) => off(lon, lat)));
-        // eslint-disable-next-line no-console
+
         console.log(`[recentre-chain] raw worst=${rawWorst.toFixed(1)}m → out worst=${worst.toFixed(1)}m`);
         expect(worst).toBeLessThan(5);
     });

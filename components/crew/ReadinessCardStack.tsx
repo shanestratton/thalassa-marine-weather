@@ -227,11 +227,9 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     onAssignCard,
     // Passage Intelligence
     vesselProfileReady = false,
-    comfortProfileReady = false,
     weatherWindowReady = false,
     currentsBriefed = false,
     onVesselProfileChange,
-    onComfortProfileChange,
     onWeatherWindowChange,
     onCurrentsChange,
 }) => {

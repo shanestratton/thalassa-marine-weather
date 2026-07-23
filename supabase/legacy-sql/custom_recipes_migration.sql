@@ -1,3 +1,4 @@
+-- LEGACY REFERENCE ONLY — replaced by 20260723094000.
 -- ========================
 -- Custom Recipes Migration
 -- ========================

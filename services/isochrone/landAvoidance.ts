@@ -97,21 +97,6 @@ export function segmentCrossesLand(
 }
 
 /**
- * Check if a point has any land in its immediate neighbourhood (8 adjacent grid cells).
- * Used to detect near-shore positions that should be pushed further offshore.
- */
-function hasAdjacentLand(grid: BathymetryGrid, lat: number, lon: number): boolean {
-    const step = Math.max(grid.latStep, grid.lonStep);
-    for (const dLat of [-step, 0, step]) {
-        for (const dLon of [-step, 0, step]) {
-            if (dLat === 0 && dLon === 0) continue;
-            if (isLand(grid, lat + dLat, lon + dLon)) return true;
-        }
-    }
-    return false;
-}
-
-/**
  * Post-process: push segments that clip land offshore.
  *
  * For each segment A→B, if it crosses land, insert intermediate waypoints

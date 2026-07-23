@@ -17,7 +17,7 @@ import { withDeadline } from '../../utils/deadline';
 // the WebGL renderer can be reused off-app (public voyage-log page) without
 // this file's fetch stack. Re-exported here so existing importers are
 // unaffected.
-import { MAX_SPEED, encodeWindTexture, type WindGrid } from './windGridEncoding';
+import type { WindGrid } from './windGridEncoding';
 export { MAX_SPEED, encodeWindTexture, type WindGrid } from './windGridEncoding';
 
 const WIND_FIELD_HOURS = 48;

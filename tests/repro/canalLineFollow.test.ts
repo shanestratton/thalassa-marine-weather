@@ -63,7 +63,7 @@ describe.skipIf(!PI_UP)('followCanalLines — Newport estate', () => {
             for (const v of allVerts) best = Math.min(best, distM(p, v));
             maxOffLine = Math.max(maxOffLine, best);
         }
-        // eslint-disable-next-line no-console
+
         console.log(
             `route pts=${route.length} len=${len.toFixed(0)}m maxSeg=${maxSeg.toFixed(0)}m maxOffLine=${maxOffLine.toFixed(1)}m`,
         );

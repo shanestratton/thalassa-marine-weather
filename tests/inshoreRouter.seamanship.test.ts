@@ -670,11 +670,6 @@ describe('seamanship: mid-span shoal bar vs parallel marked channel (lon 161.00â
         pairs.push({ port: { lat: CH_LAT + CH_HALF, lon }, stbd: { lat: CH_LAT - CH_HALF, lon } });
     }
     const gates: Gate[] = gatesFrom(pairs);
-    const centreline: LatLon[] = [
-        { lat: CH_LAT, lon: 161.16 },
-        { lat: CH_LAT, lon: 161.24 },
-    ];
-
     const layers: Parameters<typeof routeInshore>[0] = {
         DEPARE: fc(
             rect(161.0, -27.4, 161.4, -27.0, { DRVAL1: 15 }), // deep open water everywhere

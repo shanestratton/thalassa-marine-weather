@@ -4,7 +4,7 @@ Extract waterway graph from Overpass API for SE QLD.
 Pulls all waterway=canal|river|fairway ways with their nodes,
 preserving connectivity at junctions (shared OSM nodes).
 
-Output: public/data/waterway_graph.json
+Output: data/legacy-routing/waterway_graph.json
 """
 
 import json
@@ -176,7 +176,7 @@ def main():
 
     import os
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    out_path = os.path.join(script_dir, "..", "public", "data", "waterway_graph.json")
+    out_path = os.path.join(script_dir, "..", "data", "legacy-routing", "waterway_graph.json")
     out_path = os.path.normpath(out_path)
     with open(out_path, "w") as f:
         json.dump(output, f)

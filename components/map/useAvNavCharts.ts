@@ -187,19 +187,20 @@ export function useAvNavCharts(
 
     // Cleanup on unmount
     useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        const addedLayers = addedLayersRef.current;
         return () => {
-            const map = mapRef.current;
             if (!map) return;
-            for (const chartId of addedLayersRef.current) {
+            for (const chartId of addedLayers) {
                 const layerId = `${SK_LAYER_PREFIX}${chartId}`;
                 const sourceId = `${SK_SOURCE_PREFIX}${chartId}`;
                 if (map.getLayer(layerId)) map.removeLayer(layerId);
                 if (map.getSource(sourceId)) map.removeSource(sourceId);
             }
-            addedLayersRef.current.clear();
+            addedLayers.clear();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [mapRef, mapReady]);
 
     // Fly to chart bounds — or fall back to the user's current location
     // when bounds are missing (common for o-charts DRM charts).

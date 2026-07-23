@@ -17,7 +17,6 @@ import type { CachedPosition } from '../BgGeoManager';
 import { BgGeoManager } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { NmeaGpsProvider } from '../NmeaGpsProvider';
-import { webGetFreshPosition } from './EntrySave';
 
 const GPS_STALE_LIMIT_MS = 60_000;
 const GPS_VERY_STALE_MS = 5 * 60 * 1000;

@@ -18,7 +18,7 @@ import { Cache } from '../cache.js';
 import { ProxyConfig, cachedTileFetch } from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
-export function createTileRoutes(cache: Cache, config: ProxyConfig): Router {
+export function createTileRoutes(cache: Cache, _config: ProxyConfig): Router {
     const router = Router();
 
     /**

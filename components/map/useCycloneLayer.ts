@@ -1425,19 +1425,9 @@ export function useCycloneLayer(
 
         // categoryLabels and categoryColor are defined at module scope
 
-        // ── Create storm info badge element ──
-        const createStormBadge = (cyclone: ActiveCyclone): HTMLDivElement => {
-            const wrapper = document.createElement('div');
-            buildStormBadgeDOM(wrapper, buildBadgeData(cyclone));
-            return wrapper;
-        };
-
         // ── Rebuild markers — HUD badge + geo-anchored storm eye markers ──
         const HUD_CONTAINER_ID = 'cyclone-hud-badges';
-        const closestStormRef = { current: null as ActiveCyclone | null };
         const rebuildMarkers = () => {
-            // Resolve focused storm from ref (latest user selection) or closest fallback
-            const focusedStorm = selectedStormRef.current ?? closestStormRef.current;
             // Remove old HUD
             const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (old) old.remove();
@@ -1649,9 +1639,6 @@ export function useCycloneLayer(
                     onClosestStormRef.current?.(closest);
                 }
 
-                // ── Render storm info badge for focused storm ──
-                // Use user-selected storm if available, otherwise closest
-                closestStormRef.current = closest;
                 rebuildMarkers();
 
                 // ── Satellite IR overlay — all 4 NOAA/SSEC geostationary satellites ──
@@ -1854,7 +1841,7 @@ function computeDevProbability(cyclone: ActiveCyclone): 'LOW' | 'MODERATE' | 'HI
 }
 
 /** Build common StormBadgeData from an ActiveCyclone */
-function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadgeData {
+function _buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadgeData {
     const accentColor = categoryColor(cyclone.category);
     const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
     const stormName = resolveStormName(cyclone);
@@ -1919,13 +1906,6 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
     };
 }
 
-// ── Static badge builder (accessible outside the main effect closure) ──
-function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
-    const wrapper = document.createElement('div');
-    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone));
-    return wrapper;
-}
-
 // ── Shared storm badge DOM builder (no innerHTML) ──
 interface StormBadgeData {
     accentColor: string;
@@ -1950,7 +1930,7 @@ interface StormBadgeData {
     onClose?: () => void;
 }
 
-function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
+function _buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
     const card = document.createElement('div');
     card.style.cssText = `
         background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);

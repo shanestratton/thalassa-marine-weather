@@ -92,7 +92,7 @@ describe('VoyageLegService', () => {
     });
 
     it('getLegSummary calculates duration', () => {
-        const leg = startLeg(VOYAGE_ID, 'Brisbane');
+        startLeg(VOYAGE_ID, 'Brisbane');
 
         // Manually set departure time in the past for duration calc
         const legs = JSON.parse(localStorage.getItem('thalassa_voyage_legs') || '[]');

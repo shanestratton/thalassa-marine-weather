@@ -124,7 +124,7 @@ function dogLegCase(): CorpusCase {
 
 interface CorpusCase {
     name: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     layers: any;
     req: RouteRequest;
 }
@@ -216,7 +216,7 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
             )
             .join('\n');
         console.warn(`\nARBITRATION CORPUS\n${table}\n`);
-    }, 60_000); // real engine on 4 corridors; generous under full-suite contention
+    }, 180_000); // real engine on 4 corridors; coverage instrumentation is substantially slower
 
     it('graph rows respect sanity bounds (ratios, fractions, §3 detour cap context)', () => {
         for (const r of rows) {
