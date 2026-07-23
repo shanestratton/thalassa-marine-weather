@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { DATA_EVENTS, dispatchDataChange } from '../utils/dataChangeEvents';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 // Mutable fixtures the mocked services read from — tests mutate these
 // then fire the matching event to simulate a real mutation elsewhere.
@@ -22,12 +23,13 @@ let maintTasks: Array<{ id: string; is_active: boolean; next_due_date: string | 
 let cloudTasks: typeof maintTasks;
 let docs: Array<{ id: string; expiry_date: string | null }>;
 let equip: Array<{ id: string; warranty_expiry: string | null }>;
+const cloudGetTasks = vi.fn();
 
 vi.mock('../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: { getTasks: () => maintTasks },
 }));
 vi.mock('../services/MaintenanceService', () => ({
-    MaintenanceService: { getTasks: async () => cloudTasks },
+    MaintenanceService: { getTasks: () => cloudGetTasks() },
 }));
 vi.mock('../services/vessel/LocalDocumentService', () => ({
     LocalDocumentService: { getAll: () => docs },
@@ -40,14 +42,19 @@ import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 
 describe('useVesselReadinessCounts', () => {
     beforeEach(() => {
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('readiness-a');
         maintTasks = [{ id: 't1', is_active: true, next_due_date: PAST, updated_at: PAST }]; // overdue
         cloudTasks = [{ id: 't1', is_active: true, next_due_date: PAST, updated_at: PAST }];
         docs = [{ id: 'd1', expiry_date: new Date(Date.now() + 5 * 86_400_000).toISOString() }]; // within 30d
         equip = [{ id: 'e1', warranty_expiry: new Date(Date.now() + 5 * 86_400_000).toISOString() }];
+        cloudGetTasks.mockReset();
+        cloudGetTasks.mockImplementation(async () => cloudTasks);
     });
 
     afterEach(() => {
         vi.restoreAllMocks();
+        setAuthIdentityScope(null);
     });
 
     it('computes the initial counts on mount', async () => {
@@ -109,5 +116,38 @@ describe('useVesselReadinessCounts', () => {
         maintTasks = [];
         act(() => dispatchDataChange(DATA_EVENTS.MAINTENANCE));
         expect(result.current.overdueCount).toBe(last);
+    });
+
+    it('synchronously hides A badges and drops its deferred refresh after switching to B', async () => {
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+
+        let resolveA!: (tasks: typeof cloudTasks) => void;
+        cloudGetTasks.mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveA = resolve;
+            }),
+        );
+        act(() => dispatchDataChange(DATA_EVENTS.MAINTENANCE));
+        await waitFor(() => expect(cloudGetTasks).toHaveBeenCalledTimes(2));
+
+        maintTasks = [];
+        cloudTasks = [];
+        docs = [];
+        equip = [];
+        act(() => {
+            setAuthIdentityScope('readiness-b');
+        });
+
+        expect(result.current).toEqual({
+            overdueCount: 0,
+            expiringDocsCount: 0,
+            expiringEquipCount: 0,
+        });
+
+        await act(async () => {
+            resolveA([{ id: 'late-a', is_active: true, next_due_date: PAST, updated_at: PAST }]);
+        });
+        await waitFor(() => expect(result.current.overdueCount).toBe(0));
     });
 });

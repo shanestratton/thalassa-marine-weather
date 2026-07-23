@@ -13,10 +13,12 @@ import {
     getLegSummary,
     deleteLegsForVoyage,
 } from '../services/VoyageLegService';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
-// Clear localStorage before each test
 beforeEach(() => {
-    localStorage.removeItem('thalassa_voyage_legs');
+    localStorage.clear();
+    setAuthIdentityScope(null);
+    setAuthIdentityScope('account-a');
 });
 
 const VOYAGE_ID = 'test-voyage-001';
@@ -60,21 +62,16 @@ describe('VoyageLegService', () => {
     });
 
     it('multi-leg passage: Brisbane → Nouméa → Suva', () => {
-        // Leg 1: Brisbane → Nouméa
         startLeg(VOYAGE_ID, 'Brisbane');
         closeLeg(VOYAGE_ID, 'Nouméa', 750);
-
-        // Leg 2: Nouméa → Suva
         startLeg(VOYAGE_ID, 'Nouméa');
         closeLeg(VOYAGE_ID, 'Suva', 680);
 
         const legs = getLegsForVoyage(VOYAGE_ID);
         expect(legs).toHaveLength(2);
-
         expect(legs[0].leg_number).toBe(1);
         expect(legs[0].departure_port).toBe('Brisbane');
         expect(legs[0].arrival_port).toBe('Nouméa');
-
         expect(legs[1].leg_number).toBe(2);
         expect(legs[1].departure_port).toBe('Nouméa');
         expect(legs[1].arrival_port).toBe('Suva');
@@ -94,11 +91,11 @@ describe('VoyageLegService', () => {
     it('getLegSummary calculates duration', () => {
         startLeg(VOYAGE_ID, 'Brisbane');
 
-        // Manually set departure time in the past for duration calc
-        const legs = JSON.parse(localStorage.getItem('thalassa_voyage_legs') || '[]');
-        const twelvHoursAgo = new Date(Date.now() - 12 * 3600000).toISOString();
-        legs[0].departure_time = twelvHoursAgo;
-        localStorage.setItem('thalassa_voyage_legs', JSON.stringify(legs));
+        const key = authScopedStorageKey('thalassa_voyage_legs');
+        const legs = JSON.parse(localStorage.getItem(key) || '[]');
+        const twelveHoursAgo = new Date(Date.now() - 12 * 3_600_000).toISOString();
+        legs[0].departure_time = twelveHoursAgo;
+        localStorage.setItem(key, JSON.stringify(legs));
 
         const closed = closeLeg(VOYAGE_ID, 'Nouméa', 750);
         expect(closed).not.toBeNull();
@@ -124,14 +121,37 @@ describe('VoyageLegService', () => {
     });
 
     it('legs from different voyages are isolated', () => {
-        const OTHER_VOYAGE = 'test-voyage-002';
+        const otherVoyage = 'test-voyage-002';
 
         startLeg(VOYAGE_ID, 'Brisbane');
-        startLeg(OTHER_VOYAGE, 'Sydney');
+        startLeg(otherVoyage, 'Sydney');
 
         expect(getLegsForVoyage(VOYAGE_ID)).toHaveLength(1);
-        expect(getLegsForVoyage(OTHER_VOYAGE)).toHaveLength(1);
+        expect(getLegsForVoyage(otherVoyage)).toHaveLength(1);
         expect(getLegsForVoyage(VOYAGE_ID)[0].departure_port).toBe('Brisbane');
-        expect(getLegsForVoyage(OTHER_VOYAGE)[0].departure_port).toBe('Sydney');
+        expect(getLegsForVoyage(otherVoyage)[0].departure_port).toBe('Sydney');
+    });
+
+    it('keeps local voyage legs private to the account that created them', () => {
+        const accountALeg = startLeg(VOYAGE_ID, 'Brisbane');
+
+        setAuthIdentityScope('account-b');
+        expect(getLegsForVoyage(VOYAGE_ID)).toEqual([]);
+        const accountBLeg = startLeg(VOYAGE_ID, 'Sydney');
+
+        setAuthIdentityScope('account-a');
+        expect(getActiveLeg(VOYAGE_ID)?.id).toBe(accountALeg.id);
+
+        setAuthIdentityScope('account-b');
+        expect(getActiveLeg(VOYAGE_ID)?.id).toBe(accountBLeg.id);
+    });
+
+    it('does not adopt unattributable legacy voyage legs', () => {
+        localStorage.setItem(
+            'thalassa_voyage_legs',
+            JSON.stringify([{ id: 'legacy-leg', voyage_id: VOYAGE_ID, leg_number: 1, status: 'active' }]),
+        );
+
+        expect(getLegsForVoyage(VOYAGE_ID)).toEqual([]);
     });
 });

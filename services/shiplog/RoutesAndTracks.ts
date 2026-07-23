@@ -25,6 +25,12 @@ import { isTrackworthyEntry } from './helpers';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import { getVoyageSummaries, getVoyageEntries, isLandVoyage, type VoyageSummary } from './VoyageSummary';
 import type { ShipLogEntry } from '../../types/navigation';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../authIdentityScope';
 
 export interface RouteOrTrack {
     /** Stable id matching the underlying voyageId. */
@@ -78,8 +84,38 @@ export interface RoutesAndTracksResult {
 }
 
 const CACHE_TTL_MS = 60_000;
-let cache: { at: number; data: RoutesAndTracksResult } | null = null;
-let inflight: Promise<RoutesAndTracksResult> | null = null;
+type ScopedCache = { scope: AuthIdentityScope; at: number; data: RoutesAndTracksResult };
+type ScopedInflight = { scope: AuthIdentityScope; promise: Promise<RoutesAndTracksResult> };
+let cache: ScopedCache | null = null;
+let inflight: ScopedInflight | null = null;
+
+const EMPTY_RESULT: RoutesAndTracksResult = { routes: [], tracks: [] };
+
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+function cloneRoute(item: RouteOrTrack): RouteOrTrack {
+    return {
+        ...item,
+        points: item.points.map((point) => ({ ...point })),
+        bbox: [item.bbox[0], item.bbox[1], item.bbox[2], item.bbox[3]],
+    };
+}
+
+function cloneResult(result: RoutesAndTracksResult): RoutesAndTracksResult {
+    return {
+        routes: result.routes.map(cloneRoute),
+        tracks: result.tracks.map(cloneRoute),
+    };
+}
+
+subscribeAuthIdentityScope(() => {
+    // Results and promises may contain private route names and geometry.
+    // Drop both references synchronously at the account boundary.
+    cache = null;
+    inflight = null;
+});
 
 function isPlanned(voyageId: string | undefined | null): boolean {
     return typeof voyageId === 'string' && voyageId.startsWith('planned_');
@@ -281,17 +317,25 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
 }
 
 export async function fetchRoutesAndTracks(force = false): Promise<RoutesAndTracksResult> {
+    const scope = getAuthIdentityScope();
     const now = Date.now();
-    if (!force && cache && now - cache.at < CACHE_TTL_MS) return cache.data;
-    if (inflight) return inflight;
+    if (!force && cache && sameScope(cache.scope, scope) && now - cache.at < CACHE_TTL_MS) {
+        return cloneResult(cache.data);
+    }
+    if (inflight && sameScope(inflight.scope, scope)) return inflight.promise.then(cloneResult);
 
-    inflight = (async () => {
+    const request: ScopedInflight = {
+        scope,
+        promise: Promise.resolve(EMPTY_RESULT),
+    };
+    request.promise = (async () => {
         try {
             // Pull cloud and offline queue in parallel — cloud covers
             // years of cruising (10k cap), offline queue is whatever
             // hasn't synced yet (un-authed user's plans, or anything
             // saved while the device had no network).
             const [cloudEntries, offlineEntries] = await Promise.all([getLogEntries(10_000), getOfflineEntries()]);
+            if (!isAuthIdentityScopeCurrent(scope)) return EMPTY_RESULT;
 
             // Track which voyageIds exist in the cloud so groupByVoyage
             // can tag local-only entries with `isLocal: true`. Once the
@@ -312,15 +356,18 @@ export async function fetchRoutesAndTracks(force = false): Promise<RoutesAndTrac
                 routes: all.filter((g) => isPlanned(g.id)),
                 tracks: all.filter((g) => !isPlanned(g.id)),
             };
-            cache = { at: Date.now(), data };
-            return data;
+            if (!isAuthIdentityScopeCurrent(scope)) return EMPTY_RESULT;
+            cache = { scope, at: Date.now(), data: cloneResult(data) };
+            return cloneResult(data);
         } catch {
-            return { routes: [], tracks: [] };
+            return EMPTY_RESULT;
         } finally {
-            inflight = null;
+            // A's late finally must not erase B's newer in-flight request.
+            if (inflight === request) inflight = null;
         }
     })();
-    return inflight;
+    inflight = request;
+    return request.promise.then(cloneResult);
 }
 
 /** Drop the cache so the next fetch hits Supabase. Call after a save.
@@ -330,11 +377,13 @@ export async function fetchRoutesAndTracks(force = false): Promise<RoutesAndTrac
  *  that aren't registered are no-ops. */
 export const ROUTES_AND_TRACKS_CHANGED_EVENT = 'thalassa:routes-and-tracks-changed';
 
-export function invalidateRoutesAndTracks(): void {
+export function invalidateRoutesAndTracks(expectedScope: AuthIdentityScope = getAuthIdentityScope()): void {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+    const scope = expectedScope;
     cache = null;
     if (typeof window !== 'undefined') {
         try {
-            window.dispatchEvent(new CustomEvent(ROUTES_AND_TRACKS_CHANGED_EVENT));
+            window.dispatchEvent(new CustomEvent(ROUTES_AND_TRACKS_CHANGED_EVENT, { detail: { scopeKey: scope.key } }));
         } catch {
             /* CustomEvent not available (very old browsers) — silent fallback */
         }
@@ -374,10 +423,12 @@ export interface SeaVoyageChoice {
  * merge in with a LOCAL flag.
  */
 export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]> {
+    const scope = getAuthIdentityScope();
     const [summaries, offline] = await Promise.all([
         getVoyageSummaries().catch(() => [] as VoyageSummary[]),
         getOfflineEntries().catch(() => [] as ShipLogEntry[]),
     ]);
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
     const fromCloud: SeaVoyageChoice[] = summaries
         .filter((s) => !s.isPlannedRoute && !isLandVoyage(s) && s.entryCount >= 2)
         .map((s) => {
@@ -402,7 +453,8 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
             distanceNm: t.distanceNm,
             isLocal: true,
         }));
-    return [...fromQueue, ...fromCloud].sort((a, b) => b.timestamp - a.timestamp).slice(0, max);
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    return [...fromQueue, ...fromCloud].sort((a, b) => b.timestamp - a.timestamp).slice(0, Math.max(0, max));
 }
 
 /**
@@ -418,13 +470,18 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
  */
 export async function fetchVoyageAsTrack(voyageId: string): Promise<RouteOrTrack | null> {
     if (!voyageId) return null;
+    const scope = getAuthIdentityScope();
+    const targetVoyageId = voyageId;
     const [cloud, offline] = await Promise.all([
-        getVoyageEntries(voyageId).catch(() => [] as ShipLogEntry[]),
+        getVoyageEntries(targetVoyageId).catch(() => [] as ShipLogEntry[]),
         getOfflineEntries().catch(() => [] as ShipLogEntry[]),
     ]);
-    const merged = [...cloud, ...offline.filter((e) => e.voyageId === voyageId)];
-    const groups = groupByVoyage(merged, new Set(cloud.length > 0 ? [voyageId] : []));
-    return groups.find((g) => g.id === voyageId) ?? null;
+    if (!isAuthIdentityScopeCurrent(scope)) return null;
+    const merged = [...cloud, ...offline.filter((e) => e.voyageId === targetVoyageId)];
+    const groups = groupByVoyage(merged, new Set(cloud.length > 0 ? [targetVoyageId] : []));
+    if (!isAuthIdentityScopeCurrent(scope)) return null;
+    const match = groups.find((g) => g.id === targetVoyageId);
+    return match ? cloneRoute(match) : null;
 }
 
 /**
@@ -433,13 +490,19 @@ export async function fetchVoyageAsTrack(voyageId: string): Promise<RouteOrTrack
  * 1,700-fix passage arrives whole; no global row window to age out of).
  */
 export async function loadVoyageTrackPoints(voyageId: string): Promise<Array<{ lat: number; lon: number }>> {
+    if (!voyageId) return [];
+    const scope = getAuthIdentityScope();
+    const targetVoyageId = voyageId;
     const offline = (await getOfflineEntries().catch(() => [] as ShipLogEntry[])).filter(
-        (e) => e.voyageId === voyageId,
+        (e) => e.voyageId === targetVoyageId,
     );
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
     let entries = offline;
     if (entries.filter(isTrackworthyEntry).length < 2) {
-        entries = await getVoyageEntries(voyageId);
+        entries = await getVoyageEntries(targetVoyageId);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
     }
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
     return entries
         .filter(isTrackworthyEntry)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())

@@ -40,6 +40,80 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  */
 
 const DEEPGRAM_BASE = 'wss://api.deepgram.com/v1/listen';
+const MAX_SESSION_MS = 5 * 60 * 1000;
+const UPSTREAM_HANDSHAKE_MS = 10_000;
+const MAX_CLIENT_BYTES = 25_000_000;
+const MAX_FRAME_BYTES = 1_000_000;
+const MAX_EARLY_BUFFER_BYTES = 2_000_000;
+const MAX_CONTROL_BYTES = 4_096;
+const ALLOWED_CONTROL_TYPES = new Set(['KeepAlive', 'CloseStream', 'Finalize']);
+
+function boundedDeepgramParams(incoming: URL): URLSearchParams | null {
+    if (incoming.search.length > 2_048) return null;
+    const allowedKeys = new Set([
+        'model',
+        'encoding',
+        'sample_rate',
+        'channels',
+        'interim_results',
+        'smart_format',
+        'endpointing',
+        'language',
+        'vad_events',
+        'punctuate',
+        'keyterm',
+        'apikey',
+        'ticket',
+        'token',
+        'access_token',
+    ]);
+    for (const key of incoming.searchParams.keys()) {
+        if (!allowedKeys.has(key)) return null;
+    }
+
+    const sampleRate = Number(incoming.searchParams.get('sample_rate'));
+    const endpointing = Number(incoming.searchParams.get('endpointing'));
+    if (
+        incoming.searchParams.get('model') !== 'nova-3' ||
+        incoming.searchParams.get('encoding') !== 'linear16' ||
+        !Number.isInteger(sampleRate) ||
+        sampleRate < 8_000 ||
+        sampleRate > 48_000 ||
+        incoming.searchParams.get('channels') !== '1' ||
+        !Number.isInteger(endpointing) ||
+        endpointing < 100 ||
+        endpointing > 2_000 ||
+        incoming.searchParams.get('language') !== 'en-AU'
+    ) {
+        return null;
+    }
+    for (const flag of ['interim_results', 'smart_format', 'vad_events', 'punctuate']) {
+        if (incoming.searchParams.get(flag) !== 'true') return null;
+    }
+
+    const keyterms = incoming.searchParams.getAll('keyterm');
+    if (
+        keyterms.length > 10 ||
+        keyterms.some((term) => term.length < 1 || term.length > 64 || !/^[\p{L}\p{N} .'-]+$/u.test(term))
+    ) {
+        return null;
+    }
+
+    const forwarded = new URLSearchParams({
+        model: 'nova-3',
+        encoding: 'linear16',
+        sample_rate: String(sampleRate),
+        channels: '1',
+        interim_results: 'true',
+        smart_format: 'true',
+        endpointing: String(endpointing),
+        language: 'en-AU',
+        vad_events: 'true',
+        punctuate: 'true',
+    });
+    for (const term of keyterms) forwarded.append('keyterm', term);
+    return forwarded;
+}
 
 Deno.serve(async (req: Request) => {
     const upgrade = req.headers.get('upgrade')?.toLowerCase() ?? '';
@@ -52,8 +126,9 @@ Deno.serve(async (req: Request) => {
 
     const apiKey = Deno.env.get('DEEPGRAM_API_KEY');
     if (!apiKey) {
-        return new Response(JSON.stringify({ error: 'DEEPGRAM_API_KEY not configured' }), {
-            status: 500,
+        console.error('[dg-proxy] DEEPGRAM_API_KEY is not configured');
+        return new Response(JSON.stringify({ error: 'Voice service is not configured' }), {
+            status: 503,
             headers: { 'Content-Type': 'application/json' },
         });
     }
@@ -62,8 +137,15 @@ Deno.serve(async (req: Request) => {
     const ticket = incoming.searchParams.get('ticket');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-    if (!ticket || !supabaseUrl || !anonKey) {
+    if (!ticket || !/^[a-f0-9]{64}$/.test(ticket) || !supabaseUrl || !anonKey) {
         return new Response(JSON.stringify({ error: 'Missing proxy authorization' }), { status: 401 });
+    }
+    const forwarded = boundedDeepgramParams(incoming);
+    if (!forwarded) {
+        return new Response(JSON.stringify({ error: 'Invalid speech configuration' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+        });
     }
     const ticketClient = createClient(supabaseUrl, anonKey);
     const { data: ticketValid, error: ticketError } = await ticketClient.rpc('consume_deepgram_proxy_ticket', {
@@ -73,16 +155,8 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ error: 'Invalid or expired proxy ticket' }), { status: 401 });
     }
 
-    // Strip our own ?apikey query param (Supabase-gateway auth) before
-    // forwarding to Deepgram. Anything else the client passed (model,
-    // encoding, sample_rate, keywords, etc.) goes through verbatim.
-    const forwarded = new URLSearchParams();
-    for (const [k, v] of incoming.searchParams) {
-        if (k === 'apikey' || k === 'ticket' || k === 'token' || k === 'access_token') continue;
-        forwarded.append(k, v);
-    }
     const dgUrl = `${DEEPGRAM_BASE}?${forwarded.toString()}`;
-    console.log(`[dg-proxy] opening upstream: ${dgUrl}`);
+    console.log('[dg-proxy] opening bounded nova-3 upstream');
 
     // Accept the client upgrade FIRST so we can echo open/close cleanly
     // even if the upstream connection has trouble.
@@ -98,6 +172,28 @@ Deno.serve(async (req: Request) => {
     let clientChunksReceived = 0;
     let clientBytesReceived = 0;
     let upstreamMessagesReceived = 0;
+    let earlyBufferBytes = 0;
+    let upstreamHandshakeTimer: ReturnType<typeof setTimeout> | null = null;
+    const closeBoth = (code: number, reason: string): void => {
+        if (clientSocket.readyState === WebSocket.OPEN || clientSocket.readyState === WebSocket.CONNECTING) {
+            try {
+                clientSocket.close(code, reason);
+            } catch {
+                // Ignore close races.
+            }
+        }
+        if (
+            upstreamSocket &&
+            (upstreamSocket.readyState === WebSocket.OPEN || upstreamSocket.readyState === WebSocket.CONNECTING)
+        ) {
+            try {
+                upstreamSocket.close(code, reason);
+            } catch {
+                // Ignore close races.
+            }
+        }
+    };
+    const sessionTimer = setTimeout(() => closeBoth(1000, 'session limit reached'), MAX_SESSION_MS);
     /**
      * Buffer audio chunks that arrive on the client socket BEFORE the
      * upstream has finished handshaking. iOS sends the first PCM chunk
@@ -106,7 +202,6 @@ Deno.serve(async (req: Request) => {
      * never see the start of the utterance.
      */
     const earlyBuffer: (ArrayBuffer | string)[] = [];
-    const MAX_BUFFERED_CHUNKS = 200;
 
     clientSocket.addEventListener('open', () => {
         console.log('[dg-proxy] client socket open');
@@ -130,6 +225,10 @@ Deno.serve(async (req: Request) => {
     try {
         upstreamSocket = new WebSocket(dgUrl, ['token', apiKey]);
         upstreamSocket.binaryType = 'arraybuffer';
+        upstreamHandshakeTimer = setTimeout(
+            () => closeBoth(1011, 'upstream handshake timed out'),
+            UPSTREAM_HANDSHAKE_MS,
+        );
     } catch (err) {
         console.error('[dg-proxy] upstream ctor failed:', (err as Error).message);
         try {
@@ -142,6 +241,8 @@ Deno.serve(async (req: Request) => {
 
     upstreamSocket.addEventListener('open', () => {
         console.log('[dg-proxy] upstream open');
+        if (upstreamHandshakeTimer) clearTimeout(upstreamHandshakeTimer);
+        upstreamHandshakeTimer = null;
         upstreamReady = true;
         // Tell the client the upstream is up — diagnostic, lets the
         // iOS debug strip show whether Deepgram itself ever connected.
@@ -159,10 +260,21 @@ Deno.serve(async (req: Request) => {
             }
         }
         earlyBuffer.length = 0;
+        earlyBufferBytes = 0;
     });
 
     upstreamSocket.addEventListener('message', (ev: MessageEvent) => {
         upstreamMessagesReceived++;
+        const upstreamSize =
+            typeof ev.data === 'string'
+                ? new TextEncoder().encode(ev.data).byteLength
+                : ev.data instanceof ArrayBuffer
+                  ? ev.data.byteLength
+                  : MAX_FRAME_BYTES + 1;
+        if (upstreamSize > MAX_FRAME_BYTES) {
+            closeBoth(1009, 'upstream frame too large');
+            return;
+        }
         // Sample-log first 5 messages (so we can see the metadata frame
         // and the first transcript) plus every 50th after that.
         if (upstreamMessagesReceived <= 5 || upstreamMessagesReceived % 50 === 0) {
@@ -182,6 +294,9 @@ Deno.serve(async (req: Request) => {
     });
 
     upstreamSocket.addEventListener('close', (ev: CloseEvent) => {
+        if (upstreamHandshakeTimer) clearTimeout(upstreamHandshakeTimer);
+        upstreamHandshakeTimer = null;
+        clearTimeout(sessionTimer);
         console.log(`[dg-proxy] upstream closed code=${ev.code} reason="${ev.reason}" ready=${upstreamReady}`);
         // Tell the client the upstream just closed. Send BEFORE we
         // close the client socket so the iOS debug strip sees the
@@ -227,9 +342,33 @@ Deno.serve(async (req: Request) => {
         // Pass client → Deepgram. ev.data is ArrayBuffer (audio) or
         // string (control messages like CloseStream).
         clientChunksReceived++;
-        if (typeof ev.data !== 'string' && ev.data instanceof ArrayBuffer) {
-            clientBytesReceived += ev.data.byteLength;
+        const frameBytes =
+            typeof ev.data === 'string'
+                ? new TextEncoder().encode(ev.data).byteLength
+                : ev.data instanceof ArrayBuffer
+                  ? ev.data.byteLength
+                  : MAX_FRAME_BYTES + 1;
+        if (frameBytes > MAX_FRAME_BYTES || clientBytesReceived + frameBytes > MAX_CLIENT_BYTES) {
+            closeBoth(1009, 'audio limit exceeded');
+            return;
         }
+        if (typeof ev.data === 'string') {
+            if (frameBytes > MAX_CONTROL_BYTES) {
+                closeBoth(1008, 'control message too large');
+                return;
+            }
+            try {
+                const control = JSON.parse(ev.data) as { type?: unknown };
+                if (typeof control.type !== 'string' || !ALLOWED_CONTROL_TYPES.has(control.type)) {
+                    closeBoth(1008, 'invalid control message');
+                    return;
+                }
+            } catch {
+                closeBoth(1008, 'invalid control message');
+                return;
+            }
+        }
+        clientBytesReceived += frameBytes;
         // Diagnostic: log first chunk + every 100th to verify audio
         // is actually flowing through. If clientChunksReceived stays
         // at 0 we know iOS isn't sending audio at all; if it's >0 but
@@ -245,8 +384,11 @@ Deno.serve(async (req: Request) => {
             console.log(`[dg-proxy] client chunk #${clientChunksReceived} ${dataType} (total ${clientBytesReceived}B)`);
         }
         if (!upstreamReady) {
-            if (earlyBuffer.length < MAX_BUFFERED_CHUNKS) {
+            if (earlyBufferBytes + frameBytes <= MAX_EARLY_BUFFER_BYTES) {
                 earlyBuffer.push(ev.data);
+                earlyBufferBytes += frameBytes;
+            } else {
+                closeBoth(1009, 'handshake buffer exceeded');
             }
             return;
         }
@@ -260,6 +402,9 @@ Deno.serve(async (req: Request) => {
     });
 
     clientSocket.addEventListener('close', (ev: CloseEvent) => {
+        clearTimeout(sessionTimer);
+        if (upstreamHandshakeTimer) clearTimeout(upstreamHandshakeTimer);
+        upstreamHandshakeTimer = null;
         console.log(
             `[dg-proxy] client closed code=${ev.code} | session-summary: ` +
                 `client→proxy chunks=${clientChunksReceived} bytes=${clientBytesReceived}, ` +

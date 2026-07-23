@@ -16,6 +16,7 @@ const getSupabaseKey = (): string =>
     '';
 
 import { createLogger } from '../utils/createLogger';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 
 const log = createLogger('BathymetryCache');
 
@@ -62,13 +63,19 @@ export async function preloadBathymetry(
         const supabaseUrl = getSupabaseUrl();
         const supabaseKey = getSupabaseKey();
         const url = `${supabaseUrl}/functions/v1/gebco-depth`;
+        const authHeaders = await getAuthenticatedFunctionHeaders().catch(() => ({
+            'Content-Type': 'application/json',
+            ...(supabaseKey
+                ? {
+                      Authorization: `Bearer ${supabaseKey}`,
+                      apikey: supabaseKey,
+                  }
+                : {}),
+        }));
 
         const resp = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-            },
+            headers: authHeaders,
             body: JSON.stringify({
                 bbox: {
                     south: parseFloat(south.toFixed(4)),

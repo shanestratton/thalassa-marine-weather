@@ -6,6 +6,27 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const keyboardMocks = vi.hoisted(() => {
+    let resolveImport!: () => void;
+    const importGate = new Promise<void>((resolve) => {
+        resolveImport = resolve;
+    });
+    return {
+        importGate,
+        resolveImport,
+        addListener: vi.fn(() => Promise.resolve({ remove: vi.fn() })),
+    };
+});
+
+vi.mock('@capacitor/keyboard', async () => {
+    await keyboardMocks.importGate;
+    return {
+        Keyboard: {
+            addListener: keyboardMocks.addListener,
+        },
+    };
+});
+
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
@@ -133,9 +154,16 @@ vi.mock('../components/chat/ChatHeader', () => ({
     ChatHeader: () => <div data-testid="chat-header">Crew Talk</div>,
 }));
 vi.mock('../components/chat/ChannelList', () => ({
-    ChannelList: ({ onRequestAccess }: { onRequestAccess: (channel: { id: string; name: string }) => void }) => (
+    ChannelList: ({
+        onRequestAccess,
+        onOpenChannel,
+    }: {
+        onRequestAccess: (channel: { id: string; name: string }) => void;
+        onOpenChannel: (channel: { id: string; name: string }) => void;
+    }) => (
         <div data-testid="channel-list">
             Channels
+            <button onClick={() => onOpenChannel({ id: 'general', name: 'General' })}>Open General</button>
             <button onClick={() => onRequestAccess({ id: 'private-1', name: 'Skippers Lounge' })}>
                 Request private channel
             </button>
@@ -257,5 +285,19 @@ describe('ChatPage', () => {
         fireEvent.keyDown(cancel, { key: 'Escape' });
         expect(screen.queryByRole('dialog', { name: /Request Access/ })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
+    });
+
+    it('does not install keyboard listeners when its lazy import resolves after unmount', async () => {
+        const { unmount } = await renderSettledChatPage();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Open General' }));
+        unmount();
+        keyboardMocks.resolveImport();
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(keyboardMocks.addListener).not.toHaveBeenCalled();
     });
 });

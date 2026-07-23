@@ -6,6 +6,7 @@
 import React from 'react';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { TrashIcon } from './Icons';
+import { OverlayPortal } from './ui/OverlayPortal';
 
 interface DeleteVoyageModalProps {
     isOpen: boolean;
@@ -33,8 +34,8 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        <OverlayPortal
+            className="flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-voyage-title"
@@ -132,6 +133,6 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                     </div>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

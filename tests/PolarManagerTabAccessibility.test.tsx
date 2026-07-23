@@ -70,7 +70,10 @@ describe('PolarManagerTab advanced input accessibility', () => {
 
         const dialog = screen.getByRole('dialog', { name: 'Advanced Polar Input' });
         const closeButton = screen.getByRole('button', { name: 'Close advanced polar input' });
+        const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
         expect(dialog.getAttribute('aria-modal')).toBe('true');
+        expect(overlay?.parentElement).toBe(document.body);
+        expect(overlay?.style.zIndex).toBe('1100');
         expect(document.activeElement).toBe(closeButton);
 
         fireEvent.keyDown(closeButton, { key: 'Escape' });

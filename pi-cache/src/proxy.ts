@@ -32,21 +32,32 @@ const DEFAULT_STALE_WINDOW_MS = 30 * 60 * 1000;
 export interface ProxyConfig {
     supabaseUrl: string;
     supabaseAnonKey: string;
-    openMeteoApiKey?: string;
 }
 
 /**
- * Build a commercial Open-Meteo API URL.
- * Uses customer-api.open-meteo.com with the API key appended.
- * Falls back to env var if not in config.
+ * Build a POST request to the fixed Supabase commercial-weather boundary.
+ * The Pi receives only the public Supabase credential; the provider key
+ * remains a Supabase secret.
  */
-export function openMeteoUrl(config: ProxyConfig, type: 'forecast' | 'marine', params: string): string {
-    const key = config.openMeteoApiKey || process.env.OPEN_METEO_API_KEY || '';
-    const base =
-        type === 'marine'
-            ? 'https://customer-marine-api.open-meteo.com/v1/marine'
-            : 'https://customer-api.open-meteo.com/v1/forecast';
-    return key ? `${base}?${params}&apikey=${key}` : `${base}?${params}`;
+export function openMeteoProxyRequest(
+    config: ProxyConfig,
+    operation: 'forecast' | 'marine',
+    params: string | Record<string, string | number>,
+): Pick<JsonProxyOptions, 'url' | 'headers' | 'method' | 'body'> {
+    const parameterRecord =
+        typeof params === 'string'
+            ? Object.fromEntries(new URLSearchParams(params).entries())
+            : Object.fromEntries(Object.entries(params).map(([name, value]) => [name, String(value)]));
+    return {
+        url: supabaseEdgeUrl(config, 'proxy-openmeteo'),
+        headers: {
+            ...supabaseHeaders(config),
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+        },
+        method: 'POST',
+        body: { operation, params: parameterRecord },
+    };
 }
 
 // ── JSON Proxy ──
@@ -62,6 +73,10 @@ interface JsonProxyOptions {
     source: string;
     /** Optional custom headers */
     headers?: Record<string, string>;
+    /** HTTP method (JSON proxies default to GET). */
+    method?: 'GET' | 'POST';
+    /** JSON body for POST requests. */
+    body?: unknown;
     /** Optional request timeout in ms (default: 15000) */
     timeout?: number;
     /** How long past TTL we'll serve stale data while revalidating in the
@@ -77,10 +92,41 @@ async function fetchAndCache(cache: Cache, opts: JsonProxyOptions): Promise<unkn
     try {
         const res = await fetch(opts.url, {
             headers: opts.headers || {},
+            method: opts.method || 'GET',
+            body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
             signal: controller.signal,
         });
         if (!res.ok) throw new Error(`Upstream ${res.status}: ${res.statusText}`);
-        const data = await res.json();
+        const declaredLength = Number(res.headers.get('content-length') || '0');
+        if (Number.isFinite(declaredLength) && declaredLength > 16_000_000) {
+            throw new Error('Upstream JSON response is too large');
+        }
+        if (!res.body) throw new Error('Upstream returned an empty response');
+
+        const reader = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                total += value.byteLength;
+                if (total > 16_000_000) {
+                    await reader.cancel().catch(() => undefined);
+                    throw new Error('Upstream JSON response is too large');
+                }
+                chunks.push(value);
+            }
+        } finally {
+            reader.releaseLock();
+        }
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.byteLength;
+        }
+        const data: unknown = JSON.parse(new TextDecoder().decode(bytes));
 
         // Don't cache error responses — prevents stale API errors from persisting.
         const isError =

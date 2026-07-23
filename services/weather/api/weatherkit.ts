@@ -5,6 +5,7 @@ import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { getSolarTimes, getMoonData } from '../../../utils/celestial';
 import { resolveTimeZone } from '../../../utils/timezone';
 import { piCache } from '../../PiCacheService';
+import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 const log = createLogger('WeatherKit');
 
 // ── Types ─────────────────────────────────────────────────────
@@ -413,13 +414,25 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
             }
         }
 
+        let edgeHeaders: Record<string, string>;
+        try {
+            edgeHeaders = await getAuthenticatedFunctionHeaders();
+        } catch {
+            edgeHeaders = {
+                'Content-Type': 'application/json',
+                ...(supabaseKey
+                    ? {
+                          Authorization: `Bearer ${supabaseKey}`,
+                          apikey: supabaseKey,
+                      }
+                    : {}),
+            };
+        }
+
         try {
             const res = await CapacitorHttp.post({
                 url,
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
+                headers: edgeHeaders,
                 data: body,
             });
             if (res.status !== 200) {
@@ -431,10 +444,7 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
         } catch (_capacitorErr: unknown) {
             const res = await fetch(url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
+                headers: edgeHeaders,
                 body: JSON.stringify(body),
             });
             if (!res.ok) {
@@ -495,14 +505,25 @@ export const fetchWeatherKitHistory = async (lat: number, lon: number): Promise<
     const hourlyEnd = new Date(now + 120 * 3_600_000).toISOString(); // +5 days forward
     const url = `${supabaseUrl}/functions/v1/fetch-weatherkit`;
     try {
+        let headers: Record<string, string>;
+        try {
+            headers = await getAuthenticatedFunctionHeaders();
+        } catch {
+            headers = {
+                'Content-Type': 'application/json',
+                ...(supabaseKey
+                    ? {
+                          Authorization: `Bearer ${supabaseKey}`,
+                          apikey: supabaseKey,
+                      }
+                    : {}),
+            };
+        }
         // JS timeout bound — CapacitorHttp ignores AbortSignal, so race it.
         const res = await Promise.race([
             fetch(url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
+                headers,
                 body: JSON.stringify({ lat, lon, dataSets: ['forecastHourly'], hourlyStart, hourlyEnd }),
             }),
             new Promise<Response>((_, reject) =>

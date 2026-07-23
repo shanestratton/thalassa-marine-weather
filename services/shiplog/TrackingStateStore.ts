@@ -16,12 +16,86 @@
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../../utils/createLogger';
 import type { LoggingZone } from './helpers';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from '../authIdentityScope';
 
 const log = createLogger('ShipLog.Store');
 
 const TRACKING_STATE_KEY = 'ship_log_tracking_state';
 const LAST_POSITION_KEY = 'ship_log_last_position';
 const VOYAGE_START_KEY = 'ship_log_voyage_start';
+const STORE_VERSION = 1;
+
+interface OwnedValue<T> {
+    version: typeof STORE_VERSION;
+    ownerKey: string;
+    ownerUserId: string | null;
+    value: T;
+}
+
+/**
+ * Preferences has no compare-and-swap primitive. Serialising operations per
+ * account prevents an old A write that was already inside the native bridge
+ * from landing after a newer A write when the user switches A→B→A quickly.
+ */
+const operationTails = new Map<string, Promise<void>>();
+
+function scopedKey(base: string, scope: AuthIdentityScope): string {
+    return authScopedStorageKey(base, scope);
+}
+
+function ownedValue<T>(value: T, scope: AuthIdentityScope): OwnedValue<T> {
+    return {
+        version: STORE_VERSION,
+        ownerKey: scope.key,
+        ownerUserId: scope.userId,
+        value,
+    };
+}
+
+function parseOwnedValue<T>(raw: string, scope: AuthIdentityScope): T | null {
+    const parsed = JSON.parse(raw) as Partial<OwnedValue<T>>;
+    if (
+        parsed.version !== STORE_VERSION ||
+        parsed.ownerKey !== scope.key ||
+        parsed.ownerUserId !== scope.userId ||
+        !Object.prototype.hasOwnProperty.call(parsed, 'value')
+    ) {
+        return null;
+    }
+    return parsed.value as T;
+}
+
+function withScopeLock<T>(
+    scope: AuthIdentityScope,
+    staleValue: T,
+    operation: () => Promise<T>,
+    allowTransitionWrite = false,
+): Promise<T> {
+    const prior = operationTails.get(scope.key) ?? Promise.resolve();
+    const result = prior.then(
+        () => {
+            if (!allowTransitionWrite && !isAuthIdentityScopeCurrent(scope)) return staleValue;
+            return operation();
+        },
+        () => {
+            if (!allowTransitionWrite && !isAuthIdentityScopeCurrent(scope)) return staleValue;
+            return operation();
+        },
+    );
+    operationTails.set(
+        scope.key,
+        result.then(
+            () => undefined,
+            () => undefined,
+        ),
+    );
+    return result;
+}
 
 export interface TrackingState {
     isTracking: boolean;
@@ -119,38 +193,93 @@ export function decideInitTrackingAction(opts: {
 }
 
 /** Hydrate the persisted tracking state. Returns null if absent or unreadable. */
-export async function loadTrackingState(): Promise<TrackingState | null> {
-    try {
-        const { value } = await Preferences.get({ key: TRACKING_STATE_KEY });
-        if (!value) return null;
-        return JSON.parse(value) as TrackingState;
-    } catch (e) {
-        log.warn('loadTrackingState parse failed', e);
-        return null;
-    }
-}
-
-export async function saveTrackingState(state: TrackingState): Promise<void> {
-    await Preferences.set({
-        key: TRACKING_STATE_KEY,
-        value: JSON.stringify(state),
+export function loadTrackingState(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<TrackingState | null> {
+    return withScopeLock(scope, null, async () => {
+        try {
+            const { value } = await Preferences.get({ key: scopedKey(TRACKING_STATE_KEY, scope) });
+            if (!isAuthIdentityScopeCurrent(scope) || !value) return null;
+            return parseOwnedValue<TrackingState>(value, scope);
+        } catch (e) {
+            log.warn('loadTrackingState parse failed', e);
+            return null;
+        }
     });
 }
 
-export async function getLastPosition(): Promise<StoredPosition | null> {
-    try {
-        const { value } = await Preferences.get({ key: LAST_POSITION_KEY });
-        return value ? (JSON.parse(value) as StoredPosition) : null;
-    } catch (e) {
-        log.warn('getLastPosition parse failed', e);
-        return null;
-    }
+export function saveTrackingState(
+    state: TrackingState,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<void> {
+    const snapshot = { ...state };
+    return withScopeLock(scope, undefined, async () => {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await Preferences.set({
+            key: scopedKey(TRACKING_STATE_KEY, scope),
+            value: JSON.stringify(ownedValue(snapshot, scope)),
+        });
+    });
 }
 
-export async function saveLastPosition(position: StoredPosition): Promise<void> {
-    await Preferences.set({
-        key: LAST_POSITION_KEY,
-        value: JSON.stringify(position),
+/**
+ * Account transitions are a deliberate safety event, not a stale capture
+ * callback. Persist A as paused under A's own key so its voyage can be
+ * resumed when A returns, without stamping an end or uploading it as B.
+ *
+ * The transition write is queued behind any A write already in the native
+ * bridge. A later A write (after A returns) queues behind this one and wins.
+ */
+export function suspendTrackingStateForIdentityChange(
+    state: TrackingState,
+    previousScope: AuthIdentityScope,
+): Promise<void> {
+    const suspended: TrackingState =
+        state.isTracking || state.isPaused
+            ? {
+                  ...state,
+                  isTracking: false,
+                  isPaused: Boolean(state.currentVoyageId),
+                  isRapidMode: false,
+                  isPrecisionMode: false,
+                  voyageEndTime: undefined,
+              }
+            : { ...state };
+    return withScopeLock(
+        previousScope,
+        undefined,
+        async () => {
+            await Preferences.set({
+                key: scopedKey(TRACKING_STATE_KEY, previousScope),
+                value: JSON.stringify(ownedValue(suspended, previousScope)),
+            });
+        },
+        true,
+    );
+}
+
+export function getLastPosition(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<StoredPosition | null> {
+    return withScopeLock(scope, null, async () => {
+        try {
+            const { value } = await Preferences.get({ key: scopedKey(LAST_POSITION_KEY, scope) });
+            if (!isAuthIdentityScopeCurrent(scope) || !value) return null;
+            return parseOwnedValue<StoredPosition>(value, scope);
+        } catch (e) {
+            log.warn('getLastPosition parse failed', e);
+            return null;
+        }
+    });
+}
+
+export function saveLastPosition(
+    position: StoredPosition,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<void> {
+    const snapshot = { ...position };
+    return withScopeLock(scope, undefined, async () => {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await Preferences.set({
+            key: scopedKey(LAST_POSITION_KEY, scope),
+            value: JSON.stringify(ownedValue(snapshot, scope)),
+        });
     });
 }
 
@@ -162,7 +291,11 @@ export async function saveLastPosition(position: StoredPosition): Promise<void> 
  * does anymore but the remove keeps installs upgrading from those builds
  * clean.
  */
-export async function clearVoyageState(): Promise<void> {
-    await Preferences.remove({ key: LAST_POSITION_KEY });
-    await Preferences.remove({ key: VOYAGE_START_KEY });
+export function clearVoyageState(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<void> {
+    return withScopeLock(scope, undefined, async () => {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await Preferences.remove({ key: scopedKey(LAST_POSITION_KEY, scope) });
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await Preferences.remove({ key: scopedKey(VOYAGE_START_KEY, scope) });
+    });
 }

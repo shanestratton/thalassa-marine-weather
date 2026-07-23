@@ -5,7 +5,7 @@
  *   - SwipeableDocCard: swipe-to-delete card with expiry traffic lights
  *   - DocumentForm: add/edit form modal content
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('DocumentsHub');
@@ -25,6 +25,12 @@ import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
 import { DocumentForm, CATEGORIES } from './documents/DocumentForm';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -92,11 +98,13 @@ async function writeUriToCache(dataUri: string, fileName: string): Promise<strin
  * Open a document file — resolves fresh URL, writes to cache, opens via native share sheet.
  * This lets the user preview PDFs, images, etc. via their preferred app.
  */
-async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
+async function openDocFile(uri: string, doc: ShipDocument, isCurrent: () => boolean): Promise<boolean> {
     try {
         // Resolve fresh download URL (re-signs Supabase URLs if expired)
         const freshUri = await DocumentSyncService.getDownloadUrl(uri);
+        if (!isCurrent()) return false;
         const fileUri = await writeUriToCache(freshUri, doc.document_name);
+        if (!isCurrent()) return false;
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
@@ -115,11 +123,13 @@ async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
  * Share a document file via native share sheet (AirDrop, Mail, Files, etc.)
  * Uses the same Capacitor Filesystem + Share pattern as GPX export.
  */
-async function shareDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
+async function shareDocFile(uri: string, doc: ShipDocument, isCurrent: () => boolean): Promise<boolean> {
     try {
         // Resolve fresh download URL (re-signs Supabase URLs if expired)
         const freshUri = await DocumentSyncService.getDownloadUrl(uri);
+        if (!isCurrent()) return false;
         const fileUri = await writeUriToCache(freshUri, doc.document_name);
+        if (!isCurrent()) return false;
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
@@ -139,9 +149,9 @@ async function shareDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
  * Save a document to the device (Downloads / Files).
  * Writes to cache then opens share sheet so user can "Save to Files".
  */
-async function saveDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
+async function saveDocFile(uri: string, doc: ShipDocument, isCurrent: () => boolean): Promise<boolean> {
     // On iOS, there's no direct "download" — use share sheet with Save to Files
-    return shareDocFile(uri, doc);
+    return shareDocFile(uri, doc, isCurrent);
 }
 
 // SwipeableDocCard now in ./documents/SwipeableDocCard.tsx
@@ -149,7 +159,9 @@ async function saveDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
 // ── Main Component ────────────────────────────────────────────
 
 export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
+    const initialScope = getAuthIdentityScope();
     const [documents, setDocuments] = useState<ShipDocument[]>([]);
+    const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -165,22 +177,66 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [formNotes, setFormNotes] = useState('');
     const [formFileUri, setFormFileUri] = useState<string | null>(null);
     const [formFileName, setFormFileName] = useState<string | null>(null);
+    const [deletedDoc, setDeletedDoc] = useState<ShipDocument | null>(null);
+    const mountedRef = React.useRef(true);
+    const fileReadVersionRef = React.useRef(0);
+    const reloadTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const currentOperation = useCallback(
+        (scope: AuthIdentityScope) =>
+            mountedRef.current && isAuthIdentityScopeCurrent(scope) && dataScopeKey === scope.key,
+        [dataScopeKey],
+    );
 
     // ── Load ──
     const loadDocs = useCallback(() => {
+        const scope = getAuthIdentityScope();
         setLoading(true);
         try {
-            setDocuments(LocalDocumentService.getAll());
+            const loaded = LocalDocumentService.getAll();
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setDataScopeKey(scope.key);
+            setDocuments(loaded);
         } catch (e) {
             log.error('Failed to load documents:', e);
-            toast.error('Failed to load documents');
+            if (isAuthIdentityScopeCurrent(scope)) toast.error('Failed to load documents');
         } finally {
-            setLoading(false);
+            if (isAuthIdentityScopeCurrent(scope)) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
+        mountedRef.current = true;
         loadDocs();
+        const unsubscribe = subscribeAuthIdentityScope((next) => {
+            fileReadVersionRef.current += 1;
+            if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+            setDataScopeKey(next.key);
+            setDocuments([]);
+            setLoading(true);
+            setSearchQuery('');
+            setSelectedIds(new Set());
+            setHeaderMenuOpen(false);
+            setShowForm(false);
+            setEditDoc(null);
+            setFormName('');
+            setFormCategory('Registration');
+            setFormIssueDate('');
+            setFormExpiryDate('');
+            setFormNotes('');
+            setFormFileUri(null);
+            setFormFileName(null);
+            setDeletedDoc(null);
+            reloadTimerRef.current = setTimeout(() => {
+                if (isAuthIdentityScopeCurrent(next)) loadDocs();
+            }, 0);
+        });
+        return () => {
+            mountedRef.current = false;
+            fileReadVersionRef.current += 1;
+            if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+            reloadTimerRef.current = null;
+            unsubscribe();
+        };
     }, [loadDocs]);
 
     // Realtime sync — crew edits appear instantly
@@ -190,16 +246,22 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // Cloud pull on mount (restore on new device)
     useEffect(() => {
+        const scope = getAuthIdentityScope();
         DocumentSyncService.pullFromCloud().then((restored) => {
+            if (!currentOperation(scope)) return;
             if (restored > 0) {
                 loadDocs();
                 toast.success(`☁️ Restored ${restored} document${restored > 1 ? 's' : ''} from cloud`);
             }
         });
-    }, [loadDocs]);
+    }, [currentOperation, loadDocs]);
 
     // ── Filtered ──
-    const filtered = documents.filter((d) => {
+    const visibleDocuments = useMemo(
+        () => (dataScopeKey === getAuthIdentityScope().key ? documents : []),
+        [dataScopeKey, documents],
+    );
+    const filtered = visibleDocuments.filter((d) => {
         if (!searchQuery.trim()) return true;
         return d.document_name.toLowerCase().includes(searchQuery.toLowerCase());
     });
@@ -244,9 +306,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const scope = getAuthIdentityScope();
+        const readVersion = ++fileReadVersionRef.current;
         setFormFileName(file.name);
         const reader = new FileReader();
         reader.onload = () => {
+            if (!currentOperation(scope) || fileReadVersionRef.current !== readVersion) return;
             setFormFileUri(reader.result as string);
             triggerHaptic('light');
         };
@@ -257,88 +322,92 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     const handleSave = useCallback(async () => {
         if (!formName.trim()) return;
+        const scope = getAuthIdentityScope();
+        const wasEditing = Boolean(editDoc);
+        const documentId = editDoc?.id ?? null;
+        const input = {
+            document_name: formName.trim(),
+            category: formCategory,
+            issue_date: formIssueDate || null,
+            expiry_date: formExpiryDate || null,
+            file_uri: formFileUri,
+            notes: formNotes.trim() || null,
+        };
         try {
             triggerHaptic('medium');
             let savedId: string;
-            if (editDoc) {
-                await LocalDocumentService.update(editDoc.id, {
-                    document_name: formName.trim(),
-                    category: formCategory,
-                    issue_date: formIssueDate || null,
-                    expiry_date: formExpiryDate || null,
-                    file_uri: formFileUri,
-                    notes: formNotes.trim() || null,
-                });
-                savedId = editDoc.id;
+            if (documentId) {
+                await LocalDocumentService.update(documentId, input);
+                savedId = documentId;
             } else {
-                const created = await LocalDocumentService.create({
-                    document_name: formName.trim(),
-                    category: formCategory,
-                    issue_date: formIssueDate || null,
-                    expiry_date: formExpiryDate || null,
-                    file_uri: formFileUri,
-                    notes: formNotes.trim() || null,
-                });
+                const created = await LocalDocumentService.create(input);
                 savedId = created.id;
             }
+            if (!currentOperation(scope)) return;
             setShowForm(false);
             resetForm();
             loadDocs();
-            toast.success(editDoc ? 'Document updated' : 'Document filed');
+            toast.success(wasEditing ? 'Document updated' : 'Document filed');
             flash();
             // Mark for cloud sync
             DocumentSyncService.markForSync(savedId);
         } catch (e) {
             log.error('Failed to save document:', e);
-            toast.error('Failed to save document');
+            if (currentOperation(scope)) toast.error('Failed to save document');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
 
-    const [deletedDoc, setDeletedDoc] = useState<ShipDocument | null>(null);
-
     const handleDelete = useCallback(
         (id: string) => {
-            const doc = documents.find((d) => d.id === id);
+            const doc = visibleDocuments.find((d) => d.id === id);
             if (!doc) return;
             triggerHaptic('medium');
             // Remove from UI immediately
             setDocuments((prev) => prev.filter((d) => d.id !== id));
             setDeletedDoc(doc);
         },
-        [documents],
+        [visibleDocuments],
     );
 
     // Called by UndoToast after 5s — performs the actual delete
     const handleDismissDelete = useCallback(async () => {
         if (!deletedDoc) return;
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
         const doc = deletedDoc;
         setDeletedDoc(null);
         try {
             await LocalDocumentService.delete(doc.id);
+            if (!currentOperation(scope)) return;
             DocumentSyncService.markDeleted(doc.id);
         } catch (e) {
             log.warn(' delete failed:', e);
-            toast.error('Failed to delete document');
-            setDocuments((prev) => [...prev, doc]);
+            if (currentOperation(scope)) {
+                toast.error('Failed to delete document');
+                setDocuments((prev) => [...prev, doc]);
+            }
         }
-    }, [deletedDoc]);
+    }, [currentOperation, deletedDoc]);
 
     const handleUndoDelete = useCallback(() => {
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
         if (deletedDoc) {
             setDocuments((prev) => [...prev, deletedDoc]);
             toast.success('Document restored');
         }
         setDeletedDoc(null);
-    }, [deletedDoc]);
+    }, [currentOperation, deletedDoc]);
 
     const handleOpenDoc = async (doc: ShipDocument) => {
+        const scope = getAuthIdentityScope();
         if (doc.file_uri) {
             triggerHaptic('light');
-            const ok = await openDocFile(doc.file_uri, doc);
-            if (!ok) toast.error('Could not open document');
+            const ok = await openDocFile(doc.file_uri, { ...doc }, () => currentOperation(scope));
+            if (!ok && currentOperation(scope)) toast.error('Could not open document');
         } else {
-            openEditForm(doc);
+            if (currentOperation(scope)) openEditForm(doc);
         }
     };
 
@@ -353,8 +422,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // Batch download selected docs
     const handleBatchDownload = async () => {
+        const scope = getAuthIdentityScope();
         setHeaderMenuOpen(false);
-        const selected = documents.filter((d) => selectedIds.has(d.id) && d.file_uri);
+        const selected = visibleDocuments.filter((d) => selectedIds.has(d.id) && d.file_uri).map((doc) => ({ ...doc }));
         if (selected.length === 0) {
             toast.error('No files attached to selected documents');
             return;
@@ -362,16 +432,19 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         triggerHaptic('medium');
         let ok = 0;
         for (const doc of selected) {
-            if (doc.file_uri && (await saveDocFile(doc.file_uri, doc))) ok++;
+            if (!currentOperation(scope)) return;
+            if (doc.file_uri && (await saveDocFile(doc.file_uri, doc, () => currentOperation(scope)))) ok++;
         }
+        if (!currentOperation(scope)) return;
         toast.success(`📥 Saved ${ok} of ${selected.length} file${selected.length > 1 ? 's' : ''}`);
         setSelectedIds(new Set());
     };
 
     // Batch share/email selected docs
     const handleBatchShare = async () => {
+        const scope = getAuthIdentityScope();
         setHeaderMenuOpen(false);
-        const selected = documents.filter((d) => selectedIds.has(d.id) && d.file_uri);
+        const selected = visibleDocuments.filter((d) => selectedIds.has(d.id) && d.file_uri).map((doc) => ({ ...doc }));
         if (selected.length === 0) {
             toast.error('No files attached to selected documents');
             return;
@@ -383,10 +456,13 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             for (const doc of selected) {
                 if (doc.file_uri) {
                     const freshUri = await DocumentSyncService.getDownloadUrl(doc.file_uri);
+                    if (!currentOperation(scope)) return;
                     const cachedUri = await writeUriToCache(freshUri, doc.document_name);
+                    if (!currentOperation(scope)) return;
                     fileUris.push(cachedUri);
                 }
             }
+            if (!currentOperation(scope)) return;
             const { Share } = await import('@capacitor/share');
             await Share.share({
                 title: `Ship's Documents (${fileUris.length})`,
@@ -395,16 +471,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             });
         } catch (e: unknown) {
             if (!(e as Error).message?.includes('cancel') && !(e as Error).message?.includes('dismissed')) {
-                toast.error('Share failed');
+                if (currentOperation(scope)) toast.error('Share failed');
             }
         }
-        setSelectedIds(new Set());
+        if (currentOperation(scope)) setSelectedIds(new Set());
     };
 
     // ── Expiry stats ──
-    const expiredCount = documents.filter((d) => getExpiryStatus(d.expiry_date) === 'expired').length;
-    const warningCount = documents.filter((d) => getExpiryStatus(d.expiry_date) === 'warning').length;
-    const pendingSyncCount = DocumentSyncService.pendingCount;
+    const expiredCount = visibleDocuments.filter((d) => getExpiryStatus(d.expiry_date) === 'expired').length;
+    const warningCount = visibleDocuments.filter((d) => getExpiryStatus(d.expiry_date) === 'warning').length;
+    const pendingSyncCount = loading ? 0 : DocumentSyncService.pendingCount;
 
     // ── Render ──
     return (
@@ -417,7 +493,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {documents.length} Documents
+                            {visibleDocuments.length} Documents
                             {selectedIds.size > 0 && (
                                 <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>
                             )}

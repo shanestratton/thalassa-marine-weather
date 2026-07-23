@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { WindIcon, RainIcon, CompassIcon, BoatIcon, XIcon } from '../Icons';
 import { fetchStopDetails } from '../../services/geminiService';
 import { Waypoint, StopDetails } from '../../types';
+import { SafeImage } from '../ui/SafeImage';
 
 export type MapLayer = 'wind' | 'rain' | 'global-wind' | 'velocity';
 
@@ -146,12 +147,12 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
             >
                 <div className="h-32 bg-slate-800 relative">
                     {details && (
-                        <div
-                            className="absolute inset-0 bg-cover bg-center opacity-60"
-                            style={{
-                                backgroundImage: `url(https://source.unsplash.com/featured/?marina,sea,${encodeURIComponent(details.imageKeyword || waypoint.name)})`,
-                            }}
-                        ></div>
+                        <SafeImage
+                            src={`https://source.unsplash.com/featured/?marina,sea,${encodeURIComponent(details.imageKeyword || waypoint.name)}`}
+                            alt=""
+                            aria-hidden="true"
+                            className="absolute inset-0 h-full w-full object-cover opacity-60"
+                        />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
                     <button

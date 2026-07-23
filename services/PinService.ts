@@ -8,6 +8,7 @@
  */
 
 import { supabase } from './supabase';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 // --- TYPES ---
 
@@ -24,6 +25,16 @@ export interface SavedPin {
 
 const TABLE = 'saved_pins';
 
+async function verifyAuthenticatedOwner(identity: AuthIdentityScope): Promise<string | null> {
+    if (!supabase || !identity.userId || !isAuthIdentityScopeCurrent(identity)) return null;
+    const {
+        data: { user },
+        error,
+    } = await supabase.auth.getUser();
+    if (error || user?.id !== identity.userId || !isAuthIdentityScopeCurrent(identity)) return null;
+    return identity.userId;
+}
+
 // --- SERVICE ---
 
 class PinServiceClass {
@@ -39,15 +50,14 @@ class PinServiceClass {
     }): Promise<SavedPin | null> {
         if (!supabase) return null;
 
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return null;
+        const identity = getAuthIdentityScope();
+        const ownerId = await verifyAuthenticatedOwner(identity);
+        if (!ownerId) return null;
 
         const { data, error } = await supabase
             .from(TABLE)
             .insert({
-                user_id: user.id,
+                user_id: ownerId,
                 latitude: pin.latitude,
                 longitude: pin.longitude,
                 caption: pin.caption,
@@ -57,7 +67,7 @@ class PinServiceClass {
             .select()
             .single();
 
-        if (error) {
+        if (error || !isAuthIdentityScopeCurrent(identity)) {
             return null;
         }
         return data as SavedPin;
@@ -69,19 +79,18 @@ class PinServiceClass {
     async getMyPins(limit = 20): Promise<SavedPin[]> {
         if (!supabase) return [];
 
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return [];
+        const identity = getAuthIdentityScope();
+        const ownerId = await verifyAuthenticatedOwner(identity);
+        if (!ownerId) return [];
 
         const { data, error } = await supabase
             .from(TABLE)
             .select('*')
-            .eq('user_id', user.id)
+            .eq('user_id', ownerId)
             .order('created_at', { ascending: false })
             .limit(limit);
 
-        if (error) {
+        if (error || !isAuthIdentityScopeCurrent(identity)) {
             return [];
         }
         return (data || []) as SavedPin[];
@@ -93,9 +102,13 @@ class PinServiceClass {
     async deletePin(pinId: string): Promise<boolean> {
         if (!supabase) return false;
 
-        const { error } = await supabase.from(TABLE).delete().eq('id', pinId);
+        const identity = getAuthIdentityScope();
+        const ownerId = await verifyAuthenticatedOwner(identity);
+        if (!ownerId) return false;
 
-        return !error;
+        const { error } = await supabase.from(TABLE).delete().eq('id', pinId).eq('user_id', ownerId);
+
+        return !error && isAuthIdentityScopeCurrent(identity);
     }
 
     /**

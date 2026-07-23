@@ -15,22 +15,32 @@
  */
 import { ShipLogService } from '../ShipLogService';
 import { VoyageLogService } from '../VoyageLogService';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 
 export type PublishFollowResult = 'linked' | 'not-tracking' | 'error';
 
 export async function publishFollowedRoute(planVoyageId: string): Promise<PublishFollowResult> {
-    if (!planVoyageId) return 'error';
+    const scope = getAuthIdentityScope();
+    const immutablePlanVoyageId = planVoyageId.trim();
+    if (!immutablePlanVoyageId || !isAuthIdentityScopeCurrent(scope)) return 'error';
     const status = ShipLogService.getTrackingStatus();
     const currentVoyageId = ShipLogService.getCurrentVoyageId();
     if (!status.isTracking || !currentVoyageId) return 'not-tracking';
-    const ok = await VoyageLogService.setVoyagePlanLink(currentVoyageId, planVoyageId);
+    const immutableTrackingVoyageId = currentVoyageId;
+    const ok = await VoyageLogService.setVoyagePlanLink(immutableTrackingVoyageId, immutablePlanVoyageId);
+    if (!isAuthIdentityScopeCurrent(scope)) return 'error';
     return ok ? 'linked' : 'error';
 }
 
 /** Clear the public followed-route link for the current voyage (stop showing
  *  any route). No-op when not tracking. */
 export async function clearFollowedRoute(): Promise<boolean> {
+    const scope = getAuthIdentityScope();
+    if (!isAuthIdentityScopeCurrent(scope)) return false;
+    const status = ShipLogService.getTrackingStatus();
     const currentVoyageId = ShipLogService.getCurrentVoyageId();
-    if (!currentVoyageId) return false;
-    return VoyageLogService.setVoyagePlanLink(currentVoyageId, null);
+    if (!status.isTracking || !currentVoyageId) return false;
+    const immutableTrackingVoyageId = currentVoyageId;
+    const cleared = await VoyageLogService.setVoyagePlanLink(immutableTrackingVoyageId, null);
+    return isAuthIdentityScopeCurrent(scope) && cleared;
 }

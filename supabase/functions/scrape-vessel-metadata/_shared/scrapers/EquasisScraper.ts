@@ -7,6 +7,7 @@
  * 3 s/req since Equasis is login-guarded.
  */
 import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const EQUASIS_BASE = Deno.env.get('EQUASIS_API_URL') ?? 'https://www.equasis.org/EquasisWeb/restricted';
 const EQUASIS_USER = Deno.env.get('EQUASIS_USER') ?? '';
@@ -63,10 +64,10 @@ export async function scrapeEquasis(mmsis: number[]): Promise<number> {
                 data_source: EQUASIS_USER ? 'Equasis' : 'UK_MCA',
                 is_verified: true,
             });
-
-            await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
         } catch (e) {
             console.warn(`[Equasis] Error scraping MMSI ${mmsi}:`, e);
+        } finally {
+            await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
         }
     }
 
@@ -77,27 +78,36 @@ export async function scrapeEquasis(mmsis: number[]): Promise<number> {
 
 async function queryEquasis(mmsi: number): Promise<EquasisVesselInfo | null> {
     try {
-        const loginResp = await fetch(`${EQUASIS_BASE}/HomePage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `j_username=${encodeURIComponent(EQUASIS_USER)}&j_password=${encodeURIComponent(EQUASIS_PASS)}&submit=Login`,
-            redirect: 'manual',
-        });
+        const loginResp = await fetchWithTimeout(
+            `${EQUASIS_BASE}/HomePage`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `j_username=${encodeURIComponent(EQUASIS_USER)}&j_password=${encodeURIComponent(EQUASIS_PASS)}&submit=Login`,
+                redirect: 'manual',
+            },
+            6_000,
+        );
 
         const cookies = loginResp.headers.get('set-cookie') || '';
 
-        const searchResp = await fetch(`${EQUASIS_BASE}/ShipSearch?fs=SearchShip`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                Cookie: cookies,
+        const searchResp = await fetchWithTimeout(
+            `${EQUASIS_BASE}/ShipSearch?fs=SearchShip`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Cookie: cookies,
+                },
+                body: `P_MMSI=${mmsi}`,
             },
-            body: `P_MMSI=${mmsi}`,
-        });
+            6_000,
+        );
 
         if (!searchResp.ok) return null;
 
-        const html = await searchResp.text();
+        const html = await readResponseTextLimited(searchResp, 2_000_000);
+        if (html === null) return null;
 
         const extract = (pattern: RegExp): string | undefined => {
             const m = html.match(pattern);
@@ -119,12 +129,18 @@ async function queryEquasis(mmsi: number): Promise<EquasisVesselInfo | null> {
 
 async function queryUkMca(mmsi: number): Promise<EquasisVesselInfo | null> {
     try {
-        const resp = await fetch(`${UK_MCA_API}?mmsi=${mmsi}`, {
-            headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
-        });
+        const resp = await fetchWithTimeout(
+            `${UK_MCA_API}?mmsi=${mmsi}`,
+            {
+                headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
+            },
+            6_000,
+        );
 
         if (!resp.ok) return null;
-        const data = (await resp.json()) as {
+        const responseText = await readResponseTextLimited(resp, 1_000_000);
+        if (responseText === null) return null;
+        const data = JSON.parse(responseText) as {
             vessels?: Array<{
                 name?: string;
                 callSign?: string;

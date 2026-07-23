@@ -32,11 +32,13 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { jsonResponse } from '../_shared/http-security.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -91,7 +93,7 @@ async function fetchFromDb(): Promise<{ 'broadcast-warn': RawBroadcastWarn[]; fe
         msgNumber: r.msg_number,
         navArea: r.nav_area,
         subregion: r.subregion ?? '',
-        text: r.text,
+        text: typeof r.text === 'string' ? r.text.slice(0, 20_000) : '',
         status: r.status ?? 'A',
         issueDate: r.issue_date ?? '',
         authority: r.authority ?? 'MARITIME NZ',
@@ -114,25 +116,37 @@ serve(async (req) => {
         return new Response(null, { headers: CORS_HEADERS });
     }
     if (req.method !== 'GET') {
-        return new Response(JSON.stringify({ error: 'method not allowed' }), {
-            status: 405,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'GET required' }, 405, CORS_HEADERS);
     }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'linz_msi', 240, 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS_HEADERS);
 
     try {
         if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
             return new Response(JSON.stringify(cache.payload), {
-                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'X-Cache': 'HIT' },
+                headers: {
+                    ...CORS_HEADERS,
+                    'Content-Type': 'application/json',
+                    'X-Cache': 'HIT',
+                    'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+                    'X-Content-Type-Options': 'nosniff',
+                },
             });
         }
         const payload = await fetchFromDb();
         cache = { fetchedAt: Date.now(), payload };
         return new Response(JSON.stringify(payload), {
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'X-Cache': 'MISS' },
+            headers: {
+                ...CORS_HEADERS,
+                'Content-Type': 'application/json',
+                'X-Cache': 'MISS',
+                'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+                'X-Content-Type-Options': 'nosniff',
+            },
         });
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        console.error('[proxy-linz-msi] Refresh failed:', err);
         // Serve stale cache on transient DB errors rather than failing
         // the whole notices page — same pattern as the AMSA / UKHO
         // proxies.
@@ -142,13 +156,11 @@ serve(async (req) => {
                     ...CORS_HEADERS,
                     'Content-Type': 'application/json',
                     'X-Cache': 'STALE',
-                    'X-Error': message,
+                    'Cache-Control': 'public, max-age=60, stale-while-revalidate=3600',
+                    'X-Content-Type-Options': 'nosniff',
                 },
             });
         }
-        return new Response(JSON.stringify({ error: message }), {
-            status: 502,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'LINZ notices are temporarily unavailable' }, 502, CORS_HEADERS);
     }
 });

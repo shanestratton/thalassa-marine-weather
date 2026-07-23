@@ -306,6 +306,40 @@ describe('LogPage', () => {
         }).not.toThrow();
     });
 
+    it('opens the live recording map in a body portal and restores its expand control on Escape', () => {
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [
+                {
+                    id: 'active-fix',
+                    voyageId: 'active-voyage',
+                    latitude: -27.5,
+                    longitude: 153,
+                    timestamp: '2026-07-23T00:00:00.000Z',
+                    cumulativeDistanceNM: 1.2,
+                    speed: 5,
+                },
+            ],
+        });
+
+        render(<LogPage />);
+        const opener = screen.getByRole('button', { name: 'Expand live map' });
+        fireEvent.click(opener);
+
+        const dialog = screen.getByRole('dialog', { name: 'Live Recording' });
+        const close = screen.getByRole('button', { name: 'Shrink map' });
+        const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(overlay?.parentElement).toBe(document.body);
+        expect(overlay?.style.zIndex).toBe('1100');
+        expect(close).toHaveFocus();
+
+        fireEvent.keyDown(close, { key: 'Escape' });
+        expect(screen.queryByRole('dialog', { name: 'Live Recording' })).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
+    });
+
     it('contains the follow-route prompt, defaults to recording, and restores its opener on Escape', () => {
         const view = () => (
             <>

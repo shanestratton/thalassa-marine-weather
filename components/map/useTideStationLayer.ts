@@ -11,7 +11,6 @@
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { Root } from 'react-dom/client';
-import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('TideStations');
@@ -23,10 +22,14 @@ const LAYER_GLOW = 'tide-station-glow';
 const MIN_ZOOM = 6;
 const DEBOUNCE_MS = 60_000; // 60s debounce for API calls
 const SEARCH_RADIUS_KM = 100; // Search within 100km (WorldTides API v3 max)
+const PROXY_TIMEOUT_MS = 10_000;
+const MAX_PROXY_RESPONSE_BYTES = 512_000;
+const MAX_STATIONS = 500;
+const MAX_EXTREMES = 48;
 
 // ── Types ──
 
-interface TideStation {
+export interface TideStation {
     id: string;
     name: string;
     lat: number;
@@ -34,22 +37,56 @@ interface TideStation {
     distance: number; // km from search center
 }
 
-interface TideExtreme {
+export interface TideExtreme {
     date: string;
     height: number;
     type: 'High' | 'Low';
 }
 
-// ── API Key ──
+function escapeTidePopupHtml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
-function getWorldTidesKey(): string {
+function finiteTideNumber(value: unknown): number | null {
+    if (typeof value === 'string' && !value.trim()) return null;
     try {
-        const env = import.meta.env;
-        if (env?.VITE_WORLDTIDES_API_KEY) return env.VITE_WORLDTIDES_API_KEY;
+        const parsed = typeof value === 'number' ? value : Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
     } catch {
-        /* SSR */
+        return null;
     }
-    return '';
+}
+
+function normaliseTideStation(value: Record<string, unknown>): TideStation | null {
+    const lat = finiteTideNumber(value.lat);
+    const lon = finiteTideNumber(value.lon);
+    const distance = finiteTideNumber(value.distance) ?? 0;
+    if (lat == null || lon == null || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return {
+        id: String(value.id || `${lat}-${lon}`).slice(0, 200),
+        name: String(value.name || 'Unknown').slice(0, 300),
+        lat,
+        lon,
+        distance: Math.max(0, distance),
+    };
+}
+
+function normaliseTideExtremes(value: unknown): TideExtreme[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((candidate) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+        const record = candidate as Record<string, unknown>;
+        const timestamp = typeof record.date === 'string' ? Date.parse(record.date) : Number.NaN;
+        const height = finiteTideNumber(record.height);
+        const type = record.type === 'High' || record.type === 'Low' ? record.type : null;
+        if (!Number.isFinite(timestamp) || height == null || !type) return [];
+        return [{ date: new Date(timestamp).toISOString(), height, type }];
+    });
 }
 
 function getSupabaseUrl(): string {
@@ -72,125 +109,113 @@ function getSupabaseKey(): string {
     return '';
 }
 
-// ── Fetch stations from WorldTides ──
+async function readBoundedResponseText(response: Response): Promise<string | null> {
+    const advertised = Number(response.headers.get('content-length'));
+    if (Number.isFinite(advertised) && advertised > MAX_PROXY_RESPONSE_BYTES) return null;
+    if (!response.body) return '';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > MAX_PROXY_RESPONSE_BYTES) {
+                await reader.cancel();
+                return null;
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+}
 
-async function fetchNearbyStations(lat: number, lon: number): Promise<TideStation[]> {
-    // Try Supabase proxy first (keeps key server-side)
+async function fetchTideProxy(payload: Record<string, number | boolean>): Promise<Record<string, unknown> | null> {
     const supabaseUrl = getSupabaseUrl();
     const supabaseKey = getSupabaseKey();
-
-    if (supabaseUrl && supabaseKey) {
-        try {
-            const res = await fetch(`${supabaseUrl}/functions/v1/proxy-tides`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${supabaseKey}`,
-                    apikey: supabaseKey,
-                },
-                body: JSON.stringify({ lat, lon, stations: true, stationDistance: SEARCH_RADIUS_KM }),
-            });
-
-            if (res.status === 200) {
-                const data = await res.json();
-                if (data?.stations?.length) {
-                    return data.stations.map((s: Record<string, unknown>) => ({
-                        id: String(s.id || `${s.lat}-${s.lon}`),
-                        name: String(s.name || 'Unknown'),
-                        lat: Number(s.lat),
-                        lon: Number(s.lon),
-                        distance: Number(s.distance || 0),
-                    }));
-                }
-            }
-        } catch {
-            // Fall through to direct
-        }
+    if (!supabaseUrl || !supabaseKey) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+    try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/proxy-tides`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${supabaseKey}`,
+                apikey: supabaseKey,
+            },
+            body: JSON.stringify(payload),
+            credentials: 'omit',
+            referrerPolicy: 'no-referrer',
+            signal: controller.signal,
+        });
+        if (!response.ok) return null;
+        const text = await readBoundedResponseText(response);
+        if (text == null) return null;
+        const value = JSON.parse(text) as unknown;
+        return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    } catch (err) {
+        log.warn('[proxy] Tide request failed:', err);
+        return null;
+    } finally {
+        clearTimeout(timer);
     }
+}
 
-    // Direct fallback
-    const key = getWorldTidesKey();
-    if (!key) {
-        log.warn('[stations] No WorldTides API key available');
+// ── Fetch stations through the server-side WorldTides proxy ──
+
+async function fetchNearbyStations(lat: number, lon: number): Promise<TideStation[]> {
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
         return [];
     }
-
-    try {
-        const url = `https://www.worldtides.info/api/v3?stations&lat=${lat}&lon=${lon}&stationDistance=${SEARCH_RADIUS_KM}&key=${key}`;
-        const res = await CapacitorHttp.get({ url });
-        if (res.status === 200 && res.data?.stations) {
-            return res.data.stations.map((s: Record<string, unknown>) => ({
-                id: String(s.id || `${s.lat}-${s.lon}`),
-                name: String(s.name || 'Unknown'),
-                lat: Number(s.lat),
-                lon: Number(s.lon),
-                distance: Number(s.distance || 0),
-            }));
-        }
-    } catch (err) {
-        log.warn('[stations] Fetch failed:', err);
-    }
-
-    return [];
+    const data = await fetchTideProxy({ lat, lon, stations: true, stationDistance: SEARCH_RADIUS_KM });
+    if (!Array.isArray(data?.stations)) return [];
+    return (data.stations as Record<string, unknown>[])
+        .slice(0, MAX_STATIONS)
+        .map(normaliseTideStation)
+        .filter((station): station is TideStation => station !== null);
 }
 
 // ── Fetch tide predictions for a specific station ──
 
 async function fetchStationPredictions(lat: number, lon: number): Promise<TideExtreme[]> {
-    const supabaseUrl = getSupabaseUrl();
-    const supabaseKey = getSupabaseKey();
-
-    if (supabaseUrl && supabaseKey) {
-        try {
-            const res = await fetch(`${supabaseUrl}/functions/v1/proxy-tides`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${supabaseKey}`,
-                    apikey: supabaseKey,
-                },
-                body: JSON.stringify({ lat, lon, days: 2 }),
-            });
-            if (res.status === 200) {
-                const data = await res.json();
-                if (data?.extremes) return data.extremes as TideExtreme[];
-            }
-        } catch {
-            /* fall through */
-        }
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+        return [];
     }
-
-    const key = getWorldTidesKey();
-    if (!key) return [];
-
-    try {
-        const start = Math.floor(Date.now() / 1000) - 3600;
-        const url = `https://www.worldtides.info/api/v3?extremes&lat=${lat}&lon=${lon}&days=2&datum=LAT&start=${start}&key=${key}`;
-        const res = await CapacitorHttp.get({ url });
-        if (res.status === 200 && res.data?.extremes) {
-            return res.data.extremes as TideExtreme[];
-        }
-    } catch (err) {
-        log.warn('[predictions] Fetch failed:', err);
-    }
-
-    return [];
+    const data = await fetchTideProxy({ lat, lon, days: 2 });
+    return normaliseTideExtremes(data?.extremes).slice(0, MAX_EXTREMES);
 }
 
 // ── Build popup HTML ──
 
-function buildPopupContent(station: TideStation, predictions: TideExtreme[] | null, loading: boolean): string {
+export function buildTideStationPopupHtml(
+    station: TideStation,
+    predictions: TideExtreme[] | null,
+    loading: boolean,
+): string {
+    const distance = finiteTideNumber(station.distance);
     const distLabel =
-        station.distance < 1
-            ? `${(station.distance * 1000).toFixed(0)} m away`
-            : `${station.distance.toFixed(1)} km away`;
+        distance == null
+            ? 'Distance unavailable'
+            : distance < 1
+              ? `${Math.max(0, distance * 1000).toFixed(0)} m away`
+              : `${Math.max(0, distance).toFixed(1)} km away`;
 
     let tideRows = '';
     if (loading) {
         tideRows = '<p style="color:#64748b;font-size:11px;margin:8px 0 0;">Loading predictions...</p>';
     } else if (predictions && predictions.length > 0) {
         const now = Date.now();
-        tideRows = predictions
+        tideRows = normaliseTideExtremes(predictions)
             .slice(0, 6) // Show up to 6 events
             .map((p) => {
                 const t = new Date(p.date);
@@ -201,7 +226,7 @@ function buildPopupContent(station: TideStation, predictions: TideExtreme[] | nu
                 const color = p.type === 'High' ? '#38bdf8' : '#94a3b8';
                 const opacity = isPast ? '0.4' : '1';
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;opacity:${opacity}">
-                    <span style="color:${color};font-size:11px;font-weight:700;">${icon} ${p.type.toUpperCase()}</span>
+                    <span style="color:${color};font-size:11px;font-weight:700;">${icon} ${escapeTidePopupHtml(p.type.toUpperCase())}</span>
                     <span style="color:#e2e8f0;font-size:11px;font-family:monospace;">${p.height.toFixed(1)}m</span>
                     <span style="color:#64748b;font-size:10px;">${dayStr} ${timeStr}</span>
                 </div>`;
@@ -216,8 +241,8 @@ function buildPopupContent(station: TideStation, predictions: TideExtreme[] | nu
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
                 <span style="font-size:16px;">🌊</span>
                 <div>
-                    <p style="margin:0;color:#f1f5f9;font-size:13px;font-weight:800;">${station.name}</p>
-                    <p style="margin:2px 0 0;color:#64748b;font-size:10px;">${distLabel}</p>
+                    <p style="margin:0;color:#f1f5f9;font-size:13px;font-weight:800;">${escapeTidePopupHtml(station.name)}</p>
+                    <p style="margin:2px 0 0;color:#64748b;font-size:10px;">${escapeTidePopupHtml(distLabel)}</p>
                 </div>
             </div>
             <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;">
@@ -429,13 +454,8 @@ export function useTideStationLayer(
             const props = features[0].properties;
             if (!props) return;
 
-            const station: TideStation = {
-                id: String(props.id),
-                name: String(props.name),
-                lat: Number(props.lat),
-                lon: Number(props.lon),
-                distance: Number(props.distance),
-            };
+            const station = normaliseTideStation(props);
+            if (!station) return;
 
             closePopup();
 
@@ -447,7 +467,7 @@ export function useTideStationLayer(
                 className: 'tide-station-popup',
             })
                 .setLngLat([station.lon, station.lat])
-                .setHTML(buildPopupContent(station, null, true))
+                .setHTML(buildTideStationPopupHtml(station, null, true))
                 .addTo(map);
 
             popupRef.current = popup;
@@ -455,7 +475,7 @@ export function useTideStationLayer(
             // Fetch predictions async
             const predictions = await fetchStationPredictions(station.lat, station.lon);
             if (popupRef.current === popup) {
-                popup.setHTML(buildPopupContent(station, predictions, false));
+                popup.setHTML(buildTideStationPopupHtml(station, predictions, false));
             }
         };
 

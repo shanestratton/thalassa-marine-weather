@@ -29,6 +29,7 @@ import {
 import { resolveCountrySnippets, type ResolvedCountrySnippet } from '../../services/CountrySnippetService';
 import { useSettings } from '../../context/SettingsContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface TripOverviewSheetProps {
     isOpen: boolean;
@@ -228,11 +229,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
     };
 
     return (
-        <div
-            className="fixed inset-0 z-[10000] bg-black/80 flex items-stretch justify-center"
-            onClick={onClose}
-            role="presentation"
-        >
+        <OverlayPortal className="bg-black/80 flex items-stretch justify-center" onClick={onClose} role="presentation">
             <div
                 ref={dialogRef}
                 role="dialog"
@@ -505,7 +502,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                     </p>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

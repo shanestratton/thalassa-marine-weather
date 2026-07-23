@@ -2,6 +2,14 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Response) => void };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseGeoBounds,
+    readJsonObject,
+    readResponseArrayBufferLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * fetch-wind-grid — NOAA GFS GRIB2 CORS Proxy
  *
@@ -136,20 +144,18 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
-    try {
-        const body: WindRequest = await req.json();
-        const { north, south, east, west } = body;
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'wind_grid', 120, 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
-        if (
-            typeof north !== 'number' ||
-            typeof south !== 'number' ||
-            typeof east !== 'number' ||
-            typeof west !== 'number'
-        ) {
-            return corsResponse(JSON.stringify({ error: 'Missing bounds (north, south, east, west)' }), 400, {
+    try {
+        const body = await readJsonObject(req, 4096);
+        const bounds = body ? parseGeoBounds(body) : null;
+        if (!bounds) {
+            return corsResponse(JSON.stringify({ error: 'Invalid geographic bounds' }), 400, {
                 'Content-Type': 'application/json',
             });
         }
+        const { north, south, east, west } = bounds;
 
         const lonSpan = east - west;
         let leftLon: number;
@@ -187,12 +193,16 @@ Deno.serve(async (req: Request) => {
             console.info(`[fetch-wind-grid] f${fhrStr}: ${noaaUrl}`);
 
             try {
-                const upstream = await fetch(noaaUrl);
+                const upstream = await fetchWithTimeout(noaaUrl, {}, 15_000);
                 if (!upstream.ok) {
                     console.warn(`[fetch-wind-grid] f${fhrStr}: NOAA returned ${upstream.status}`);
                     return null;
                 }
-                const buf = await upstream.arrayBuffer();
+                const buf = await readResponseArrayBufferLimited(upstream, 12_000_000);
+                if (!buf) {
+                    console.warn(`[fetch-wind-grid] f${fhrStr}: response exceeded byte limit`);
+                    return null;
+                }
                 if (buf.byteLength < 200) {
                     console.warn(`[fetch-wind-grid] f${fhrStr}: too small (${buf.byteLength}B)`);
                     return null;
@@ -223,6 +233,11 @@ Deno.serve(async (req: Request) => {
 
         // Concatenate all valid chunks
         const totalSize = validChunks.reduce((sum, c) => sum + c.byteLength, 0);
+        if (totalSize > 60_000_000) {
+            return corsResponse(JSON.stringify({ error: 'Requested GRIB response is too large' }), 413, {
+                'Content-Type': 'application/json',
+            });
+        }
         const concatenated = new Uint8Array(totalSize);
         let offset = 0;
         for (const chunk of validChunks) {
@@ -243,9 +258,12 @@ Deno.serve(async (req: Request) => {
             'X-Frames': String(validChunks.length),
             'X-Hours': validHours.join(','),
             'X-Bounds': `${south},${north},${west},${east}`,
+            'Cache-Control': 'public, max-age=1800',
         });
     } catch (err) {
         console.error('[fetch-wind-grid] Error:', err);
-        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
+        return corsResponse(JSON.stringify({ error: 'Wind grid fetch failed' }), 502, {
+            'Content-Type': 'application/json',
+        });
     }
 });

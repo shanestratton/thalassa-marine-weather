@@ -7,7 +7,7 @@
  *   2. User taps "Plan Window" button on the route summary overlay
  *   3. This sheet slides up from the bottom
  *   4. Engine runs ~14 isochrone scenarios across the next 7 days,
- *      streaming results via 'thalassa:departure-window-progress'
+ *      streaming results through the planner invocation's owned callback
  *   5. Each scenario shows a verdict chip + key metrics
  *   6. User taps a scenario → sets departureDate, sheet closes
  *
@@ -20,6 +20,7 @@ import React from 'react';
 import type { DepartureScenario } from '../../services/departureWindow';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface VerdictStyle {
     bg: string;
@@ -128,7 +129,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
     const best = sorted.find((s) => s.routeFound) ?? null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <OverlayPortal className="flex items-end justify-center">
             {/* Backdrop */}
             <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
@@ -295,6 +296,6 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                     </ul>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

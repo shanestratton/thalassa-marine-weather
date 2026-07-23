@@ -11,13 +11,22 @@ import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
 import { Preferences } from '@capacitor/preferences';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+} from '../../services/authIdentityScope';
+import { redactSensitiveDiagnostic } from '../../utils/redactSensitiveDiagnostic';
 
 let _chartLogSeq = 0;
 async function chartLog(msg: string) {
-    const val = `[CHART-${++_chartLogSeq}] ${msg}`;
+    const scope = getAuthIdentityScope();
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    const key = authScopedStorageKey('CHART_LOG', scope);
+    const val = `[CHART-${++_chartLogSeq}] ${redactSensitiveDiagnostic(msg)}`;
     try {
-        await Preferences.set({ key: 'CHART_LOG', value: val });
-        await Preferences.get({ key: 'CHART_LOG' });
+        await Preferences.set({ key, value: val });
+        if (isAuthIdentityScopeCurrent(scope)) await Preferences.get({ key });
     } catch {
         /* ignore */
     }

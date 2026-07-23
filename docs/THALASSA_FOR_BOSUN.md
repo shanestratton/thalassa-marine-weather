@@ -217,23 +217,23 @@ This is the inventory of every data source Bosun can read from. Bosun must know 
 
 ### Vessel state (persistent on Pi)
 
-| Surface               | Provides                                                                         |
-| --------------------- | -------------------------------------------------------------------------------- |
-| `AnchorWatchService`  | Anchor down/up state, swing radius, drag detection state, observed-arc history   |
-| `VoyageService`       | Active voyage / draft voyages / completed voyage tracks                          |
-| `PassagePlanService`  | Currently selected passage, departure/ETA dates, planned waypoints               |
-| `ShipLog` (entries)   | Position fixes, weather logs, observations — persistent voyage record            |
-| `CrewService`         | Skipper's crew (invited + accepted + declined), per-passage crew assignment      |
-| `MealPlanService`     | Scheduled meals per voyage, cooking state, completed meals                       |
-| `ShoppingListService` | Aggregated provisioning items, zones (Butcher / Produce / Bottle / Bakery / etc) |
-| `StoresService`       | Current ship's-stores inventory by ingredient/category                           |
-| `MaintenanceLog`      | Service history per system (engine / rigging / electronics / hull / sails)       |
-| `EquipmentRegistry`   | Installed equipment with manuals, warranty, install dates                        |
-| `PinService`          | Saved pins (anchorages, POIs, hazards) shared from chat or Charts                |
-| `LocationStore`       | Cached recent locations + map-pin state                                          |
-| `MarketplaceService`  | Active listings, peer-to-peer marketplace state                                  |
-| `GalleyRecipeService` | Custom recipes + community recipes + favourites + bilge-dive search index        |
-| `ChatService`         | Channels + DMs + offline queue                                                   |
+| Surface                 | Provides                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `AnchorWatchService`    | Anchor down/up state, swing radius, drag detection state, observed-arc history   |
+| `VoyageService`         | Active voyage / draft voyages / completed voyage tracks                          |
+| `PassagePlanService`    | Currently selected passage, departure/ETA dates, planned waypoints               |
+| `ShipLog` (entries)     | Position fixes, weather logs, observations — persistent voyage record            |
+| `CrewService`           | Skipper's crew (invited + accepted + declined), per-passage crew assignment      |
+| `MealPlanService`       | Scheduled meals per voyage, cooking state, completed meals                       |
+| `ShoppingListService`   | Aggregated provisioning items, zones (Butcher / Produce / Bottle / Bakery / etc) |
+| `LocalInventoryService` | Current ship's-stores inventory by ingredient/category                           |
+| `MaintenanceLog`        | Service history per system (engine / rigging / electronics / hull / sails)       |
+| `EquipmentRegistry`     | Installed equipment with manuals, warranty, install dates                        |
+| `PinService`            | Saved pins (anchorages, POIs, hazards) shared from chat or Charts                |
+| `LocationStore`         | Cached recent locations + map-pin state                                          |
+| `MarketplaceService`    | Active listings, peer-to-peer marketplace state                                  |
+| `GalleyRecipeService`   | Custom recipes + community recipes + favourites + bilge-dive search index        |
+| `ChatService`           | Channels + DMs + offline queue                                                   |
 
 ### Compound knowledge (RAG corpus on Pi)
 
@@ -277,7 +277,7 @@ Bosun is **proposer-and-monitor, not actor**. Every action below is "I propose Y
 
 - `MealPlanService.scheduleMeal(meal, date, slot, voyageId, servings)`
 - `ShoppingListService.addManualItem({name, qty, unit, notes})`
-- `StoresService.markPurchased(itemId)` / `.markConsumed(...)`
+- `ShoppingListService.markPurchased(itemId)` / `LocalInventoryService.adjustQuantity(itemId, delta)`
 - `PinService.savePin({lat, lon, caption, type})`
 
 ### Communication actions (always require skipper approval before send)

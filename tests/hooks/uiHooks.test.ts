@@ -1,7 +1,7 @@
 /**
  * Hook tests — useOnlineStatus, useDeviceMode, useSuccessFlash
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 // ── useOnlineStatus ──────────────────────────────────────────
@@ -77,6 +77,10 @@ describe('useDeviceMode', () => {
 
 // ── useSuccessFlash ──────────────────────────────────────────
 describe('useSuccessFlash', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('returns ref and flash function', async () => {
         const { useSuccessFlash } = await import('../../hooks/useSuccessFlash');
         const { result } = renderHook(() => useSuccessFlash());
@@ -104,6 +108,41 @@ describe('useSuccessFlash', () => {
         });
 
         expect(div.classList.contains('success-flash')).toBe(false);
-        vi.useRealTimers();
+    });
+
+    it('restarts a rapid flash without the first timer ending it early', async () => {
+        vi.useFakeTimers();
+        const { useSuccessFlash } = await import('../../hooks/useSuccessFlash');
+        const { result } = renderHook(() => useSuccessFlash());
+        const div = document.createElement('div');
+        (result.current.ref as any).current = div;
+
+        act(() => {
+            result.current.flash();
+            vi.advanceTimersByTime(500);
+            result.current.flash();
+            vi.advanceTimersByTime(200);
+        });
+        expect(div).toHaveClass('success-flash');
+
+        act(() => {
+            vi.advanceTimersByTime(450);
+        });
+        expect(div).not.toHaveClass('success-flash');
+    });
+
+    it('cleans the class and pending timer on unmount', async () => {
+        vi.useFakeTimers();
+        const { useSuccessFlash } = await import('../../hooks/useSuccessFlash');
+        const { result, unmount } = renderHook(() => useSuccessFlash());
+        const div = document.createElement('div');
+        (result.current.ref as any).current = div;
+
+        act(() => result.current.flash());
+        expect(div).toHaveClass('success-flash');
+
+        unmount();
+        expect(div).not.toHaveClass('success-flash');
+        expect(vi.getTimerCount()).toBe(0);
     });
 });

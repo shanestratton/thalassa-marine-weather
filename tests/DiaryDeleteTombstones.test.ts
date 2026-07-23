@@ -18,10 +18,12 @@ vi.mock('../services/supabase', () => ({
 }));
 
 import { DiaryService } from '../services/DiaryService';
+import { authScopedStorageKey, setAuthIdentityScope, type AuthIdentityScope } from '../services/authIdentityScope';
 
-const CACHE_KEY = 'thalassa_diary_entries_v2';
-const PENDING_KEY = 'thalassa_diary_pending_v2';
-const DELETED_KEY = 'thalassa_diary_deleted_v1';
+const TEST_SCOPE: AuthIdentityScope = { key: 'user:u1', userId: 'u1', generation: 0 };
+const CACHE_KEY = authScopedStorageKey('thalassa_diary_entries_v2', TEST_SCOPE);
+const PENDING_KEY = authScopedStorageKey('thalassa_diary_pending_v2', TEST_SCOPE);
+const DELETED_KEY = authScopedStorageKey('thalassa_diary_deleted_v1', TEST_SCOPE);
 
 const makeEntry = (id: string, overrides: Record<string, unknown> = {}) => ({
     id,
@@ -40,6 +42,7 @@ const makeEntry = (id: string, overrides: Record<string, unknown> = {}) => ({
     is_public: false,
     created_at: '2026-07-03T00:00:00.000Z',
     updated_at: '2026-07-03T00:00:00.000Z',
+    owner_user_id: 'u1',
     ...overrides,
 });
 
@@ -47,6 +50,7 @@ const readTombstones = (): { id: string; deletedAt: number }[] => JSON.parse(loc
 
 beforeEach(() => {
     localStorage.clear();
+    setAuthIdentityScope('u1');
     mockSupabase.current = null;
 });
 
@@ -95,7 +99,12 @@ describe('deleteEntry — offline commit', () => {
 
 describe('tombstone store hygiene', () => {
     it('purges expired tombstones (7-day TTL) and stops filtering them', async () => {
-        const expired = { id: 'srv-old', photos: [], deletedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 };
+        const expired = {
+            id: 'srv-old',
+            photos: [],
+            deletedAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
+            owner_user_id: 'u1',
+        };
         localStorage.setItem(DELETED_KEY, JSON.stringify([expired]));
         localStorage.setItem(CACHE_KEY, JSON.stringify([makeEntry('srv-old')]));
 
@@ -142,7 +151,7 @@ describe('drainDeletedTombstones', () => {
                     }),
                 }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
 
         await DiaryService.drainDeletedTombstones();
@@ -164,7 +173,7 @@ describe('drainDeletedTombstones', () => {
                     eq: () => ({ select: async () => ({ data: null, error: { message: 'network sadness' } }) }),
                 }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
 
         await DiaryService.drainDeletedTombstones();
@@ -190,7 +199,7 @@ describe('drainDeletedTombstones', () => {
                     }),
                 }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
 
         await DiaryService.drainDeletedTombstones();
@@ -202,12 +211,15 @@ describe('drainDeletedTombstones', () => {
 
 // ── Adversarial-review fixes (2026-07-03) ──────────────────────
 
-const IDMAP_KEY = 'thalassa_diary_idmap_v1';
+const IDMAP_KEY = authScopedStorageKey('thalassa_diary_idmap_v1', TEST_SCOPE);
 
 describe('stale offline-id deletes (id-map)', () => {
     it('kills the server twin when the offline id outlived the 120s sync buffer', async () => {
         // syncPending recorded the mapping at sync time; buffer long gone.
-        localStorage.setItem(IDMAP_KEY, JSON.stringify([['offline-stale', 'srv-mapped']]));
+        localStorage.setItem(
+            IDMAP_KEY,
+            JSON.stringify([{ offlineId: 'offline-stale', serverId: 'srv-mapped', owner_user_id: 'u1' }]),
+        );
         localStorage.setItem(CACHE_KEY, JSON.stringify([makeEntry('srv-mapped')]));
 
         const ok = await DiaryService.deleteEntry('offline-stale');
@@ -237,7 +249,7 @@ describe('drain/refresh race (grace window)', () => {
                     eq: (_c: string, id: string) => ({ select: async () => ({ data: [{ id }], error: null }) }),
                 }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
         await DiaryService.drainDeletedTombstones();
         expect(readTombstones().map((t) => t.id)).not.toContain('srv-grace');
@@ -289,7 +301,7 @@ describe('quota-degraded tombstone writes', () => {
                     }),
                 }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
         await DiaryService.drainDeletedTombstones();
         expect(deletedIds).toContain('srv-quota');
@@ -320,7 +332,7 @@ describe('server-side deletion order and storage cleanup', () => {
                     },
                 }),
             },
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
         await DiaryService.drainDeletedTombstones();
 
@@ -358,7 +370,7 @@ describe('server-side deletion order and storage cleanup', () => {
                     },
                 }),
             },
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
         await DiaryService.drainDeletedTombstones();
 
@@ -383,7 +395,7 @@ describe('silent RLS no-op (0 rows, no error)', () => {
                 // the tombstone, and the next refresh resurrected the entry.
                 delete: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
 
         await DiaryService.drainDeletedTombstones();
@@ -399,7 +411,7 @@ describe('silent RLS no-op (0 rows, no error)', () => {
                 select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
                 delete: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }),
             }),
-            auth: { getUser: async () => ({ data: { user: null } }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
         };
 
         await DiaryService.drainDeletedTombstones();

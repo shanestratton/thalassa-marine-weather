@@ -21,7 +21,7 @@ export const ONBOARDED_STORAGE: InlineStorageState = {
             origin: ORIGIN,
             localStorage: [
                 { name: 'thalassa_disclaimer_v1.0', value: 'accepted' },
-                { name: 'thalassa_v3_onboarded', value: 'true' },
+                { name: 'thalassa_v3_onboarded::anonymous', value: 'true' },
                 { name: 'thalassa_install_dismissed', value: 'true' },
                 { name: 'thalassa_chart_key_seen_v1', value: 'e2e' },
                 {

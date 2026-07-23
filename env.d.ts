@@ -8,19 +8,10 @@ declare namespace NodeJS {
         // Supabase
         SUPABASE_URL?: string;
         SUPABASE_KEY?: string;
-        // AI
-        API_KEY?: string;
-        GEMINI_API_KEY?: string;
-        // Weather
-        STORMGLASS_API_KEY?: string;
-        OPEN_METEO_API_KEY?: string;
         // Maps
         MAPBOX_ACCESS_TOKEN?: string;
-        WORLD_TIDES_API_KEY?: string;
         // Background Geolocation
         VITE_TRANSISTOR_LICENSE_KEY?: string;
-        // Spoonacular
-        VITE_SPOONACULAR_KEY?: string;
     }
 }
 
@@ -29,7 +20,12 @@ declare namespace NodeJS {
 
 interface ThalassaWindow {
     /** Pin drop coordinates shared between ChatMessageList → MapHub */
-    __thalassaPinView?: { lat: number; lng: number };
+    __thalassaPinView?: {
+        lat: number;
+        lng: number;
+        /** Exact process generation that owns this transient handoff. */
+        identity: import('./services/authIdentityScope').AuthIdentityScope;
+    };
     /** MapLibre GL instance (set by map components) */
     mapboxgl?: typeof import('mapbox-gl');
     /** Leaflet instance (set by TrackMapViewer) */

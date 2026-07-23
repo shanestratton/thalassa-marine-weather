@@ -4,7 +4,7 @@
  * Sub-components extracted to ./checklists/:
  *   - SwipeableItemCard: swipeable heading/detail card with reorder controls
  */
-import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { createLogger } from '../../utils/createLogger';
 
@@ -29,6 +29,12 @@ import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 interface ChecklistsPageProps {
     onBack: () => void;
@@ -62,7 +68,9 @@ const STATUS_STYLES: Record<RunItemStatus, { bg: string; border: string; icon: s
 // ── Main Component ─────────────────────────────────────────────
 
 export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
+    const initialScope = getAuthIdentityScope();
     const [entries, setEntries] = useState<ChecklistEntry[]>([]);
+    const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -81,10 +89,19 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const runTitleId = useId();
     const pageActionsButtonRef = useRef<HTMLButtonElement>(null);
     const runCloseButtonRef = useRef<HTMLButtonElement>(null);
+    const mountedRef = useRef(true);
+    const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const currentOperation = useCallback(
+        (scope: AuthIdentityScope) =>
+            mountedRef.current && isAuthIdentityScopeCurrent(scope) && dataScopeKey === scope.key,
+        [dataScopeKey],
+    );
     const exitRun = useCallback(() => {
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
         setShowRun(false);
         setRunItems([]);
-    }, []);
+    }, [currentOperation]);
     const runDialogRef = useFocusTrap(showRun, {
         initialFocusRef: runCloseButtonRef,
         onEscape: exitRun,
@@ -92,26 +109,62 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
     // ── Load ──
     const loadEntries = useCallback(() => {
+        const scope = getAuthIdentityScope();
         setLoading(true);
         try {
-            setEntries(LocalChecklistService.getAll());
+            const loaded = LocalChecklistService.getAll();
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setDataScopeKey(scope.key);
+            setEntries(loaded);
         } catch (e) {
             log.error('Failed to load checklists:', e);
-            toast.error('Failed to load checklists');
+            if (isAuthIdentityScopeCurrent(scope)) toast.error('Failed to load checklists');
         } finally {
-            setLoading(false);
+            if (isAuthIdentityScopeCurrent(scope)) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
+        mountedRef.current = true;
         loadEntries();
+        const unsubscribe = subscribeAuthIdentityScope((next) => {
+            if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+            setDataScopeKey(next.key);
+            setEntries([]);
+            setLoading(true);
+            setSearchQuery('');
+            setHeaderMenuOpen(false);
+            setShowForm(false);
+            setEditEntry(null);
+            setFormType('heading');
+            setFormText('');
+            setFormHeadingId('');
+            setShowRun(false);
+            setRunItems([]);
+            setRunId('');
+            reloadTimerRef.current = setTimeout(() => {
+                if (isAuthIdentityScopeCurrent(next)) loadEntries();
+            }, 0);
+        });
+        return () => {
+            mountedRef.current = false;
+            if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+            reloadTimerRef.current = null;
+            unsubscribe();
+        };
     }, [loadEntries]);
 
     // ── Computed ──
-    const headings = entries.filter((e) => e.type === 'heading');
+    const visibleEntries = useMemo(
+        () => (dataScopeKey === getAuthIdentityScope().key ? entries : []),
+        [dataScopeKey, entries],
+    );
+    const headings = visibleEntries.filter((e) => e.type === 'heading');
     const grouped = headings.map((h) => ({
         heading: h,
-        items: entries.filter((e) => e.type === 'detail' && e.heading_id === h.id).sort((a, b) => a.order - b.order),
+        items: visibleEntries
+            .filter((e) => e.type === 'detail' && e.heading_id === h.id)
+            .sort((a, b) => a.order - b.order),
     }));
 
     const filtered = searchQuery.trim()
@@ -123,7 +176,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
               .filter((g) => g.heading.text.toLowerCase().includes(searchQuery.toLowerCase()) || g.items.length > 0)
         : grouped;
 
-    const totalDetails = entries.filter((e) => e.type === 'detail').length;
+    const totalDetails = visibleEntries.filter((e) => e.type === 'detail').length;
 
     // ── Form handlers ──
     const resetForm = () => {
@@ -151,22 +204,28 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
     const handleSave = useCallback(async () => {
         if (!formText.trim()) return;
+        const scope = getAuthIdentityScope();
+        const entryId = editEntry?.id ?? null;
+        const text = formText.trim();
+        const headingId = formType === 'detail' ? formHeadingId : null;
         try {
             triggerHaptic('medium');
-            if (editEntry) {
-                await LocalChecklistService.update(editEntry.id, {
-                    text: formText.trim(),
-                    heading_id: formType === 'detail' ? formHeadingId : null,
+            if (entryId) {
+                await LocalChecklistService.update(entryId, {
+                    text,
+                    heading_id: headingId,
                 });
+                if (!currentOperation(scope)) return;
                 toast.success('Updated');
                 setShowForm(false);
                 resetForm();
             } else {
                 await LocalChecklistService.create({
                     type: formType,
-                    text: formText.trim(),
-                    heading_id: formType === 'detail' ? formHeadingId : null,
+                    text,
+                    heading_id: headingId,
                 });
+                if (!currentOperation(scope)) return;
                 toast.success(formType === 'heading' ? 'Section added' : 'Item added');
                 // Keep form open — just clear text so user can add more
                 setFormText('');
@@ -174,18 +233,19 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             loadEntries();
         } catch (e) {
             log.error('Failed to save:', e);
-            toast.error('Failed to save');
+            if (currentOperation(scope)) toast.error('Failed to save');
         }
-    }, [editEntry, formText, formType, formHeadingId, loadEntries]);
+    }, [currentOperation, editEntry, formText, formType, formHeadingId, loadEntries]);
 
     const handleDelete = useCallback(
         async (id: string) => {
-            const entry = entries.find((e) => e.id === id);
+            const scope = getAuthIdentityScope();
+            const entry = visibleEntries.find((e) => e.id === id);
             if (!entry) return;
 
             // Guard: don't delete headings that still have items
             if (entry.type === 'heading') {
-                const children = entries.filter((e) => e.type === 'detail' && e.heading_id === id);
+                const children = visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === id);
                 if (children.length > 0) {
                     toast.error('Remove all items from this section first');
                     return;
@@ -195,15 +255,16 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             triggerHaptic('medium');
             try {
                 await LocalChecklistService.delete(id);
+                if (!currentOperation(scope)) return;
                 loadEntries();
                 const isH = entry.type === 'heading';
                 toast.success(isH ? 'Section deleted' : 'Item deleted');
             } catch (e) {
                 log.error('Failed to delete:', e);
-                toast.error('Failed to delete');
+                if (currentOperation(scope)) toast.error('Failed to delete');
             }
         },
-        [entries, loadEntries],
+        [currentOperation, loadEntries, visibleEntries],
     );
 
     // ── Reorder items ──
@@ -211,27 +272,32 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         async (groupItems: ChecklistEntry[], itemIndex: number, direction: 'up' | 'down') => {
             const targetIndex = direction === 'up' ? itemIndex - 1 : itemIndex + 1;
             if (targetIndex < 0 || targetIndex >= groupItems.length) return;
+            const scope = getAuthIdentityScope();
             triggerHaptic('light');
-            const itemA = groupItems[itemIndex];
-            const itemB = groupItems[targetIndex];
+            const itemA = { ...groupItems[itemIndex] };
+            const itemB = { ...groupItems[targetIndex] };
             // Swap their order values
             try {
                 await LocalChecklistService.update(itemA.id, { order: itemB.order });
+                if (!currentOperation(scope)) return;
                 await LocalChecklistService.update(itemB.id, { order: itemA.order });
+                if (!currentOperation(scope)) return;
                 loadEntries();
             } catch (e) {
                 log.error('Failed to reorder:', e);
-                toast.error('Failed to reorder');
+                if (currentOperation(scope)) toast.error('Failed to reorder');
             }
         },
-        [loadEntries],
+        [currentOperation, loadEntries],
     );
 
     // ── Run mode ──
     const startRun = useCallback(() => {
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
         pageActionsButtonRef.current?.focus();
         setHeaderMenuOpen(false);
-        const details = entries.filter((e) => e.type === 'detail');
+        const details = visibleEntries.filter((e) => e.type === 'detail');
         if (details.length === 0) {
             toast.error('No items to check — add some first');
             return;
@@ -250,40 +316,53 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         setRunItems(items);
         setRunId(generateUUID());
         setShowRun(true);
-    }, [entries, grouped]);
+    }, [currentOperation, grouped, visibleEntries]);
 
-    const toggleRunItem = useCallback((entryId: string) => {
-        triggerHaptic('light');
-        setRunItems((prev) =>
-            prev.map((item) => {
-                if (item.entry_id !== entryId) return item;
-                // Cycle: unchecked → pass → fail → unchecked
-                const next: RunItemStatus =
-                    item.status === 'unchecked' ? 'pass' : item.status === 'pass' ? 'fail' : 'unchecked';
-                return { ...item, status: next, flagged_rm: next === 'fail' ? item.flagged_rm : false };
-            }),
-        );
-    }, []);
+    const toggleRunItem = useCallback(
+        (entryId: string) => {
+            const scope = getAuthIdentityScope();
+            if (!currentOperation(scope)) return;
+            triggerHaptic('light');
+            setRunItems((prev) =>
+                prev.map((item) => {
+                    if (item.entry_id !== entryId) return item;
+                    // Cycle: unchecked → pass → fail → unchecked
+                    const next: RunItemStatus =
+                        item.status === 'unchecked' ? 'pass' : item.status === 'pass' ? 'fail' : 'unchecked';
+                    return { ...item, status: next, flagged_rm: next === 'fail' ? item.flagged_rm : false };
+                }),
+            );
+        },
+        [currentOperation],
+    );
 
-    const toggleRmFlag = useCallback((entryId: string) => {
-        triggerHaptic('light');
-        setRunItems((prev) =>
-            prev.map((item) => {
-                if (item.entry_id !== entryId) return item;
-                return { ...item, flagged_rm: !item.flagged_rm };
-            }),
-        );
-    }, []);
+    const toggleRmFlag = useCallback(
+        (entryId: string) => {
+            const scope = getAuthIdentityScope();
+            if (!currentOperation(scope)) return;
+            triggerHaptic('light');
+            setRunItems((prev) =>
+                prev.map((item) => {
+                    if (item.entry_id !== entryId) return item;
+                    return { ...item, flagged_rm: !item.flagged_rm };
+                }),
+            );
+        },
+        [currentOperation],
+    );
 
     const completeRun = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
         triggerHaptic('heavy');
         const run: ChecklistRun = {
             id: runId,
             started_at: new Date().toISOString(),
             completed_at: new Date().toISOString(),
-            items: runItems,
+            items: runItems.map((item) => ({ ...item })),
         };
         await LocalChecklistService.saveRun(run);
+        if (!currentOperation(scope)) return;
 
         // Create R&M tasks for flagged items
         const flagged = runItems.filter((i) => i.flagged_rm);
@@ -300,6 +379,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     last_completed: null,
                     is_active: true,
                 });
+                if (!currentOperation(scope)) return;
             } catch (e) {
                 log.warn('Failed to create R&M task for:', item.text, e);
             }
@@ -323,7 +403,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         if (flagged.length > 0) {
             toast.info(`🔧 ${flagged.length} item${flagged.length > 1 ? 's' : ''} sent to R&M`);
         }
-    }, [runItems, runId]);
+    }, [currentOperation, runItems, runId]);
 
     // Run progress
     const runPassCount = runItems.filter((i) => i.status === 'pass').length;
@@ -640,7 +720,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             (() => {
                                 const isHeading = editEntry.type === 'heading';
                                 const childCount = isHeading
-                                    ? entries.filter((e) => e.type === 'detail' && e.heading_id === editEntry.id).length
+                                    ? visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === editEntry.id)
+                                          .length
                                     : 0;
                                 const canDelete = !isHeading || childCount === 0;
 

@@ -12,13 +12,48 @@
 import { supabase, getCurrentUser } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { toDbFormat, fromDbFormat, formatPositionDMS, SHIP_LOGS_TABLE } from './helpers';
-import { queueOfflineEntry, demoteLatestPositionInQueue } from './OfflineQueue';
+import { queueOfflineEntry, demoteLatestPositionInQueue, runVoyageCloudMutation } from './OfflineQueue';
 import { BgGeoManager, CachedPosition } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 
 const log = createLogger('EntrySave');
+
+function operationIsCurrent(scope: AuthIdentityScope, sessionGuard: () => boolean): boolean {
+    return isAuthIdentityScopeCurrent(scope) && sessionGuard();
+}
+
+function newClientOperationId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return `shipop_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+async function boundedRequest<T>(
+    operation: (signal: AbortSignal) => PromiseLike<T>,
+    timeoutMs: number,
+): Promise<T | null> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            Promise.resolve(operation(controller.signal)).catch((error) => {
+                if (controller.signal.aborted) return null;
+                throw error;
+            }),
+            new Promise<null>((resolve) => {
+                timer = setTimeout(() => {
+                    controller.abort();
+                    resolve(null);
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 
 /**
  * Check if satellite mode is enabled (sync read from settings).
@@ -27,10 +62,7 @@ const log = createLogger('EntrySave');
  */
 export function isSatelliteMode(): boolean {
     try {
-        const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
-        if (!raw) return false;
-        const settings = JSON.parse(raw);
-        return !!settings?.satelliteMode;
+        return !!useSettingsStore.getState().settings.satelliteMode;
     } catch {
         return false;
     }
@@ -72,55 +104,89 @@ import { noteLiveTrickleHeartbeat } from './LiveTrickle';
  */
 export async function saveEntryOnlineOrOffline(
     entry: Partial<ShipLogEntry>,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+    sessionGuard: () => boolean = () => true,
 ): Promise<{ saved: ShipLogEntry | null; entryId: string | null; wasOffline: boolean }> {
+    const rejected = { saved: null, entryId: null, wasOffline: true } as const;
+    if (!operationIsCurrent(scope, sessionGuard)) return rejected;
+    // Created before the first network attempt and preserved if that attempt
+    // times out but commits late. The database unique key makes every replay
+    // of this logical capture converge on one row.
+    const operationId = newClientOperationId();
+
+    const queueForReplay = async () => {
+        if (!operationIsCurrent(scope, sessionGuard)) return rejected;
+        const rollingVoyageId =
+            entry.entryType === 'waypoint' && entry.waypointName === 'Latest Position'
+                ? entry.voyageId || 'default_voyage'
+                : undefined;
+        await queueOfflineEntry(entry, {
+            operationId,
+            expectedScope: scope,
+            demotePreviousLatestForVoyage: rollingVoyageId,
+        });
+        if (!operationIsCurrent(scope, sessionGuard)) return rejected;
+        return { saved: null, entryId: null, wasOffline: true } as const;
+    };
+
     // Active voyage → device only. No Supabase attempt, no 5 s timeout
     // race, no auth resolution — just an instant local append. The voyage
     // syncs as one batch when tracking stops.
     if (captureIsLocalOnly()) {
-        await queueOfflineEntry(entry);
+        const queued = await queueForReplay();
+        if (!operationIsCurrent(scope, sessionGuard)) return rejected;
         // Live-trickle heartbeat rides the capture callback: in the
         // background JS timers are suspended but native GPS callbacks keep
         // arriving, so this is what keeps the public "live tail" moving on
         // passage. Throttled + read-only inside; no-op unless sharing is on.
-        noteLiveTrickleHeartbeat();
-        return { saved: null, entryId: null, wasOffline: true };
+        noteLiveTrickleHeartbeat(scope);
+        return queued;
     }
 
     const isOnline = isOnlineAndNotSatellite();
 
     if (supabase && isOnline) {
+        const database = supabase;
+        let saveResult: { data: ShipLogEntry; id: string } | 'offline' | null;
         try {
-            const saveResult = await Promise.race([
-                (async () => {
-                    const user = await getCurrentUser();
-                    if (user) {
-                        const { data, error } = await supabase
+            saveResult = await runVoyageCloudMutation(
+                entry.voyageId || 'default_voyage',
+                scope,
+                5000,
+                async (signal) => {
+                    const user = await getCurrentUser(scope);
+                    if (signal.aborted) return 'offline' as const;
+                    if (user && user.id === scope.userId && operationIsCurrent(scope, sessionGuard)) {
+                        const row = toDbFormat({ ...entry, userId: user.id });
+                        delete row.id;
+                        row.client_operation_id = operationId;
+                        const { data, error } = await database
                             .from(SHIP_LOGS_TABLE)
-                            .insert(toDbFormat({ ...entry, userId: user.id }))
+                            .upsert(row, {
+                                onConflict: 'user_id,client_operation_id',
+                            })
+                            .abortSignal(signal)
                             .select()
                             .single();
 
-                        if (error) return 'offline' as const;
-                        return { data: fromDbFormat(data), id: data.id as string };
+                        if (error || signal.aborted || !operationIsCurrent(scope, sessionGuard)) {
+                            return 'offline' as const;
+                        }
+                        return { data: fromDbFormat(data), id: data.id as string } as const;
                     }
                     return 'offline' as const;
-                })(),
-                new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
-            ]);
-
-            if (saveResult === 'offline' || saveResult === 'timeout') {
-                await queueOfflineEntry(entry);
-                return { saved: null, entryId: null, wasOffline: true };
-            }
-
-            return { saved: saveResult.data, entryId: saveResult.id, wasOffline: false };
+                },
+                entry.timestamp,
+            );
         } catch (_networkError) {
-            await queueOfflineEntry(entry);
-            return { saved: null, entryId: null, wasOffline: true };
+            saveResult = 'offline';
         }
+
+        if (saveResult === 'offline' || saveResult === null) return queueForReplay();
+        if (!operationIsCurrent(scope, sessionGuard)) return rejected;
+        return { saved: saveResult.data, entryId: saveResult.id, wasOffline: false };
     } else {
-        await queueOfflineEntry(entry);
-        return { saved: null, entryId: null, wasOffline: true };
+        return queueForReplay();
     }
 }
 
@@ -128,38 +194,60 @@ export async function saveEntryOnlineOrOffline(
  * Background GPS retry — attempts to get GPS position and update a saved entry.
  * Retries every 5 seconds for up to 30 seconds total.
  */
-export async function retryGpsAndUpdateEntry(entryId: string): Promise<void> {
+export async function retryGpsAndUpdateEntry(
+    entryId: string,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+    sessionGuard: () => boolean = () => true,
+): Promise<void> {
+    if (!scope.userId || !operationIsCurrent(scope, sessionGuard)) return;
     const isNative = Capacitor.isNativePlatform();
     const maxRetries = 6;
     const retryDelayMs = 5000;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        if (!operationIsCurrent(scope, sessionGuard)) return;
 
         try {
             const pos = isNative ? await BgGeoManager.getFreshPosition(5000, 10) : await webGetFreshPosition();
+            if (!operationIsCurrent(scope, sessionGuard)) return;
             if (!pos) continue;
 
             const { latitude, longitude, heading } = pos;
             const positionFormatted = formatPositionDMS(latitude, longitude);
 
             if (supabase) {
+                const database = supabase;
                 const updateData = toDbFormat({
                     latitude,
                     longitude,
                     positionFormatted,
                 });
-                if (heading !== null && heading !== undefined && heading !== 0) {
+                if (typeof heading === 'number' && Number.isFinite(heading)) {
                     updateData.course_deg = Math.round(heading);
                 }
 
-                const { error } = await supabase.from(SHIP_LOGS_TABLE).update(updateData).eq('id', entryId);
+                const response = await boundedRequest(
+                    (signal) =>
+                        database
+                            .from(SHIP_LOGS_TABLE)
+                            .update(updateData)
+                            .eq('user_id', scope.userId)
+                            .eq('id', entryId)
+                            .abortSignal(signal),
+                    5000,
+                );
+                const error = response?.error ?? (response ? null : new Error('update timed out'));
 
-                if (!error) {
+                if (!error && operationIsCurrent(scope, sessionGuard)) {
                     log.info(`retryGpsAndUpdateEntry: updated entry ${entryId} on attempt ${attempt}`);
+                    return; // Persisted successfully — stop retrying.
                 }
+                if (!operationIsCurrent(scope, sessionGuard)) return;
+                log.warn(`retryGpsAndUpdateEntry: update failed on attempt ${attempt}`, error);
+                continue;
             }
-            return; // Success - stop retrying
+            return;
         } catch (gpsError: unknown) {
             log.warn('retryGpsAndUpdateEntry: GPS retry failed', gpsError);
         }
@@ -190,8 +278,12 @@ export async function webGetFreshPosition(): Promise<CachedPosition | null> {
  * Only demotes entries with waypointName === 'Latest Position' — turn waypoints,
  * manual entries, and user-placed waypoints are never demoted.
  */
-export async function demotePreviousAutoWaypoint(voyageId: string): Promise<void> {
-    if (!voyageId) return;
+export async function demotePreviousAutoWaypoint(
+    voyageId: string,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+    sessionGuard: () => boolean = () => true,
+): Promise<void> {
+    if (!voyageId || !operationIsCurrent(scope, sessionGuard)) return;
 
     // Local-only capture: the previous 'Latest Position' entry is sitting
     // in the offline queue, not the DB — demote it there (instant, no
@@ -205,7 +297,7 @@ export async function demotePreviousAutoWaypoint(voyageId: string): Promise<void
     if (!supabase) return;
     try {
         const user = await getCurrentUser();
-        if (!user) return;
+        if (!user || user.id !== scope.userId || !operationIsCurrent(scope, sessionGuard)) return;
 
         // Find the most recent 'Latest Position' waypoint in this voyage
         const { data: rows } = await supabase
@@ -218,10 +310,12 @@ export async function demotePreviousAutoWaypoint(voyageId: string): Promise<void
             .order('timestamp', { ascending: false })
             .limit(1);
 
-        if (rows && rows.length > 0) {
+        if (operationIsCurrent(scope, sessionGuard) && rows && rows.length > 0) {
             await supabase
                 .from(SHIP_LOGS_TABLE)
                 .update({ entry_type: 'auto', waypoint_name: null })
+                .eq('user_id', scope.userId)
+                .eq('voyage_id', voyageId)
                 .eq('id', rows[0].id);
         }
     } catch (e) {

@@ -303,7 +303,6 @@ export default defineConfig(({ mode }) => {
             'process.env.API_KEY': JSON.stringify(''),
             'process.env.GEMINI_API_KEY': JSON.stringify(''),
             'process.env.STORMGLASS_API_KEY': JSON.stringify(''),
-            'process.env.OPEN_METEO_API_KEY': JSON.stringify(''),
 
             // 4. Mapbox / Maps
             'process.env.MAPBOX_ACCESS_TOKEN': JSON.stringify(

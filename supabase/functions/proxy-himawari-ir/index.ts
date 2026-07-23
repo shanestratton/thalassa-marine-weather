@@ -4,6 +4,14 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    hasPngSignature,
+    parseBoundedInteger,
+    readResponseArrayBufferLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * proxy-himawari-ir — NASA GIBS Himawari-9 Enhanced IR Tile Proxy
  *
@@ -38,13 +46,17 @@ Deno.serve(async (req: Request) => {
         });
     }
 
-    const url = new URL(req.url);
-    const z = url.searchParams.get('z');
-    const y = url.searchParams.get('y');
-    const x = url.searchParams.get('x');
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'himawari_tile', 2000, 1000, 3600, true);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
-    if (!z || !y || !x) {
-        return new Response(JSON.stringify({ error: 'Missing z/y/x params' }), {
+    const url = new URL(req.url);
+    const z = parseBoundedInteger(url.searchParams.get('z'), 0, 6);
+    const maxTile = z === null ? 0 : 2 ** z - 1;
+    const y = parseBoundedInteger(url.searchParams.get('y'), 0, maxTile);
+    const x = parseBoundedInteger(url.searchParams.get('x'), 0, maxTile);
+
+    if (z === null || y === null || x === null) {
+        return new Response(JSON.stringify({ error: 'Invalid z/y/x params' }), {
             status: 400,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });
@@ -76,27 +88,30 @@ Deno.serve(async (req: Request) => {
             }).toString();
 
         try {
-            const res = await fetch(tileUrl, {
-                headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' },
-            });
+            const res = await fetchWithTimeout(
+                tileUrl,
+                { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } },
+                10_000,
+            );
 
             if (res.ok) {
-                const body = await res.arrayBuffer();
-                const contentType = res.headers.get('Content-Type') || 'image/png';
+                const body = await readResponseArrayBufferLimited(res, 2_000_000);
+                if (!body || !hasPngSignature(body)) continue;
                 return new Response(body, {
                     status: 200,
                     headers: {
                         ...CORS,
-                        'Content-Type': contentType,
+                        'Content-Type': 'image/png',
                         'Cache-Control': 'public, max-age=600', // Cache tiles 10 min
+                        'X-Content-Type-Options': 'nosniff',
                     },
                 });
             }
 
             if (res.status === 404) continue;
 
-            return new Response(JSON.stringify({ error: `GIBS: ${res.status}` }), {
-                status: res.status,
+            return new Response(JSON.stringify({ error: 'GIBS upstream failed' }), {
+                status: 502,
                 headers: { ...CORS, 'Content-Type': 'application/json' },
             });
         } catch (err) {

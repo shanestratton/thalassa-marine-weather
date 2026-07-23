@@ -4,14 +4,14 @@
  * Currently houses just `thalassa_weather`, ported from the legacy
  * edge function (proxy-bosun-fallback) so the client-side orchestrator
  * (services/voice/orchestrator.ts) can dispatch it without a server
- * round-trip. Open-Meteo is keyless and CORS-friendly so the call goes
- * direct from the iPhone — same as the existing weather pipeline in
- * Thalassa proper.
+ * round-trip. Forecast data uses Thalassa's commercial Open-Meteo boundary;
+ * only the keyless geocoder remains a fixed direct public lookup.
  *
  * web_search isn't here because Anthropic's `web_search_20250305` runs
  * server-side at Anthropic — we just register it in the tool list and
  * Haiku does the rest. No client-side dispatch needed.
  */
+import { fetchOpenMeteoProxy } from '../weather/openMeteoProxy';
 
 interface GeocodeResult {
     name: string;
@@ -44,26 +44,30 @@ async function geocode(query: string): Promise<GeocodeResult | null> {
 }
 
 async function fetchOpenMeteo(lat: number, lng: number): Promise<unknown> {
-    const url =
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-        `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,precipitation,pressure_msl` +
-        `&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code` +
-        `&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,precipitation_sum` +
-        `&forecast_days=2&timezone=auto&wind_speed_unit=kn`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`Open-Meteo HTTP ${r.status}`);
-    return await r.json();
+    return fetchOpenMeteoProxy('forecast', {
+        latitude: lat.toFixed(4),
+        longitude: lng.toFixed(4),
+        current:
+            'temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,precipitation,pressure_msl',
+        hourly: 'temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code',
+        daily: 'temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,precipitation_sum',
+        forecast_days: 2,
+        timezone: 'auto',
+        wind_speed_unit: 'kn',
+    });
 }
 
 async function fetchOpenMeteoMarine(lat: number, lng: number): Promise<unknown | null> {
-    const url =
-        `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}` +
-        `&current=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period` +
-        `&daily=wave_height_max,wind_wave_height_max,swell_wave_height_max&forecast_days=2&timezone=auto`;
     try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
-        return await r.json();
+        return await fetchOpenMeteoProxy('marine', {
+            latitude: lat.toFixed(4),
+            longitude: lng.toFixed(4),
+            current:
+                'wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period',
+            daily: 'wave_height_max,wind_wave_height_max,swell_wave_height_max',
+            forecast_days: 2,
+            timezone: 'auto',
+        });
     } catch {
         return null;
     }

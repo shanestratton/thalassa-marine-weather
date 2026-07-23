@@ -34,9 +34,12 @@ export interface ChecklistRunItem {
 
 export interface ChecklistRun {
     id: string;
+    user_id?: string;
     started_at: string;
     completed_at: string | null;
     items: ChecklistRunItem[];
+    created_at?: string;
+    updated_at?: string;
 }
 
 // ── Service ────────────────────────────────────────────────────
@@ -119,10 +122,20 @@ export class LocalChecklistService {
     static async saveRun(run: ChecklistRun): Promise<ChecklistRun> {
         // Upsert — if run exists, update; otherwise insert
         const existing = getAll<ChecklistRun>(RUNS_TABLE).find((r) => r.id === run.id);
+        const now = new Date().toISOString();
         if (existing) {
-            return (await updateLocal<ChecklistRun>(RUNS_TABLE, run.id, run)) || run;
+            const updated = {
+                ...run,
+                created_at: existing.created_at || run.created_at || run.started_at,
+                updated_at: now,
+            };
+            return (await updateLocal<ChecklistRun>(RUNS_TABLE, run.id, updated)) || updated;
         }
-        return await insertLocal<ChecklistRun>(RUNS_TABLE, run);
+        return await insertLocal<ChecklistRun>(RUNS_TABLE, {
+            ...run,
+            created_at: run.created_at || run.started_at || now,
+            updated_at: now,
+        });
     }
 
     static async deleteRun(id: string): Promise<void> {

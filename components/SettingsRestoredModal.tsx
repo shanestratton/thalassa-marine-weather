@@ -20,6 +20,7 @@ import type { RestoredSummary } from '../stores/settingsStore';
 import brandLockup from '../assets/brand/mark-simplified-dark.svg';
 import { TIER_INFO } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
+import { OverlayPortal } from './ui/OverlayPortal';
 
 /** Tier code → friendly label (matches UpgradeModal language) */
 function tierLabel(tier: string): string {
@@ -116,8 +117,8 @@ export const SettingsRestoredModal: React.FC = () => {
     const rows = buildRows(summary);
 
     return (
-        <div
-            className="fixed inset-0 z-[1300] flex items-center justify-center p-4"
+        <OverlayPortal
+            className="flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-restored-title"
@@ -208,6 +209,6 @@ export const SettingsRestoredModal: React.FC = () => {
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

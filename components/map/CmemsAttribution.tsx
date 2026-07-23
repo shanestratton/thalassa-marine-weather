@@ -31,6 +31,7 @@ export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ visible }) =
                     href={PRODUCT_DOI_URL}
                     target="_blank"
                     rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
                     className="underline hover:text-cyan-200"
                 >
                     DOI

@@ -149,6 +149,7 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                         href="https://www.blitzortung.org"
                         target="_blank"
                         rel="noopener noreferrer"
+                        referrerPolicy="no-referrer"
                         className="text-white/85 underline-offset-2 hover:underline"
                     >
                         Blitzortung.org

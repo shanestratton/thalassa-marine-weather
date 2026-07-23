@@ -1,35 +1,29 @@
 /**
- * DocumentSyncService — Offline-first Cloud Backup for Ship's Documents
+ * DocumentSyncService — document-specific facade over the vessel sync engine.
  *
- * ARCHITECTURE (Option C — Hybrid):
- *   1. SAVE INSTANTLY: Documents+files saved to local storage immediately
- *      (works offline at sea, no connectivity needed)
- *   2. BACKGROUND UPLOAD: When connectivity returns, files are uploaded to
- *      Supabase Storage (ship-documents bucket), metadata synced to DB
- *   3. RESTORE: On new device login, pull all docs+files from Supabase
+ * LocalDocumentService owns offline CRUD and writes every mutation to the
+ * durable outbox. SyncService is the only component allowed to push or pull
+ * document rows and upload pending files. This facade only:
+ *   - tracks user-facing document sync status;
+ *   - requests canonical outbox syncs and full pulls; and
+ *   - refreshes signed download URLs for the private document bucket.
  *
- * Storage:
- *   - Local: LocalDocumentService (Capacitor Filesystem JSON)
- *   - Cloud: Supabase `ship_documents` table + `ship-documents` Storage bucket
- *
- * File flow:
- *   file selected → data URI (local) → upload to Storage → public URL → update record
+ * In particular, the absence of a local document is never treated as proof
+ * that its cloud copy should be deleted. Deletion is propagated exclusively
+ * by the explicit DELETE mutation queued by LocalDocumentService.
  */
 
 import { createLogger } from '../../utils/createLogger';
 import { supabase } from '../supabase';
 import { LocalDocumentService } from './LocalDocumentService';
-import { bulkUpsert } from './LocalDatabase';
-import type { ShipDocument } from '../../types';
+import { getFullQueue, getLocalDatabaseIdentity } from './LocalDatabase';
+import { forceFullPull, syncNow } from './SyncService';
+import { safeDocumentNavigationUrl } from '../../utils/safeUrl';
+
 const log = createLogger('DocSync');
 
-// ── Constants ──────────────────────────────────────────────────
-
-const TABLE = 'ship_documents';
 const STORAGE_BUCKET = 'vessel_vault';
-const SYNC_STATUS_KEY = 'thalassa_doc_sync_status';
-
-// ── Types ──────────────────────────────────────────────────────
+const SYNC_STATUS_KEY_PREFIX = 'thalassa_doc_sync_status';
 
 export type DocSyncStatus = 'synced' | 'pending' | 'uploading' | 'error';
 
@@ -41,357 +35,263 @@ interface SyncStatusMap {
     };
 }
 
-// ── Service ────────────────────────────────────────────────────
+type FacadeSyncResult = {
+    synced: number;
+    failed: number;
+};
 
 class DocumentSyncServiceClass {
-    private _syncInProgress = false;
+    private _activeSync: Promise<FacadeSyncResult> | null = null;
+    private _rerunRequested = false;
     private _statusCache: SyncStatusMap = {};
+    private _statusIdentity: string | null | undefined;
 
     constructor() {
-        // Load sync status from localStorage
-        this._loadStatus();
-
-        // Auto-sync when connectivity resumes
-        if (typeof window !== 'undefined') {
-            window.addEventListener('online', () => {
-                log.info('Online — triggering sync');
-                this.syncAll();
-            });
-            // Attempt sync on init
-            setTimeout(() => this.syncAll(), 8000);
-        }
+        // Identity-scoped status is hydrated lazily after LocalDatabase boot.
     }
 
-    // ── Sync Status ────────────────────────────────────────────
+    // ── Sync status ────────────────────────────────────────────
 
     getStatus(docId: string): DocSyncStatus {
+        this._ensureIdentityStatus();
         return this._statusCache[docId]?.status || 'pending';
     }
 
     getAllStatuses(): SyncStatusMap {
-        return { ...this._statusCache };
+        this._ensureIdentityStatus();
+        return Object.fromEntries(Object.entries(this._statusCache).map(([docId, status]) => [docId, { ...status }]));
     }
 
     private _setStatus(docId: string, status: DocSyncStatus, error?: string): void {
+        this._ensureIdentityStatus();
         this._statusCache[docId] = {
             status,
-            error,
+            ...(error ? { error } : {}),
             lastAttempt: new Date().toISOString(),
         };
         this._saveStatus();
     }
 
-    private _loadStatus(): void {
+    private _currentIdentity(): string | null | undefined {
         try {
-            const raw = localStorage.getItem(SYNC_STATUS_KEY);
-            this._statusCache = raw ? JSON.parse(raw) : {};
-        } catch (e) {
-            log.warn('[DocumentSync]', e);
+            return getLocalDatabaseIdentity();
+        } catch {
+            return undefined;
+        }
+    }
+
+    private _ensureIdentityStatus(): void {
+        const identity = this._currentIdentity();
+        if (identity === this._statusIdentity) return;
+        this._statusIdentity = identity;
+        this._loadStatus();
+    }
+
+    private _statusStorageKey(): string | null {
+        if (this._statusIdentity === undefined) return null;
+        return `${SYNC_STATUS_KEY_PREFIX}:${encodeURIComponent(this._statusIdentity ?? 'anonymous')}`;
+    }
+
+    private _loadStatus(): void {
+        if (typeof localStorage === 'undefined') return;
+        const storageKey = this._statusStorageKey();
+        if (!storageKey) {
+            this._statusCache = {};
+            return;
+        }
+
+        try {
+            const raw = localStorage.getItem(storageKey);
+            const stored = raw ? (JSON.parse(raw) as SyncStatusMap) : {};
+
+            // An interrupted upload is pending again on the next app launch.
+            this._statusCache = Object.fromEntries(
+                Object.entries(stored).map(([docId, status]) => [
+                    docId,
+                    status.status === 'uploading' ? { ...status, status: 'pending' as const } : status,
+                ]),
+            );
+        } catch (error) {
+            log.warn('[DocumentSync] Could not load status cache:', error);
             this._statusCache = {};
         }
     }
 
     private _saveStatus(): void {
+        if (typeof localStorage === 'undefined') return;
+        const storageKey = this._statusStorageKey();
+        if (!storageKey) return;
+
         try {
-            localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(this._statusCache));
-        } catch (e) {
-            log.warn('[DocumentSync] localStorage full — ignore:', e);
+            localStorage.setItem(storageKey, JSON.stringify(this._statusCache));
+        } catch (error) {
+            log.warn('[DocumentSync] Could not persist status cache:', error);
         }
     }
 
-    // ── Upload file to Supabase Storage ────────────────────────
+    // ── Canonical sync facade ──────────────────────────────────
 
-    private async _uploadFileToStorage(dataUri: string, docId: string, fileName?: string): Promise<string | null> {
-        if (!supabase) return null;
-
-        try {
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) return null;
-
-            // Convert data URI to blob
-            const res = await fetch(dataUri);
-            const blob = await res.blob();
-
-            // Determine extension from data URI mime type
-            const mimeMatch = dataUri.match(/^data:([^;]+);/);
-            const mime = mimeMatch?.[1] || 'application/octet-stream';
-            const extMap: Record<string, string> = {
-                'application/pdf': 'pdf',
-                'image/jpeg': 'jpg',
-                'image/png': 'png',
-                'image/heic': 'heic',
-                'application/msword': 'doc',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-            };
-            const ext = extMap[mime] || fileName?.split('.').pop() || 'dat';
-            const storagePath = `${user.id}/documents/${docId}.${ext}`;
-
-            const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, blob, {
-                contentType: mime,
-                upsert: true, // Allow re-upload if sync retries
-            });
-
-            if (error) {
-                log.error('Storage upload failed:', error.message);
-                return null;
-            }
-
-            // Bucket is PRIVATE — use createSignedUrl (1 year expiry)
-            // getPublicUrl does NOT work on private buckets!
-            const { data: signedData, error: signError } = await supabase.storage
-                .from(STORAGE_BUCKET)
-                .createSignedUrl(storagePath, 365 * 24 * 60 * 60); // 1 year in seconds
-
-            if (signError || !signedData?.signedUrl) {
-                log.error('Signed URL creation failed:', signError?.message);
-                // Upload succeeded but can't get URL — still mark as uploaded
-                // Return a reconstructable path so we can re-sign later
-                return `supabase-storage://${STORAGE_BUCKET}/${storagePath}`;
-            }
-
-            return signedData.signedUrl;
-        } catch (e) {
-            log.error('File upload error:', e);
-            return null;
+    /**
+     * Ask the generic vessel sync engine to drain its durable outbox.
+     *
+     * Concurrent callers share this facade promise. If a new document mutation
+     * arrives while that cycle is running, exactly one sequential follow-up is
+     * requested so the mutation cannot be stranded behind the earlier snapshot.
+     */
+    syncAll(): Promise<FacadeSyncResult> {
+        this._ensureIdentityStatus();
+        if (this._activeSync) {
+            this._rerunRequested = true;
+            return this._activeSync;
         }
+
+        const cycle = this._runCanonicalSync();
+        this._activeSync = cycle;
+
+        const finish = () => {
+            if (this._activeSync !== cycle) return;
+            this._activeSync = null;
+
+            if (this._rerunRequested) {
+                this._rerunRequested = false;
+                this._triggerSync();
+            }
+        };
+        void cycle.then(finish, finish);
+
+        return cycle;
     }
 
-    // ── Delete file from Supabase Storage ──────────────────────
+    private async _runCanonicalSync(): Promise<FacadeSyncResult> {
+        this._ensureIdentityStatus();
+        const syncIdentity = this._statusIdentity;
+        const trackedIds = Object.entries(this._statusCache)
+            .filter(([, entry]) => entry.status !== 'synced')
+            .map(([docId]) => docId);
 
-    private async _deleteFileFromStorage(fileUri: string): Promise<void> {
-        if (!supabase || !fileUri) return;
+        trackedIds.forEach((docId) => this._setStatus(docId, 'uploading'));
+
         try {
-            const match = fileUri.match(/vessel_vault\/(.+)$/);
-            if (match) {
-                await supabase.storage.from(STORAGE_BUCKET).remove([match[1]]);
+            const result = await syncNow();
+            if (this._currentIdentity() !== syncIdentity) {
+                return { synced: 0, failed: 0 };
             }
-        } catch (e) {
-            log.warn('[DocumentSync] ignore cleanup errors:', e);
-        }
-    }
+            const documentQueue = getFullQueue().filter((item) => item.table_name === 'ship_documents');
+            let synced = 0;
+            let failed = 0;
 
-    // ── Sync single document to Supabase ───────────────────────
-
-    private async _syncDocument(doc: ShipDocument): Promise<boolean> {
-        if (!supabase) return false;
-
-        try {
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) return false;
-
-            this._setStatus(doc.id, 'uploading');
-
-            // 1. Upload file if it's a data URI (pending upload)
-            let fileUrl = doc.file_uri;
-            if (fileUrl && fileUrl.startsWith('data:')) {
-                const uploadedUrl = await this._uploadFileToStorage(fileUrl, doc.id, doc.document_name);
-                if (uploadedUrl) {
-                    fileUrl = uploadedUrl;
-                    // Update local record with the cloud URL
-                    await LocalDocumentService.update(doc.id, {
-                        file_uri: uploadedUrl,
-                        _pendingFile: undefined,
-                    } as Partial<ShipDocument>);
+            for (const docId of trackedIds) {
+                const outstanding = documentQueue.filter((item) => item.record_id === docId);
+                const failure = outstanding.find((item) => item.status === 'failed');
+                if (failure) {
+                    this._setStatus(docId, 'error', failure.error_message || 'Document sync failed');
+                    failed += 1;
+                } else if (outstanding.length > 0) {
+                    // Includes a newer same-document edit queued while this
+                    // cycle was active. Never let the older generation label it
+                    // synced simply because the aggregate cycle completed.
+                    this._setStatus(docId, 'pending');
                 } else {
-                    // File upload failed — leave as pending
-                    this._setStatus(doc.id, 'error', 'File upload failed');
-                    return false;
+                    this._setStatus(docId, 'synced');
+                    synced += 1;
                 }
             }
 
-            // 2. Upsert metadata to Supabase
-            const { error } = await supabase.from(TABLE).upsert(
-                {
-                    id: doc.id,
-                    user_id: user.id,
-                    document_name: doc.document_name,
-                    category: doc.category,
-                    issue_date: doc.issue_date,
-                    expiry_date: doc.expiry_date,
-                    file_uri: fileUrl,
-                    notes: doc.notes,
-                    created_at: doc.created_at,
-                    updated_at: doc.updated_at,
-                },
-                { onConflict: 'id' },
-            );
-
-            if (error) {
-                log.error('DB upsert failed:', error.message);
-                this._setStatus(doc.id, 'error', error.message);
-                return false;
+            // Errors from another vessel table must not falsely mark every
+            // document as failed. The per-document outbox is authoritative.
+            if (result.errors.length > 0 && failed === 0) {
+                log.warn('[DocumentSync] Sync completed with unrelated table errors:', result.errors);
             }
-
-            this._setStatus(doc.id, 'synced');
-            return true;
-        } catch (e) {
-            log.error('Sync failed for doc:', doc.id, e);
-            this._setStatus(doc.id, 'error', String(e));
-            return false;
+            return { synced, failed };
+        } catch (error) {
+            if (this._currentIdentity() !== syncIdentity) {
+                return { synced: 0, failed: 0 };
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            trackedIds.forEach((docId) => this._setStatus(docId, 'error', message));
+            log.error('[DocumentSync] Canonical sync failed:', error);
+            return { synced: 0, failed: trackedIds.length };
         }
     }
 
-    // ── Sync All — push local changes to cloud ─────────────────
-
-    async syncAll(): Promise<{ synced: number; failed: number }> {
-        if (this._syncInProgress || !navigator.onLine || !supabase) {
-            return { synced: 0, failed: 0 };
-        }
-
-        this._syncInProgress = true;
-        let synced = 0,
-            failed = 0;
-
-        try {
-            const allDocs = LocalDocumentService.getAll();
-
-            for (const doc of allDocs) {
-                const status = this.getStatus(doc.id);
-
-                // Skip already synced docs unless they have a pending file
-                const hasPendingFile = doc.file_uri?.startsWith('data:');
-                if (status === 'synced' && !hasPendingFile) continue;
-
-                const success = await this._syncDocument(doc);
-                if (success) synced++;
-                else failed++;
-            }
-
-            // Also sync deletions — check cloud for docs not present locally
-            await this._syncDeletions();
-
-            log.info(`Sync complete: ${synced} synced, ${failed} failed`);
-        } catch (e) {
-            log.error('Sync error:', e);
-        } finally {
-            this._syncInProgress = false;
-        }
-
-        return { synced, failed };
-    }
-
-    // ── Sync Deletions — remove cloud docs deleted locally ─────
-
-    private async _syncDeletions(): Promise<void> {
-        if (!supabase) return;
-
-        try {
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) return;
-
-            // Get cloud docs
-            const { data: cloudDocs } = await supabase.from(TABLE).select('id, file_uri').eq('user_id', user.id);
-
-            if (!cloudDocs || cloudDocs.length === 0) return;
-
-            // Get local doc IDs
-            const localIds = new Set(LocalDocumentService.getAll().map((d) => d.id));
-
-            // Delete cloud docs that no longer exist locally
-            for (const cloudDoc of cloudDocs) {
-                if (!localIds.has(cloudDoc.id)) {
-                    // Delete file from storage
-                    if (cloudDoc.file_uri) {
-                        await this._deleteFileFromStorage(cloudDoc.file_uri);
-                    }
-                    // Delete metadata
-                    await supabase.from(TABLE).delete().eq('id', cloudDoc.id);
-                    delete this._statusCache[cloudDoc.id];
-                }
-            }
-            this._saveStatus();
-        } catch (e) {
-            log.error('Deletion sync error:', e);
-        }
-    }
-
-    // ── Pull from cloud — restore on new device ────────────────
-
+    /**
+     * Restore cloud data through SyncService's canonical `ship_documents`
+     * table pull. Newly appearing local IDs determine the document restore
+     * count; the generic engine's aggregate row count spans several tables.
+     */
     async pullFromCloud(): Promise<number> {
-        if (!supabase || !navigator.onLine) return 0;
-
+        this._ensureIdentityStatus();
+        const pullIdentity = this._statusIdentity;
         try {
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) return 0;
+            const beforeDocuments = LocalDocumentService.getAll();
+            const beforeIds = new Set(beforeDocuments.map((document) => document.id));
+            const beforeCount = beforeDocuments.length;
+            await forceFullPull();
+            if (this._currentIdentity() !== pullIdentity) return 0;
 
-            const { data, error } = await supabase
-                .from(TABLE)
-                .select('*')
-                .eq('user_id', user.id)
-                .order('created_at', { ascending: false });
+            const afterDocuments = LocalDocumentService.getAll();
+            const restoredIds = afterDocuments
+                .map((document) => document.id)
+                .filter((documentId) => !beforeIds.has(documentId));
 
-            if (error || !data || data.length === 0) return 0;
+            restoredIds.forEach((documentId) => this._setStatus(documentId, 'synced'));
 
-            // Merge with local — cloud wins for conflicts
-            const localDocs = LocalDocumentService.getAll();
-            const localIds = new Set(localDocs.map((d) => d.id));
-
-            let restored = 0;
-            const toUpsert: ShipDocument[] = [];
-
-            for (const cloudDoc of data) {
-                if (!localIds.has(cloudDoc.id)) {
-                    // New from cloud — restore
-                    toUpsert.push(cloudDoc as ShipDocument);
-                    this._setStatus(cloudDoc.id, 'synced');
-                    restored++;
-                } else {
-                    // Exists locally — cloud wins if newer
-                    const local = localDocs.find((d) => d.id === cloudDoc.id);
-                    if (local && new Date(cloudDoc.updated_at) > new Date(local.updated_at)) {
-                        toUpsert.push(cloudDoc as ShipDocument);
-                        this._setStatus(cloudDoc.id, 'synced');
-                    }
-                }
-            }
-
-            if (toUpsert.length > 0) {
-                await bulkUpsert(TABLE.replace('ship_', ''), toUpsert);
-            }
-
-            log.info(`Pulled ${restored} documents from cloud`);
+            // The ID comparison is authoritative. The count comparison is a
+            // defensive fallback for corrupt legacy data containing duplicates.
+            const countIncrease = Math.max(0, afterDocuments.length - beforeCount);
+            const restored = Math.max(new Set(restoredIds).size, countIncrease);
+            log.info(`Pulled ${restored} document${restored === 1 ? '' : 's'} from cloud`);
             return restored;
-        } catch (e) {
-            log.error('Pull error:', e);
+        } catch (error) {
+            log.error('[DocumentSync] Pull failed:', error);
             return 0;
         }
     }
 
-    // ── Mark a document for sync (called after local create/update) ──
-
+    /**
+     * The local write has already queued the mutation. Record its visible
+     * status and ask the canonical engine to process that queue.
+     */
     markForSync(docId: string): void {
         this._setStatus(docId, 'pending');
-        // Trigger immediate sync attempt if online
-        if (navigator.onLine) {
-            setTimeout(() => this.syncAll(), 500);
-        }
+        this._triggerSync();
     }
 
-    // ── Mark deleted (cleanup status) ──────────────────────────
-
+    /**
+     * The local delete has already queued an explicit DELETE mutation. Remove
+     * stale UI status and ask the canonical engine to process it; never scan
+     * cloud rows or infer deletion from local absence.
+     */
     markDeleted(docId: string): void {
+        this._ensureIdentityStatus();
         delete this._statusCache[docId];
         this._saveStatus();
-        // Trigger sync to propagate deletion to cloud
-        if (navigator.onLine) {
-            setTimeout(() => this.syncAll(), 500);
-        }
+        this._triggerSync();
     }
 
-    // ── Get a fresh download URL for a document file ────────────
-    //    Handles: data URIs, supabase-storage:// paths, expired signed URLs
+    private _triggerSync(): void {
+        void this.syncAll().catch((error) => {
+            // `_runCanonicalSync` normally absorbs failures, but keep a terminal
+            // guard so a future engine regression cannot create an unhandled
+            // rejection from these fire-and-forget compatibility methods.
+            log.error('[DocumentSync] Sync request failed:', error);
+        });
+    }
 
+    // ── Download URL refresh ───────────────────────────────────
+
+    /**
+     * Resolve a fresh download URL while preserving local data URIs and normal
+     * third-party URLs exactly as supplied.
+     */
     async getDownloadUrl(fileUri: string): Promise<string> {
-        // Data URIs are local — use directly
         if (fileUri.startsWith('data:')) return fileUri;
 
-        // supabase-storage:// scheme — extract path and sign
         if (fileUri.startsWith('supabase-storage://')) {
             const path = fileUri.replace(`supabase-storage://${STORAGE_BUCKET}/`, '');
             return (await this._signStoragePath(path)) ?? fileUri;
         }
 
-        // Supabase URL (signed or public) — re-sign from storage path
         if (fileUri.includes(STORAGE_BUCKET)) {
             const match = fileUri.match(new RegExp(`${STORAGE_BUCKET}/([^?]+)`));
             if (match?.[1]) {
@@ -400,14 +300,50 @@ class DocumentSyncServiceClass {
             }
         }
 
-        // Fallback — return as-is (could be a regular URL)
         return fileUri;
+    }
+
+    /**
+     * Reserve the browser tab synchronously while user activation is present,
+     * then navigate it after a private storage URL has been signed.
+     */
+    async openDownload(fileUri: string): Promise<void> {
+        const pendingWindow = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+        if (pendingWindow) {
+            // We need the handle so an async signed-URL lookup does not lose
+            // the original user activation. Sever the opener synchronously,
+            // and make the reserved document explicitly no-referrer.
+            pendingWindow.opener = null;
+            const referrerPolicy = pendingWindow.document.createElement('meta');
+            referrerPolicy.name = 'referrer';
+            referrerPolicy.content = 'no-referrer';
+            pendingWindow.document.head.appendChild(referrerPolicy);
+        }
+
+        try {
+            const url = await this.getDownloadUrl(fileUri);
+            const safeUrl = safeDocumentNavigationUrl(
+                url,
+                typeof window !== 'undefined' ? window.location.href : undefined,
+                { allowLocalNetworkHttp: true },
+            );
+            if (!safeUrl) throw new Error('Unsafe document URL');
+            if (pendingWindow) {
+                pendingWindow.location.replace(safeUrl);
+            } else if (typeof window !== 'undefined') {
+                window.location.assign(safeUrl);
+            }
+        } catch (error) {
+            pendingWindow?.close();
+            throw error;
+        }
     }
 
     private async _signStoragePath(path: string): Promise<string | null> {
         if (!supabase) return null;
+
         try {
-            const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 60 * 60); // 1 hour for downloads
+            const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 60 * 60);
             if (error || !data?.signedUrl) return null;
             return data.signedUrl;
         } catch {
@@ -415,17 +351,16 @@ class DocumentSyncServiceClass {
         }
     }
 
-    // ── Status helpers ─────────────────────────────────────────
-
     get pendingCount(): number {
-        return Object.values(this._statusCache).filter((s) => s.status === 'pending' || s.status === 'uploading')
-            .length;
+        this._ensureIdentityStatus();
+        return Object.values(this._statusCache).filter((entry) => {
+            return entry.status === 'pending' || entry.status === 'uploading';
+        }).length;
     }
 
     get isSyncing(): boolean {
-        return this._syncInProgress;
+        return this._activeSync !== null;
     }
 }
 
-// Singleton
 export const DocumentSyncService = new DocumentSyncServiceClass();

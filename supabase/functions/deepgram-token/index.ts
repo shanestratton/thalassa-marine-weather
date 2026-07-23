@@ -1,5 +1,7 @@
 // deno-lint-ignore-file
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { jsonResponse } from '../_shared/http-security.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -32,52 +34,30 @@ Deno.serve(async (req: Request) => {
         });
     }
 
-    // ── Caller must be a REAL signed-in user, not just anon-key holder ──
-    // verify_jwt (on by default, no config.toml here) only proves the caller
-    // holds a valid project JWT — and the anon key is compiled into every
-    // shipped web bundle and IPA, so on its own that gates nothing. This
-    // endpoint creates billable proxy access, so it needs to know WHICH user
-    // is asking, not merely that someone has the public project key.
-    // (Audit 2026-07-22: a probe using the anon JWT lifted from the shipped
-    // bundle returned 200 and the key.)
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-        return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-        });
+    const caller = await requireAuthenticatedQuota(req, 'deepgram_ticket_edge', 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const authHeader = req.headers.get('authorization');
+    if (!supabaseUrl || !anonKey || !authHeader) {
+        console.error('[deepgram-token] Supabase authentication is not configured');
+        return jsonResponse({ error: 'Voice service is not configured' }, 503, CORS);
     }
-    const authClient = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-        { global: { headers: { Authorization: authHeader } } },
-    );
-    const {
-        data: { user: caller },
-        error: authError,
-    } = await authClient.auth.getUser();
-    if (authError || !caller) {
-        // The anon key alone lands here: it carries no user identity.
-        console.warn('[deepgram-token] rejected caller with no verified user');
-        return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-            status: 401,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-        });
-    }
+    const authClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     const { data: ticket, error: ticketError } = await authClient.rpc('create_deepgram_proxy_ticket');
     if (ticketError || !ticket) {
         const rateLimited = ticketError?.message?.toLowerCase().includes('rate limit');
-        return new Response(
-            JSON.stringify({ error: rateLimited ? 'Voice session quota exceeded' : 'Ticket mint failed' }),
-            {
-                status: rateLimited ? 429 : 500,
-                headers: { ...CORS, 'Content-Type': 'application/json' },
-            },
+        return jsonResponse(
+            { error: rateLimited ? 'Voice session quota exceeded' : 'Ticket mint failed' },
+            rateLimited ? 429 : 500,
+            CORS,
         );
     }
 
-    return new Response(JSON.stringify({ access_token: ticket, kind: 'proxy-ticket', expires_in: 60 }), {
-        headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-    });
+    return jsonResponse({ access_token: ticket, kind: 'proxy-ticket', expires_in: 60 }, 200, CORS);
 });

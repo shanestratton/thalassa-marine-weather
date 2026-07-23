@@ -160,6 +160,13 @@ import {
     type SavedTrace,
 } from '../../services/routeTracer';
 import { consumeTracerOpenRequest, consumeTracerAction } from '../../services/deepLink';
+import { getCachedActiveVoyage } from '../../services/VoyageService';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 import { listCells as listEncCells, getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
 import {
     subscribe as subscribeToEnc,
@@ -327,6 +334,23 @@ const getWeatherInspectPopup = async () => {
     return _WeatherInspectPopup;
 };
 
+type PinViewHandoff = {
+    lat: number;
+    lng: number;
+    identity: AuthIdentityScope;
+};
+
+function readCurrentPinView(): PinViewHandoff | null {
+    if (typeof window === 'undefined') return null;
+    const pinView = window.__thalassaPinView;
+    if (!pinView) return null;
+    if (!isAuthIdentityScopeCurrent(pinView.identity)) {
+        if (window.__thalassaPinView === pinView) delete window.__thalassaPinView;
+        return null;
+    }
+    return pinView;
+}
+
 // ── Component ──────────────────────────────────────────────────
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -341,7 +365,12 @@ export const MapHub: React.FC<MapHubProps> = ({
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
 
-    const [isPinView, setIsPinView] = useState(!!window.__thalassaPinView);
+    const ownedPinViewRef = useRef<PinViewHandoff | null>(null);
+    const [isPinView, setIsPinView] = useState(() => {
+        const pinView = readCurrentPinView();
+        ownedPinViewRef.current = pinView;
+        return !!pinView;
+    });
     const [showVesselSearch, setShowVesselSearch] = useState(false);
     const [showOfflineArea, setShowOfflineArea] = useState(false);
     const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
@@ -356,6 +385,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // turned Shane's 29 Mooloolaba taps into the shipped fairway. A ref
     // mirrors the flag so the map tap closure never reads a stale value.
     const [coordCaptureMode, setCoordCaptureMode] = useState(false);
+    const tracerHandoffTimersRef = useRef<Set<number>>(new Set());
     /**
      * Re-entry ticket for the trace-layer sync effect when it ran before the
      * Mapbox object existed (cold PLAN -> map open of a saved route). Declared
@@ -756,8 +786,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // respond, so the RoutePlanner's hideTracer embed can't hijack it.
     useEffect(() => {
         if (embedded || pickerMode || hideTracer || isPinView) return;
-        const open = () => {
-            consumeTracerOpenRequest();
+        const clearHandoffTimers = () => {
+            for (const timer of tracerHandoffTimersRef.current) window.clearTimeout(timer);
+            tracerHandoffTimersRef.current.clear();
+        };
+        const open = (event?: Event) => {
+            if (!consumeTracerOpenRequest(event)) return;
+            const requestScope = getAuthIdentityScope();
+            if (!isAuthIdentityScopeCurrent(requestScope)) return;
             setWeatherInspectMode(false);
             setCoordCaptureMode(true);
             // PLAN-page front-door actions (Shane 2026-07-16): the punter
@@ -768,10 +804,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             const action = consumeTracerAction();
             if (action?.kind === 'paste') {
                 setLegAnchor(null);
-                void pasteTrace();
+                void pasteTrace(requestScope);
             } else if (action?.kind === 'load-voyage') {
                 setLegAnchor(null);
-                void loadVoyageAsTrace(action.choice);
+                void loadVoyageAsTrace(action.choice, requestScope);
             } else if (action?.kind === 'load-saved') {
                 const t = loadSavedTraces().find((x) => x.id === action.id);
                 if (t && t.points.length >= 2) {
@@ -785,8 +821,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const fly = () => mapRef.current && fitTraceBounds(mapRef.current, t.points);
                     // Cold PLAN→map mount: the map object may trail this event
                     // by a beat — one delayed retry covers it.
-                    if (mapRef.current) fly();
-                    else setTimeout(fly, 1_200);
+                    if (mapRef.current) {
+                        if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                    } else {
+                        const timer = window.setTimeout(() => {
+                            tracerHandoffTimersRef.current.delete(timer);
+                            if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                        }, 1_200);
+                        tracerHandoffTimersRef.current.add(timer);
+                    }
                 }
             } else if (action?.kind === 'new-leg') {
                 // Plot the NEXT leg of a trip (Shane 2026-07-17): the first
@@ -815,8 +858,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                             zoom: 13.5,
                             duration: 900,
                         });
-                    if (mapRef.current) fly();
-                    else setTimeout(fly, 1_200);
+                    if (mapRef.current) {
+                        if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                    } else {
+                        const timer = window.setTimeout(() => {
+                            tracerHandoffTimersRef.current.delete(timer);
+                            if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                        }, 1_200);
+                        tracerHandoffTimersRef.current.add(timer);
+                    }
                     flashTraceFeedback(
                         `${ordinalLegLabel(seed.ordinal)} departs ${seed.fromName} — first pin locked 🔒`,
                     );
@@ -832,10 +882,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         // close the tracer and hand over the bare chart, exactly like the other
         // tabs do. It does NOT clear the trace.
         const close = () => setCoordCaptureMode(false);
-        if (consumeTracerOpenRequest()) open();
+        const unsubscribeIdentity = subscribeAuthIdentityScope(() => {
+            clearHandoffTimers();
+            setCoordCaptureMode(false);
+        });
+        open();
         window.addEventListener('thalassa:trace-mode', open);
         window.addEventListener('thalassa:trace-mode-exit', close);
         return () => {
+            unsubscribeIdentity();
+            clearHandoffTimers();
             window.removeEventListener('thalassa:trace-mode', open);
             window.removeEventListener('thalassa:trace-mode-exit', close);
         };
@@ -865,7 +921,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // tide windows / weather ETAs re-anchor without a remount.
     useEffect(() => {
         const onDep = (e: Event) => {
-            const ms = (e as CustomEvent).detail?.ms as unknown;
+            const detail = (e as CustomEvent).detail as
+                | { ms?: unknown; scopeKey?: unknown; scopeGeneration?: unknown }
+                | undefined;
+            const scope = getAuthIdentityScope();
+            if (detail?.scopeKey !== scope.key || detail.scopeGeneration !== scope.generation) return;
+            const ms = detail.ms;
             setDepartureMs(typeof ms === 'number' && Number.isFinite(ms) ? ms : null);
         };
         window.addEventListener('thalassa:departure-changed', onDep);
@@ -1875,30 +1936,37 @@ export const MapHub: React.FC<MapHubProps> = ({
         flashTraceFeedback(`Point added — ${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)}`);
     }, [coordEntry, flashTraceFeedback, setCapturedCoords]);
 
-    const pasteTrace = useCallback(async () => {
-        try {
-            const text = await navigator.clipboard.readText();
-            const pins: Array<{ lat: number; lon: number }> = [];
-            for (const line of text.split(/\n+/)) {
-                const m = line.match(/(-?\d{1,3}\.\d+)[,\s]+(-?\d{1,3}\.\d+)/);
-                if (!m) continue;
-                const lat = parseFloat(m[1]);
-                const lon = parseFloat(m[2]);
-                if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) pins.push({ lat, lon });
+    const pasteTrace = useCallback(
+        async (expectedScope: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+            try {
+                const text = await navigator.clipboard.readText();
+                if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+                const pins: Array<{ lat: number; lon: number }> = [];
+                for (const line of text.split(/\n+/)) {
+                    const m = line.match(/(-?\d{1,3}\.\d+)[,\s]+(-?\d{1,3}\.\d+)/);
+                    if (!m) continue;
+                    const lat = parseFloat(m[1]);
+                    const lon = parseFloat(m[2]);
+                    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) pins.push({ lat, lon });
+                }
+                if (pins.length >= 2) {
+                    triggerHaptic('medium');
+                    setCapturedCoords(pins);
+                    const mid = pins[Math.floor(pins.length / 2)];
+                    mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 1000 });
+                    flashTraceFeedback(`${pins.length} pins pasted — checking them now`);
+                } else {
+                    flashTraceFeedback('Nothing on the clipboard that reads like "lat, lon" lines');
+                }
+            } catch {
+                if (isAuthIdentityScopeCurrent(expectedScope)) {
+                    flashTraceFeedback('Clipboard not available');
+                }
             }
-            if (pins.length >= 2) {
-                triggerHaptic('medium');
-                setCapturedCoords(pins);
-                const mid = pins[Math.floor(pins.length / 2)];
-                mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 1000 });
-                flashTraceFeedback(`${pins.length} pins pasted — checking them now`);
-            } else {
-                flashTraceFeedback('Nothing on the clipboard that reads like "lat, lon" lines');
-            }
-        } catch {
-            flashTraceFeedback('Clipboard not available');
-        }
-    }, [flashTraceFeedback, setCapturedCoords]);
+        },
+        [flashTraceFeedback, setCapturedCoords],
+    );
     // Share sheet (Phase 4 lite): the same coord payload Copy produces, out
     // through the native share sheet — "follow my line in" over Messages.
     const shareTrace = useCallback(async () => {
@@ -2232,12 +2300,14 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
     }, [voyageTracks.length]);
     const loadVoyageAsTrace = useCallback(
-        async (t: SeaVoyageChoice) => {
+        async (t: SeaVoyageChoice, expectedScope: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
             triggerHaptic('medium');
             flashTraceFeedback(`Loading ${t.label}…`);
             // Polyline fetched per-voyage on tap (paged, whole passage) —
             // the picker rows themselves carry no points now.
             const points = await loadVoyageTrackPoints(t.voyageId);
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
             if (points.length < 2) {
                 flashTraceFeedback('Could not load that track — try again online');
                 return;
@@ -2529,8 +2599,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Re-check pin view when navigating TO the map tab
     useEffect(() => {
         if (currentView === 'map') {
-            const pv = window.__thalassaPinView;
-            setIsPinView(!!pv);
+            const pinView = readCurrentPinView();
+            ownedPinViewRef.current = pinView;
+            setIsPinView(!!pinView);
         }
     }, [currentView]);
 
@@ -3521,58 +3592,48 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [routePickerOpen, setRoutePickerOpen] = useState(false);
     const [trackPickerOpen, setTrackPickerOpen] = useState(false);
 
+    // A long-lived MapHub can be switched into picker mode by its host.
+    // Close any workflow that was already open as well as hiding its trigger,
+    // so it cannot reappear stale when the picker later returns to chart mode.
+    useEffect(() => {
+        if (!pickerMode) return;
+        setRoutePickerOpen(false);
+        setTrackPickerOpen(false);
+        setShowVesselSearch(false);
+        setShowOfflineArea(false);
+        setStormPickerOpen(false);
+        setShowReport(false);
+        setShowTideAck(false);
+        setShowConsensus(false);
+    }, [pickerMode]);
+
     /** Active Voyage Mode flag — mirrored from the voyages cache. When
      *  true, the chart auto-displays the boat's GPS position, the live
      *  voyage track, and the planned route, regardless of which weather
      *  layer is on. Listens for `thalassa:active-voyage-changed` so the
      *  flag flips the moment Cast Off / End Voyage runs. */
-    const [activeVoyageMode, setActiveVoyageMode] = useState<boolean>(() => {
-        try {
-            const raw = localStorage.getItem('thalassa_active_voyage');
-            if (!raw) return false;
-            const parsed = JSON.parse(raw);
-            return parsed?.status === 'active';
-        } catch {
-            return false;
-        }
-    });
-    const [activeVoyageId, setActiveVoyageId] = useState<string | null>(() => {
-        try {
-            const raw = localStorage.getItem('thalassa_active_voyage');
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-            return parsed?.status === 'active' ? (parsed.id as string) : null;
-        } catch {
-            return null;
-        }
-    });
-    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(() => {
-        try {
-            const raw = localStorage.getItem('thalassa_active_voyage');
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-            return parsed?.status === 'active' ? (parsed.voyage_name as string) : null;
-        } catch {
-            return null;
-        }
-    });
+    const initialActiveVoyage = useMemo(() => getCachedActiveVoyage(), []);
+    const [activeVoyageMode, setActiveVoyageMode] = useState<boolean>(initialActiveVoyage?.status === 'active');
+    const [activeVoyageId, setActiveVoyageId] = useState<string | null>(
+        initialActiveVoyage?.status === 'active' ? initialActiveVoyage.id : null,
+    );
+    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(
+        initialActiveVoyage?.status === 'active' ? initialActiveVoyage.voyage_name : null,
+    );
     useEffect(() => {
         const sync = () => {
-            try {
-                const raw = localStorage.getItem('thalassa_active_voyage');
-                const v = raw ? JSON.parse(raw) : null;
-                const isActive = v?.status === 'active';
-                setActiveVoyageMode(isActive);
-                setActiveVoyageId(isActive ? (v.id as string) : null);
-                setActiveVoyageName(isActive ? (v.voyage_name as string) : null);
-            } catch {
-                setActiveVoyageMode(false);
-                setActiveVoyageId(null);
-                setActiveVoyageName(null);
-            }
+            const activeVoyage = getCachedActiveVoyage();
+            const isActive = activeVoyage?.status === 'active';
+            setActiveVoyageMode(isActive);
+            setActiveVoyageId(isActive ? activeVoyage.id : null);
+            setActiveVoyageName(isActive ? activeVoyage.voyage_name : null);
         };
+        const unsubscribeIdentity = subscribeAuthIdentityScope(sync);
         window.addEventListener('thalassa:active-voyage-changed', sync);
-        return () => window.removeEventListener('thalassa:active-voyage-changed', sync);
+        return () => {
+            unsubscribeIdentity();
+            window.removeEventListener('thalassa:active-voyage-changed', sync);
+        };
     }, []);
 
     /** Vessel position + trail are FORCED visible during Active Voyage
@@ -4978,8 +5039,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
-        const pv = window.__thalassaPinView as { lat: number; lng: number } | undefined;
+        const pv = readCurrentPinView();
         if (!isPinView || !pv || !mapReady || !mapRef.current) return;
+        ownedPinViewRef.current = pv;
         const map = mapRef.current;
 
         // Remove any existing pin
@@ -4997,6 +5059,12 @@ export const MapHub: React.FC<MapHubProps> = ({
 
         // Fly to the pin
         map.flyTo({ center: [pv.lng, pv.lat], zoom: 7, duration: 1200 });
+        return () => {
+            if (pinMarkerRef.current === marker) {
+                marker.remove();
+                pinMarkerRef.current = null;
+            }
+        };
     }, [isPinView, mapReady]);
 
     // ── Pin View: temporarily clear weather overlays for a clean map ──
@@ -5049,24 +5117,51 @@ export const MapHub: React.FC<MapHubProps> = ({
     // navigate.
     const [pinDirectionsBusy, setPinDirectionsBusy] = useState(false);
     const [pinDirectionsError, setPinDirectionsError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const syncIdentity = () => {
+            const pinView = readCurrentPinView();
+            ownedPinViewRef.current = pinView;
+            setIsPinView(!!pinView);
+            setPinDirectionsBusy(false);
+            setPinDirectionsError(null);
+        };
+        const unsubscribeIdentity = subscribeAuthIdentityScope(syncIdentity);
+        return () => {
+            unsubscribeIdentity();
+            const ownedPinView = ownedPinViewRef.current;
+            if (ownedPinView && window.__thalassaPinView === ownedPinView) {
+                delete window.__thalassaPinView;
+            }
+            ownedPinViewRef.current = null;
+        };
+    }, []);
+
     const handlePinDirections = useCallback(async () => {
-        const pv = window.__thalassaPinView as { lat: number; lng: number } | undefined;
+        const pv = readCurrentPinView();
         if (!pv || pinDirectionsBusy) return;
+        ownedPinViewRef.current = pv;
+        const actionScope = pv.identity;
+        const destination = Object.freeze({ lat: pv.lat, lng: pv.lng });
         setPinDirectionsBusy(true);
         setPinDirectionsError(null);
         try {
             const { GpsService } = await import('../../services/GpsService');
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (!pos) {
                 setPinDirectionsError('Could not get your GPS position.');
                 return;
             }
             const { buildDirectionsVoyagePlan } = await import('../../services/MapboxDirectionsService');
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             const plan = await buildDirectionsVoyagePlan(
                 { lat: pos.latitude, lon: pos.longitude, name: 'My Location' },
-                { lat: pv.lat, lon: pv.lng, name: 'Pin' },
+                { lat: destination.lat, lon: destination.lng, name: 'Pin' },
                 'driving',
             );
+            if (!isAuthIdentityScopeCurrent(actionScope) || window.__thalassaPinView !== pv) return;
             if (!plan) {
                 setPinDirectionsError('No driving route found.');
                 return;
@@ -5074,24 +5169,35 @@ export const MapHub: React.FC<MapHubProps> = ({
             saveVoyagePlan(plan);
             // Exit pin view so layers/route are visible normally.
             delete window.__thalassaPinView;
+            ownedPinViewRef.current = null;
             setIsPinView(false);
         } catch (e) {
-            setPinDirectionsError(e instanceof Error ? e.message : 'Directions failed.');
+            if (isAuthIdentityScopeCurrent(actionScope)) {
+                setPinDirectionsError(e instanceof Error ? e.message : 'Directions failed.');
+            }
         } finally {
-            setPinDirectionsBusy(false);
+            if (isAuthIdentityScopeCurrent(actionScope)) {
+                setPinDirectionsBusy(false);
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pinDirectionsBusy]);
 
+    // Picker hosts still need a fully interactive map, so they cannot use the
+    // static `embedded` contract. Treat pickerMode as its own chrome boundary:
+    // the tap-to-select layer stays live while route, weather, AIS, offline,
+    // passage, and diagnostic workflows remain unavailable behind the host
+    // dialog.
+
     // Determine if tablet split-screen is active
-    const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded;
+    const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded && !pickerMode;
 
     return (
         <div data-testid="map-hub" className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
             {/* Floating route-enhancement chip — visible while the */}
             {/* passage planner's bathymetric/weather/depth pipeline runs */}
             {/* in the background after the basic plan lands. */}
-            <RouteEnhancementChip />
+            {!pickerMode && <RouteEnhancementChip />}
             {/* Map container — 70% on tablet during passage, full otherwise */}
             <div className={`relative ${isHelmSplit ? 'flex-[7] h-full' : 'w-full h-full'}`}>
                 <div ref={containerRef} className="w-full h-full" />
@@ -5129,7 +5235,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     pill alone, never this tree. Mirrors the Bosun mic
                     FAB top-right position (top:56px right:16px in
                     App.tsx). Visible in pin-view too. */}
-                <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />
+                {!pickerMode && <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />}
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
                 {/* Hidden while plotting: wind particles animate straight over
@@ -5144,7 +5250,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     stripped the legend and scrubber for EVERY weather layer
                     and took the planning chart with it. Keep this guard
                     narrow: this overlay alone is the whole fix. */}
-                {!isPinView && !embedded && !coordCaptureMode && (
+                {!isPinView && !embedded && !pickerMode && !coordCaptureMode && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
@@ -5156,7 +5262,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ GHOST SHIP (route interpolation during forecast scrub) ═══ */}
                 <Suspense fallback={null}>
-                    {!isPinView && !embedded && passage.showPassage && passage.routeAnalysis && (
+                    {!isPinView && !embedded && !pickerMode && passage.showPassage && passage.routeAnalysis && (
                         <GhostShip
                             map={mapRef.current}
                             routeCoords={passage.isoResultRef.current?.routeCoordinates ?? null}
@@ -5174,19 +5280,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                     )}
                 </Suspense>
 
-                <PassageBanner
-                    passage={passage}
-                    isoProgress={isoProgress}
-                    passageNotice={passageNotice}
-                    embedded={embedded}
-                    isPinView={isPinView}
-                    deviceMode={deviceMode}
-                />
+                {!pickerMode && (
+                    <PassageBanner
+                        passage={passage}
+                        isoProgress={isoProgress}
+                        passageNotice={passageNotice}
+                        embedded={embedded}
+                        isPinView={isPinView}
+                        deviceMode={deviceMode}
+                    />
+                )}
 
                 {/* ═══ RADIAL HELM MENU (gesture-based layer control) ═══
                     Hidden while TRACING (Shane 2026-07-17: routing page
                     declutter) — Done brings the rail back. */}
-                {!passage.showPassage && !embedded && !isPinView && !coordCaptureMode && (
+                {!passage.showPassage && !embedded && !pickerMode && !isPinView && !coordCaptureMode && (
                     <RadialHelmMenu
                         activeLayers={weather.activeLayers}
                         // WIND AND LIGHTNING ARE MUTUALLY EXCLUSIVE (Shane
@@ -6581,7 +6689,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         )}
                     </div>
                 )}
-                {showReport && (
+                {showReport && !pickerMode && (
                     <Suspense fallback={<TraceReportLoading />}>
                         <TraceReportModal
                             open={showReport}
@@ -6650,7 +6758,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 </Suspense>
                 <LiveTideAckModal
-                    visible={showTideAck}
+                    visible={showTideAck && !pickerMode}
                     onCancel={() => setShowTideAck(false)}
                     onAccept={() => {
                         setShowTideAck(false);
@@ -6667,7 +6775,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     one-sentence prompts covering the chart screen's
                     main affordances. Each gated by its own seenKey so
                     they fire independently as the user encounters them. */}
-                {!passage.showPassage && !embedded && !isPinView && (
+                {!passage.showPassage && !embedded && !pickerMode && !isPinView && (
                     <>
                         <CoachMark
                             seenKey="thalassa_coach_chart_modes"
@@ -6712,28 +6820,32 @@ export const MapHub: React.FC<MapHubProps> = ({
                     auto-downtiered the device. Informs the user that
                     particle density is reduced for performance.
                     Auto-clears state after the toast's own TTL. */}
-                <PerfDowntierToast visible={perfToast && !passage.showPassage && !embedded && !isPinView} />
+                <PerfDowntierToast
+                    visible={perfToast && !passage.showPassage && !embedded && !pickerMode && !isPinView}
+                />
 
                 {/* Performance HUD — only renders when ?perf=1 in URL.
                     Used for diagnosing perf hitches on lower-spec
                     devices. Zero cost in normal use. */}
-                <PerfOverlay
-                    mapRef={mapRef}
-                    activeLayerCount={
-                        weather.activeLayers.size +
-                        (lightningVisible ? 1 : 0) +
-                        (squallVisible ? 1 : 0) +
-                        (cycloneVisible ? 1 : 0) +
-                        (aisVisible ? 1 : 0) +
-                        (seamarkVisible ? 1 : 0) +
-                        (tideStationsVisible ? 1 : 0)
-                    }
-                />
+                {!pickerMode && (
+                    <PerfOverlay
+                        mapRef={mapRef}
+                        activeLayerCount={
+                            weather.activeLayers.size +
+                            (lightningVisible ? 1 : 0) +
+                            (squallVisible ? 1 : 0) +
+                            (cycloneVisible ? 1 : 0) +
+                            (aisVisible ? 1 : 0) +
+                            (seamarkVisible ? 1 : 0) +
+                            (tideStationsVisible ? 1 : 0)
+                        }
+                    />
+                )}
 
                 {/* Routes picker — saved planned passages from the
                     ships log. Selection becomes activeChartRoute; the
                     useRouteTrackLayer renders + fits bounds. */}
-                {routePickerOpen && !passage.showPassage && !embedded && !isPinView && (
+                {routePickerOpen && !passage.showPassage && !embedded && !pickerMode && !isPinView && (
                     <Suspense fallback={<RouteTrackPickerLoading label="Opening routes…" />}>
                         <RouteTrackPicker
                             visible
@@ -6747,7 +6859,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* Tracks picker — actually-sailed passages. Same UX as
                     Routes; the two can be active simultaneously. */}
-                {trackPickerOpen && !passage.showPassage && !embedded && !isPinView && (
+                {trackPickerOpen && !passage.showPassage && !embedded && !pickerMode && !isPinView && (
                     <Suspense fallback={<RouteTrackPickerLoading label="Opening tracks…" />}>
                         <RouteTrackPicker
                             visible
@@ -6764,7 +6876,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     safety feature competitors don't have. Tap → fly to
                     threat. Hidden when nothing is dangerously near. */}
                 <ThreatBanner
-                    visible={!passage.showPassage && !embedded && !isPinView}
+                    visible={!passage.showPassage && !embedded && !pickerMode && !isPinView}
                     userLat={location.lat}
                     userLon={location.lon}
                     cyclones={allCyclones}
@@ -6780,7 +6892,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Online (cellular/WiFi) / Offline. Critical for
                     marine users who need to know what their data costs
                     them and whether live feeds will update. */}
-                <ConnectivityChip visible={!passage.showPassage && !embedded && !isPinView} />
+                <ConnectivityChip visible={!passage.showPassage && !embedded && !pickerMode && !isPinView} />
 
                 {/* Bottom-left legend stack. flex-col-reverse → first child
                     sits at the bottom of the column.
@@ -6806,7 +6918,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     2026-07-22), so in practice the 240px branch is reached by
                     the SQUALL legend rather than the lightning one.
                     Shane 2026-07-22, on the pile-up and the lost real estate. */}
-                {(lightningVisible || squallVisible) && (
+                {!pickerMode && (lightningVisible || squallVisible) && (
                     <div
                         className="fixed left-2 z-[140] flex flex-col-reverse gap-2 pointer-events-none"
                         style={{
@@ -6841,7 +6953,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     no prop drilling required. Hidden when not in passage mode
                     or when no hazards within the buffer. */}
                 <HazardReportPanel
-                    visible={passage.showPassage}
+                    visible={!pickerMode && passage.showPassage}
                     onHazardClick={(entry) => {
                         const map = mapRef.current;
                         if (!map) return;
@@ -6860,15 +6972,17 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
-                    {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
+                    {!passage.showPassage && !embedded && !pickerMode && !isPinView && (
+                        <AisLegend visible={aisVisible} />
+                    )}
                     {isCmemsCurrentsEnabled() && (
                         <React.Suspense fallback={null}>
-                            <CmemsAttribution visible={currentsVisible} />
+                            <CmemsAttribution visible={!pickerMode && currentsVisible} />
                         </React.Suspense>
                     )}
 
                     {/* ═══ VESSEL SEARCH BUTTON ═══ */}
-                    {!passage.showPassage && !embedded && !isPinView && aisVisible && (
+                    {!passage.showPassage && !embedded && !pickerMode && !isPinView && aisVisible && (
                         <button
                             onClick={() => {
                                 setShowVesselSearch(true);
@@ -6884,51 +6998,53 @@ export const MapHub: React.FC<MapHubProps> = ({
                     )}
 
                     {/* ═══ VESSEL SEARCH OVERLAY ═══ */}
-                    <Suspense fallback={null}>
-                        <VesselSearch
-                            visible={showVesselSearch}
-                            onClose={() => setShowVesselSearch(false)}
-                            onSelect={(lat, lon, mmsi, name) => {
-                                const map = mapRef.current;
-                                if (!map) return;
+                    {!pickerMode && (
+                        <Suspense fallback={null}>
+                            <VesselSearch
+                                visible={showVesselSearch}
+                                onClose={() => setShowVesselSearch(false)}
+                                onSelect={(lat, lon, mmsi, name) => {
+                                    const map = mapRef.current;
+                                    if (!map) return;
 
-                                // Fly to vessel location
-                                map.flyTo({
-                                    center: [lon, lat],
-                                    zoom: 14,
-                                    speed: 1.5,
-                                    curve: 1.4,
-                                    essential: true,
-                                });
+                                    // Fly to vessel location
+                                    map.flyTo({
+                                        center: [lon, lat],
+                                        zoom: 14,
+                                        speed: 1.5,
+                                        curve: 1.4,
+                                        essential: true,
+                                    });
 
-                                // Add a temporary pulse marker at the vessel
-                                const el = document.createElement('div');
-                                const pulseDiv = document.createElement('div');
-                                pulseDiv.style.cssText =
-                                    'width:48px;height:48px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);border:2px solid rgba(14,165,233,0.6);animation:pulse 1.5s ease-in-out infinite;display:flex;align-items:center;justify-content:center;font-size:20px;';
-                                pulseDiv.textContent = '🎯';
-                                el.appendChild(pulseDiv);
+                                    // Add a temporary pulse marker at the vessel
+                                    const el = document.createElement('div');
+                                    const pulseDiv = document.createElement('div');
+                                    pulseDiv.style.cssText =
+                                        'width:48px;height:48px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);border:2px solid rgba(14,165,233,0.6);animation:pulse 1.5s ease-in-out infinite;display:flex;align-items:center;justify-content:center;font-size:20px;';
+                                    pulseDiv.textContent = '🎯';
+                                    el.appendChild(pulseDiv);
 
-                                const mapboxglLib = window.mapboxgl;
-                                if (mapboxglLib?.Marker) {
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    const marker = new (mapboxglLib as any).Marker({ element: el })
-                                        .setLngLat([lon, lat])
-                                        .addTo(map);
+                                    const mapboxglLib = window.mapboxgl;
+                                    if (mapboxglLib?.Marker) {
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        const marker = new (mapboxglLib as any).Marker({ element: el })
+                                            .setLngLat([lon, lat])
+                                            .addTo(map);
 
-                                    // Remove after 8 seconds
-                                    setTimeout(() => marker.remove(), 8000);
-                                }
+                                        // Remove after 8 seconds
+                                        setTimeout(() => marker.remove(), 8000);
+                                    }
 
-                                log.info(
-                                    `Vessel search: flying to ${name} (${mmsi}) at ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-                                );
-                            }}
-                        />
-                    </Suspense>
+                                    log.info(
+                                        `Vessel search: flying to ${name} (${mmsi}) at ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+                                    );
+                                }}
+                            />
+                        </Suspense>
+                    )}
 
                     {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
-                    <AisGuardAlert />
+                    {!pickerMode && <AisGuardAlert />}
                 </Suspense>
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
@@ -6936,7 +7052,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     pre-caches raster map tiles (OSM + OpenSeaMap) for the
                     current view, routed through the boat Pi if available.
                     Hidden while TRACING (routing-page declutter, 2026-07-17). */}
-                {!embedded && !isPinView && !passage.showPassage && !coordCaptureMode && (
+                {!embedded && !pickerMode && !isPinView && !passage.showPassage && !coordCaptureMode && (
                     <>
                         <button
                             onClick={() => {
@@ -6980,87 +7096,97 @@ export const MapHub: React.FC<MapHubProps> = ({
                     might look blank and offers a one-tap route into the
                     offline-area download modal (useful if the boat Pi has
                     internet even when the phone doesn't). */}
-                {!isOnline && !offlineCardDismissed && !embedded && !isPinView && !passage.showPassage && (
-                    <div className="absolute z-[550] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(320px,calc(100vw-32px))] p-4 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl pointer-events-auto">
-                        <div className="flex items-start gap-3">
-                            <span className="text-xl leading-none">{'\u{1F6F0}\uFE0F'}</span>
-                            <div className="flex-1">
-                                <p className="text-sm font-bold text-white">Offline</p>
-                                <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
-                                    The base map may not fully render — tiles can only load when there was internet
-                                    before, or when a boat Pi has them cached. Your downloaded{' '}
-                                    <span className="text-emerald-400 font-bold">.mbtiles</span> charts and GPS work
-                                    fully offline.
-                                </p>
+                {!isOnline &&
+                    !offlineCardDismissed &&
+                    !embedded &&
+                    !pickerMode &&
+                    !isPinView &&
+                    !passage.showPassage && (
+                        <div className="absolute z-[550] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(320px,calc(100vw-32px))] p-4 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl pointer-events-auto">
+                            <div className="flex items-start gap-3">
+                                <span className="text-xl leading-none">{'\u{1F6F0}\uFE0F'}</span>
+                                <div className="flex-1">
+                                    <p className="text-sm font-bold text-white">Offline</p>
+                                    <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
+                                        The base map may not fully render — tiles can only load when there was internet
+                                        before, or when a boat Pi has them cached. Your downloaded{' '}
+                                        <span className="text-emerald-400 font-bold">.mbtiles</span> charts and GPS work
+                                        fully offline.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setOfflineCardDismissed(true)}
+                                    aria-label="Dismiss offline notice"
+                                    className="shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
+                                >
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
                             </div>
                             <button
-                                onClick={() => setOfflineCardDismissed(true)}
-                                aria-label="Dismiss offline notice"
-                                className="shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
+                                onClick={() => {
+                                    setOfflineCardDismissed(true);
+                                    setShowOfflineArea(true);
+                                }}
+                                className="mt-3 w-full py-2 rounded-xl text-[11px] font-black uppercase tracking-widest bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition-all active:scale-95"
                             >
-                                <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
+                                Download This Area
                             </button>
                         </div>
-                        <button
-                            onClick={() => {
-                                setOfflineCardDismissed(true);
-                                setShowOfflineArea(true);
-                            }}
-                            className="mt-3 w-full py-2 rounded-xl text-[11px] font-black uppercase tracking-widest bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition-all active:scale-95"
-                        >
-                            Download This Area
-                        </button>
-                    </div>
-                )}
+                    )}
 
                 {/* ═══ ROUTE LEGEND (during passage mode) ═══ */}
                 <Suspense fallback={null}>
                     <RouteLegend
-                        visible={passage.showPassage && !!passage.routeAnalysis && !isPinView}
+                        visible={passage.showPassage && !!passage.routeAnalysis && !pickerMode && !isPinView}
                         embedded={embedded}
                     />
                 </Suspense>
 
                 {/* ═══ CONSENSUS MATRIX FAB (during passage mode) ═══ */}
-                {passage.showPassage && passage.routeAnalysis && consensusData && !embedded && !isPinView && (
-                    <button
-                        onClick={() => {
-                            setShowConsensus(!showConsensus);
-                            triggerHaptic('medium');
-                        }}
-                        className={`absolute bottom-44 left-4 z-[500] w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${
-                            showConsensus
-                                ? 'bg-gradient-to-br from-sky-500/30 to-purple-500/30 border border-sky-500/40'
-                                : 'bg-slate-900/90 border border-white/[0.08] hover:bg-slate-800/90'
-                        }`}
-                        aria-label="Toggle Consensus Matrix"
-                    >
-                        <svg
-                            className={`w-5 h-5 ${showConsensus ? 'text-sky-400' : 'text-white'}`}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
+                {passage.showPassage &&
+                    passage.routeAnalysis &&
+                    consensusData &&
+                    !embedded &&
+                    !pickerMode &&
+                    !isPinView && (
+                        <button
+                            onClick={() => {
+                                setShowConsensus(!showConsensus);
+                                triggerHaptic('medium');
+                            }}
+                            className={`absolute bottom-44 left-4 z-[500] w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${
+                                showConsensus
+                                    ? 'bg-gradient-to-br from-sky-500/30 to-purple-500/30 border border-sky-500/40'
+                                    : 'bg-slate-900/90 border border-white/[0.08] hover:bg-slate-800/90'
+                            }`}
+                            aria-label="Toggle Consensus Matrix"
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"
-                            />
-                        </svg>
-                    </button>
-                )}
+                            <svg
+                                className={`w-5 h-5 ${showConsensus ? 'text-sky-400' : 'text-white'}`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"
+                                />
+                            </svg>
+                        </button>
+                    )}
 
                 {/* ═══ ACTION FABS ═══ */}
-                {!embedded && !passage.showPassage && !isPinView && (
+                {!embedded && !pickerMode && !passage.showPassage && !isPinView && (
                     <MapActionFabs
                         onLocateMe={() => {
                             triggerHaptic('medium');
@@ -7095,7 +7221,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {!isPinView && !embedded && weather.activeLayers.size > 0 && (
+                {!isPinView && !embedded && !pickerMode && weather.activeLayers.size > 0 && (
                     <Suspense fallback={<WeatherControlsLoading />}>
                         <MapWeatherControls
                             weather={weather}
@@ -7131,7 +7257,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ CONSENSUS MATRIX — Phone slide-up (Deck mode) ═══ */}
-                {deviceMode === 'deck' && showConsensus && consensusData && !embedded && (
+                {deviceMode === 'deck' && showConsensus && consensusData && !embedded && !pickerMode && (
                     <div className="absolute inset-0 z-[600] animate-in slide-in-from-bottom duration-300">
                         <ConsensusMatrix
                             data={consensusData}
@@ -7143,7 +7269,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             </Suspense>
 
             {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}
-            {stormPickerOpen && (
+            {stormPickerOpen && !pickerMode && (
                 <Suspense fallback={<StormPickerLoading />}>
                     <StormPicker
                         visible

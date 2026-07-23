@@ -17,6 +17,13 @@
  */
 
 import { useState, useEffect } from 'react';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -124,17 +131,25 @@ function computeDifficulty(
 
 const STORAGE_KEY = 'thalassa_passage_route';
 
-function saveToStorage(s: PassageRouteState) {
+function storageKey(scope: AuthIdentityScope = getAuthIdentityScope()): string {
+    return authScopedStorageKey(STORAGE_KEY, scope);
+}
+
+function saveToStorage(s: PassageRouteState, scope: AuthIdentityScope = getAuthIdentityScope()) {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+        localStorage.setItem(storageKey(scope), JSON.stringify(s));
     } catch {
         // Storage full or unavailable — ignore silently
     }
 }
 
-function loadFromStorage(): PassageRouteState | null {
+function loadFromStorage(scope: AuthIdentityScope = getAuthIdentityScope()): PassageRouteState | null {
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        // Do not auto-adopt the legacy unscoped route. It has no owner
+        // marker, and ports/coordinates from one skipper must never become
+        // another account's draft merely because they share a device.
+        const raw = localStorage.getItem(storageKey(scope));
         if (raw) return JSON.parse(raw) as PassageRouteState;
     } catch {
         // Corrupted data — ignore silently
@@ -180,9 +195,10 @@ export const PassageStore = {
         return state;
     },
 
-    setState(partial: Partial<PassageRouteState>) {
+    setState(partial: Partial<PassageRouteState>, expectedScope: AuthIdentityScope = getAuthIdentityScope()) {
+        if (!isAuthIdentityScopeCurrent(expectedScope)) return;
         state = { ...state, ...partial };
-        saveToStorage(state);
+        saveToStorage(state, expectedScope);
         notify();
     },
 
@@ -191,7 +207,8 @@ export const PassageStore = {
      * Automatically computes difficulty ratings for each leg
      * based on wind speed and wave height thresholds.
      */
-    setFromRoute(data: Partial<PassageRouteState>) {
+    setFromRoute(data: Partial<PassageRouteState>, expectedScope: AuthIdentityScope = getAuthIdentityScope()) {
+        if (!isAuthIdentityScopeCurrent(expectedScope)) return;
         const legs: PassageLeg[] = (data.legs ?? []).map((leg) => {
             const { difficulty, difficultyReason } = computeDifficulty(leg.maxWindKt, leg.maxWaveM);
             return { ...leg, difficulty, difficultyReason };
@@ -203,7 +220,7 @@ export const PassageStore = {
             legs,
             hasRoute: true,
         };
-        saveToStorage(state);
+        saveToStorage(state, expectedScope);
         notify();
     },
 
@@ -213,16 +230,25 @@ export const PassageStore = {
     },
 
     /** Reset to defaults and clear persisted data */
-    clear() {
+    clear(expectedScope: AuthIdentityScope = getAuthIdentityScope()) {
+        if (!isAuthIdentityScopeCurrent(expectedScope)) return;
         state = { ...DEFAULT_STATE };
         try {
-            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(storageKey(expectedScope));
         } catch {
             // Ignore
         }
         notify();
     },
 };
+
+// This singleton outlives React trees. AuthStore changes the identity fence
+// before exposing a new user, so replace the in-memory snapshot immediately
+// and notify every mounted consumer in the same transition.
+subscribeAuthIdentityScope((next) => {
+    state = loadFromStorage(next) ?? { ...DEFAULT_STATE };
+    notify();
+});
 
 // ── React Hook ─────────────────────────────────────────────────
 

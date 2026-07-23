@@ -59,7 +59,15 @@ describe('dashboard picker sheets', () => {
 
     it('gives ModelPickerSheet an explicit close action and contains keyboard focus', () => {
         const onClose = vi.fn();
-        render(<ModelPickerSheet visible currentModel="auto" onPick={vi.fn()} onClose={onClose} onRefresh={vi.fn()} />);
+        render(
+            <ModelPickerSheet
+                visible
+                currentModel="best_match"
+                onPick={vi.fn()}
+                onClose={onClose}
+                onRefresh={vi.fn()}
+            />,
+        );
         const firstModel = screen.getAllByRole('button', { name: /forecast model$/ })[0];
         const close = screen.getByRole('button', { name: 'Close' });
         expect(firstModel).toHaveFocus();

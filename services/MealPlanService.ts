@@ -12,8 +12,9 @@
  * Dates stored as UTC ISO strings for International Date Line safety.
  */
 
-import { getAll, query, insertLocal, updateLocal, deltaLocal, generateUUID } from './vessel/LocalDatabase';
+import { atomicLocalTransaction, getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
 import { scaleIngredient, type RecipeIngredient, type GalleyMeal } from './GalleyRecipeService';
+import { convertQuantity } from './PurchaseUnits';
 import { triggerHaptic } from '../utils/system';
 import { getMyCrew } from './CrewService';
 
@@ -24,6 +25,11 @@ export type MealStatus = 'planned' | 'reserved' | 'cooking' | 'completed' | 'ski
 
 export interface MealPlan {
     id: string;
+    /**
+     * Authoritative vessel owner. Missing only on legacy local snapshots,
+     * which are deliberately excluded from owner-sensitive stores actions.
+     */
+    user_id?: string;
     voyage_id: string | null;
     recipe_id: string | null;
     spoonacular_id: number | null;
@@ -75,8 +81,13 @@ export async function scheduleMeal(
     slot: MealSlot,
     voyageId: string | null,
     servings: number,
+    ownerUserId: string | null = null,
 ): Promise<MealPlan> {
     const now = new Date().toISOString();
+    const owner = ownerUserId?.trim() || '';
+    if (voyageId && !owner) {
+        throw new Error('An authoritative voyage owner is required to schedule a shared meal.');
+    }
 
     // Scale ingredients to planned servings
     const scaledIngredients = (meal.ingredients || []).map((ing) => ({
@@ -86,6 +97,7 @@ export async function scheduleMeal(
 
     const plan: MealPlan = {
         id: generateUUID(),
+        user_id: owner,
         voyage_id: voyageId,
         recipe_id: null,
         spoonacular_id: meal.id,
@@ -130,38 +142,72 @@ export async function unscheduleMeal(mealPlanId: string): Promise<boolean> {
 // ── Querying ───────────────────────────────────────────────────────────────
 
 /** Get all meal plans for a voyage */
-export function getMealPlans(voyageId?: string): MealPlan[] {
-    if (voyageId) {
+export function getMealPlans(voyageId?: string | null): MealPlan[] {
+    if (voyageId !== undefined) {
         return query<MealPlan>(TABLE, (m) => m.voyage_id === voyageId);
     }
     return getAll<MealPlan>(TABLE);
 }
 
 /** Get meals for a specific date */
-export function getMealsForDate(date: string, voyageId?: string): MealPlan[] {
+export function getMealsForDate(date: string, voyageId?: string | null): MealPlan[] {
     return query<MealPlan>(TABLE, (m) => {
         const dateMatch = m.planned_date === date;
-        const voyageMatch = voyageId ? m.voyage_id === voyageId : true;
+        const voyageMatch = voyageId === undefined || m.voyage_id === voyageId;
         return dateMatch && voyageMatch;
     });
 }
 
-/** Get meals by status */
-export function getMealsByStatus(status: MealStatus): MealPlan[] {
-    return query<MealPlan>(TABLE, (m) => m.status === status);
+/** Get meals by status, optionally constrained to one selected voyage. */
+export function getMealsByStatus(status: MealStatus, voyageId?: string | null): MealPlan[] {
+    return query<MealPlan>(TABLE, (m) => m.status === status && (voyageId === undefined || m.voyage_id === voyageId));
 }
 
 // ── Ingredient Reservation ─────────────────────────────────────────────────
+
+function normalizeOwnerId(ownerUserId: string | null | undefined): string | null {
+    const normalized = ownerUserId?.trim();
+    return normalized || null;
+}
+
+/**
+ * Resolve a single owner from the selected voyage's local meal snapshots.
+ * Returning null on missing or conflicting ownership deliberately fails
+ * closed: a crew member can have several skippers' registers cached locally.
+ */
+function resolveMealOwner(voyageId?: string | null, explicitOwnerUserId?: string | null): string | null {
+    const explicitOwner = normalizeOwnerId(explicitOwnerUserId);
+    const owners = new Set(
+        query<MealPlan>(TABLE, (meal) => voyageId === undefined || meal.voyage_id === voyageId)
+            .map((meal) => normalizeOwnerId(meal.user_id))
+            .filter((owner): owner is string => owner !== null),
+    );
+
+    if (explicitOwner) {
+        // A verified passage owner can seed a brand-new plan. Once local meal
+        // snapshots exist, however, disagreement means the context is stale
+        // or corrupt and owner-sensitive reads must stop.
+        if (voyageId !== undefined && owners.size > 0 && (owners.size !== 1 || !owners.has(explicitOwner))) {
+            return null;
+        }
+        return explicitOwner;
+    }
+
+    return owners.size === 1 ? Array.from(owners)[0] : null;
+}
 
 /**
  * Calculate all reserved ingredients across active meal plans.
  * Only counts meals with status 'reserved' or 'cooking'.
  */
-export function getReservedIngredients(voyageId?: string): ReservedIngredient[] {
+export function getReservedIngredients(voyageId?: string | null, ownerUserId?: string | null): ReservedIngredient[] {
+    const owner = resolveMealOwner(voyageId, ownerUserId);
+    if (!owner) return [];
+
     const activeMeals = query<MealPlan>(TABLE, (m) => {
         const statusMatch = m.status === 'reserved' || m.status === 'cooking';
-        const voyageMatch = voyageId ? m.voyage_id === voyageId : true;
-        return statusMatch && voyageMatch;
+        const voyageMatch = voyageId === undefined || m.voyage_id === voyageId;
+        return statusMatch && voyageMatch && normalizeOwnerId(m.user_id) === owner;
     });
 
     const aggregated = new Map<string, ReservedIngredient>();
@@ -197,27 +243,53 @@ export function getReservedIngredients(voyageId?: string): ReservedIngredient[] 
  * Get stores availability: on_hand vs reserved vs available.
  * Used by the Ship's Stores UI to show visual reservation flags.
  */
-export function getStoresAvailability(voyageId?: string): StoresAvailability[] {
-    const storeItems = getAll<{
+export function getStoresAvailability(voyageId?: string | null, ownerUserId?: string | null): StoresAvailability[] {
+    const owner = resolveMealOwner(voyageId, ownerUserId);
+    if (!owner) return [];
+
+    const storeItems = query<{
         id: string;
+        user_id: string;
         item_name: string;
         quantity: number;
         unit?: string;
-    }>(STORES_TABLE);
+    }>(STORES_TABLE, (item) => normalizeOwnerId(item.user_id) === owner);
 
-    const reserved = getReservedIngredients(voyageId);
-    const reservedMap = new Map(reserved.map((r) => [r.ingredient_name.toLowerCase(), r]));
+    const reserved = getReservedIngredients(voyageId, owner);
+    const reservationsByName = new Map<string, Array<ReservedIngredient & { remaining: number }>>();
+    for (const reservation of reserved) {
+        const key = reservation.ingredient_name.toLowerCase().trim();
+        const entries = reservationsByName.get(key) ?? [];
+        entries.push({ ...reservation, remaining: reservation.total_reserved });
+        reservationsByName.set(key, entries);
+    }
 
     return storeItems.map((item) => {
-        const res = reservedMap.get(item.item_name.toLowerCase());
-        const reservedQty = res ? res.total_reserved : 0;
+        const onHand = Number.isFinite(item.quantity) ? Math.max(0, item.quantity) : 0;
+        const reservations = reservationsByName.get(item.item_name.toLowerCase().trim()) ?? [];
+        const inventoryUnit = item.unit?.trim() || reservations[0]?.unit || 'whole';
+        let reservedQty = 0;
+
+        for (const reservation of reservations) {
+            if (reservation.remaining <= 0 || reservedQty >= onHand) continue;
+            const availableInInventoryUnit = convertQuantity(reservation.remaining, reservation.unit, inventoryUnit);
+            if (availableInInventoryUnit === null) continue;
+
+            const allocated = Math.min(onHand - reservedQty, Math.max(0, availableInInventoryUnit));
+            const allocatedInRecipeUnit = convertQuantity(allocated, inventoryUnit, reservation.unit);
+            if (allocatedInRecipeUnit === null) continue;
+
+            reservedQty += allocated;
+            reservation.remaining = Math.max(0, reservation.remaining - allocatedInRecipeUnit);
+        }
+
         return {
             item_id: item.id,
             item_name: item.item_name,
-            on_hand: item.quantity,
-            reserved: Math.round(reservedQty * 10) / 10,
-            available: Math.max(0, Math.round((item.quantity - reservedQty) * 10) / 10),
-            unit: item.unit || 'whole',
+            on_hand: onHand,
+            reserved: Math.round(reservedQty * 10_000) / 10_000,
+            available: Math.max(0, Math.round((onHand - reservedQty) * 10_000) / 10_000),
+            unit: inventoryUnit,
         };
     });
 }
@@ -226,11 +298,22 @@ export function getStoresAvailability(voyageId?: string): StoresAvailability[] {
 
 /** Start cooking a meal */
 export async function startCooking(mealPlanId: string): Promise<MealPlan | null> {
-    triggerHaptic('medium');
-    return updateLocal<MealPlan>(TABLE, mealPlanId, {
-        status: 'cooking' as MealStatus,
-        cook_started_at: new Date().toISOString(),
-    } as Partial<MealPlan>);
+    const outcome = await atomicLocalTransaction((transaction) => {
+        const meal = transaction.getById<MealPlan>(TABLE, mealPlanId);
+        if (!meal) return { meal: null, startedNow: false };
+        if (meal.status === 'cooking') return { meal, startedNow: false };
+        if (meal.status !== 'planned' && meal.status !== 'reserved') {
+            return { meal: null, startedNow: false };
+        }
+
+        const started = transaction.update<MealPlan>(TABLE, mealPlanId, {
+            status: 'cooking' as MealStatus,
+            cook_started_at: new Date().toISOString(),
+        } as Partial<MealPlan>);
+        return { meal: started, startedNow: started !== null };
+    });
+    if (outcome.startedNow) triggerHaptic('medium');
+    return outcome.meal;
 }
 
 /**
@@ -239,40 +322,94 @@ export async function startCooking(mealPlanId: string): Promise<MealPlan | null>
  * This is the "Salty Execution": each ingredient is subtracted from
  * stores using DELTA mutations for safe offline multi-device sync.
  */
-export async function completeMeal(mealPlanId: string, servingsConsumed?: number): Promise<MealPlan | null> {
-    const meal = query<MealPlan>(TABLE, (m) => m.id === mealPlanId)[0];
-    if (!meal) return null;
-
-    // Calculate consumption ratio. Guard against zero / corrupt servings_planned:
-    // an Infinity ratio would propagate into every store DELTA and trash the inventory.
-    const planned = meal.servings_planned > 0 ? meal.servings_planned : 1;
-    const ratio = servingsConsumed ? servingsConsumed / planned : 1;
-
-    // DELTA subtract each ingredient from Ship's Stores
-    const storeItems = getAll<{ id: string; item_name: string }>(STORES_TABLE);
-    const storeMap = new Map(storeItems.map((s) => [s.item_name.toLowerCase(), s.id]));
-
-    for (const ing of meal.ingredients) {
-        const storeId = storeMap.get(ing.name.toLowerCase());
-        if (storeId) {
-            const consumed = Math.round(ing.amount * ratio * 10) / 10;
-            await deltaLocal(STORES_TABLE, storeId, 'quantity', -consumed);
+async function completeMealOnce(mealPlanId: string, servingsConsumed?: number): Promise<MealPlan | null> {
+    const outcome = await atomicLocalTransaction((transaction) => {
+        const meal = transaction.getById<MealPlan>(TABLE, mealPlanId);
+        if (!meal) return { meal: null, completedNow: false };
+        if (meal.status === 'completed') return { meal, completedNow: false };
+        if (meal.status !== 'reserved' && meal.status !== 'cooking') {
+            return { meal: null, completedNow: false };
         }
-    }
 
-    triggerHaptic('heavy');
+        // Calculate consumption ratio. Guard against zero / corrupt
+        // servings_planned: Infinity must never reach an inventory DELTA.
+        const planned = meal.servings_planned > 0 ? meal.servings_planned : 1;
+        const requestedServings =
+            typeof servingsConsumed === 'number' && Number.isFinite(servingsConsumed) && servingsConsumed > 0
+                ? Math.min(servingsConsumed, planned * 2)
+                : planned;
+        const ratio = requestedServings / planned;
 
-    return updateLocal<MealPlan>(TABLE, mealPlanId, {
-        status: 'completed' as MealStatus,
-        completed_at: new Date().toISOString(),
-    } as Partial<MealPlan>);
+        const mealOwner = normalizeOwnerId(meal.user_id);
+        const storeItems = mealOwner
+            ? transaction.query<{
+                  id: string;
+                  user_id: string;
+                  item_name: string;
+                  quantity: number;
+                  unit?: string;
+              }>(STORES_TABLE, (item) => normalizeOwnerId(item.user_id) === mealOwner)
+            : [];
+        const storesByName = new Map<string, Array<{ id: string; remaining: number; unit?: string }>>();
+        for (const store of storeItems) {
+            const key = store.item_name.toLowerCase().trim();
+            const entries = storesByName.get(key) ?? [];
+            entries.push({
+                id: store.id,
+                remaining: Number.isFinite(store.quantity) ? Math.max(0, store.quantity) : 0,
+                unit: store.unit,
+            });
+            storesByName.set(key, entries);
+        }
+
+        for (const ingredient of meal.ingredients) {
+            const stores = storesByName.get(ingredient.name.toLowerCase().trim());
+            if (!stores) continue;
+
+            let requested = Math.max(0, Math.round(ingredient.amount * ratio * 100_000_000) / 100_000_000);
+            for (const store of stores) {
+                if (requested <= 0 || store.remaining <= 0) continue;
+                const inventoryUnit = store.unit?.trim() || ingredient.unit;
+                const availableInRecipeUnit = convertQuantity(store.remaining, inventoryUnit, ingredient.unit);
+                if (availableInRecipeUnit === null) continue;
+
+                const consumedInRecipeUnit = Math.min(requested, Math.max(0, availableInRecipeUnit));
+                const consumedInInventoryUnit = convertQuantity(consumedInRecipeUnit, ingredient.unit, inventoryUnit);
+                if (consumedInInventoryUnit === null || consumedInInventoryUnit <= 0) continue;
+
+                transaction.delta(STORES_TABLE, store.id, 'quantity', -consumedInInventoryUnit);
+                store.remaining = Math.max(0, store.remaining - consumedInInventoryUnit);
+                requested = Math.max(0, requested - consumedInRecipeUnit);
+            }
+        }
+
+        const completed = transaction.update<MealPlan>(TABLE, mealPlanId, {
+            status: 'completed' as MealStatus,
+            completed_at: new Date().toISOString(),
+        } as Partial<MealPlan>);
+        return { meal: completed, completedNow: completed !== null };
+    });
+
+    if (outcome.completedNow) triggerHaptic('heavy');
+    return outcome.meal;
+}
+
+export async function completeMeal(mealPlanId: string, servingsConsumed?: number): Promise<MealPlan | null> {
+    return completeMealOnce(mealPlanId, servingsConsumed);
 }
 
 /** Skip a meal (removes reservation without subtracting stores) */
 export async function skipMeal(mealPlanId: string): Promise<MealPlan | null> {
-    return updateLocal<MealPlan>(TABLE, mealPlanId, {
-        status: 'skipped' as MealStatus,
-    } as Partial<MealPlan>);
+    return atomicLocalTransaction((transaction) => {
+        const meal = transaction.getById<MealPlan>(TABLE, mealPlanId);
+        if (!meal) return null;
+        if (meal.status === 'skipped') return meal;
+        if (meal.status !== 'planned' && meal.status !== 'reserved') return null;
+
+        return transaction.update<MealPlan>(TABLE, mealPlanId, {
+            status: 'skipped' as MealStatus,
+        } as Partial<MealPlan>);
+    });
 }
 
 // ── Leftover Management ────────────────────────────────────────────────────
@@ -283,36 +420,81 @@ export async function skipMeal(mealPlanId: string): Promise<MealPlan | null> {
  * @param mealPlanId - The completed meal
  * @param servingsRemaining - How many servings are left over
  */
+async function saveLeftoversOnce(mealPlanId: string, servingsRemaining: number): Promise<void> {
+    if (!Number.isFinite(servingsRemaining) || servingsRemaining <= 0) return;
+
+    const saved = await atomicLocalTransaction((transaction) => {
+        const meal = transaction.getById<MealPlan>(TABLE, mealPlanId);
+        if (!meal || meal.status !== 'completed') return false;
+        const mealOwner = normalizeOwnerId(meal.user_id);
+        if (!mealOwner) return false;
+
+        const itemName = `${meal.title} (Leftovers)`;
+        const notes = `Leftovers from ${meal.planned_date} ${meal.meal_slot}`;
+        const deterministicId = mealPlanId;
+        const deterministicItem = transaction.getById<{
+            id: string;
+            user_id: string;
+            item_name: string;
+            unit?: string;
+        }>(STORES_TABLE, deterministicId);
+        if (
+            deterministicItem &&
+            (normalizeOwnerId(deterministicItem.user_id) !== mealOwner ||
+                deterministicItem.item_name !== itemName ||
+                deterministicItem.unit !== 'serves')
+        ) {
+            throw new Error('The deterministic leftovers record ID is already used by another stores item.');
+        }
+
+        // Recognize leftovers created by the previous random-ID implementation
+        // so upgrading can repair a missing meal flag without duplicating food.
+        const existingLegacyItem = transaction.query<{
+            id: string;
+            user_id: string;
+            item_name: string;
+            notes?: string | null;
+        }>(
+            STORES_TABLE,
+            (item) =>
+                normalizeOwnerId(item.user_id) === mealOwner && item.item_name === itemName && item.notes === notes,
+        )[0];
+
+        let changed = false;
+        if (!deterministicItem && !existingLegacyItem) {
+            const now = new Date().toISOString();
+            transaction.insert(STORES_TABLE, {
+                id: deterministicId,
+                user_id: mealOwner,
+                item_name: itemName,
+                category: 'Fridge',
+                quantity: servingsRemaining,
+                min_quantity: 0,
+                unit: 'serves',
+                location_zone: 'Galley',
+                location_specific: 'Fridge',
+                expiry_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+                notes,
+                created_at: now,
+                updated_at: now,
+            });
+            changed = true;
+        }
+
+        if (!meal.leftovers_saved) {
+            transaction.update<MealPlan>(TABLE, mealPlanId, {
+                leftovers_saved: true,
+            } as Partial<MealPlan>);
+            changed = true;
+        }
+        return changed;
+    });
+
+    if (saved) triggerHaptic('light');
+}
+
 export async function saveLeftovers(mealPlanId: string, servingsRemaining: number): Promise<void> {
-    const meal = query<MealPlan>(TABLE, (m) => m.id === mealPlanId)[0];
-    if (!meal || meal.status !== 'completed') return;
-
-    const now = new Date().toISOString();
-
-    // Create a new stores entry for the leftovers
-    const leftoverItem = {
-        id: generateUUID(),
-        item_name: `${meal.title} (Leftovers)`,
-        category: 'Fridge',
-        quantity: servingsRemaining,
-        min_quantity: 0,
-        unit: 'serves',
-        location_zone: 'Galley',
-        location_specific: 'Fridge',
-        expiry_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days
-        notes: `Leftovers from ${meal.planned_date} ${meal.meal_slot}`,
-        created_at: now,
-        updated_at: now,
-    };
-
-    await insertLocal(STORES_TABLE, leftoverItem);
-
-    // Flag the meal plan as having saved leftovers
-    await updateLocal<MealPlan>(TABLE, mealPlanId, {
-        leftovers_saved: true,
-    } as Partial<MealPlan>);
-
-    triggerHaptic('light');
+    return saveLeftoversOnce(mealPlanId, servingsRemaining);
 }
 
 // ── Timezone-Safe Date Helpers ─────────────────────────────────────────────
@@ -420,6 +602,7 @@ export async function addShortfallItem(
 
         await ins('passage_provisions', {
             id: uuid(),
+            voyage_id: voyageId,
             passage_name: voyageId || 'Current Passage',
             recipe_title: recipeTitle,
             ingredient_name: ingredientName,
@@ -432,6 +615,7 @@ export async function addShortfallItem(
             shortfall_qty: Math.round(requiredQty * 10) / 10,
             status: 'needed',
             created_at: now,
+            updated_at: now,
         });
 
         triggerHaptic('medium');

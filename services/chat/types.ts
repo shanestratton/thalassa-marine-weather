@@ -26,6 +26,8 @@ export interface ChatMessage {
     is_pinned: boolean;
     deleted_at: string | null;
     created_at: string;
+    /** Local-only state for an optimistic message; never persisted remotely. */
+    delivery_status?: 'sending' | 'queued';
 }
 
 export interface DirectMessage {
@@ -36,7 +38,12 @@ export interface DirectMessage {
     message: string;
     read: boolean;
     created_at: string;
+    /** Local-only state for an optimistic message; never persisted remotely. */
+    delivery_status?: 'sending' | 'queued';
 }
+
+export type ChatMessageSendResult = ChatMessage | 'queued' | null;
+export type DirectMessageSendResult = DirectMessage | 'queued' | 'blocked' | null;
 
 export type ChatRole = 'admin' | 'moderator' | 'member';
 

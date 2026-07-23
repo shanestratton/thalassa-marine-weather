@@ -29,6 +29,7 @@ import {
     getSailingConditionText,
 } from '../../utils';
 import { ForecastDay, HourlyForecast, UnitPreferences, VesselProfile } from '../../types';
+import { SafeImage } from '../ui/SafeImage';
 
 export const HourlyWidget = ({
     hourly,
@@ -543,7 +544,12 @@ export const MapWidget = ({ onOpenMap }: { onOpenMap: () => void }) => (
     <Card className="p-0 overflow-hidden h-60 cursor-pointer group hover:border-sky-500/50 transition-colors relative">
         <div onClick={onOpenMap} role="button" tabIndex={0} className="w-full h-full relative">
             {/* Background Image - Satellite View Style */}
-            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&fm=jpg&fit=crop')] bg-cover bg-center opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-40 transition-all duration-700 group-hover:scale-105"></div>
+            <SafeImage
+                src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&fm=jpg&fit=crop"
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 h-full w-full object-cover opacity-30 grayscale transition-all duration-700 group-hover:scale-105 group-hover:grayscale-0 group-hover:opacity-40"
+            />
 
             {/* Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/50 to-transparent"></div>

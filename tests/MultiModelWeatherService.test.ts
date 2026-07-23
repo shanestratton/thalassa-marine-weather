@@ -125,12 +125,14 @@ describe('queryMultiModel', () => {
     };
 
     beforeEach(() => {
-        vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: string | URL | Request) => {
-            const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-            if (urlStr.includes('marine')) {
-                return new Response(JSON.stringify(mockWaveData), { status: 200 });
-            }
-            return new Response(JSON.stringify(mockWindData), { status: 200 });
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+            const request = JSON.parse(String(init?.body)) as {
+                operation: 'forecast' | 'marine';
+                params: { latitude: string };
+            };
+            const count = request.params.latitude.split(',').length;
+            const row = request.operation === 'marine' ? mockWaveData : mockWindData;
+            return new Response(JSON.stringify(Array.from({ length: count }, () => row)), { status: 200 });
         });
     });
 

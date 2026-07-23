@@ -13,6 +13,7 @@ import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { triggerHaptic } from '../../utils/system';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 import { createLogger } from '../../utils/createLogger';
@@ -196,18 +197,12 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
     if (!visible) return null;
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Search vessels"
             style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                zIndex: 800,
                 background: 'rgba(0,0,0,0.5)',
                 backdropFilter: 'blur(8px)',
                 WebkitBackdropFilter: 'blur(8px)',
@@ -363,6 +358,6 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     </div>
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

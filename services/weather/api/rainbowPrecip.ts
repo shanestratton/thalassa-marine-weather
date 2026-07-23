@@ -13,6 +13,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { piCache } from '../../PiCacheService';
+import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 
 const log = createLogger('RainbowPrecip');
 
@@ -153,10 +154,16 @@ export async function fetchRainbowPrecip(lat: number, lon: number): Promise<Rain
             // away and the direct fetch was just returning nothing. Now we go
             // through the native HTTP client like every other edge-function call.
             const key = getSupabaseKey();
+            let headers: Record<string, string>;
+            try {
+                headers = await getAuthenticatedFunctionHeaders();
+            } catch {
+                headers = key ? { Authorization: `Bearer ${key}`, apikey: key } : {};
+            }
             try {
                 const res = await CapacitorHttp.get({
                     url: nowcastUrl,
-                    headers: key ? { Authorization: `Bearer ${key}`, apikey: key } : {},
+                    headers,
                     readTimeout: 15000,
                     connectTimeout: 15000,
                 });
@@ -171,7 +178,7 @@ export async function fetchRainbowPrecip(lat: number, lon: number): Promise<Rain
                 // CapacitorHttp isn't available.
                 try {
                     const res = await fetch(nowcastUrl, {
-                        headers: key ? { Authorization: `Bearer ${key}`, apikey: key } : {},
+                        headers,
                         signal: AbortSignal.timeout(15000),
                     });
                     if (res.ok) {

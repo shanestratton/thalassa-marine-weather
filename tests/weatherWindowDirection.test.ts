@@ -34,32 +34,32 @@ describe('WeatherWindowService direction and cache handling', () => {
     });
 
     it('reports no best window when a forecast has no complete departure block', async () => {
-        const response = {
-            ok: true,
-            json: vi.fn().mockResolvedValue({
-                hourly: {
-                    time: [],
-                    wind_speed_10m: [],
-                    wind_direction_10m: [],
-                    precipitation_probability: [],
-                    wave_height: [],
-                },
-            }),
-        };
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response as unknown as Response);
-        const signal = new AbortController().signal;
-        const timeoutMock = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
+        const response = () =>
+            new Response(
+                JSON.stringify({
+                    hourly: {
+                        time: [],
+                        wind_speed_10m: [],
+                        wind_direction_10m: [],
+                        precipitation_probability: [],
+                        wave_height: [],
+                    },
+                }),
+                { status: 200 },
+            );
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => response());
 
         const result = await WeatherWindowService.analyse(-20.3, 148.7);
 
         expect(result.windows).toEqual([]);
         expect(result.bestWindowIndex).toBe(-1);
         expect(fetchMock).toHaveBeenCalledTimes(2);
-        expect(timeoutMock).toHaveBeenCalledWith(20_000);
-        expect(fetchMock).toHaveBeenNthCalledWith(1, expect.any(String), { signal });
-        expect(fetchMock).toHaveBeenNthCalledWith(2, expect.any(String), { signal });
+        for (const [url, init] of fetchMock.mock.calls) {
+            expect(url).toBe('https://test.supabase.co/functions/v1/proxy-openmeteo');
+            expect(init).toMatchObject({ method: 'POST' });
+            expect(['forecast', 'marine']).toContain(JSON.parse(String(init?.body)).operation);
+        }
         fetchMock.mockRestore();
-        timeoutMock.mockRestore();
     });
 
     it('refuses invalid coordinates without caching or making a network request', async () => {
@@ -74,18 +74,23 @@ describe('WeatherWindowService direction and cache handling', () => {
     });
 
     it('does not score incomplete hourly series as a valid departure window', async () => {
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-            ok: true,
-            json: vi.fn().mockResolvedValue({
-                hourly: {
-                    time: Array.from({ length: 6 }, (_, i) => `2026-07-23T0${i}:00`),
-                    wind_speed_10m: [12, 12, 12, 12, 12, 12],
-                    wind_direction_10m: [90, 90, 90, 90, 90, 90],
-                    precipitation_probability: [0, 0, 0, 0, 0, 0],
-                    wave_height: [],
-                },
-            }),
-        } as unknown as Response);
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+            const operation = JSON.parse(String(init?.body)).operation as 'forecast' | 'marine';
+            return new Response(
+                JSON.stringify({
+                    hourly:
+                        operation === 'marine'
+                            ? { wave_height: [] }
+                            : {
+                                  time: Array.from({ length: 6 }, (_, i) => `2026-07-23T0${i}:00`),
+                                  wind_speed_10m: [12, 12, 12, 12, 12, 12],
+                                  wind_direction_10m: [90, 90, 90, 90, 90, 90],
+                                  precipitation_probability: [0, 0, 0, 0, 0, 0],
+                              },
+                }),
+                { status: 200 },
+            );
+        });
 
         const result = await WeatherWindowService.analyse(-20.3, 148.7);
 

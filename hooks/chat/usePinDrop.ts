@@ -3,12 +3,18 @@
  * Manages pin drop, POI picker, GPS position, and sending pin/POI messages.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChatService, ChatMessage } from '../../services/ChatService';
+import { ChatService, ChatMessage, type ChatMessageSendResult } from '../../services/ChatService';
 import { BgGeoManager } from '../../services/BgGeoManager';
 import { PinService, SavedPin } from '../../services/PinService';
 import { GpsService } from '../../services/GpsService';
 import { createLogger } from '../../utils/createLogger';
 import { PIN_PREFIX } from '../../components/chat/chatUtils';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { toast } from '../../components/Toast';
 
 const log = createLogger('usePinDrop');
 
@@ -17,6 +23,28 @@ export interface UsePinDropOptions {
     setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
     setMessageText: (text: string) => void;
     messageEndRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function reconcileOptimisticMessage(
+    messages: ChatMessage[],
+    optimisticId: string,
+    result: ChatMessageSendResult,
+): ChatMessage[] {
+    const optimisticIndex = messages.findIndex((message) => message.id === optimisticId);
+    if (result === 'queued') {
+        return optimisticIndex < 0
+            ? messages
+            : messages.map((message) =>
+                  message.id === optimisticId ? { ...message, delivery_status: 'queued' } : message,
+              );
+    }
+    if (!result) return optimisticIndex < 0 ? messages : messages.filter((message) => message.id !== optimisticId);
+    if (optimisticIndex < 0) {
+        return messages.some((message) => message.id === result.id) ? messages : [...messages, result];
+    }
+    const next = [...messages];
+    next[optimisticIndex] = result;
+    return next;
 }
 
 export function usePinDrop(options: UsePinDropOptions) {
@@ -41,12 +69,33 @@ export function usePinDrop(options: UsePinDropOptions) {
     const poiMarkerRef = useRef<any>(null);
     const poiMapInitialized = useRef(false);
 
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                setShowAttachMenu(false);
+                setShowPinSheet(false);
+                setShowPoiSheet(false);
+                setPinLat(0);
+                setPinLng(0);
+                setPinCaption('');
+                setPinLoading(false);
+                setSavedPins([]);
+                setSearchingPoi(false);
+                poiMapInstance.current?.remove();
+                poiMapInstance.current = null;
+                poiMarkerRef.current = null;
+                poiMapInitialized.current = false;
+            }),
+        [],
+    );
+
     // Snap the marker back to the user's current GPS position.
     // Bound from the floating "📍" button on the POI sheet.
     const recenterPoiToMyLocation = useCallback(async () => {
+        const identity = getAuthIdentityScope();
         try {
             const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 });
-            if (!pos) return;
+            if (!pos || !isAuthIdentityScopeCurrent(identity)) return;
             setPinLat(pos.latitude);
             setPinLng(pos.longitude);
             if (poiMarkerRef.current && poiMapInstance.current) {
@@ -63,10 +112,13 @@ export function usePinDrop(options: UsePinDropOptions) {
     // candidates; we take the first.
     const searchPoiLocation = useCallback(async (query: string) => {
         if (!query.trim()) return;
+        const identity = getAuthIdentityScope();
         setSearchingPoi(true);
         try {
             const { parseLocation } = await import('../../services/weather/api/geocoding');
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             const result = await parseLocation(query.trim());
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             if (result.lat === 0 && result.lon === 0) {
                 log.info(`no geocode result for "${query}"`);
                 return;
@@ -80,30 +132,35 @@ export function usePinDrop(options: UsePinDropOptions) {
         } catch (e) {
             log.warn('search failed:', e);
         } finally {
-            setSearchingPoi(false);
+            if (isAuthIdentityScopeCurrent(identity)) setSearchingPoi(false);
         }
     }, []);
 
     // --- Pin Drop ---
     const openPinDrop = useCallback(async () => {
+        const identity = getAuthIdentityScope();
         setShowAttachMenu(false);
         setPinLoading(true);
         setPinCaption('');
         setShowPinSheet(true);
 
         PinService.getMyPins(15)
-            .then((pins) => setSavedPins(pins))
+            .then((pins) => {
+                if (isAuthIdentityScopeCurrent(identity)) setSavedPins(pins);
+            })
             .catch((e) => {
                 console.warn(`[usePinDrop]`, e);
             });
 
         try {
             const pos = BgGeoManager.getLastPosition();
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             if (pos) {
                 setPinLat(pos.latitude);
                 setPinLng(pos.longitude);
             } else {
                 const freshPos = await BgGeoManager.getFreshPosition(60000, 10);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 if (freshPos) {
                     setPinLat(freshPos.latitude);
                     setPinLng(freshPos.longitude);
@@ -114,15 +171,18 @@ export function usePinDrop(options: UsePinDropOptions) {
             }
         } catch (e) {
             log.warn('GPS fallback:', e);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             setPinLat(-33.8568);
             setPinLng(151.2153);
         }
-        setPinLoading(false);
+        if (isAuthIdentityScopeCurrent(identity)) setPinLoading(false);
     }, []);
 
     const sendPin = useCallback(async () => {
         if (!activeChannel) return;
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[LOC] ${pinCaption.trim() || 'My Location'}`;
+        const identity = getAuthIdentityScope();
+        const caption = pinCaption.trim();
+        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[LOC] ${caption || 'My Location'}`;
         setShowPinSheet(false);
         setPinCaption('');
         setMessageText('');
@@ -138,28 +198,46 @@ export function usePinDrop(options: UsePinDropOptions) {
             is_pinned: false,
             deleted_at: null,
             created_at: new Date().toISOString(),
+            delivery_status: 'sending',
         };
         setMessages((prev) => [...prev, optimistic]);
-        await ChatService.sendMessage(activeChannel.id, text, false);
+        const result = await ChatService.sendMessage(activeChannel.id, text, false).catch(() => null);
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        setMessages((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
+        if (!result) {
+            setShowPinSheet(true);
+            setPinCaption(caption);
+            toast.error("Pin wasn't sent. Its caption has been restored.");
+            return;
+        }
+        if (result === 'queued') {
+            toast.info('Pin queued — it will send when the connection returns.');
+        }
 
         PinService.savePin({
             latitude: pinLat,
             longitude: pinLng,
-            caption: pinCaption.trim() || 'Dropped a pin',
+            caption: caption || 'Dropped a pin',
         }).catch((e) => {
             console.warn(`[usePinDrop]`, e);
         });
 
-        setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+        setTimeout(() => {
+            if (isAuthIdentityScopeCurrent(identity)) {
+                messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }
+        }, 50);
     }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
 
     // --- POI Picker ---
     const openPoiPicker = useCallback(() => {
+        const identity = getAuthIdentityScope();
         setShowAttachMenu(false);
         setShowPoiSheet(true);
         setPinCaption('');
         setPinLoading(true);
         GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 }).then((pos) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             if (pos) {
                 setPinLat(pos.latitude);
                 setPinLng(pos.longitude);
@@ -173,7 +251,9 @@ export function usePinDrop(options: UsePinDropOptions) {
 
     const sendPoi = useCallback(async () => {
         if (!activeChannel) return;
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[POI] ${pinCaption.trim() || 'Point of interest'}`;
+        const identity = getAuthIdentityScope();
+        const caption = pinCaption.trim();
+        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[POI] ${caption || 'Point of interest'}`;
         setShowPoiSheet(false);
         setPinCaption('');
         setMessageText('');
@@ -189,25 +269,42 @@ export function usePinDrop(options: UsePinDropOptions) {
             is_pinned: false,
             deleted_at: null,
             created_at: new Date().toISOString(),
+            delivery_status: 'sending',
         };
         setMessages((prev) => [...prev, optimistic]);
-        await ChatService.sendMessage(activeChannel.id, text, false);
+        const result = await ChatService.sendMessage(activeChannel.id, text, false).catch(() => null);
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        setMessages((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
+        if (!result) {
+            setShowPoiSheet(true);
+            setPinCaption(caption);
+            toast.error("Point of interest wasn't sent. Its caption has been restored.");
+            return;
+        }
+        if (result === 'queued') {
+            toast.info('Point of interest queued — it will send when the connection returns.');
+        }
 
         PinService.savePin({
             latitude: pinLat,
             longitude: pinLng,
-            caption: pinCaption.trim() || 'Point of interest',
+            caption: caption || 'Point of interest',
         }).catch((e) => {
             console.warn(`[usePinDrop]`, e);
         });
 
-        setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+        setTimeout(() => {
+            if (isAuthIdentityScopeCurrent(identity)) {
+                messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }
+        }, 50);
     }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
 
     // --- POI Map Init/Cleanup ---
     useEffect(() => {
         if (!showPoiSheet || pinLoading || !poiMapRef.current) return;
         if (poiMapInitialized.current) return;
+        const identity = getAuthIdentityScope();
         poiMapInitialized.current = true;
 
         if (!document.querySelector('link[href*="mapbox-gl"]')) {
@@ -218,6 +315,7 @@ export function usePinDrop(options: UsePinDropOptions) {
         }
 
         import('mapbox-gl').then((mapboxgl) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             if (!poiMapRef.current || poiMapInstance.current) return;
             const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
             if (!token || token.length < 10) return;
@@ -238,11 +336,13 @@ export function usePinDrop(options: UsePinDropOptions) {
             poiMarkerRef.current = marker;
 
             marker.on('dragend', () => {
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 const lngLat = marker.getLngLat();
                 setPinLat(lngLat.lat);
                 setPinLng(lngLat.lng);
             });
             map.on('click', (e) => {
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 marker.setLngLat(e.lngLat);
                 setPinLat(e.lngLat.lat);
                 setPinLng(e.lngLat.lng);

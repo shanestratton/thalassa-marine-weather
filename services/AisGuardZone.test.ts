@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AisGuardZone } from './AisGuardZone';
+import { setAuthIdentityScope } from './authIdentityScope';
 
 // Mock localStorage
 const store: Record<string, string> = {};
@@ -59,10 +60,13 @@ const FAR_LON = 151.305;
 
 describe('AisGuardZone', () => {
     beforeEach(() => {
-        // Reset state before each test
-        AisGuardZone.setEnabled(false);
-        AisGuardZone.clearAlerts();
-        AisGuardZone.setRadius(2);
+        for (const identity of [null, 'service-guard-a', 'service-guard-b']) {
+            setAuthIdentityScope(identity);
+            AisGuardZone.setEnabled(false);
+            AisGuardZone.clearAlerts();
+            AisGuardZone.setRadius(2);
+        }
+        setAuthIdentityScope('service-guard-a');
     });
 
     describe('state management', () => {

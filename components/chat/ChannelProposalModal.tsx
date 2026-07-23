@@ -10,6 +10,7 @@ import { Capacitor } from '@capacitor/core';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import type { ChatChannel } from '../../services/ChatService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface ChannelProposalModalProps {
     onClose: () => void;
@@ -110,12 +111,12 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
     const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'env(safe-area-inset-bottom)';
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="channel-proposal-title"
-            className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm"
+            className="flex flex-col bg-slate-950/95 backdrop-blur-sm"
         >
             {/* Header */}
             <div className="shrink-0 px-4 pt-4 pb-3 border-b border-white/[0.06]">
@@ -384,7 +385,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                     </div>
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

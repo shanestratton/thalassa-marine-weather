@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface MinutelyRain {
     time: string;
@@ -345,11 +346,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
     }, [data]);
 
     return (
-        <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
-            onClick={onClose}
-            role="presentation"
-        >
+        <OverlayPortal className="flex items-center justify-center p-6" onClick={onClose} role="presentation">
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/80" />
 
@@ -820,7 +817,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     )}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

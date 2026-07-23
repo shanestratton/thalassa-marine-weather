@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
 
 // --- Hoisted mocks ---
 const {
@@ -46,18 +47,38 @@ const {
     mockRequestJoinChannel,
     mockToastSuccess,
     mockToastError,
+    mockToastInfo,
     mockGetChannelsFresh,
 } = vi.hoisted(() => ({
     mockInitialize: vi.fn().mockResolvedValue(undefined),
     mockGetChannels: vi.fn().mockResolvedValue([]),
     mockGetMessages: vi.fn().mockResolvedValue([]),
-    mockSendMessage: vi.fn().mockResolvedValue(undefined),
+    mockSendMessage: vi.fn().mockResolvedValue({
+        id: 'sent-message',
+        channel_id: 'ch-1',
+        user_id: 'account-a',
+        display_name: 'Sailor',
+        message: 'sent',
+        is_question: false,
+        helpful_count: 0,
+        is_pinned: false,
+        deleted_at: null,
+        created_at: '2026-07-24T00:00:00.000Z',
+    }),
     mockSubscribeToChannel: vi.fn().mockReturnValue(() => {}),
     mockSubscribeToDMs: vi.fn().mockReturnValue(() => {}),
     mockGetDMConversations: vi.fn().mockResolvedValue([]),
     mockGetDMThread: vi.fn().mockResolvedValue([]),
     mockIsBlocked: vi.fn().mockResolvedValue(false),
-    mockSendDM: vi.fn().mockResolvedValue('sent'),
+    mockSendDM: vi.fn().mockResolvedValue({
+        id: 'sent-dm',
+        sender_id: 'account-a',
+        recipient_id: 'friend',
+        sender_name: 'Sailor',
+        message: 'sent',
+        read: false,
+        created_at: '2026-07-24T00:00:00.000Z',
+    }),
     mockBlockUser: vi.fn().mockResolvedValue(true),
     mockUnblockUser: vi.fn().mockResolvedValue(true),
     mockDeleteMessage: vi.fn().mockResolvedValue(true),
@@ -82,6 +103,7 @@ const {
     mockGetChannelsFresh: vi.fn().mockResolvedValue([]),
     mockToastSuccess: vi.fn(),
     mockToastError: vi.fn(),
+    mockToastInfo: vi.fn(),
 }));
 
 vi.mock('../../services/ChatService', () => ({
@@ -139,13 +161,18 @@ import { useChatProfile } from '../../hooks/chat/useChatProfile';
 import { useChatProposals } from '../../hooks/chat/useChatProposals';
 
 vi.mock('../../components/Toast', () => ({
-    toast: { success: mockToastSuccess, error: mockToastError },
+    toast: { success: mockToastSuccess, error: mockToastError, info: mockToastInfo },
 }));
 
 // --- Test Helpers ---
 const _noop = () => {};
 const defaultMessageOpts = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn() };
 const defaultDMOpts = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn() };
+
+beforeEach(() => {
+    setAuthIdentityScope(null);
+    setAuthIdentityScope('account-a');
+});
 
 describe('useChatMessages', () => {
     beforeEach(() => {
@@ -207,6 +234,20 @@ describe('useChatMessages', () => {
         expect(mockSubscribeToChannel).toHaveBeenCalledWith('ch-1', expect.any(Function));
     });
 
+    it('clears loading and explains a channel load failure', async () => {
+        mockGetMessages.mockRejectedValueOnce(new Error('network down'));
+        const opts = { ...defaultMessageOpts };
+        const { result } = renderHook(() => useChatMessages(opts));
+
+        await act(() => result.current.openChannel({ id: 'ch-1', name: 'General', description: '', icon: '' } as any));
+
+        expect(opts.setLoading).toHaveBeenLastCalledWith(false);
+        expect(mockToastError).toHaveBeenCalledWith(
+            "Messages couldn't be loaded. Check your connection and try again.",
+        );
+        expect(mockSubscribeToChannel).not.toHaveBeenCalled();
+    });
+
     it('sendChannelMessage runs client filter first', async () => {
         const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
 
@@ -235,7 +276,19 @@ describe('useChatMessages', () => {
         expect(result.current.filterWarning).toBeTruthy();
     });
 
-    it('sendChannelMessage adds optimistic message', async () => {
+    it('sendChannelMessage replaces its optimistic row with the confirmed message', async () => {
+        mockSendMessage.mockResolvedValueOnce({
+            id: 'confirmed-1',
+            channel_id: 'ch-1',
+            user_id: 'account-a',
+            display_name: 'Sailor',
+            message: 'Optimistic!',
+            is_question: false,
+            helpful_count: 0,
+            is_pinned: false,
+            deleted_at: null,
+            created_at: '2026-07-24T00:00:00.000Z',
+        });
         const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
 
         act(() => {
@@ -246,7 +299,42 @@ describe('useChatMessages', () => {
         await act(() => result.current.sendChannelMessage());
         expect(result.current.messages).toHaveLength(1);
         expect(result.current.messages[0].message).toBe('Optimistic!');
-        expect(result.current.messages[0].id).toMatch(/^opt-/);
+        expect(result.current.messages[0].id).toBe('confirmed-1');
+    });
+
+    it('rolls back a failed channel send and restores the unsent draft', async () => {
+        mockSendMessage.mockResolvedValueOnce(null);
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+        act(() => {
+            result.current.setActiveChannel({ id: 'ch-1', name: 'General' } as any);
+            result.current.setMessageText('Keep this draft');
+            result.current.setIsQuestion(true);
+        });
+
+        await act(() => result.current.sendChannelMessage());
+
+        expect(result.current.messages).toEqual([]);
+        expect(result.current.messageText).toBe('Keep this draft');
+        expect(result.current.isQuestion).toBe(true);
+        expect(mockToastError).toHaveBeenCalledWith("Message wasn't sent. Your text has been restored.");
+    });
+
+    it('keeps an offline-queued channel message visibly marked as queued', async () => {
+        mockSendMessage.mockResolvedValueOnce('queued');
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+        act(() => {
+            result.current.setActiveChannel({ id: 'ch-1', name: 'General' } as any);
+            result.current.setMessageText('Send offshore');
+        });
+
+        await act(() => result.current.sendChannelMessage());
+
+        expect(result.current.messages).toHaveLength(1);
+        expect(result.current.messages[0]).toMatchObject({
+            message: 'Send offshore',
+            delivery_status: 'queued',
+        });
+        expect(mockToastInfo).toHaveBeenCalledWith('Message queued — it will send when the connection returns.');
     });
 
     it('handleDeleteMessage updates message with deleted_at', async () => {
@@ -309,6 +397,22 @@ describe('useChatMessages', () => {
         // Should not throw
         act(() => result.current.cleanup());
     });
+
+    it('clears private channel state immediately when the account changes', () => {
+        localStorage.setItem(authScopedStorageKey('chat_liked_messages'), JSON.stringify(['message-liked-by-a']));
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+        act(() => {
+            result.current.setActiveChannel({ id: 'private-a', name: 'A private' } as any);
+            result.current.setMessages([{ id: 'message-a', message: 'secret' } as any]);
+        });
+        expect(result.current.likedMessages.has('message-liked-by-a')).toBe(true);
+
+        act(() => setAuthIdentityScope('account-b'));
+
+        expect(result.current.activeChannel).toBeNull();
+        expect(result.current.messages).toEqual([]);
+        expect(result.current.likedMessages).toEqual(new Set());
+    });
 });
 
 // ═══════════════════════════════════════
@@ -335,6 +439,20 @@ describe('useChatDMs', () => {
         expect(mockSubscribeToDMs).toHaveBeenCalledWith(expect.any(Function));
     });
 
+    it('clears conversations and the open thread on an account switch', () => {
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        act(() => {
+            result.current.setDmPartner({ id: 'partner-a', name: 'Private A' });
+            result.current.setDmThread([{ id: 'dm-a', message: 'secret' } as any]);
+        });
+
+        act(() => setAuthIdentityScope('account-b'));
+
+        expect(result.current.dmPartner).toBeNull();
+        expect(result.current.dmThread).toEqual([]);
+        expect(result.current.dmConversations).toEqual([]);
+    });
+
     it('openDMInbox loads conversations', async () => {
         const convs = [{ partner_id: 'u1', partner_name: 'Alice', unread_count: 2 }];
         mockGetDMConversations.mockResolvedValueOnce(convs);
@@ -345,6 +463,19 @@ describe('useChatDMs', () => {
 
         expect(opts.setView).toHaveBeenCalledWith('dm_inbox');
         expect(result.current.dmConversations).toEqual(convs);
+    });
+
+    it('clears loading and explains an inbox load failure', async () => {
+        mockGetDMConversations.mockRejectedValueOnce(new Error('network down'));
+        const opts = { ...defaultDMOpts };
+        const { result } = renderHook(() => useChatDMs(opts));
+
+        await act(() => result.current.openDMInbox());
+
+        expect(opts.setLoading).toHaveBeenLastCalledWith(false);
+        expect(mockToastError).toHaveBeenCalledWith(
+            "Direct messages couldn't be loaded. Check your connection and try again.",
+        );
     });
 
     it('openDMThread loads thread and checks block status', async () => {
@@ -362,7 +493,30 @@ describe('useChatDMs', () => {
         expect(opts.setView).toHaveBeenCalledWith('dm_thread');
     });
 
-    it('sendDMMessage adds optimistic message', async () => {
+    it('clears loading and explains a DM thread load failure', async () => {
+        mockGetDMThread.mockRejectedValueOnce(new Error('network down'));
+        const opts = { ...defaultDMOpts };
+        const { result } = renderHook(() => useChatDMs(opts));
+
+        await act(() => result.current.openDMThread('u2', 'Bob'));
+
+        expect(opts.setLoading).toHaveBeenLastCalledWith(false);
+        expect(mockToastError).toHaveBeenCalledWith(
+            "This conversation couldn't be loaded. Check your connection and try again.",
+        );
+        expect(result.current.dmThread).toEqual([]);
+    });
+
+    it('sendDMMessage replaces its optimistic row with the confirmed DM', async () => {
+        mockSendDM.mockResolvedValueOnce({
+            id: 'confirmed-dm',
+            sender_id: 'account-a',
+            recipient_id: 'u2',
+            sender_name: 'Sailor',
+            message: 'hello DM!',
+            read: false,
+            created_at: '2026-07-24T00:00:00.000Z',
+        });
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
 
         // Set partner and text
@@ -374,7 +528,62 @@ describe('useChatDMs', () => {
         await act(() => result.current.sendDMMessage());
         expect(result.current.dmThread).toHaveLength(1);
         expect(result.current.dmThread[0].message).toBe('hello DM!');
+        expect(result.current.dmThread[0].id).toBe('confirmed-dm');
         expect(mockSendDM).toHaveBeenCalledWith('u2', 'hello DM!');
+    });
+
+    it('rolls back a failed DM and restores its draft', async () => {
+        mockSendDM.mockResolvedValueOnce(null);
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        act(() => {
+            result.current.setDmPartner({ id: 'u2', name: 'Bob' });
+            result.current.setDmText('Do not lose this');
+        });
+
+        await act(() => result.current.sendDMMessage());
+
+        expect(result.current.dmThread).toEqual([]);
+        expect(result.current.dmText).toBe('Do not lose this');
+        expect(mockToastError).toHaveBeenCalledWith("Direct message wasn't sent. Your text has been restored.");
+    });
+
+    it('keeps an offline-queued DM visibly marked as queued', async () => {
+        mockSendDM.mockResolvedValueOnce('queued');
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        act(() => {
+            result.current.setDmPartner({ id: 'u2', name: 'Bob' });
+            result.current.setDmText('Send when online');
+        });
+
+        await act(() => result.current.sendDMMessage());
+
+        expect(result.current.dmThread).toHaveLength(1);
+        expect(result.current.dmThread[0]).toMatchObject({
+            message: 'Send when online',
+            delivery_status: 'queued',
+        });
+        expect(mockToastInfo).toHaveBeenCalledWith('Direct message queued — it will send when the connection returns.');
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent('thalassa:queued-dm-sent', {
+                    detail: {
+                        ownerUserId: 'account-a',
+                        message: {
+                            id: 'confirmed-after-reconnect',
+                            sender_id: 'account-a',
+                            recipient_id: 'u2',
+                            sender_name: 'Sailor',
+                            message: 'Send when online',
+                            read: false,
+                            created_at: '2026-07-24T00:00:00.000Z',
+                        },
+                    },
+                }),
+            );
+        });
+        expect(result.current.dmThread[0].id).toBe('confirmed-after-reconnect');
+        expect(result.current.dmThread[0]).not.toHaveProperty('delivery_status');
     });
 
     it('sendDMMessage handles blocked response', async () => {

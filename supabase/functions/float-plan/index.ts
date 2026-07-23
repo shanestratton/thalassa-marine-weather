@@ -33,6 +33,8 @@
  * Deploy with JWT verification OFF (public function), same as voyage-log.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { jsonResponse } from '../_shared/http-security.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -43,24 +45,26 @@ const corsHeaders = {
 const ROUTE_GEOMETRY_NOTES_PREFIX = '__route_geometry__::';
 
 function json(body: unknown, status = 200) {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse(body, status, corsHeaders);
 }
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'GET') return json({ error: 'GET only' }, 405);
 
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'float_plan', 240, 60, 3600, true);
+    if (caller instanceof Response) return withCors(caller, corsHeaders);
+
     try {
         const handle = new URL(req.url).searchParams.get('handle')?.trim().toLowerCase() ?? '';
-        if (!handle) return json({ error: 'handle is required' }, 400);
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(handle)) {
+            return json({ error: 'A valid handle is required' }, 400);
+        }
 
-        const supabase = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-        );
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceRoleKey) return json({ error: 'Service unavailable' }, 503);
+        const supabase = createClient(supabaseUrl, serviceRoleKey);
 
         // ── Resolve the public identity (same gate as voyage-log) ──
         const { data: config, error: configErr } = await supabase
@@ -142,7 +146,21 @@ Deno.serve(async (req) => {
                 const geomLine = firstNotes.split('\n').find((l) => l.startsWith(ROUTE_GEOMETRY_NOTES_PREFIX));
                 if (geomLine) {
                     try {
-                        route = JSON.parse(geomLine.slice(ROUTE_GEOMETRY_NOTES_PREFIX.length));
+                        const parsed: unknown = JSON.parse(geomLine.slice(ROUTE_GEOMETRY_NOTES_PREFIX.length));
+                        if (Array.isArray(parsed) && parsed.length <= 5_000) {
+                            const coordinates = parsed.filter(
+                                (point): point is [number, number] =>
+                                    Array.isArray(point) &&
+                                    point.length >= 2 &&
+                                    typeof point[0] === 'number' &&
+                                    Number.isFinite(point[0]) &&
+                                    Math.abs(point[0]) <= 180 &&
+                                    typeof point[1] === 'number' &&
+                                    Number.isFinite(point[1]) &&
+                                    Math.abs(point[1]) <= 90,
+                            );
+                            route = coordinates.length === parsed.length ? coordinates : null;
+                        }
                     } catch {
                         route = null;
                     }
@@ -178,7 +196,7 @@ Deno.serve(async (req) => {
             }
         }
 
-        return json({ vessel, plan, generated_at: new Date().toISOString() });
+        return json({ vessel, plan, generated_at: new Date().toISOString() }, 200);
     } catch (err) {
         console.error('float-plan: unhandled error:', err);
         return json({ error: 'Internal server error' }, 500);

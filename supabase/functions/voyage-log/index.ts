@@ -38,6 +38,9 @@
  * Deploy with JWT verification OFF (public function), same as vessels-nearby.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { jsonResponse } from '../_shared/http-security.ts';
+import { decimatePublicTrack } from '../_shared/track-decimation.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -46,18 +49,15 @@ const corsHeaders = {
 };
 
 const MAX_ENTRIES = 200;
-// Raised 5_000 → 200_000 → 300_000 on 2026-05-19 alongside the 5 s GPS
-// sampling switch. At the new cadence a 4-day passage = ~72k fixes;
-// 300k covers a comfortable 14 days without truncation. Pacific
-// crossings (20+ days) would still need server-side decimation, but
-// 14 days is the working envelope for most blue-water legs.
+// Internal fetch envelope: enough raw samples for telemetry, land-voyage
+// classification, and passage progress. The public response is separately
+// decimated below; never serialize this many records to an unauthenticated
+// viewer.
 const MAX_TRACK_POINTS = 300_000;
+const MAX_PUBLIC_TRACK_POINTS = 10_000;
 
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json', ...extraHeaders },
-    });
+    return jsonResponse(body, status, { ...corsHeaders, ...extraHeaders });
 }
 
 /** Sign private diary photos only for entries the owner explicitly published. */
@@ -123,18 +123,21 @@ Deno.serve(async (req: Request) => {
         return json({ error: 'Method not allowed' }, 405);
     }
 
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'voyage_log', 360, 120, 3600, true);
+    if (caller instanceof Response) return withCors(caller, corsHeaders);
+
     try {
         const url = new URL(req.url);
         const handle = (url.searchParams.get('handle') || '').trim().toLowerCase();
 
-        if (!handle) {
-            return json({ error: 'handle is required' }, 400);
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(handle)) {
+            return json({ error: 'A valid handle is required' }, 400);
         }
 
-        const supabase = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-        );
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceRoleKey) return json({ error: 'Service unavailable' }, 503);
+        const supabase = createClient(supabaseUrl, serviceRoleKey);
 
         // ── Resolve the config (boat + scope) ──────────────────────
         const { data: config, error: configErr } = await supabase
@@ -480,7 +483,8 @@ Deno.serve(async (req: Request) => {
             wave_height: null,
             live: true,
         }));
-        const track = [...durableTrack, ...liveTail];
+        const fullTrack = [...durableTrack, ...liveTail];
+        const track = decimatePublicTrack(fullTrack, MAX_PUBLIC_TRACK_POINTS);
 
         // Named waypoints — the marks the skipper deliberately dropped and
         // named under way (entry_type 'waypoint'), as distinct from the auto
@@ -665,7 +669,7 @@ Deno.serve(async (req: Request) => {
         // No new data flow and nothing extra from the phone: this is the last fix
         // the device already recorded. It is also not window-limited — the whole
         // point is that it answers when the 30-day track cannot.
-        let last = track[track.length - 1] ?? null;
+        let last = fullTrack[fullTrack.length - 1] ?? null;
         let lastIsStale = false;
         if (!last) {
             const { data: fallbackRows } = await supabase
@@ -807,7 +811,7 @@ Deno.serve(async (req: Request) => {
                   cog: last.course_deg,
                   heading: last.heading_deg,
                   baro: last.pressure,
-                  baro_trend: baroTrend(track),
+                  baro_trend: baroTrend(fullTrack),
                   aws: last.wind_speed_apparent,
                   awa: last.wind_angle_apparent,
                   tws: last.wind_speed_true,
@@ -836,6 +840,11 @@ Deno.serve(async (req: Request) => {
                 passage,
                 entries,
                 track,
+                track_meta: {
+                    total_points: fullTrack.length,
+                    returned_points: track.length,
+                    decimated: track.length < fullTrack.length,
+                },
                 waypoints,
                 telemetry,
                 nearby_vessels: nearbyVessels,

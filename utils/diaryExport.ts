@@ -165,6 +165,8 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
 export async function generateDiaryPDF(
     entries: DiaryEntry[],
     callbacks?: {
+        /** Return false to silently cancel before any private PDF is delivered. */
+        shouldContinue?: () => boolean;
         onProgress?: (message: string) => void;
         onSuccess?: () => void;
         onError?: (error: string) => void;
@@ -172,7 +174,15 @@ export async function generateDiaryPDF(
     userName?: string,
     delivery: 'auto' | 'download' | 'share' = 'auto',
 ): Promise<void> {
+    const canContinue = () => {
+        try {
+            return callbacks?.shouldContinue?.() ?? true;
+        } catch {
+            return false;
+        }
+    };
     try {
+        if (!canContinue()) return;
         if (entries.length === 0) {
             callbacks?.onError?.('No entries to export');
             return;
@@ -181,6 +191,7 @@ export async function generateDiaryPDF(
         callbacks?.onProgress?.('Generating PDF...');
 
         const { jsPDF } = await import('jspdf');
+        if (!canContinue()) return;
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = 210;
         const pageHeight = 297;
@@ -277,10 +288,13 @@ export async function generateDiaryPDF(
         const photoCache = new Map<string, string>();
         let photoCount = 0;
         for (const entry of sorted) {
+            if (!canContinue()) return;
             for (const photoUrl of entry.photos.slice(0, 3)) {
+                if (!canContinue()) return;
                 if (photoCount >= 30) break; // Cap total photo loads
                 callbacks?.onProgress?.(`Loading photo ${photoCount + 1}...`);
                 const base64 = await loadImageAsBase64(photoUrl);
+                if (!canContinue()) return;
                 if (base64) {
                     photoCache.set(photoUrl, base64);
                     photoCount++;
@@ -291,6 +305,7 @@ export async function generateDiaryPDF(
         // Render entries grouped by date
         let entryIdx = 0;
         for (const [dateKey, dayEntries] of grouped) {
+            if (!canContinue()) return;
             // Date header bar
             if (y > pageHeight - 50) {
                 pdf.addPage();
@@ -306,6 +321,7 @@ export async function generateDiaryPDF(
             y += 12;
 
             for (const entry of dayEntries) {
+                if (!canContinue()) return;
                 entryIdx++;
 
                 // Estimate entry height
@@ -488,6 +504,7 @@ export async function generateDiaryPDF(
 
         // ===== SAVE / SHARE =====
 
+        if (!canContinue()) return;
         callbacks?.onProgress?.('Opening PDF...');
 
         const pdfFilename = `Captains_Diary_${formatDateStr(startDate).replace(/ /g, '_')}_to_${formatDateStr(endDate).replace(/ /g, '_')}.pdf`;
@@ -496,6 +513,7 @@ export async function generateDiaryPDF(
         const pdfBlob = pdf.output('blob');
         const pdfFile = new File([pdfBlob], pdfFilename, { type: 'application/pdf' });
 
+        if (!canContinue()) return;
         if (
             delivery !== 'download' &&
             navigator.share &&
@@ -508,8 +526,10 @@ export async function generateDiaryPDF(
                     text: `${sorted.length} diary entries from ${formatDateStr(startDate)} to ${formatDateStr(endDate)}`,
                     files: [pdfFile],
                 });
+                if (!canContinue()) return;
                 callbacks?.onSuccess?.();
             } catch (shareError) {
+                if (!canContinue()) return;
                 if (shareError instanceof Error && shareError.name === 'AbortError') {
                     callbacks?.onSuccess?.();
                 } else {
@@ -518,10 +538,12 @@ export async function generateDiaryPDF(
                 }
             }
         } else {
+            if (!canContinue()) return;
             pdf.save(pdfFilename);
             callbacks?.onSuccess?.();
         }
     } catch (error) {
+        if (!canContinue()) return;
         const message = error instanceof Error ? error.message : 'Failed to export diary';
         callbacks?.onError?.(message);
     }

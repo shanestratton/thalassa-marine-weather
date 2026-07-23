@@ -5,7 +5,7 @@
  * then auto-configures AvNav charts, Signal K / NMEA, and Pi Cache.
  * Also includes the Chart Locker for uploading/downloading charts.
  */
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react';
 import { AvNavService, type AvNavChart, type AvNavConnectionStatus } from '../../services/AvNavService';
 import { BoatNetworkService, useBoatNetwork } from '../../services/BoatNetworkService';
 import { PiProvisionService, DEFAULT_USERNAME, type ProvisionProgress } from '../../services/PiProvisionService';
@@ -25,6 +25,13 @@ import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
 import { EncCellManager } from './EncCellManager';
+import { getLinzApiKey } from '../../services/ChartCatalogService';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
@@ -36,6 +43,23 @@ const SUPABASE_KEY =
 
 interface AvNavPageProps {
     onBack: () => void;
+}
+
+const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+interface ScopedSshCredentials {
+    scope: AuthIdentityScope;
+    username: string;
+    password: string;
+}
+
+interface ScopedProvisionProgress {
+    scope: AuthIdentityScope;
+    progress: ProvisionProgress | null;
 }
 
 // ── Phase display for SSH provisioning ──
@@ -208,6 +232,8 @@ const RegionHeader: React.FC<{
 // ── Main Component ──
 
 export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
+    const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
+
     // ── Boat Network discovery state ──
     const network = useBoatNetwork();
 
@@ -220,11 +246,71 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const [connectAllDone, setConnectAllDone] = useState(false);
 
     // ── Provisioning state ──
-    const [sshUsername, setSshUsername] = useState(DEFAULT_USERNAME);
-    const [sshPassword, setSshPassword] = useState('');
-    const [provisionProgress, setProvisionProgress] = useState<ProvisionProgress | null>(null);
+    const [storedSshCredentials, setStoredSshCredentials] = useState<ScopedSshCredentials>(() => ({
+        scope: identityScope,
+        username: DEFAULT_USERNAME,
+        password: '',
+    }));
+    const sshCredentials = sameScope(storedSshCredentials.scope, identityScope)
+        ? storedSshCredentials
+        : { scope: identityScope, username: DEFAULT_USERNAME, password: '' };
+    const sshUsername = sshCredentials.username;
+    const sshPassword = sshCredentials.password;
+    const [storedProvisionProgress, setStoredProvisionProgress] = useState<ScopedProvisionProgress>(() => ({
+        scope: identityScope,
+        progress: null,
+    }));
+    const provisionProgress = sameScope(storedProvisionProgress.scope, identityScope)
+        ? storedProvisionProgress.progress
+        : null;
     const [provisionExpanded, setProvisionExpanded] = useState(false);
     const [copiedCommand, setCopiedCommand] = useState(false);
+
+    useLayoutEffect(() => {
+        setStoredSshCredentials((current) =>
+            sameScope(current.scope, identityScope)
+                ? current
+                : { scope: identityScope, username: DEFAULT_USERNAME, password: '' },
+        );
+        setStoredProvisionProgress((current) =>
+            sameScope(current.scope, identityScope) ? current : { scope: identityScope, progress: null },
+        );
+    }, [identityScope]);
+
+    const updateSshUsername = useCallback(
+        (username: string) => {
+            const scope = identityScope;
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoredSshCredentials((current) => ({
+                scope,
+                username,
+                password: sameScope(current.scope, scope) ? current.password : '',
+            }));
+        },
+        [identityScope],
+    );
+
+    const updateSshPassword = useCallback(
+        (password: string) => {
+            const scope = identityScope;
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoredSshCredentials((current) => ({
+                scope,
+                username: sameScope(current.scope, scope) ? current.username : DEFAULT_USERNAME,
+                password,
+            }));
+        },
+        [identityScope],
+    );
+
+    const updateProvisionProgress = useCallback(
+        (progress: ProvisionProgress | null) => {
+            const scope = identityScope;
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoredProvisionProgress({ scope, progress });
+        },
+        [identityScope],
+    );
 
     /** Scroll focused input into view when iOS keyboard slides up */
     const scrollInputIntoView = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
@@ -266,8 +352,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         setShowSetupGuide(false);
     }, [dontShowAgain]);
 
-    // LINZ key from localStorage
-    const linzKey = typeof localStorage !== 'undefined' ? localStorage.getItem('thalassa_linz_api_key') : null;
+    const linzKey = useMemo(() => getLinzApiKey(identityScope), [identityScope]);
 
     // Build catalog
     const catalog = useMemo(() => ChartLockerService.getFullCatalog(linzKey), [linzKey]);
@@ -385,34 +470,41 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     // ── SSH provisioning handler ──
     const handleInstallCache = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         triggerHaptic('medium');
         if (!piHost) return;
 
         if (!sshAvailable) {
-            setProvisionProgress({
+            updateProvisionProgress({
                 phase: 'error',
                 message: 'SSH requires the native iOS app. Use the manual command above.',
             });
             return;
         }
 
-        setProvisionProgress({ phase: 'connecting', message: 'Connecting via SSH...' });
+        const operationUsername = sshUsername;
+        const operationPassword = sshPassword;
+        updateSshPassword('');
+        updateProvisionProgress({ phase: 'connecting', message: 'Connecting via SSH...' });
 
         const loc = LocationStore.getState();
         const result = await PiProvisionService.provision(
             piHost,
-            sshUsername,
-            sshPassword,
-            setProvisionProgress,
+            operationUsername,
+            operationPassword,
+            (progress) => {
+                if (isAuthIdentityScopeCurrent(actionScope)) updateProvisionProgress(progress);
+            },
             SUPABASE_URL && SUPABASE_KEY
                 ? { url: SUPABASE_URL, key: SUPABASE_KEY, lat: loc.lat, lon: loc.lon }
                 : undefined,
         );
 
-        if (result.success) {
+        if (result.success && isAuthIdentityScopeCurrent(actionScope)) {
             BoatNetworkService.scan(piHost);
         }
-    }, [piHost, sshUsername, sshPassword, sshAvailable]);
+    }, [identityScope, piHost, sshUsername, sshPassword, sshAvailable, updateProvisionProgress, updateSshPassword]);
 
     // ── Chart Locker Handlers ──
 
@@ -723,7 +815,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     <input
                                                         type="text"
                                                         value={sshUsername}
-                                                        onChange={(e) => setSshUsername(e.target.value)}
+                                                        onChange={(e) => updateSshUsername(e.target.value)}
                                                         onFocus={scrollInputIntoView}
                                                         placeholder="Username"
                                                         className="w-24 shrink-0 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30 font-mono"
@@ -731,7 +823,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     <input
                                                         type="password"
                                                         value={sshPassword}
-                                                        onChange={(e) => setSshPassword(e.target.value)}
+                                                        onChange={(e) => updateSshPassword(e.target.value)}
                                                         onFocus={scrollInputIntoView}
                                                         placeholder="Password"
                                                         className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30"

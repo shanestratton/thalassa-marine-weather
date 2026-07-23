@@ -874,12 +874,17 @@ function formatStateBlock(ctx: ThalassaContext, piReachable: boolean): string {
  */
 async function postAnthropicAttempt(
     body: object,
+    signal?: AbortSignal,
 ): Promise<{ kind: 'ok'; response: AnthropicResponse } | { kind: 'err'; status: number; message: string }> {
+    signal?.throwIfAborted();
     if (!SUPABASE_URL || !SUPABASE_KEY) {
         return { kind: 'err', status: 0, message: 'Anthropic proxy not configured (missing Supabase credentials).' };
     }
     const url = `${SUPABASE_URL}/functions/v1/anthropic-proxy`;
     const ctrl = new AbortController();
+    const abortFromCaller = () => ctrl.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
     const watchdog = setTimeout(() => ctrl.abort(), ANTHROPIC_REQUEST_TIMEOUT_MS);
     try {
         const headers = await getAuthenticatedFunctionHeaders();
@@ -897,6 +902,7 @@ async function postAnthropicAttempt(
     } catch (err) {
         const e = err as Error;
         if (e.name === 'AbortError') {
+            if (signal?.aborted) throw e;
             return {
                 kind: 'err',
                 status: 0,
@@ -906,19 +912,35 @@ async function postAnthropicAttempt(
         return { kind: 'err', status: 0, message: e.message || 'Unknown transport error' };
     } finally {
         clearTimeout(watchdog);
+        signal?.removeEventListener('abort', abortFromCaller);
     }
 }
 
-async function postAnthropic(body: object): Promise<AnthropicResponse> {
-    let result = await postAnthropicAttempt(body);
+function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, delayMs);
+        const onAbort = () => {
+            clearTimeout(timeout);
+            reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+async function postAnthropic(body: object, signal?: AbortSignal): Promise<AnthropicResponse> {
+    let result = await postAnthropicAttempt(body, signal);
     // 429 = rate-limited. Two retries with increasing backoff smooth
     // over transient throttle without burning the skipper. Beyond two
     // retries we surface the actual proxy message so they can see
     // whether it's RPM, input-TPM, or spend-cap.
     for (const delayMs of RATE_LIMIT_BACKOFFS_MS) {
         if (result.kind !== 'err' || result.status !== 429) break;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        result = await postAnthropicAttempt(body);
+        await abortableDelay(delayMs, signal);
+        result = await postAnthropicAttempt(body, signal);
     }
     if (result.kind === 'ok') return result.response;
     // Friendly, source-specific error messages so the skipper knows
@@ -960,10 +982,14 @@ export function consumeLastTtsError(): string | null {
     return v;
 }
 
-export async function synthesiseSpeech(text: string): Promise<string | null> {
+export async function synthesiseSpeech(text: string, signal?: AbortSignal): Promise<string | null> {
+    signal?.throwIfAborted();
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
     const url = `${SUPABASE_URL}/functions/v1/elevenlabs-tts`;
     const ctrl = new AbortController();
+    const abortFromCaller = () => ctrl.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
     const watchdog = setTimeout(() => ctrl.abort(), TTS_REQUEST_TIMEOUT_MS);
     // Pull the active voice preset so the orchestrator's TTS path
     // honours the skipper's pick from Settings → Calypso → Voice.
@@ -979,6 +1005,7 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
         // server-side default. Voice picker is non-load-bearing.
     }
     try {
+        signal?.throwIfAborted();
         const headers = await getAuthenticatedFunctionHeaders();
         const r = await fetch(url, {
             method: 'POST',
@@ -989,7 +1016,12 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
         if (!r.ok) {
             // Capture quota / billing errors so the console can surface
             // a real toast instead of silently returning text-only.
-            const body = await r.text().catch(() => '');
+            let body = '';
+            try {
+                body = await r.text();
+            } catch {
+                signal?.throwIfAborted();
+            }
             const lc = body.toLowerCase();
             if (lc.includes('quota') || lc.includes('credit')) {
                 lastTtsErrorMessage =
@@ -1005,12 +1037,14 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
         return data.audio_b64 ?? null;
     } catch (err) {
         const e = err as Error;
+        if (e.name === 'AbortError' && signal?.aborted) throw e;
         if (e.name !== 'AbortError') {
             lastTtsErrorMessage = `ElevenLabs TTS unreachable — text-only this turn.`;
         }
         return null;
     } finally {
         clearTimeout(watchdog);
+        signal?.removeEventListener('abort', abortFromCaller);
     }
 }
 
@@ -1201,6 +1235,8 @@ export interface AskHaikuInput {
         appleMusic?: boolean;
         gmail?: boolean;
     };
+    /** Optional owner/lifecycle cancellation propagated to every proxy request. */
+    signal?: AbortSignal;
 }
 
 /**
@@ -1210,7 +1246,9 @@ export interface AskHaikuInput {
  * it via the voice console.
  */
 export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult> {
+    input.signal?.throwIfAborted();
     const piReachable = await isBosunWebReachable();
+    input.signal?.throwIfAborted();
     // Mark the last tool with cache_control:ephemeral so Anthropic caches
     // the whole tools array as a separate cache breakpoint. Tools array
     // changes only when Pi reachability flips — within a 5-minute window
@@ -1253,6 +1291,7 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
     } catch {
         // Defensive: settings unavailable → default persona, fine.
     }
+    input.signal?.throwIfAborted();
 
     // Skipper's knowledge base (top-tier "teach Calypso about your boat").
     // Memoised in the service, so this is cheap to call per turn. Empty
@@ -1263,6 +1302,7 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
     } catch {
         // Knowledge unavailable (offline / not signed in) → skip the block.
     }
+    input.signal?.throwIfAborted();
 
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
         {
@@ -1312,14 +1352,17 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
         // which is a worse skipper experience than a slightly
         // less-informed but real answer.
         const isFinalIteration = i === MAX_TOOL_ITERATIONS - 1;
-        const response = await postAnthropic({
-            model: HAIKU_MODEL,
-            max_tokens: 200,
-            system: systemBlocks,
-            tools,
-            messages,
-            ...(isFinalIteration ? { tool_choice: { type: 'none' } } : {}),
-        });
+        const response = await postAnthropic(
+            {
+                model: HAIKU_MODEL,
+                max_tokens: 200,
+                system: systemBlocks,
+                tools,
+                messages,
+                ...(isFinalIteration ? { tool_choice: { type: 'none' } } : {}),
+            },
+            input.signal,
+        );
 
         // Append the assistant turn verbatim so reasoning chain is
         // preserved across tool round-trips.
@@ -1340,6 +1383,7 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
             if (block.type !== 'tool_use' || !block.name) continue;
             toolCalls.push(block.name);
             const result = await dispatchTool(block.name, (block.input || {}) as Record<string, unknown>, piReachable);
+            input.signal?.throwIfAborted();
             toolResults.push({
                 type: 'tool_result',
                 tool_use_id: block.id,

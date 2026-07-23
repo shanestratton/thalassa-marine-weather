@@ -30,6 +30,12 @@ import { createLogger } from '../utils/createLogger';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS, nextDragState } from './anchorGpsWatchdog';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 // ── Local-notification IDs ─────────────────────────────────────────
 // The alarm path drops THREE flavours of notification to maximise
@@ -137,6 +143,7 @@ interface PersistedWatchState {
     config: AnchorWatchConfig;
     state: AnchorWatchState;
     watchStartedAt: number;
+    identityKey: string;
     savedAt: number;
 }
 
@@ -215,6 +222,13 @@ class AnchorWatchServiceClass {
     private alarmTriggeredAt: number | null = null;
     private alarmCause: 'drag' | 'gps-lost' | null = null;
     private watchStartedAt: number | null = null;
+    /**
+     * The identity that armed/restored this physical watch. It deliberately
+     * stays fixed while the watch is running: an auth switch must not disarm a
+     * safety alarm, nor may later config/alarm writes leak its coordinates
+     * into the new account's persistence namespace.
+     */
+    private watchPersistenceScope: AuthIdentityScope | null = null;
 
     // Guardian bridge state
     private guardianArmedByUs = false;
@@ -292,6 +306,7 @@ class AnchorWatchServiceClass {
 
     /** Set anchor at current GPS position */
     async setAnchor(config?: Partial<AnchorWatchConfig>): Promise<boolean> {
+        const persistenceScope = getAuthIdentityScope();
         if (config) {
             this.config = { ...this.config, ...config };
         }
@@ -340,6 +355,10 @@ class AnchorWatchServiceClass {
             this.alarmTriggeredAt = null;
             this.watchStartedAt = Date.now();
             this.state = 'watching';
+            if (this.watchPersistenceScope && this.watchPersistenceScope.key !== persistenceScope.key) {
+                this.clearPersistedWatchState(this.watchPersistenceScope);
+            }
+            this.watchPersistenceScope = persistenceScope;
 
             // Persist state for crash recovery
             this.persistWatchState();
@@ -361,6 +380,8 @@ class AnchorWatchServiceClass {
             return true;
         } catch (error) {
             this.state = 'idle';
+            this.clearPersistedWatchState(persistenceScope);
+            this.watchPersistenceScope = null;
             this.notify();
             return false;
         }
@@ -368,6 +389,7 @@ class AnchorWatchServiceClass {
 
     /** Set anchor at a specific position (e.g., from map tap) */
     async setAnchorAt(lat: number, lon: number, config?: Partial<AnchorWatchConfig>): Promise<boolean> {
+        const persistenceScope = getAuthIdentityScope();
         if (config) {
             this.config = { ...this.config, ...config };
         }
@@ -386,6 +408,10 @@ class AnchorWatchServiceClass {
         this.alarmTriggeredAt = null;
         this.watchStartedAt = Date.now();
         this.state = 'watching';
+        if (this.watchPersistenceScope && this.watchPersistenceScope.key !== persistenceScope.key) {
+            this.clearPersistedWatchState(this.watchPersistenceScope);
+        }
+        this.watchPersistenceScope = persistenceScope;
 
         // Persist state for crash recovery
         this.persistWatchState();
@@ -450,6 +476,7 @@ class AnchorWatchServiceClass {
 
         // Clear persisted state — user explicitly stopped
         this.clearPersistedWatchState();
+        this.watchPersistenceScope = null;
 
         // Auto-disarm Guardian when anchor watch stops
         this.autoDisarmGuardian();
@@ -511,45 +538,71 @@ class AnchorWatchServiceClass {
     async restoreWatchState(): Promise<boolean> {
         // Already active — nothing to restore (idempotent for dual-call from App + AnchorWatchPage)
         if (this.state === 'watching' || this.state === 'alarm') return true;
+        const persistenceScope = getAuthIdentityScope();
+        const storageKey = authScopedStorageKey(ANCHOR_WATCH_KEY, persistenceScope);
 
         try {
-            const raw = localStorage.getItem(ANCHOR_WATCH_KEY);
+            // The historic global key is intentionally ignored. Anchor
+            // coordinates cannot be attributed safely to the current account.
+            const raw = localStorage.getItem(storageKey);
             if (!raw) return false;
 
             const persisted: PersistedWatchState = JSON.parse(raw);
 
             // Validate
-            if (!persisted.anchorPosition || !persisted.config) {
-                this.clearPersistedWatchState();
+            if (!persisted.anchorPosition || !persisted.config || persisted.identityKey !== persistenceScope.key) {
+                this.clearPersistedWatchState(persistenceScope);
                 return false;
             }
 
             // Sessions older than 24 hours are stale
             const ageMs = Date.now() - (persisted.savedAt || 0);
             if (ageMs > 24 * 60 * 60 * 1000) {
-                this.clearPersistedWatchState();
+                this.clearPersistedWatchState(persistenceScope);
                 return false;
             }
 
-            // Restore state
+            // Complete native preflight before exposing coordinates. If auth
+            // changes while these promises are pending, account B must not see
+            // or start account A's persisted watch.
+            try {
+                await KeepAwake.keepAwake();
+            } catch (e) {
+                log.warn('Web fallback:', e);
+            }
+            if (!isAuthIdentityScopeCurrent(persistenceScope)) {
+                try {
+                    await KeepAwake.allowSleep();
+                } catch {
+                    // Best effort cleanup only.
+                }
+                return false;
+            }
+            await BgGeoManager.ensureReady();
+            if (!isAuthIdentityScopeCurrent(persistenceScope)) {
+                try {
+                    await KeepAwake.allowSleep();
+                } catch {
+                    // Best effort cleanup only.
+                }
+                return false;
+            }
+
+            // Restore state only after the identity fence has survived native
+            // preflight. Once active, later auth switches intentionally leave
+            // this physical safety watch running in memory.
             this.anchorPosition = persisted.anchorPosition;
             this.config = persisted.config;
             this.swingRadius = calculateSwingRadius(this.config);
             this.watchStartedAt = persisted.watchStartedAt;
             this.state = 'watching';
+            this.watchPersistenceScope = persistenceScope;
             this.positionHistory = [];
             this.maxDistanceRecorded = 0;
             this.outsideCircleCount = 0;
             this.jitterBuffer = [];
             this.alarmTriggeredAt = null;
 
-            // Re-establish GPS monitoring and geofence
-            try {
-                await KeepAwake.keepAwake();
-            } catch (e) {
-                log.warn('Web fallback:', e);
-            }
-            await BgGeoManager.ensureReady();
             await this.startGpsMonitoring();
             this.startGpsWatchdog();
 
@@ -558,7 +611,8 @@ class AnchorWatchServiceClass {
         } catch (e) {
             log.warn('Restore failed:', String(e));
             /* Corrupted persisted data — clear and start fresh */
-            this.clearPersistedWatchState();
+            this.clearPersistedWatchState(persistenceScope);
+            this.watchPersistenceScope = null;
             return false;
         }
     }
@@ -568,15 +622,17 @@ class AnchorWatchServiceClass {
     /** Persist current watch state for crash recovery */
     private persistWatchState(): void {
         if (!this.anchorPosition || this.state === 'idle') return;
+        const persistenceScope = this.watchPersistenceScope ?? getAuthIdentityScope();
         try {
             const data: PersistedWatchState = {
                 anchorPosition: this.anchorPosition,
                 config: { ...this.config },
                 state: this.state,
                 watchStartedAt: this.watchStartedAt || Date.now(),
+                identityKey: persistenceScope.key,
                 savedAt: Date.now(),
             };
-            localStorage.setItem(ANCHOR_WATCH_KEY, JSON.stringify(data));
+            localStorage.setItem(authScopedStorageKey(ANCHOR_WATCH_KEY, persistenceScope), JSON.stringify(data));
         } catch (e) {
             log.warn('Persist failed:', String(e));
             // Non-critical
@@ -584,9 +640,9 @@ class AnchorWatchServiceClass {
     }
 
     /** Clear persisted watch state */
-    private clearPersistedWatchState(): void {
+    private clearPersistedWatchState(scope = this.watchPersistenceScope ?? getAuthIdentityScope()): void {
         try {
-            localStorage.removeItem(ANCHOR_WATCH_KEY);
+            localStorage.removeItem(authScopedStorageKey(ANCHOR_WATCH_KEY, scope));
         } catch (e) {
             log.warn('Clear persist failed:', String(e));
             // Non-critical

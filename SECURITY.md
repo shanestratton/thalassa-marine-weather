@@ -1,23 +1,26 @@
 # Security Guide
 
-## Client-Side API Keys
+## Client-Visible Configuration
 
-Thalassa is a single-page application (SPA) — some API keys necessarily end up in the client bundle. This is an inherent SPA trade-off. Below are the exposed keys and their mitigations.
+Every `VITE_` value is public: Vite embeds it in the browser or native WebView bundle. Never put a general-purpose provider secret in one. The deliberately client-visible values are:
 
-| Key                                       | Service        | Mitigation                                                                                              |
-| ----------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
-| `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` | Supabase       | **Anon key** — protected by Row-Level Security (RLS). Cannot access data without authenticated session. |
-| `VITE_MAPBOX_ACCESS_TOKEN`                | Mapbox         | Domain-restricted via Mapbox dashboard. Only works from `thalassa.app` and `localhost`.                 |
-| `VITE_STORMGLASS_API_KEY`                 | Stormglass     | Free tier with 10 req/day limit. Client-side rate limiter enforces this.                                |
-| `VITE_OPEN_METEO_API_KEY`                 | Open-Meteo     | Commercial key with usage-based billing. Protected by rate limiter.                                     |
-| `VITE_OWM_API_KEY`                        | OpenWeatherMap | Public weather tiles — low-value target.                                                                |
-| `VITE_SENTRY_DSN`                         | Sentry         | Write-only DSN — can only _send_ errors, not read them.                                                 |
-| `VITE_TRANSISTOR_LICENSE_KEY`             | Background Geo | Native plugin license — useless outside the app binary.                                                 |
+| Value                                                          | Purpose                 | Required protection                                                                                  |
+| -------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL` and publishable/anon key                   | Supabase project access | Row-Level Security, function authorization, bounded public quotas, and least-privilege database RPCs |
+| `VITE_MAPBOX_ACCESS_TOKEN`                                     | Maps and directions     | Public-scope token restricted to the production origins and required Mapbox APIs                     |
+| `VITE_OWM_API_KEY`                                             | Public weather tiles    | Provider-side origin/API restrictions and a deliberately low-privilege tile-only account             |
+| `VITE_LINZ_API_KEY`                                            | Public nautical charts  | Provider-side restrictions and no write/account privileges                                           |
+| `VITE_SENTRY_DSN`                                              | Error ingestion         | Ingest-only DSN, Sentry project filtering, and no confidential data in event payloads                |
+| `VITE_TRANSISTOR_LICENSE_KEY`                                  | Native background GPS   | Vendor/device restrictions; treat bundle extraction as possible                                      |
+| `VITE_GOOGLE_OAUTH_CLIENT_ID` and endpoint/feature-flag values | OAuth identity/config   | These are identifiers or configuration, not client secrets                                           |
 
-### Future Improvements
+Paid/general-purpose credentials for Open-Meteo, StormGlass, WorldTides, Gemini, Rainbow.ai, Spoonacular, WeatherKit, voice providers, and similar services belong in server secrets. Installed-app and Pi requests reach them through bounded Supabase/worker proxies; provider keys are not accepted from the client.
 
-- **Proxy Stormglass/Gemini through Supabase edge functions** — keeps API keys server-side
-- **Implement per-user request signing** — Supabase function validates auth before forwarding
+Operationally:
+
+- Restrict every public provider token in its provider dashboard.
+- Rotate a token immediately if its permissions or allowed origins are broader than intended.
+- Treat RLS and server quotas as the security boundary; client-side throttles are only UX and bandwidth protection.
 
 ## Content Security Policy
 
@@ -25,18 +28,22 @@ CSP is defined in both `index.html` (meta tag) and `vercel.json` (HTTP header).
 
 ### Accepted Trade-offs
 
-| Directive                    | Risk   | Reason                                                                                                   |
-| ---------------------------- | ------ | -------------------------------------------------------------------------------------------------------- |
-| `script-src 'unsafe-inline'` | Medium | Required by Vite dev server and Capacitor WebView bootstrap. Cannot be removed without breaking the app. |
-| `script-src https://esm.sh`  | Low    | Importmap loads pinned, exact-version packages from esm.sh CDN. Versions are not semver ranges.          |
+| Directive                         | Risk   | Reason                                                                                             |
+| --------------------------------- | ------ | -------------------------------------------------------------------------------------------------- |
+| `script-src 'unsafe-inline'`      | Medium | The app shell still contains inline startup/error-recovery code used before the React entry loads. |
+| `style-src 'unsafe-inline'`       | Medium | The shell and runtime map/UI libraries still generate inline styles.                               |
+| `img-src https: http:` (deployed) | Medium | User-selected chart/map imagery spans many providers; active content remains blocked.              |
+| `connect-src http:` (native only) | Medium | The meta policy permits a boat-LAN Pi over HTTP; the deployed Vercel header does not.              |
 
 ### Mitigations Applied
 
 - `'unsafe-eval'` **removed** from `script-src` — Vite production builds don't use eval
+- The redundant CDN import map was removed; production scripts are self-hosted bundles
 - `frame-ancestors 'none'` — prevents clickjacking
 - `frame-src 'none'` — no iframes allowed
 - `base-uri 'self'` — prevents base tag injection
-- `connect-src` whitelist — only known API domains
+- `object-src 'none'` and `form-action 'self'` are enforced by the deployed HTTP policy
+- `connect-src` excludes direct paid-provider origins now handled by server proxies
 
 ## Error Suppression
 
@@ -50,17 +57,9 @@ All three are scoped to `readonly property` string matching only. A session coun
 
 ## Rate Limiting
 
-Client-side rate limiting via `utils/rateLimiter.ts` (token-bucket algorithm):
+`utils/rateLimiter.ts` provides a persistent client-side token bucket to reduce accidental repeat calls and satellite-data use. It is bypassable and is **not** an authorization or billing boundary.
 
-| API        | Limit        | Window   |
-| ---------- | ------------ | -------- |
-| Stormglass | 10 requests  | 24 hours |
-| Open-Meteo | 60 requests  | 1 hour   |
-| Mapbox     | 100 requests | 1 minute |
-| Gemini     | 15 requests  | 1 minute |
-| WorldTides | 50 requests  | 24 hours |
-
-Rate limits persist across page refreshes via `localStorage`.
+Supabase Edge Functions enforce the authoritative boundary before paid upstream work: authenticated callers receive bounded quotas, anonymous/public lanes receive smaller quotas, parameters and response sizes are capped, and cron-only functions require service-role authorization.
 
 ## Dependency Auditing
 

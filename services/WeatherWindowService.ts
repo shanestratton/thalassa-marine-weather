@@ -11,7 +11,7 @@
 
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ComfortParams, PreferredAngle } from '../types';
-import { getOpenMeteoKey } from './weather/keys';
+import { fetchOpenMeteoProxy } from './weather/openMeteoProxy';
 import { createLogger } from '../utils/createLogger';
 import { circularMean } from '../utils/circularStats';
 
@@ -248,43 +248,54 @@ export const WeatherWindowService = {
             /* ignore */
         }
 
-        // Fetch from Open-Meteo Commercial Marine API
+        // Fetch through the server-owned commercial Open-Meteo boundary.
         try {
-            const omKey = getOpenMeteoKey();
-            const keyParam = omKey ? `&apikey=${omKey}` : '';
-            const marineBase = omKey
-                ? 'https://customer-marine-api.open-meteo.com/v1/marine'
-                : 'https://marine-api.open-meteo.com/v1/marine';
-            const forecastBase = omKey
-                ? 'https://customer-api.open-meteo.com/v1/forecast'
-                : 'https://api.open-meteo.com/v1/forecast';
-
             // 16 days = Open-Meteo's max forecast horizon. We fetch the
             // whole window so the card can scope/filter to any
             // departure date the user picks (vs the old 7-day fixed
             // window from "now" that ignored the user's choice).
-            const url =
-                `${marineBase}?` +
-                `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
-                `&hourly=wave_height,wave_direction,wave_period,wind_wave_height` +
-                `&forecast_days=16&timezone=auto${keyParam}`;
-
-            const windUrl =
-                `${forecastBase}?` +
-                `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
-                `&hourly=wind_speed_10m,wind_direction_10m,precipitation_probability` +
-                `&forecast_days=16&timezone=auto&wind_speed_unit=kn${keyParam}`;
-
             // A stalled radio/satellite connection must not leave the passage
             // card in a permanent loading state. Both source calls share one
             // deadline because a partial forecast cannot score a safe window.
-            const signal = AbortSignal.timeout(WEATHER_WINDOW_TIMEOUT_MS);
-            const [marineRes, windRes] = await Promise.all([fetch(url, { signal }), fetch(windUrl, { signal })]);
-
-            if (!marineRes.ok || !windRes.ok) throw new Error('API error');
-
-            const marine = await marineRes.json();
-            const wind = await windRes.json();
+            const [marine, wind] = await Promise.all([
+                fetchOpenMeteoProxy<{
+                    hourly: {
+                        wave_height: number[];
+                        wave_direction: number[];
+                        wave_period: number[];
+                        wind_wave_height: number[];
+                    };
+                }>(
+                    'marine',
+                    {
+                        latitude: lat.toFixed(4),
+                        longitude: lon.toFixed(4),
+                        hourly: 'wave_height,wave_direction,wave_period,wind_wave_height',
+                        forecast_days: 16,
+                        timezone: 'auto',
+                    },
+                    WEATHER_WINDOW_TIMEOUT_MS,
+                ),
+                fetchOpenMeteoProxy<{
+                    hourly: {
+                        time: string[];
+                        wind_speed_10m: number[];
+                        wind_direction_10m: number[];
+                        precipitation_probability: number[];
+                    };
+                }>(
+                    'forecast',
+                    {
+                        latitude: lat.toFixed(4),
+                        longitude: lon.toFixed(4),
+                        hourly: 'wind_speed_10m,wind_direction_10m,precipitation_probability',
+                        forecast_days: 16,
+                        timezone: 'auto',
+                        wind_speed_unit: 'kn',
+                    },
+                    WEATHER_WINDOW_TIMEOUT_MS,
+                ),
+            ]);
 
             const times: string[] = wind.hourly.time;
             const windSpeed: number[] = wind.hourly.wind_speed_10m;

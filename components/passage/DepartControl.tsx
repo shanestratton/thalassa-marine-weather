@@ -6,15 +6,38 @@
  * two lines (date, then time) so neither is squeezed; OK blurs the native
  * picker closed (iOS keeps the wheel up until the input blurs).
  *
- * Sync: single source of truth is sessionStorage 'thalassa_trace_departure_ms'
- * (the tracer reads it on mount) + a 'thalassa:departure-changed' window event
- * so an already-mounted MapHub re-anchors its tide windows / weather ETAs live.
+ * Sync: single source of truth is an account-scoped sessionStorage departure
+ * (the tracer reads it on mount) + an identity-tagged window event so an
+ * already-mounted MapHub re-anchors its tide windows / weather ETAs live.
  */
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { TimePicker24, localDateStr } from './TimePicker24';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 const STORAGE_KEY = 'thalassa_trace_departure_ms';
+const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+function readDeparture(scope: AuthIdentityScope): number | null {
+    try {
+        const scoped = sessionStorage.getItem(authScopedStorageKey(STORAGE_KEY, scope));
+        const raw = scoped ?? (scope.userId ? null : sessionStorage.getItem(STORAGE_KEY));
+        const value = raw ? Number(raw) : Number.NaN;
+        return Number.isFinite(value) && value > Date.now() - 3_600_000 ? value : null;
+    } catch {
+        return null;
+    }
+}
 
 const msToLocal = (ms: number): string => {
     const d = new Date(ms);
@@ -23,25 +46,37 @@ const msToLocal = (ms: number): string => {
 };
 
 export const DepartControl: React.FC = () => {
-    const [departureMs, setDepartureMsState] = React.useState<number | null>(() => {
-        try {
-            const raw = sessionStorage.getItem(STORAGE_KEY);
-            const v = raw ? Number(raw) : NaN;
-            return Number.isFinite(v) && v > Date.now() - 3_600_000 ? v : null;
-        } catch {
-            return null;
-        }
-    });
+    const identityScope = React.useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
+    const hydratedDeparture = React.useMemo(() => readDeparture(identityScope), [identityScope]);
+    const [storedDeparture, setStoredDeparture] = React.useState(() => ({
+        scope: identityScope,
+        value: hydratedDeparture,
+    }));
+    const departureMs = sameScope(storedDeparture.scope, identityScope) ? storedDeparture.value : hydratedDeparture;
+
+    React.useLayoutEffect(() => {
+        setStoredDeparture((current) =>
+            sameScope(current.scope, identityScope) ? current : { scope: identityScope, value: hydratedDeparture },
+        );
+    }, [hydratedDeparture, identityScope]);
+
     const setDeparture = (ms: number | null): void => {
-        setDepartureMsState(ms);
+        const scope = identityScope;
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        setStoredDeparture({ scope, value: ms });
         try {
-            if (ms === null) sessionStorage.removeItem(STORAGE_KEY);
-            else sessionStorage.setItem(STORAGE_KEY, String(ms));
+            const key = authScopedStorageKey(STORAGE_KEY, scope);
+            if (ms === null) sessionStorage.removeItem(key);
+            else sessionStorage.setItem(key, String(ms));
         } catch {
             /* private mode — MapHub still hears the event below */
         }
         try {
-            window.dispatchEvent(new CustomEvent('thalassa:departure-changed', { detail: { ms } }));
+            window.dispatchEvent(
+                new CustomEvent('thalassa:departure-changed', {
+                    detail: { ms, scopeKey: scope.key, scopeGeneration: scope.generation },
+                }),
+            );
         } catch {
             /* sessionStorage alone covers the next mount */
         }

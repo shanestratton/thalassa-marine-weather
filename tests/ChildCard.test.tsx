@@ -65,6 +65,9 @@ describe('ChildCard', () => {
         const dialog = screen.getByRole('dialog', { name: "Ship's Galley" });
         expect(dialog.getAttribute('aria-modal')).toBe('true');
         expect(dialog.getAttribute('aria-describedby')).toBeTruthy();
+        const portal = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
+        expect(portal?.parentElement).toBe(document.body);
+        expect(portal).toHaveStyle({ zIndex: '1100' });
     });
 
     it('focuses the close action and restores the opener after Escape', () => {

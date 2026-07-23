@@ -21,7 +21,6 @@ vi.mock('../utils/logger', () => ({
 
 import {
     getApiKey,
-    getOpenMeteoKey,
     getWorldTidesKey,
     getMapboxKey,
     getApiKeySuffix,
@@ -35,11 +34,6 @@ describe('API key resolution', () => {
         // In test env, import.meta.env.VITE_STORMGLASS_API_KEY is not set
         const key = getApiKey();
         // May return null or env value depending on test setup
-        expect(key === null || typeof key === 'string').toBe(true);
-    });
-
-    it('getOpenMeteoKey returns null when no env var set', () => {
-        const key = getOpenMeteoKey();
         expect(key === null || typeof key === 'string').toBe(true);
     });
 

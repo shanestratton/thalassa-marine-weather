@@ -23,6 +23,7 @@
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { piCache } from '../../PiCacheService';
+import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 import { resolveTimeZone, formatTimeInZone } from '../../../utils/timezone';
 import type { MarineWeatherReport, SourcedWeatherMetrics, HourlyForecast, ForecastDay } from '../../../types/weather';
 
@@ -345,8 +346,6 @@ export async function fetchUnifiedWeatherRaw(
         lat: lat.toFixed(4),
         lon: lon.toFixed(4),
     });
-    if (userId) params.set('user_id', userId);
-
     const directUrl = `${supabaseUrl}/functions/v1/get-weather?${params}`;
 
     // Try Pi Cache first, via the DEDICATED /api/weather/unified endpoint.
@@ -384,8 +383,16 @@ export async function fetchUnifiedWeatherRaw(
     // Direct fetch
     try {
         const key = getSupabaseKey();
+        let headers: Record<string, string>;
+        try {
+            headers = await getAuthenticatedFunctionHeaders();
+        } catch {
+            // The public lane is deliberately lower-quota and can never unlock
+            // another account's premium entitlement.
+            headers = key ? { Authorization: `Bearer ${key}`, apikey: key } : {};
+        }
         const res = await fetch(directUrl, {
-            headers: key ? { Authorization: `Bearer ${key}`, apikey: key } : {},
+            headers,
             signal: AbortSignal.timeout(20000),
         });
 

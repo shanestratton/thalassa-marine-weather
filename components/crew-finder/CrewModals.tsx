@@ -9,6 +9,7 @@ import { CrewFinderState, CrewFinderAction } from '../../hooks/useCrewFinderStat
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface CrewModalsProps {
     state: CrewFinderState;
@@ -70,8 +71,8 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
 
                 {/* Report Modal */}
                 {showReportModal && (
-                    <div
-                        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                    <OverlayPortal
+                        className="flex items-center justify-center bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowReportModal(null)}
                         role="presentation"
                     >
@@ -121,13 +122,13 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                 </button>
                             </div>
                         </div>
-                    </div>
+                    </OverlayPortal>
                 )}
 
                 {/* Super Like Modal */}
                 {showSuperLikeModal && (
-                    <div
-                        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                    <OverlayPortal
+                        className="flex items-center justify-center bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowSuperLikeModal(null)}
                         role="presentation"
                     >
@@ -176,7 +177,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                 </button>
                             </div>
                         </div>
-                    </div>
+                    </OverlayPortal>
                 )}
             </>
         );

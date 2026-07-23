@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const mockGetAuthenticatedFunctionHeaders = vi.fn();
+const { mockGetUser } = vi.hoisted(() => ({
+    mockGetUser: vi.fn(),
+}));
 
 vi.mock('../services/supabase', () => ({
-    supabase: {},
+    supabase: {
+        auth: {
+            getUser: mockGetUser,
+        },
+    },
     supabaseUrl: 'https://example.supabase.co',
 }));
 
@@ -27,6 +35,14 @@ const mockResponse = (status: number, payload: unknown) =>
         json: vi.fn().mockResolvedValue(payload),
     }) as unknown as Response;
 
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
 describe('moderatePhoto', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -35,6 +51,12 @@ describe('moderatePhoto', () => {
             'Content-Type': 'application/json',
             Authorization: 'Bearer test-token',
             apikey: 'test-anon-key',
+        });
+        setAuthIdentityScope('test-user');
+        mockGetUser.mockReset();
+        mockGetUser.mockResolvedValue({
+            data: { user: { id: 'test-user' } },
+            error: null,
         });
     });
 
@@ -106,5 +128,21 @@ describe('moderatePhoto', () => {
             reason: 'Unsupported photo format',
         });
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('drops a deferred moderation verdict after an account transition', async () => {
+        const response = deferred<Response>();
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValue(response.promise);
+
+        const pending = moderatePhoto(photoBlob());
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+        setAuthIdentityScope('other-user');
+        response.resolve(mockResponse(200, { text: '{"verdict":"approved","reason":"Safe"}' }));
+
+        await expect(pending).resolves.toEqual({
+            verdict: 'review',
+            reason: 'Account changed during photo safety check',
+        });
     });
 });

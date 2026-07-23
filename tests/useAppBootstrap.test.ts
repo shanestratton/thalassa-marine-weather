@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const boot = vi.hoisted(() => ({
     currentView: 'dashboard',
@@ -14,15 +14,39 @@ const boot = vi.hoisted(() => ({
     initLocalDatabase: vi.fn(),
     startSyncEngine: vi.fn(),
     stopSyncEngine: vi.fn(),
+    requestFullReconciliation: vi.fn(),
     pushForegroundToast: vi.fn(),
     clearBadge: vi.fn(),
     appAddListener: vi.fn(),
     appStateHandler: null as ((state: { isActive: boolean }) => void) | null,
+    authUserId: 'bootstrap-user' as string | null,
+    authChecked: true,
 }));
 
 const pushService = vi.hoisted(() => ({
     onForegroundPush: null as ((notification: { title?: string }) => void) | null,
-    onNotificationTap: null as ((data: Record<string, unknown>) => void) | null,
+    onNotificationTap: null as ((data: Readonly<Record<string, unknown>>) => void) | null,
+    bindNotificationHandlers: vi.fn(
+        (
+            _scope: unknown,
+            handlers: {
+                onForegroundPush: (notification: { title?: string }) => void;
+                onNotificationTap: (data: Readonly<Record<string, unknown>>) => void;
+            },
+        ) => {
+            const foreground = handlers.onForegroundPush;
+            const tap = handlers.onNotificationTap;
+            pushService.onForegroundPush = foreground;
+            pushService.onNotificationTap = tap;
+            return () => {
+                if (pushService.onForegroundPush === foreground) pushService.onForegroundPush = null;
+                if (pushService.onNotificationTap === tap) pushService.onNotificationTap = null;
+            };
+        },
+    ),
+    initialize: vi.fn(),
+    setUser: vi.fn(),
+    clearUser: vi.fn(),
     clearBadge: boot.clearBadge,
 }));
 
@@ -47,6 +71,14 @@ vi.mock('../services/vessel', () => ({
     initLocalDatabase: boot.initLocalDatabase,
     startSyncEngine: boot.startSyncEngine,
     stopSyncEngine: boot.stopSyncEngine,
+    requestFullReconciliation: boot.requestFullReconciliation,
+}));
+vi.mock('../stores/authStore', () => ({
+    useAuthStore: (selector: (state: { authChecked: boolean; user: { id: string } | null }) => unknown) =>
+        selector({
+            authChecked: boot.authChecked,
+            user: boot.authUserId ? { id: boot.authUserId } : null,
+        }),
 }));
 vi.mock('../services/PushNotificationService', () => ({ PushNotificationService: pushService }));
 vi.mock('@capacitor/app', () => ({
@@ -56,9 +88,14 @@ vi.mock('@capacitor/app', () => ({
 }));
 
 import { useAppBootstrap } from '../hooks/useAppBootstrap';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 beforeEach(() => {
     vi.clearAllMocks();
+    boot.authUserId = 'bootstrap-user';
+    boot.authChecked = true;
+    setAuthIdentityScope(null);
+    setAuthIdentityScope('bootstrap-user');
     boot.currentView = 'dashboard';
     boot.appStateHandler = null;
     pushService.onForegroundPush = null;
@@ -70,6 +107,10 @@ beforeEach(() => {
         boot.appStateHandler = handler;
         return Promise.resolve({ remove: vi.fn() });
     });
+});
+
+afterEach(() => {
+    setAuthIdentityScope(null);
 });
 
 describe('useAppBootstrap', () => {
@@ -151,7 +192,9 @@ describe('useAppBootstrap', () => {
         unmount();
         await waitFor(() => {
             expect(boot.stopInternetProbe).toHaveBeenCalledOnce();
-            expect(boot.stopSyncEngine).toHaveBeenCalledOnce();
+            // The identity-aware bootstrap first tears down any previous
+            // account's engine, then tears down this account on unmount.
+            expect(boot.stopSyncEngine).toHaveBeenCalledTimes(2);
             expect(pushService.onForegroundPush).toBeNull();
             expect(pushService.onNotificationTap).toBeNull();
         });
@@ -173,5 +216,62 @@ describe('useAppBootstrap', () => {
         resolveListener({ remove });
 
         await waitFor(() => expect(remove).toHaveBeenCalledOnce());
+    });
+
+    it('hides A unread count immediately and drops its deferred poll after switching to B', async () => {
+        let resolveA!: (count: number) => void;
+        boot.getUnreadDMCount
+            .mockReturnValueOnce(
+                new Promise((resolve) => {
+                    resolveA = resolve;
+                }),
+            )
+            .mockResolvedValueOnce(3);
+
+        const { result } = renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(boot.getUnreadDMCount).toHaveBeenCalledOnce());
+
+        act(() => {
+            boot.authUserId = 'bootstrap-user-b';
+            setAuthIdentityScope('bootstrap-user-b');
+        });
+
+        expect(result.current.chatUnread).toBe(0);
+        await waitFor(() => expect(result.current.chatUnread).toBe(3));
+
+        await act(async () => {
+            resolveA(9);
+        });
+        expect(result.current.chatUnread).toBe(3);
+    });
+
+    it('does not let a pre-logout database init start the sync engine after the same user signs back in', async () => {
+        let resolveOldInit!: () => void;
+        boot.initLocalDatabase
+            .mockImplementationOnce(
+                () =>
+                    new Promise<void>((resolve) => {
+                        resolveOldInit = resolve;
+                    }),
+            )
+            .mockResolvedValueOnce(undefined);
+
+        renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(boot.initLocalDatabase).toHaveBeenCalledOnce());
+
+        act(() => {
+            setAuthIdentityScope(null);
+            setAuthIdentityScope('bootstrap-user');
+        });
+
+        await waitFor(() => {
+            expect(boot.initLocalDatabase).toHaveBeenCalledTimes(2);
+            expect(boot.startSyncEngine).toHaveBeenCalledOnce();
+        });
+
+        await act(async () => {
+            resolveOldInit();
+        });
+        expect(boot.startSyncEngine).toHaveBeenCalledOnce();
     });
 });

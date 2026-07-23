@@ -13,6 +13,7 @@ import {
     REGISTER_ICONS,
     DEFAULT_PERMISSIONS,
     ROLE_DEFAULT_PERMISSIONS,
+    syncPassagePermissions,
     type CrewRole,
 } from '../services/CrewService';
 
@@ -101,6 +102,30 @@ describe('ROLE_DEFAULT_PERMISSIONS', () => {
         expect(perms.can_view_galley).toBe(true);
         expect(perms.can_view_nav).toBe(false);
         expect(perms.can_view_weather).toBe(false);
+    });
+});
+
+describe('syncPassagePermissions', () => {
+    it('derives the parent gate and exact child grants from shared passage registers', () => {
+        const permissions = syncPassagePermissions(['passage_meals', 'passage_checklist']);
+
+        expect(permissions.can_view_passage).toBe(true);
+        expect(permissions.can_view_passage_meals).toBe(true);
+        expect(permissions.can_view_passage_checklist).toBe(true);
+        expect(permissions.can_view_passage_chat).toBe(false);
+        expect(permissions.can_view_passage_route).toBe(false);
+    });
+
+    it('revokes removed passage grants without disturbing vessel-level permissions', () => {
+        const permissions = syncPassagePermissions(['stores'], {
+            ...ROLE_DEFAULT_PERMISSIONS.navigator,
+            can_view_passage_meals: true,
+        });
+
+        expect(permissions.can_view_passage).toBe(false);
+        expect(permissions.can_view_passage_meals).toBe(false);
+        expect(permissions.can_view_nav).toBe(true);
+        expect(permissions.can_edit_log).toBe(true);
     });
 });
 

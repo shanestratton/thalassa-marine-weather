@@ -17,6 +17,13 @@
 
 import { supabase } from './supabase';
 import { createLogger } from '../utils/createLogger';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('WatchAssign');
 
@@ -35,22 +42,59 @@ export interface WatchAssignment {
 }
 
 /** Local fallback when Supabase is unavailable / unauthenticated. */
-const localStorageKey = (voyageId: string): string => `thalassa_watch_assignments_${voyageId}`;
+const localStorageKey = (voyageId: string, scope: AuthIdentityScope = getAuthIdentityScope()): string =>
+    authScopedStorageKey(`thalassa_watch_assignments_${voyageId}`, scope);
 
-function readFromLocal(voyageId: string): WatchAssignment[] {
+function readFromLocal(voyageId: string, scope: AuthIdentityScope = getAuthIdentityScope()): WatchAssignment[] {
     try {
-        const raw = localStorage.getItem(localStorageKey(voyageId));
-        return raw ? (JSON.parse(raw) as WatchAssignment[]) : [];
+        // Legacy keys cannot be adopted safely: assignments name crew but
+        // carry no owning account, and a crew member may share the same
+        // voyage-shaped UUID namespace on a multi-user device.
+        const raw = localStorage.getItem(localStorageKey(voyageId, scope));
+        if (!raw) return [];
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return (parsed as WatchAssignment[]).filter((assignment) => assignment.voyage_id === voyageId);
     } catch {
         return [];
     }
 }
 
-function writeToLocal(voyageId: string, assignments: WatchAssignment[]): void {
+function writeToLocal(
+    voyageId: string,
+    assignments: WatchAssignment[],
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): void {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
-        localStorage.setItem(localStorageKey(voyageId), JSON.stringify(assignments));
+        localStorage.setItem(
+            localStorageKey(voyageId, scope),
+            JSON.stringify(assignments.filter((assignment) => assignment.voyage_id === voyageId)),
+        );
     } catch {
         /* quota exceeded — non-fatal */
+    }
+}
+
+type RemoteIdentityResult = 'match' | 'unavailable' | 'mismatch' | 'stale';
+
+/**
+ * Supabase can swap its session just before authStore publishes the matching
+ * identity fence. Verify both sides around remote work so a response obtained
+ * with B's token can never be cached or returned to an A-scoped caller.
+ */
+async function verifyRemoteIdentity(scope: AuthIdentityScope): Promise<RemoteIdentityResult> {
+    if (!supabase || !scope.userId) return 'unavailable';
+    try {
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+        if (error || !user) return 'unavailable';
+        return user.id === scope.userId ? 'match' : 'mismatch';
+    } catch {
+        return isAuthIdentityScopeCurrent(scope) ? 'unavailable' : 'stale';
     }
 }
 
@@ -62,22 +106,31 @@ export const WatchAssignmentService = {
      */
     async list(voyageId: string): Promise<WatchAssignment[]> {
         if (!voyageId) return [];
-        if (supabase) {
+        const scope = getAuthIdentityScope();
+        if (supabase && scope.userId) {
             try {
+                const before = await verifyRemoteIdentity(scope);
+                if (before === 'stale' || before === 'mismatch') return [];
+                if (before !== 'match') return isAuthIdentityScopeCurrent(scope) ? readFromLocal(voyageId, scope) : [];
+
                 const { data, error } = await supabase
                     .from('watch_assignments')
                     .select('*')
                     .eq('voyage_id', voyageId)
                     .order('watch_index', { ascending: true });
+
+                if (!isAuthIdentityScopeCurrent(scope)) return [];
                 if (!error && data) {
-                    writeToLocal(voyageId, data as WatchAssignment[]);
+                    const after = await verifyRemoteIdentity(scope);
+                    if (after !== 'match') return [];
+                    writeToLocal(voyageId, data as WatchAssignment[], scope);
                     return data as WatchAssignment[];
                 }
             } catch (e) {
                 log.warn('list failed, using localStorage:', e);
             }
         }
-        return readFromLocal(voyageId);
+        return isAuthIdentityScopeCurrent(scope) ? readFromLocal(voyageId, scope) : [];
     },
 
     /**
@@ -93,13 +146,13 @@ export const WatchAssignmentService = {
         crewName: string | null,
     ): Promise<WatchAssignment | null> {
         if (!voyageId) return null;
+        const scope = getAuthIdentityScope();
 
-        if (supabase) {
+        if (supabase && scope.userId) {
             try {
-                const {
-                    data: { user },
-                } = await supabase.auth.getUser();
-                if (user) {
+                const identity = await verifyRemoteIdentity(scope);
+                if (identity === 'stale' || identity === 'mismatch') return null;
+                if (identity === 'match') {
                     const payload = {
                         voyage_id: voyageId,
                         watch_index: watchIndex,
@@ -108,21 +161,24 @@ export const WatchAssignmentService = {
                         assigned_crew_email: crewEmail,
                         assigned_crew_name: crewName,
                         assigned_at: new Date().toISOString(),
-                        assigned_by: user.id,
+                        assigned_by: scope.userId,
                     };
                     const { data, error } = await supabase
                         .from('watch_assignments')
                         .upsert(payload, { onConflict: 'voyage_id,watch_index' })
                         .select()
                         .single();
+                    if (!isAuthIdentityScopeCurrent(scope)) return null;
                     if (!error && data) {
+                        const after = await verifyRemoteIdentity(scope);
+                        if (after !== 'match') return null;
                         // Mirror to localStorage for offline reads
-                        const cached = readFromLocal(voyageId);
+                        const cached = readFromLocal(voyageId, scope);
                         const idx = cached.findIndex((a) => a.watch_index === watchIndex);
                         const next = data as WatchAssignment;
                         if (idx >= 0) cached[idx] = next;
                         else cached.push(next);
-                        writeToLocal(voyageId, cached);
+                        writeToLocal(voyageId, cached, scope);
                         return next;
                     }
                     log.warn('Supabase upsert failed:', error?.message);
@@ -132,9 +188,11 @@ export const WatchAssignmentService = {
             }
         }
 
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+
         // localStorage-only fallback (no auth / offline)
         const now = new Date().toISOString();
-        const cached = readFromLocal(voyageId);
+        const cached = readFromLocal(voyageId, scope);
         const idx = cached.findIndex((a) => a.watch_index === watchIndex);
         const localAssignment: WatchAssignment = {
             id: cached[idx]?.id ?? `local_${voyageId}_${watchIndex}`,
@@ -145,13 +203,13 @@ export const WatchAssignmentService = {
             assigned_crew_email: crewEmail,
             assigned_crew_name: crewName,
             assigned_at: now,
-            assigned_by: null,
+            assigned_by: scope.userId,
             created_at: cached[idx]?.created_at ?? now,
             updated_at: now,
         };
         if (idx >= 0) cached[idx] = localAssignment;
         else cached.push(localAssignment);
-        writeToLocal(voyageId, cached);
+        writeToLocal(voyageId, cached, scope);
         return localAssignment;
     },
 
@@ -167,9 +225,12 @@ export const WatchAssignmentService = {
      */
     async publishToCrew(voyageId: string, voyageName: string): Promise<number> {
         if (!supabase || !voyageId) return 0;
+        const scope = getAuthIdentityScope();
+        if (!scope.userId || (await verifyRemoteIdentity(scope)) !== 'match') return 0;
         try {
             // 1. Load all assignments
             const all = await this.list(voyageId);
+            if (!isAuthIdentityScopeCurrent(scope)) return 0;
             const assigned = all.filter((a) => a.assigned_crew_email && a.assigned_crew_name);
             if (assigned.length === 0) return 0;
 
@@ -183,6 +244,7 @@ export const WatchAssignmentService = {
                 .select('crew_email,crew_user_id')
                 .eq('voyage_id', voyageId)
                 .in('crew_email', uniqueEmails);
+            if ((await verifyRemoteIdentity(scope)) !== 'match') return 0;
             const emailToUserId = new Map<string, string>();
             for (const r of (crewRows as { crew_email: string; crew_user_id: string }[] | null) || []) {
                 if (r.crew_user_id) emailToUserId.set(r.crew_email, r.crew_user_id);
@@ -217,6 +279,7 @@ export const WatchAssignmentService = {
 
             if (pushRequests.length > 0) {
                 const results = await Promise.all(pushRequests);
+                if (!isAuthIdentityScopeCurrent(scope)) return 0;
                 const failed = results.find((result) => result.error);
                 if (failed?.error) log.warn('push request failed:', failed.error.message);
             }
@@ -225,6 +288,7 @@ export const WatchAssignmentService = {
             //    voyage channel get the update instantly without
             //    waiting for the push round-trip.
             try {
+                if ((await verifyRemoteIdentity(scope)) !== 'match') return 0;
                 const channel = supabase.channel(`watch-schedule-${voyageId}`);
                 await channel.send({
                     type: 'broadcast',
@@ -232,6 +296,7 @@ export const WatchAssignmentService = {
                     payload: { voyageId, count: assigned.length, at: new Date().toISOString() },
                 });
                 supabase.removeChannel(channel);
+                if (!isAuthIdentityScopeCurrent(scope)) return 0;
             } catch (e) {
                 log.warn('realtime broadcast failed:', e);
             }
@@ -255,6 +320,8 @@ export const WatchAssignmentService = {
      */
     subscribeToUpdates(voyageId: string, onUpdate: () => void): () => void {
         if (!supabase || !voyageId) return () => {};
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return () => {};
         // Capture the non-null reference once so the cleanup closure
         // doesn't have to re-narrow against the module-level binding
         // (which TS sees as possibly-null).
@@ -262,7 +329,7 @@ export const WatchAssignmentService = {
         const channel = sb
             .channel(`watch-schedule-${voyageId}`)
             .on('broadcast', { event: 'schedule_published' }, () => {
-                onUpdate();
+                if (isAuthIdentityScopeCurrent(scope)) onUpdate();
             })
             // Also listen for direct table inserts/updates — covers
             // the case where assignments change one-at-a-time before
@@ -277,12 +344,24 @@ export const WatchAssignmentService = {
                     filter: `voyage_id=eq.${voyageId}`,
                 },
                 () => {
-                    onUpdate();
+                    if (isAuthIdentityScopeCurrent(scope)) onUpdate();
                 },
             )
             .subscribe();
-        return () => {
+        let closed = false;
+        const close = () => {
+            if (closed) return;
+            closed = true;
             sb.removeChannel(channel);
+        };
+        let unsubscribeIdentity = () => {};
+        unsubscribeIdentity = subscribeAuthIdentityScope(() => {
+            close();
+            unsubscribeIdentity();
+        });
+        return () => {
+            unsubscribeIdentity();
+            close();
         };
     },
 
@@ -294,16 +373,26 @@ export const WatchAssignmentService = {
      */
     async clear(voyageId: string, watchIndex: number): Promise<boolean> {
         if (!voyageId) return false;
-        if (supabase) {
+        const scope = getAuthIdentityScope();
+        if (supabase && scope.userId) {
             try {
+                const identity = await verifyRemoteIdentity(scope);
+                if (identity === 'stale' || identity === 'mismatch') return false;
+                if (identity !== 'match') {
+                    const cached = readFromLocal(voyageId, scope).filter((a) => a.watch_index !== watchIndex);
+                    writeToLocal(voyageId, cached, scope);
+                    return true;
+                }
                 const { error } = await supabase
                     .from('watch_assignments')
                     .delete()
                     .eq('voyage_id', voyageId)
                     .eq('watch_index', watchIndex);
+                if (!isAuthIdentityScopeCurrent(scope)) return false;
                 if (!error) {
-                    const cached = readFromLocal(voyageId).filter((a) => a.watch_index !== watchIndex);
-                    writeToLocal(voyageId, cached);
+                    if ((await verifyRemoteIdentity(scope)) !== 'match') return false;
+                    const cached = readFromLocal(voyageId, scope).filter((a) => a.watch_index !== watchIndex);
+                    writeToLocal(voyageId, cached, scope);
                     return true;
                 }
                 log.warn('Supabase delete failed:', error?.message);
@@ -311,8 +400,9 @@ export const WatchAssignmentService = {
                 log.warn('clear Supabase path failed:', e);
             }
         }
-        const cached = readFromLocal(voyageId).filter((a) => a.watch_index !== watchIndex);
-        writeToLocal(voyageId, cached);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        const cached = readFromLocal(voyageId, scope).filter((a) => a.watch_index !== watchIndex);
+        writeToLocal(voyageId, cached, scope);
         return true;
     },
 };

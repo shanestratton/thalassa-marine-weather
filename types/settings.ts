@@ -235,10 +235,12 @@ export interface UserSettings {
      * Gmail access — Calypso can read inbox, search messages, draft
      * emails, send (with explicit confirm-before-send UX). Goes through
      * Google OAuth 2.0 with PKCE; the granted access + refresh tokens
-     * live in the Capacitor Preferences store (which uses iOS Keychain
-     * on device, so they're encrypted at rest). The toggle here gates
-     * the OAuth flow + tool registration — disabling it revokes the
-     * stored tokens and unregisters the tools from Calypso's registry.
+     * currently live in an account-scoped Capacitor Preferences envelope.
+     * Preferences uses UserDefaults on iOS (and localStorage on web), not
+     * Keychain/Keystore, so this is isolation rather than secure-at-rest
+     * storage; a native secure-storage backend remains required. The toggle
+     * gates OAuth + tool registration. Disabling deletes this account's local
+     * tokens and unregisters the tools, but does not revoke Google's grant.
      */
     calypsoEmailEnabled?: boolean;
     /**

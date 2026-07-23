@@ -4,6 +4,15 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseBoundedNumber,
+    parseCoordinate,
+    readJsonObject,
+    readResponseTextLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * proxy-overpass — OpenStreetMap Overpass API CORS Proxy
  *
@@ -109,15 +118,19 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
-    try {
-        const { lat, lon, radiusNM = 5 } = await req.json();
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'overpass_seamarks', 120, 30, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
-        if (typeof lat !== 'number' || typeof lon !== 'number') {
-            return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400);
+    try {
+        const body = await readJsonObject(req, 4096);
+        const lat = parseCoordinate(body?.lat, 'lat');
+        const lon = parseCoordinate(body?.lon, 'lon');
+        const radiusNM = parseBoundedNumber(body?.radiusNM ?? 5, 0.1, 15);
+        if (lat === null || lon === null || radiusNM === null) {
+            return corsResponse(JSON.stringify({ error: 'Invalid lat/lon/radius bounds' }), 400);
         }
 
-        // Clamp radius to prevent abuse (max 15 NM = ~28 km)
-        const radiusM = Math.min(radiusNM, 15) * NM_TO_M;
+        const radiusM = radiusNM * NM_TO_M;
 
         // Build Overpass QL query — fetch all seamark nodes within radius
         const query = `
@@ -130,26 +143,28 @@ out body;
             `[proxy-overpass] Fetching seamarks within ${radiusNM}NM of [${lat.toFixed(3)}, ${lon.toFixed(3)}]`,
         );
 
-        const res = await fetch(OVERPASS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `data=${encodeURIComponent(query)}`,
-        });
+        const res = await fetchWithTimeout(
+            OVERPASS_URL,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': 'thalassa-seamarks/1.0 (https://thalassawx.app)',
+                },
+                body: `data=${encodeURIComponent(query)}`,
+            },
+            25_000,
+        );
 
         if (!res.ok) {
-            const text = await res.text();
-            console.error(`[proxy-overpass] Overpass error ${res.status}:`, text);
-            return corsResponse(
-                JSON.stringify({
-                    error: `Overpass API returned ${res.status}`,
-                    detail: text.slice(0, 500),
-                }),
-                502,
-            );
+            console.error(`[proxy-overpass] Overpass error ${res.status}`);
+            return corsResponse(JSON.stringify({ error: 'Overpass upstream failed' }), 502);
         }
 
-        const data = await res.json();
-        const elements = data.elements || [];
+        const text = await readResponseTextLimited(res, 8_000_000);
+        if (text === null) return corsResponse(JSON.stringify({ error: 'Overpass response is too large' }), 502);
+        const data = JSON.parse(text);
+        const elements = Array.isArray(data?.elements) ? data.elements.slice(0, 5000) : [];
 
         // Convert Overpass JSON → GeoJSON FeatureCollection with IALA classification
         const features = elements

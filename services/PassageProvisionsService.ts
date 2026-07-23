@@ -12,12 +12,15 @@
 
 import { getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
 import { scaleIngredient, type RecipeIngredient, type GalleyPlan } from './GalleyRecipeService';
+import { convertQuantity } from './PurchaseUnits';
 import type { StoresItem } from '../types';
+import { authScopedStorageKey } from './authIdentityScope';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface ProvisionItem {
     id: string;
+    voyage_id: string | null;
     passage_name: string;
     recipe_title: string;
     ingredient_name: string;
@@ -53,7 +56,7 @@ const ALIAS_KEY = 'thalassa_ingredient_aliases';
 /** Get the alias map from localStorage */
 function getAliases(): Record<string, string> {
     try {
-        const raw = localStorage.getItem(ALIAS_KEY);
+        const raw = localStorage.getItem(authScopedStorageKey(ALIAS_KEY));
         return raw ? JSON.parse(raw) : {};
     } catch {
         return {};
@@ -65,7 +68,7 @@ export function setAlias(ingredientName: string, storeItemId: string): void {
     const aliases = getAliases();
     aliases[ingredientName.toLowerCase().trim()] = storeItemId;
     try {
-        localStorage.setItem(ALIAS_KEY, JSON.stringify(aliases));
+        localStorage.setItem(authScopedStorageKey(ALIAS_KEY), JSON.stringify(aliases));
     } catch {
         /* storage full */
     }
@@ -76,7 +79,7 @@ export function removeAlias(ingredientName: string): void {
     const aliases = getAliases();
     delete aliases[ingredientName.toLowerCase().trim()];
     try {
-        localStorage.setItem(ALIAS_KEY, JSON.stringify(aliases));
+        localStorage.setItem(authScopedStorageKey(ALIAS_KEY), JSON.stringify(aliases));
     } catch {
         /* ignore */
     }
@@ -156,6 +159,7 @@ export function calculateProvisions(
     plan: GalleyPlan,
     crewCount: number,
     passageName: string = 'Unnamed Passage',
+    voyageId: string | null = null,
 ): ProvisionSummary {
     // Get all store items
     const storeItems = getAll<StoresItem>('inventory_items');
@@ -200,7 +204,16 @@ export function calculateProvisions(
         const { ingredient, totalRequired, recipeTitle } = entry;
         const match = findStoreMatch(ingredient.name, storeItems);
 
-        const onHand = match ? match.item.quantity : 0;
+        const matchedStoreName = match?.item.item_name.toLowerCase().trim();
+        const onHand = matchedStoreName
+            ? storeItems
+                  .filter((storeItem) => storeItem.item_name.toLowerCase().trim() === matchedStoreName)
+                  .reduce((total, storeItem) => {
+                      const quantity = Number.isFinite(storeItem.quantity) ? Math.max(0, storeItem.quantity) : 0;
+                      const converted = convertQuantity(quantity, storeItem.unit || ingredient.unit, ingredient.unit);
+                      return total + (converted ?? 0);
+                  }, 0)
+            : 0;
         const shortfall = Math.max(0, totalRequired - onHand);
 
         if (match) matched++;
@@ -209,16 +222,17 @@ export function calculateProvisions(
 
         items.push({
             id: generateUUID(),
+            voyage_id: voyageId,
             passage_name: passageName,
             recipe_title: recipeTitle,
             ingredient_name: ingredient.name,
-            required_qty: Math.round(totalRequired * 10) / 10,
+            required_qty: Math.round(totalRequired * 10_000) / 10_000,
             unit: ingredient.unit,
             scalable: ingredient.scalable,
             store_item_id: match?.item.id || null,
             store_item_name: match?.item.item_name || null,
-            on_hand_qty: onHand,
-            shortfall_qty: Math.round(shortfall * 10) / 10,
+            on_hand_qty: Math.round(onHand * 10_000) / 10_000,
+            shortfall_qty: Math.round(shortfall * 10_000) / 10_000,
             status: shortfall <= 0 ? 'have' : 'needed',
         });
     }
@@ -244,9 +258,11 @@ export function calculateProvisions(
  */
 export async function saveProvisions(items: ProvisionItem[]): Promise<void> {
     for (const item of items) {
+        const now = new Date().toISOString();
         await insertLocal(PROVISION_TABLE, {
             ...item,
-            created_at: new Date().toISOString(),
+            created_at: now,
+            updated_at: now,
         });
     }
 }

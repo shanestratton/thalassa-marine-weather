@@ -86,6 +86,13 @@ const recipe = {
     manualTags: [],
 };
 
+function expectModalBodyPortal(element: HTMLElement) {
+    const portal = element.closest<HTMLElement>('[data-overlay-layer="modal"]');
+    expect(portal).not.toBeNull();
+    expect(portal?.parentElement).toBe(document.body);
+    expect(portal).toHaveStyle({ zIndex: '1100' });
+}
+
 describe('chat overlay accessibility', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -119,7 +126,9 @@ describe('chat overlay accessibility', () => {
             </>,
         );
         const cancel = screen.getByRole('button', { name: 'Cancel report' });
-        expect(screen.getByRole('dialog', { name: 'Report Message' })).toContainElement(cancel);
+        const dialog = screen.getByRole('dialog', { name: 'Report Message' });
+        expect(dialog).toContainElement(cancel);
+        expectModalBodyPortal(dialog);
         await waitFor(() => expect(cancel).toHaveFocus());
 
         fireEvent.keyDown(cancel, { key: 'Escape' });
@@ -147,6 +156,27 @@ describe('chat overlay accessibility', () => {
         expect(screen.getByRole('dialog', { name: 'Report submitted' })).toContainElement(done);
     });
 
+    it('announces report failures and cannot dismiss an in-flight submission', async () => {
+        const onClose = vi.fn();
+        render(
+            <ReportModal
+                reportingMsg={reportingMessage}
+                reportSent={false}
+                reportError="Report not submitted."
+                reportSubmitting
+                reportReason="spam"
+                setReportReason={vi.fn()}
+                onSubmit={vi.fn()}
+                onClose={onClose}
+            />,
+        );
+
+        expect(screen.getByRole('alert')).toHaveTextContent('Report not submitted.');
+        expect(screen.getByRole('button', { name: 'Submit report' })).toBeDisabled();
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
     it('treats the navigation warning as an alertdialog with a safe initial action', async () => {
         const onClose = vi.fn();
         const { rerender } = render(<button>Open shared track</button>);
@@ -164,7 +194,9 @@ describe('chat overlay accessibility', () => {
             </>,
         );
         const cancel = screen.getByRole('button', { name: 'Cancel track import' });
-        expect(screen.getByRole('alertdialog', { name: 'Navigation Disclaimer' })).toContainElement(cancel);
+        const dialog = screen.getByRole('alertdialog', { name: 'Navigation Disclaimer' });
+        expect(dialog).toContainElement(cancel);
+        expectModalBodyPortal(dialog);
         await waitFor(() => expect(cancel).toHaveFocus());
 
         fireEvent.keyDown(cancel, { key: 'Escape' });

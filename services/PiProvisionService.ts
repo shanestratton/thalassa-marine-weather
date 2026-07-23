@@ -17,7 +17,6 @@
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
-import { getOpenMeteoKey } from './weather/keys';
 
 const log = createLogger('PiProvision');
 
@@ -324,7 +323,6 @@ class PiProvisionServiceClass {
                     await piCache.pushConfig({
                         supabaseUrl: supabaseConfig.url,
                         supabaseAnonKey: supabaseConfig.key,
-                        openMeteoApiKey: getOpenMeteoKey() || undefined,
                         prefetchLat: supabaseConfig.lat,
                         prefetchLon: supabaseConfig.lon,
                         prefetchRadius: 5,

@@ -12,10 +12,12 @@ import { getAll, insertLocal, query, updateLocal, generateUUID } from './vessel/
 import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
 import { createLogger } from '../utils/createLogger';
+import { authScopedStorageKey } from './authIdentityScope';
+import { safeExternalHttpUrl, safeImageUrl } from '../utils/safeUrl';
+import { fetchSpoonacular } from './spoonacularProxy';
 
 const log = createLogger('GalleyRecipe');
 
-const API_BASE = 'https://api.spoonacular.com';
 const CACHE_PREFIX = 'thalassa_galley_';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -223,13 +225,6 @@ function isWholeUnit(unit: string): boolean {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function getApiKey(): string {
-    return (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (import.meta as any).env?.VITE_SPOONACULAR_KEY || ''
-    );
-}
-
 function cacheKey(days: number, crew: number): string {
     return `${CACHE_PREFIX}plan_${days}_${crew}`;
 }
@@ -262,6 +257,29 @@ function setCache(key: string, plan: GalleyPlan): void {
 const RECIPE_TABLE = 'recipes';
 const IMG_CACHE_PREFIX = 'thalassa_recipe_img_';
 
+async function getCurrentRecipeUserId(): Promise<string | null> {
+    if (!supabase) return null;
+
+    try {
+        const {
+            data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user.id) return session.user.id;
+    } catch {
+        // Fall through to a verified lookup. The local session remains
+        // usable when the boat is offline and getUser cannot reach Supabase.
+    }
+
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        return user?.id ?? null;
+    } catch {
+        return null;
+    }
+}
+
 // ── Image Caching ──────────────────────────────────────────────────────────
 
 /**
@@ -270,14 +288,19 @@ const IMG_CACHE_PREFIX = 'thalassa_recipe_img_';
  */
 export async function cacheRecipeImage(imageUrl: string, recipeId: number): Promise<string> {
     if (!imageUrl) return imageUrl;
+    const safeUrl = safeImageUrl(imageUrl, typeof window !== 'undefined' ? window.location.href : undefined);
+    if (!safeUrl) return '';
 
     // Already cached?
     const cached = getCachedImage(recipeId);
     if (cached) return cached;
 
     try {
-        const resp = await fetch(imageUrl);
-        if (!resp.ok) return imageUrl;
+        const resp = await fetch(safeUrl, {
+            credentials: 'omit',
+            referrerPolicy: 'no-referrer',
+        });
+        if (!resp.ok) return safeUrl;
         const blob = await resp.blob();
 
         return new Promise<string>((resolve) => {
@@ -291,11 +314,11 @@ export async function cacheRecipeImage(imageUrl: string, recipeId: number): Prom
                 }
                 resolve(dataUri);
             };
-            reader.onerror = () => resolve(imageUrl);
+            reader.onerror = () => resolve(safeUrl);
             reader.readAsDataURL(blob);
         });
     } catch {
-        return imageUrl; // Network error — use original URL
+        return safeUrl; // Network error — use validated original URL
     }
 }
 
@@ -385,18 +408,12 @@ export async function getRecipeInstructions(spoonacularId: number | null): Promi
         }
     }
 
-    // 2. Fetch from Spoonacular API
-    const apiKey = getApiKey();
-    if (!apiKey) return [];
-
+    // 2. Fetch through the server-side Spoonacular proxy. The paid API key
+    // must never enter the Vite client bundle.
     try {
-        const resp = await fetch(
-            `${API_BASE}/recipes/${spoonacularId}/information?apiKey=${apiKey}&includeNutrition=false`,
-        );
-        if (!resp.ok) return [];
-
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data = (await resp.json()) as any;
+        const data = (await fetchSpoonacular('information', { recipe_id: spoonacularId })) as any;
+        if (!data) return [];
         const steps = parseInstructions(data.analyzedInstructions);
 
         // Cache for offline use
@@ -423,36 +440,61 @@ export function getFavoriteRecipes(): StoredRecipe[] {
  * Parse Spoonacular's extendedIngredients into our RecipeIngredient format
  * with auto-detected scalable flag.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseIngredients(extendedIngredients: any[]): RecipeIngredient[] {
-    if (!extendedIngredients) return [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return extendedIngredients.map((ing: any) => ({
-        name: ing.name || ing.originalName || '',
-        amount: ing.amount || 0,
-        unit: ing.unit || '',
-        scalable: isScalable(ing.unit || '', ing.name || ''),
-        aisle: ing.aisle || 'Other',
-    }));
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function boundedProviderText(value: unknown, fallback: string, maxLength: number): string {
+    return typeof value === 'string' && value.trim() ? value.trim().slice(0, maxLength) : fallback;
+}
+
+function boundedProviderNumber(value: unknown, fallback: number, min: number, max: number): number {
+    const parsed = typeof value === 'number' ? value : Number.NaN;
+    return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+function parseIngredients(extendedIngredients: unknown): RecipeIngredient[] {
+    if (!Array.isArray(extendedIngredients)) return [];
+    return extendedIngredients.slice(0, 200).flatMap((candidate) => {
+        const ingredient = asRecord(candidate);
+        if (!ingredient) return [];
+        const name = boundedProviderText(ingredient.name ?? ingredient.originalName, '', 160);
+        if (!name) return [];
+        const unit = boundedProviderText(ingredient.unit, '', 40);
+        return [
+            {
+                name,
+                amount: boundedProviderNumber(ingredient.amount, 0, 0, 1_000_000),
+                unit,
+                scalable: isScalable(unit, name),
+                aisle: boundedProviderText(ingredient.aisle, 'Other', 80),
+            },
+        ];
+    });
 }
 
 /**
  * Parse Spoonacular's analyzedInstructions into RecipeStep[].
  * Spoonacular returns: [{ name: '', steps: [{ number, step, ... }] }]
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseInstructions(analyzedInstructions: any): RecipeStep[] {
-    if (!analyzedInstructions || !Array.isArray(analyzedInstructions)) return [];
+function parseInstructions(analyzedInstructions: unknown): RecipeStep[] {
+    if (!Array.isArray(analyzedInstructions)) return [];
     const steps: RecipeStep[] = [];
-    for (const group of analyzedInstructions) {
-        if (group.steps && Array.isArray(group.steps)) {
-            for (const s of group.steps) {
+    for (const candidateGroup of analyzedInstructions.slice(0, 20)) {
+        const group = asRecord(candidateGroup);
+        if (group && Array.isArray(group.steps)) {
+            for (const candidateStep of group.steps.slice(0, 100 - steps.length)) {
+                const step = asRecord(candidateStep);
+                if (!step) continue;
+                const text = boundedProviderText(step.step, '', 4_000);
+                if (!text) continue;
                 steps.push({
-                    number: s.number || steps.length + 1,
-                    step: (s.step || '').trim(),
+                    number: boundedProviderNumber(step.number, steps.length + 1, 1, 10_000),
+                    step: text,
                 });
             }
         }
+        if (steps.length >= 100) break;
     }
     return steps;
 }
@@ -464,8 +506,9 @@ function parseInstructions(analyzedInstructions: any): RecipeStep[] {
  * Now fetches ingredient details and persists recipes locally.
  */
 export async function generateGalleyPlan(days: number, crew: number): Promise<GalleyPlan | null> {
-    const apiKey = getApiKey();
-    if (!apiKey) return null;
+    if (!Number.isInteger(days) || days < 1 || days > 30 || !Number.isInteger(crew) || crew < 1 || crew > 50) {
+        return null;
+    }
 
     // Check cache first
     const cached = getCached(cacheKey(days, crew));
@@ -476,38 +519,45 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
         const uniqueDays = Math.min(days, 7);
 
         for (let i = 0; i < uniqueDays; i++) {
-            const params = new URLSearchParams({
-                apiKey,
-                timeFrame: 'day',
-                targetCalories: '3000',
-                diet: '',
+            const rawData = await fetchSpoonacular('mealplan', {
+                target_calories: 3000,
                 exclude: 'soufflé,baked alaska',
             });
-
-            const resp = await fetch(`${API_BASE}/mealplanner/generate?${params}`);
-            if (!resp.ok) {
-                log.warn(`API error: ${resp.status}`);
-                return null;
-            }
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const data = (await resp.json()) as any;
+            const data = asRecord(rawData);
+            if (!data || !Array.isArray(data.meals)) return null;
+            const providerMeals = data.meals
+                .slice(0, 3)
+                .map(asRecord)
+                .filter((meal): meal is Record<string, unknown> => meal !== null)
+                .filter(
+                    (meal) =>
+                        typeof meal.id === 'number' &&
+                        Number.isSafeInteger(meal.id) &&
+                        meal.id > 0 &&
+                        typeof meal.title === 'string' &&
+                        meal.title.trim().length > 0,
+                );
 
             // Fetch full recipe details for ingredients
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const mealIds = (data.meals || []).slice(0, 3).map((m: any) => m.id);
+            const mealIds = providerMeals.map((meal) => meal.id as number);
             const recipeDetails: Record<number, { ingredients: RecipeIngredient[]; instructions: RecipeStep[] }> = {};
 
             if (mealIds.length > 0) {
                 try {
-                    const detailResp = await fetch(
-                        `${API_BASE}/recipes/informationBulk?apiKey=${apiKey}&ids=${mealIds.join(',')}&includeNutrition=false`,
-                    );
-                    if (detailResp.ok) {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const details = (await detailResp.json()) as any[];
-                        for (const detail of details) {
-                            recipeDetails[detail.id] = {
+                    const details = await fetchSpoonacular('bulk', { recipe_ids: mealIds });
+                    if (Array.isArray(details)) {
+                        for (const candidate of details.slice(0, mealIds.length)) {
+                            const detail = asRecord(candidate);
+                            const id = detail?.id;
+                            if (
+                                !detail ||
+                                typeof id !== 'number' ||
+                                !Number.isSafeInteger(id) ||
+                                !mealIds.includes(id)
+                            ) {
+                                continue;
+                            }
+                            recipeDetails[id] = {
                                 ingredients: parseIngredients(detail.extendedIngredients),
                                 instructions: parseInstructions(detail.analyzedInstructions),
                             };
@@ -518,23 +568,22 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
                 }
             }
 
-            const meals: GalleyMeal[] = (data.meals || []).slice(0, 3).map(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (m: any) => ({
-                    id: m.id,
-                    title: m.title,
-                    readyInMinutes: m.readyInMinutes || 30,
-                    servings: m.servings || 2,
-                    image: m.image
-                        ? m.image.startsWith('http')
-                            ? m.image
-                            : `https://img.spoonacular.com/recipes/${m.id}-480x360.jpg`
-                        : `https://img.spoonacular.com/recipes/${m.id}-480x360.jpg`,
-                    sourceUrl: m.sourceUrl || '',
-                    ingredients: recipeDetails[m.id]?.ingredients || [],
-                    instructions: recipeDetails[m.id]?.instructions || [],
-                }),
-            );
+            const meals: GalleyMeal[] = providerMeals.map((meal) => {
+                const id = meal.id as number;
+                const image = boundedProviderText(meal.image, '', 2_000);
+                const safeProviderImage = safeImageUrl(image);
+                return {
+                    id,
+                    title: boundedProviderText(meal.title, 'Untitled recipe', 200),
+                    readyInMinutes: boundedProviderNumber(meal.readyInMinutes, 30, 1, 7 * 24 * 60),
+                    servings: boundedProviderNumber(meal.servings, 2, 1, 1_000),
+                    image: safeProviderImage ?? `https://img.spoonacular.com/recipes/${id}-480x360.jpg`,
+                    sourceUrl: safeExternalHttpUrl(boundedProviderText(meal.sourceUrl, '', 2_000), true) ?? '',
+                    ingredients: recipeDetails[id]?.ingredients || [],
+                    instructions: recipeDetails[id]?.instructions || [],
+                };
+            });
+            if (meals.length === 0) return null;
 
             // Persist each recipe locally for offline access
             for (const meal of meals) {
@@ -545,14 +594,15 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
                 }
             }
 
+            const nutrients = asRecord(data.nutrients);
             dayPlans.push({
                 day: i + 1,
                 meals,
                 nutrients: {
-                    calories: Math.round(data.nutrients?.calories || 3000),
-                    protein: Math.round(data.nutrients?.protein || 100),
-                    fat: Math.round(data.nutrients?.fat || 100),
-                    carbohydrates: Math.round(data.nutrients?.carbohydrates || 300),
+                    calories: Math.round(boundedProviderNumber(nutrients?.calories, 3000, 0, 20_000)),
+                    protein: Math.round(boundedProviderNumber(nutrients?.protein, 100, 0, 2_000)),
+                    fat: Math.round(boundedProviderNumber(nutrients?.fat, 100, 0, 2_000)),
+                    carbohydrates: Math.round(boundedProviderNumber(nutrients?.carbohydrates, 300, 0, 5_000)),
                 },
             });
 
@@ -586,11 +636,13 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
  * Uses ingredient data from persisted recipes with crew scaling.
  */
 export async function getShoppingList(recipeIds: number[]): Promise<ShoppingItem[]> {
-    const apiKey = getApiKey();
-    if (!apiKey || recipeIds.length === 0) return [];
+    const safeRecipeIds = [...new Set(recipeIds)].filter(
+        (id) => Number.isSafeInteger(id) && id > 0 && id <= 2_147_483_647,
+    );
+    if (safeRecipeIds.length === 0 || safeRecipeIds.length > 20) return [];
 
     // Check cache
-    const listKey = `${CACHE_PREFIX}shop_${recipeIds.sort().join(',')}`;
+    const listKey = `${CACHE_PREFIX}shop_${[...safeRecipeIds].sort((a, b) => a - b).join(',')}`;
     try {
         const raw = localStorage.getItem(listKey);
         if (raw) return JSON.parse(raw) as ShoppingItem[];
@@ -599,32 +651,27 @@ export async function getShoppingList(recipeIds: number[]): Promise<ShoppingItem
     }
 
     try {
-        const ids = recipeIds.join(',');
-        const resp = await fetch(
-            `${API_BASE}/recipes/informationBulk?apiKey=${apiKey}&ids=${ids}&includeNutrition=false`,
-        );
-        if (!resp.ok) return [];
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const recipes = (await resp.json()) as any[];
+        const recipes = await fetchSpoonacular('bulk', { recipe_ids: safeRecipeIds });
+        if (!Array.isArray(recipes)) return [];
 
         const ingredientMap = new Map<string, ShoppingItem>();
 
-        for (const recipe of recipes) {
-            for (const ing of recipe.extendedIngredients || []) {
-                const key = ing.name?.toLowerCase() || '';
+        for (const candidate of recipes.slice(0, safeRecipeIds.length)) {
+            const recipe = asRecord(candidate);
+            if (!recipe) continue;
+            for (const ingredient of parseIngredients(recipe.extendedIngredients)) {
+                const key = ingredient.name.toLowerCase();
                 if (!key) continue;
-                const scalableFlag = isScalable(ing.unit || '', key);
                 const existing = ingredientMap.get(key);
                 if (existing) {
-                    existing.amount += ing.amount || 0;
+                    existing.amount += ingredient.amount;
                 } else {
                     ingredientMap.set(key, {
-                        name: ing.name || '',
-                        amount: ing.amount || 0,
-                        unit: ing.unit || '',
-                        aisle: ing.aisle || 'Other',
-                        scalable: scalableFlag,
+                        name: ingredient.name,
+                        amount: ingredient.amount,
+                        unit: ingredient.unit,
+                        aisle: ingredient.aisle || 'Other',
+                        scalable: ingredient.scalable,
                     });
                 }
             }
@@ -884,8 +931,7 @@ async function searchCommunityRecipes(query: string, maxResults = 8): Promise<Ga
  * Search Spoonacular API for recipes.
  */
 async function searchSpoonacular(query: string, maxResults = 8): Promise<GalleyMeal[]> {
-    const apiKey = getApiKey();
-    if (!apiKey) return [];
+    const resultLimit = Number.isInteger(maxResults) ? Math.min(12, Math.max(1, maxResults)) : 8;
 
     // Check cache first
     const ck = `${CACHE_PREFIX}search_spoon_${query}_any`;
@@ -901,38 +947,38 @@ async function searchSpoonacular(query: string, maxResults = 8): Promise<GalleyM
     }
 
     try {
-        const params = new URLSearchParams({
-            apiKey,
-            query,
-            number: String(maxResults),
-            addRecipeInformation: 'true',
-            fillIngredients: 'true',
-            instructionsRequired: 'false',
-            sort: 'popularity',
+        log.info(`Spoonacular search: "${query}" (${resultLimit} results)`);
+        const data = asRecord(await fetchSpoonacular('search', { query, number: resultLimit }));
+        if (!data || !Array.isArray(data.results)) return [];
+        const results: GalleyMeal[] = data.results.slice(0, resultLimit).flatMap((candidate) => {
+            const recipe = asRecord(candidate);
+            const id = recipe?.id;
+            if (
+                !recipe ||
+                typeof id !== 'number' ||
+                !Number.isSafeInteger(id) ||
+                id <= 0 ||
+                typeof recipe.title !== 'string' ||
+                !recipe.title.trim()
+            ) {
+                return [];
+            }
+            const image = boundedProviderText(recipe.image, '', 2_000);
+            const safeProviderImage = safeImageUrl(image);
+            return [
+                {
+                    id,
+                    title: boundedProviderText(recipe.title, 'Untitled recipe', 200),
+                    readyInMinutes: boundedProviderNumber(recipe.readyInMinutes, 30, 1, 7 * 24 * 60),
+                    servings: boundedProviderNumber(recipe.servings, 2, 1, 1_000),
+                    image: safeProviderImage ?? `https://img.spoonacular.com/recipes/${id}-480x360.jpg`,
+                    sourceUrl: safeExternalHttpUrl(boundedProviderText(recipe.sourceUrl, '', 2_000), true) ?? '',
+                    ingredients: parseIngredients(recipe.extendedIngredients),
+                    instructions: parseInstructions(recipe.analyzedInstructions),
+                    source: 'spoonacular' as RecipeSource,
+                },
+            ];
         });
-
-        log.info(`Spoonacular search: "${query}" (${maxResults} results)`);
-        const resp = await fetch(`${API_BASE}/recipes/complexSearch?${params}`);
-        if (!resp.ok) return [];
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data = (await resp.json()) as any;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const results: GalleyMeal[] = (data.results || []).map((r: any) => ({
-            id: r.id,
-            title: r.title,
-            readyInMinutes: r.readyInMinutes || 30,
-            servings: r.servings || 2,
-            image: r.image
-                ? r.image.startsWith('http')
-                    ? r.image
-                    : `https://img.spoonacular.com/recipes/${r.id}-480x360.jpg`
-                : `https://img.spoonacular.com/recipes/${r.id}-480x360.jpg`,
-            sourceUrl: r.sourceUrl || '',
-            ingredients: parseIngredients(r.extendedIngredients || []),
-            instructions: parseInstructions(r.analyzedInstructions || []),
-            source: 'spoonacular' as RecipeSource,
-        }));
 
         // Cache results
         try {
@@ -1474,7 +1520,7 @@ const FAVOURITES_KEY = `${CACHE_PREFIX}favourites`;
 /** Get set of favourite recipe IDs from localStorage */
 export function getFavouriteIds(): Set<string> {
     try {
-        const raw = localStorage.getItem(FAVOURITES_KEY);
+        const raw = localStorage.getItem(authScopedStorageKey(FAVOURITES_KEY));
         if (raw) return new Set(JSON.parse(raw) as string[]);
     } catch {
         /* ignore */
@@ -1492,7 +1538,7 @@ export function toggleFavourite(recipeId: string): boolean {
         favs.add(recipeId);
     }
     try {
-        localStorage.setItem(FAVOURITES_KEY, JSON.stringify([...favs]));
+        localStorage.setItem(authScopedStorageKey(FAVOURITES_KEY), JSON.stringify([...favs]));
     } catch {
         /* storage full */
     }
@@ -1518,13 +1564,7 @@ export interface CreateRecipeInput {
  */
 export async function createCustomRecipe(input: CreateRecipeInput): Promise<StoredRecipe | null> {
     const now = new Date().toISOString();
-    let userId: string | null = null;
-
-    // Get current user ID
-    if (supabase) {
-        const { data } = await supabase.auth.getUser();
-        userId = data.user?.id || null;
-    }
+    const userId = await getCurrentRecipeUserId();
 
     const recipe: StoredRecipe = {
         id: generateUUID(),
@@ -1600,22 +1640,54 @@ export async function updateCustomRecipe(
     const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
     if (existing.length === 0) return null;
 
+    const ownerId = existing[0].user_id;
+    if (ownerId) {
+        const currentUserId = await getCurrentRecipeUserId();
+        if (currentUserId && currentUserId !== ownerId) return null;
+    }
+
     const now = new Date().toISOString();
-    const updated = updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
+    const updated = await updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
         ...patch,
         updated_at: now,
     } as Partial<StoredRecipe>);
 
-    // Sync to Supabase
+    // There are two historical cloud stores for user-authored recipes:
+    // the canonical `recipes` table and the older Captain's Table
+    // `community_recipes` table. Local records intentionally share one
+    // shape and do not carry a cloud-table discriminator, so update both.
+    // RLS limits either update to the current user's matching row and an
+    // unmatched UUID is a no-op.
     if (supabase) {
-        try {
-            await supabase
+        const communityPatch: Record<string, unknown> = {
+            ...(patch.title !== undefined ? { title: patch.title } : {}),
+            ...(patch.image_url !== undefined ? { image_url: patch.image_url || null } : {}),
+            ...(patch.ready_in_minutes !== undefined ? { ready_in_minutes: patch.ready_in_minutes } : {}),
+            ...(patch.servings !== undefined ? { servings: patch.servings } : {}),
+            ...(patch.ingredients !== undefined ? { ingredients: patch.ingredients } : {}),
+            ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+            ...(patch.visibility !== undefined
+                ? { visibility: patch.visibility === 'shared' ? 'community' : 'private' }
+                : {}),
+            ...(patch.instructions !== undefined
+                ? {
+                      instructions: patch.instructions
+                          .split(/\r?\n/)
+                          .map((step) => step.trim())
+                          .filter(Boolean)
+                          .map((step, index) => ({ number: index + 1, step })),
+                  }
+                : {}),
+            updated_at: now,
+        };
+
+        await Promise.allSettled([
+            supabase
                 .from('recipes')
                 .update({ ...patch, updated_at: now })
-                .eq('id', recipeId);
-        } catch {
-            // Offline — local update is primary
-        }
+                .eq('id', recipeId),
+            supabase.from('community_recipes').update(communityPatch).eq('id', recipeId),
+        ]);
     }
 
     return updated;
@@ -1764,12 +1836,24 @@ export async function getSharedRecipes(limit = 50): Promise<StoredRecipe[]> {
 
 export const RECIPE_SHARE_PREFIX = '🍳RECIPE:';
 
+function encodeRecipeSharePart(value: string | number): string {
+    return encodeURIComponent(String(value));
+}
+
 /**
  * Encode a recipe into a chat-shareable string.
  * Format: 🍳RECIPE:id|title|servings|readyMin|imageUrl
  */
 export function encodeRecipeShare(recipe: StoredRecipe): string {
-    return `${RECIPE_SHARE_PREFIX}${recipe.id}|${recipe.title}|${recipe.servings}|${recipe.ready_in_minutes}|${recipe.image_url || ''}`;
+    return `${RECIPE_SHARE_PREFIX}${[
+        recipe.id,
+        recipe.title,
+        recipe.servings,
+        recipe.ready_in_minutes,
+        recipe.image_url || '',
+    ]
+        .map(encodeRecipeSharePart)
+        .join('|')}`;
 }
 
 /**
@@ -1777,32 +1861,77 @@ export function encodeRecipeShare(recipe: StoredRecipe): string {
  * chat-shareable string. Used when sharing from The Captain's Table.
  */
 export function encodeCommunityRecipeShare(recipe: CommunityRecipe): string {
-    return `${RECIPE_SHARE_PREFIX}${recipe.supabaseId}|${recipe.title}|${recipe.servings}|${recipe.readyInMinutes}|${recipe.image || ''}`;
+    return `${RECIPE_SHARE_PREFIX}${[
+        recipe.supabaseId,
+        recipe.title,
+        recipe.servings,
+        recipe.readyInMinutes,
+        recipe.image || '',
+    ]
+        .map(encodeRecipeSharePart)
+        .join('|')}`;
+}
+
+export interface RecipeShareData {
+    recipeId: string;
+    title: string;
+    servings: number;
+    readyInMinutes: number;
+    imageUrl: string;
+}
+
+export interface ParsedRecipeShare {
+    /** Optional sender note placed on the lines before the encoded recipe. */
+    note: string;
+    recipe: RecipeShareData;
+}
+
+function decodeRecipeSharePart(value: string): string {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        // Keep compatibility with older, unescaped share payloads and
+        // malformed percent sequences already stored in chat history.
+        return value;
+    }
+}
+
+/**
+ * Parse a complete chat message containing a recipe token. A sailor may
+ * include a note on the lines before the token; the token itself must begin
+ * a line so ordinary prose mentioning "🍳RECIPE:" is never misclassified.
+ */
+export function parseRecipeShareMessage(message: string): ParsedRecipeShare | null {
+    const lines = message.split(/\r?\n/);
+    const tokenLineIndex = lines.findIndex((line) => line.startsWith(RECIPE_SHARE_PREFIX));
+    if (tokenLineIndex < 0) return null;
+
+    const payload = lines[tokenLineIndex].slice(RECIPE_SHARE_PREFIX.length);
+    const parts = payload.split('|');
+    if (parts.length < 4) return null;
+
+    const recipeId = decodeRecipeSharePart(parts[0]).trim();
+    const title = decodeRecipeSharePart(parts[1]).trim();
+    if (!recipeId || !title) return null;
+
+    return {
+        note: [...lines.slice(0, tokenLineIndex), ...lines.slice(tokenLineIndex + 1)].join('\n').trim(),
+        recipe: {
+            recipeId,
+            title,
+            servings: parseInt(decodeRecipeSharePart(parts[2]), 10) || 4,
+            readyInMinutes: parseInt(decodeRecipeSharePart(parts[3]), 10) || 30,
+            imageUrl: decodeRecipeSharePart(parts[4] || ''),
+        },
+    };
 }
 
 /**
  * Decode a recipe share message back into structured data.
  * Returns null if the message is not a valid recipe share.
  */
-export function decodeRecipeShare(message: string): {
-    recipeId: string;
-    title: string;
-    servings: number;
-    readyInMinutes: number;
-    imageUrl: string;
-} | null {
-    if (!message.startsWith(RECIPE_SHARE_PREFIX)) return null;
-    const payload = message.slice(RECIPE_SHARE_PREFIX.length);
-    const parts = payload.split('|');
-    if (parts.length < 4) return null;
-
-    return {
-        recipeId: parts[0],
-        title: parts[1],
-        servings: parseInt(parts[2], 10) || 4,
-        readyInMinutes: parseInt(parts[3], 10) || 30,
-        imageUrl: parts[4] || '',
-    };
+export function decodeRecipeShare(message: string): RecipeShareData | null {
+    return parseRecipeShareMessage(message)?.recipe ?? null;
 }
 
 /**

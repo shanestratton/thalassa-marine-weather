@@ -6,6 +6,7 @@
  * so lengths/beams/drafts are converted feet → metres.
  */
 import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const USCG_API_BASE = Deno.env.get('USCG_API_URL') ?? 'https://cgmix.uscg.mil/xml';
 const REQUEST_DELAY_MS = 2000;
@@ -17,16 +18,21 @@ export async function scrapeUscg(mmsis: number[]): Promise<number> {
     for (const mmsi of mmsis) {
         try {
             const url = `${USCG_API_BASE}/PSIXData.aspx?MMSI=${mmsi}`;
-            const resp = await fetch(url, {
-                headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
-            });
+            const resp = await fetchWithTimeout(
+                url,
+                {
+                    headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
+                },
+                6_000,
+            );
 
             if (!resp.ok) {
                 console.warn(`[USCG] HTTP ${resp.status} for MMSI ${mmsi}`);
                 continue;
             }
 
-            const text = await resp.text();
+            const text = await readResponseTextLimited(resp, 1_000_000);
+            if (text === null) throw new Error('USCG response exceeded the byte limit');
 
             const extractField = (xml: string, tag: string): string | null => {
                 const match = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`, 'i'));
@@ -50,10 +56,10 @@ export async function scrapeUscg(mmsis: number[]): Promise<number> {
                 data_source: 'USCG',
                 is_verified: true,
             });
-
-            await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
         } catch (e) {
             console.warn(`[USCG] Error scraping MMSI ${mmsi}:`, e);
+        } finally {
+            await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
         }
     }
 

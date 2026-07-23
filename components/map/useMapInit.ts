@@ -15,6 +15,7 @@ import { createPinMarker } from '../../utils/createMarkerEl';
 import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
 import { MBTilesService } from '../../services/MBTilesService';
 import { piCache } from '../../services/PiCacheService';
+import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 
 /**
  * Show/hide the OpenSeaMap raster seamark overlays in one call. Two layers
@@ -1361,7 +1362,18 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         // Recenter listener — always centres on user's location, zoom never wider than Aus+NZ
         const handleRecenter = (e: Event) => {
-            const detail = (e as CustomEvent).detail;
+            const detail = (e as CustomEvent).detail as
+                | {
+                      lat?: number;
+                      lon?: number;
+                      zoom?: number;
+                      identity?: AuthIdentityScope;
+                  }
+                | undefined;
+            // Cross-surface recenter events carry an exact process generation.
+            // Reject legacy/untagged and replayed events: the only producer is
+            // ChatMessageList and coordinates can reveal A's private pin to B.
+            if (!detail?.identity || !isAuthIdentityScopeCurrent(detail.identity)) return;
             const lat = detail?.lat ?? location.lat;
             const lon = detail?.lon ?? location.lon;
             const minZ = map.getMinZoom();

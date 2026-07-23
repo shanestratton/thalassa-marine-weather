@@ -15,6 +15,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
 
 import { createLogger } from '../../utils/createLogger';
+import { safeImageUrl } from '../../utils/safeUrl';
 
 const log = createLogger('SwipeableDiaryCard');
 
@@ -68,13 +69,21 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                 await Promise.all(
                     photoUrls.map(async (url, i) => {
                         try {
+                            const safeUrl = safeImageUrl(
+                                url,
+                                typeof window !== 'undefined' ? window.location.href : undefined,
+                            );
+                            if (!safeUrl) return;
                             let base64: string;
-                            if (url.startsWith('data:')) {
+                            if (safeUrl.startsWith('data:')) {
                                 // data: URI — extract the base64 payload directly
-                                base64 = url.split(',')[1] || '';
+                                base64 = safeUrl.split(',')[1] || '';
                             } else {
                                 // http(s): or blob: — fetch then convert
-                                const resp = await fetch(url);
+                                const resp = await fetch(safeUrl, {
+                                    credentials: 'omit',
+                                    referrerPolicy: 'no-referrer',
+                                });
                                 const blob = await resp.blob();
                                 const reader = new FileReader();
                                 base64 = await new Promise<string>((resolve) => {
@@ -83,7 +92,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                 });
                             }
                             if (!base64) return;
-                            const ext = url.match(/\.(jpe?g|png|webp|gif)/i)?.[1] || 'jpg';
+                            const ext = safeUrl.match(/\.(jpe?g|png|webp|gif)/i)?.[1] || 'jpg';
                             const fileName = `diary_share_${i}.${ext}`;
                             const result = await Filesystem.writeFile({
                                 path: fileName,

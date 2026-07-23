@@ -33,14 +33,26 @@ import { vesselAirDraftMetres } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { NoticeToMarinersService, type Notice } from '../../services/NoticeToMarinersService';
 import { createLogger } from '../../utils/createLogger';
+import { safeExternalHttpUrl } from '../../utils/safeUrl';
 
 const log = createLogger('useNoticeLayer');
 
 const BROADCAST_MIN_ZOOM = 6;
 const BROADCAST_CAP = 60;
 
-function esc(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function esc(value: unknown): string {
+    let text = '';
+    try {
+        text = String(value ?? '');
+    } catch {
+        return '';
+    }
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function chipEl(kind: 'local' | 'broadcast'): HTMLDivElement {
@@ -59,10 +71,11 @@ function chipEl(kind: 'local' | 'broadcast'): HTMLDivElement {
     return el;
 }
 
-function localPopupHtml(n: LocalNotice): string {
+export function localNoticePopupHtml(n: LocalNotice): string {
     const tag = n.permanent ? 'STANDING NOTICE' : (n.issued ?? 'NOTICE');
-    const src = n.sourceUrl
-        ? `<a href="${esc(n.sourceUrl)}" target="_blank" rel="noopener" style="color:#38bdf8;text-decoration:underline;">${esc(n.sourceName ?? 'Current notices')}</a>`
+    const sourceUrl = safeExternalHttpUrl(n.sourceUrl, true);
+    const src = sourceUrl
+        ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#38bdf8;text-decoration:underline;">${esc(n.sourceName ?? 'Current notices')}</a>`
         : '';
     return `
       <div style="font-family:inherit;color:#e2e8f0;max-width:250px;">
@@ -74,22 +87,28 @@ function localPopupHtml(n: LocalNotice): string {
       </div>`;
 }
 
-function qldGroupPopupHtml(label: string, group: readonly QldNotice[]): string {
+export function qldNoticeGroupPopupHtml(label: string, group: readonly QldNotice[]): string {
     const items = group
         .slice(0, 4)
-        .map(
-            (n) => `
+        .map((n) => {
+            const pdfUrl = safeExternalHttpUrl(n.pdfUrl, true);
+            return pdfUrl
+                ? `
         <div style="margin-bottom:7px;">
-          <a href="${esc(n.pdfUrl)}" target="_blank" rel="noopener" style="color:#38bdf8;text-decoration:underline;font-size:12px;font-weight:700;">${esc(n.number)}</a>
+          <a href="${esc(pdfUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#38bdf8;text-decoration:underline;font-size:12px;font-weight:700;">${esc(n.number)}</a>
           <span style="font-size:10px;color:#64748b;"> · ${esc(n.dateStr)}</span>
           <div style="font-size:11px;color:#cbd5e1;">${esc(n.subject)}</div>
-        </div>`,
-        )
+        </div>`
+                : '';
+        })
         .join('');
+    const datasetUrl = safeExternalHttpUrl(group[0]?.datasetUrl, true);
     const more =
-        group.length > 4
-            ? `<div style="font-size:10px;"><a href="${esc(group[0].datasetUrl)}" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:underline;">+${group.length - 4} more — all ${esc(group[0].region)} notices</a></div>`
-            : `<div style="font-size:10px;"><a href="${esc(group[0].datasetUrl)}" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:underline;">All ${esc(group[0].region)} notices</a></div>`;
+        datasetUrl && group.length > 4
+            ? `<div style="font-size:10px;"><a href="${esc(datasetUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#94a3b8;text-decoration:underline;">+${group.length - 4} more — all ${esc(group[0].region)} notices</a></div>`
+            : datasetUrl
+              ? `<div style="font-size:10px;"><a href="${esc(datasetUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color:#94a3b8;text-decoration:underline;">All ${esc(group[0].region)} notices</a></div>`
+              : '';
     return `
       <div style="font-family:inherit;color:#e2e8f0;max-width:260px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#fcd34d;margin-bottom:2px;">📄 NOTICES TO MARINERS — MSQ</div>
@@ -195,7 +214,8 @@ function bridgePopupHtml(b: LowBridge, airDraftM: number | null): string {
 }
 
 function broadcastPopupHtml(n: Notice): string {
-    const body = n.text.length > 700 ? `${n.text.slice(0, 700)}…` : n.text;
+    const text = typeof n.text === 'string' ? n.text : '';
+    const body = text.length > 700 ? `${text.slice(0, 700)}…` : text;
     return `
       <div style="font-family:inherit;color:#e2e8f0;max-width:250px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#94a3b8;margin-bottom:2px;">📄 ${esc(n.areaLabel)} ${esc(String(n.msgNumber))}/${esc(String(n.msgYear))}</div>
@@ -253,7 +273,7 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 el.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     void (async () => {
-                        let html = qldGroupPopupHtml(label, group);
+                        let html = qldNoticeGroupPopupHtml(label, group);
                         let status: NtmPackStatus | null = null;
                         if (pack) {
                             status = await ntmPackStatus(pack);
@@ -326,7 +346,7 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 const el = chipEl('local');
                 el.addEventListener('click', (ev) => {
                     ev.stopPropagation();
-                    popupAt(n.lon, n.lat, localPopupHtml(n));
+                    popupAt(n.lon, n.lat, localNoticePopupHtml(n));
                 });
                 localMarkersRef.current.push(
                     new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([n.lon, n.lat]).addTo(map),

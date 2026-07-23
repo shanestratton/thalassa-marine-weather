@@ -28,24 +28,50 @@ import { SwipeableInventoryCard } from './inventory/SwipeableInventoryCard';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
 
 interface InventoryListProps {
     onBack: () => void;
 }
 
+interface ScopedInventoryData {
+    identity: AuthIdentityScope;
+    items: InventoryItem[];
+    stats: { totalItems: number; totalQuantity: number; lowStock: number } | null;
+}
+
 // SwipeableInventoryCard now in ./inventory/SwipeableInventoryCard.tsx
 
 export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
-    const [items, setItems] = useState<InventoryItem[]>([]);
+    const [inventoryData, setInventoryData] = useState<ScopedInventoryData>(() => ({
+        identity: getAuthIdentityScope(),
+        items: [],
+        stats: null,
+    }));
+    const inventoryDataIsCurrent = isAuthIdentityScopeCurrent(inventoryData.identity);
+    const items = useMemo(
+        () => (inventoryDataIsCurrent ? inventoryData.items : []),
+        [inventoryData.items, inventoryDataIsCurrent],
+    );
+    const stats = inventoryDataIsCurrent ? inventoryData.stats : null;
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [stats, setStats] = useState<{ totalItems: number; totalQuantity: number; lowStock: number } | null>(null);
+    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
 
     // Header 3-dot menu
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
     const headerMenuRef = useRef<HTMLDivElement>(null);
+    const loadRequestRef = useRef(0);
 
     // Category export picker
     const [showExportPicker, setShowExportPicker] = useState(false);
@@ -53,23 +79,36 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [exportMode, setExportMode] = useState<'download' | 'share'>('download');
 
     // ── Load data ──
-    const loadItems = useCallback(async () => {
+    const loadItems = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope()) => {
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        const requestId = ++loadRequestRef.current;
+        const isCurrentRequest = () => requestId === loadRequestRef.current && isAuthIdentityScopeCurrent(identity);
+        setLoading(true);
         try {
-            // Only deduplicate if we haven't already done so this session
-            const dedupKey = 'thalassa_inventory_deduped';
+            // Auth scope changes before LocalDatabase starts its asynchronous
+            // file switch. Join that exact switch before any synchronous read,
+            // otherwise B could momentarily receive A's still-mounted cache.
+            await initLocalDatabase(identity.userId);
+            if (!isCurrentRequest()) return;
+            // Deduplication is a per-account migration. A global marker allowed
+            // the first signed-in sailor to suppress it for every later one.
+            const dedupKey = authScopedStorageKey('thalassa_inventory_deduped', identity);
             if (!localStorage.getItem(dedupKey)) {
                 await InventoryService.deduplicateByName();
+                if (!isCurrentRequest()) return;
                 localStorage.setItem(dedupKey, '1');
             }
             const data = await InventoryService.getAll();
-            setItems(data);
-            const s = await InventoryService.getStats();
-            setStats(s);
+            if (!isCurrentRequest()) return;
+            const nextStats = await InventoryService.getStats();
+            if (!isCurrentRequest()) return;
+            setInventoryData({ identity, items: data, stats: nextStats });
         } catch (e) {
             log.warn(' load failed:', e);
-            toast.error('Failed to load stores');
+            if (isCurrentRequest()) toast.error('Failed to load stores');
+        } finally {
+            if (isCurrentRequest()) setLoading(false);
         }
-        setLoading(false);
     }, []);
 
     useEffect(() => {
@@ -83,7 +122,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     // ── Filtered + grouped items ──
     const filtered = useMemo(() => {
-        let result = items;
+        let result = [...items];
 
         // Search filter (client-side for instant response)
         if (searchQuery.trim()) {
@@ -109,23 +148,36 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     // ── Export/Share by category (PDF) ──
     const handleExport = useCallback(
-        async (mode: 'download' | 'share', categories: Set<InventoryCategory>) => {
+        async (
+            mode: 'download' | 'share',
+            categories: Set<InventoryCategory>,
+            identity: AuthIdentityScope = getAuthIdentityScope(),
+        ) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            const exportItems = items.map((item) => ({ ...item }));
+            const exportCategorySnapshot = new Set(categories);
             try {
-                const opts = { items, categories, vesselName: undefined as string | undefined };
+                const opts = {
+                    items: exportItems,
+                    categories: exportCategorySnapshot,
+                    vesselName,
+                };
                 if (mode === 'share') {
                     await shareInventoryPdf(opts);
                 } else {
                     await downloadInventoryPdf(opts);
+                    if (!isAuthIdentityScopeCurrent(identity)) return;
                     toast.success('Inventory PDF downloaded');
                 }
             } catch (e) {
                 log.warn(' Export failed:', e);
-                toast.error('Export failed');
+                if (isAuthIdentityScopeCurrent(identity)) toast.error('Export failed');
             }
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowExportPicker(false);
             setExportCategories(new Set());
         },
-        [items],
+        [items, vesselName],
     );
 
     const toggleExportCategory = useCallback((cat: InventoryCategory) => {
@@ -147,44 +199,62 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     );
 
     const [_deleteTargetId, _setDeleteTargetId] = useState<string | null>(null);
-    const [deletedItem, setDeletedItem] = useState<InventoryItem | null>(null);
+    const [deletedItem, setDeletedItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
 
     // ── Soft-delete with undo ──
-    const handleDelete = (id: string) => {
+    const handleDelete = (id: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
         const item = items.find((i) => i.id === id);
-        if (!item) return;
+        if (!item || !isAuthIdentityScopeCurrent(identity)) return;
         triggerHaptic('medium');
         // Remove from UI immediately
-        setItems((prev) => prev.filter((i) => i.id !== id));
+        setInventoryData((previous) =>
+            isAuthIdentityScopeCurrent(identity) &&
+            previous.identity.key === identity.key &&
+            previous.identity.generation === identity.generation
+                ? { ...previous, items: previous.items.filter((candidate) => candidate.id !== id) }
+                : previous,
+        );
         setExpandedId(null);
-        setDeletedItem(item);
+        setDeletedItem({ identity, item });
     };
 
     // Called by UndoToast after 5s — performs the actual API delete
     const handleDismissDelete = async () => {
         if (!deletedItem) return;
-        const item = deletedItem;
+        const { identity, item } = deletedItem;
         setDeletedItem(null);
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
             await InventoryService.delete(item.id);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
         } catch (e) {
             log.warn(' delete failed:', e);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             toast.error('Failed to delete item');
             // Restore item on failure
-            setItems((prev) => [...prev, item]);
+            setInventoryData((previous) =>
+                previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                    ? { ...previous, items: [...previous.items, item] }
+                    : previous,
+            );
         }
     };
 
     const handleUndoDelete = () => {
-        if (deletedItem) {
-            setItems((prev) => [...prev, deletedItem]);
+        if (deletedItem && isAuthIdentityScopeCurrent(deletedItem.identity)) {
+            const { identity, item } = deletedItem;
+            setInventoryData((previous) =>
+                previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                    ? { ...previous, items: [...previous.items, item] }
+                    : previous,
+            );
             toast.success('Item restored');
         }
         setDeletedItem(null);
     };
 
     // ── Edit item ──
-    const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+    const [editItem, setEditItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
     const [editName, setEditName] = useState('');
     const [editCategory, setEditCategory] = useState<InventoryCategory>('Provisions');
     const [editQty, setEditQty] = useState(1);
@@ -195,8 +265,37 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editExpiry, setEditExpiry] = useState('');
     const [editBarcode, setEditBarcode] = useState('');
 
-    const openEdit = (item: InventoryItem) => {
-        setEditItem(item);
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope((next) => {
+                setInventoryData({ identity: next, items: [], stats: null });
+                setLoading(true);
+                setSearchQuery('');
+                setShowScanner(false);
+                setExpandedId(null);
+                setHeaderMenuOpen(false);
+                setShowExportPicker(false);
+                setExportCategories(new Set());
+                setExportMode('download');
+                setDeletedItem(null);
+                setEditItem(null);
+                setEditName('');
+                setEditCategory('Provisions');
+                setEditQty(1);
+                setEditMinQty(0);
+                setEditZone('');
+                setEditSpecific('');
+                setEditDescription('');
+                setEditExpiry('');
+                setEditBarcode('');
+                void loadItems(next);
+            }),
+        [loadItems],
+    );
+
+    const openEdit = (item: InventoryItem, identity: AuthIdentityScope = getAuthIdentityScope()) => {
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        setEditItem({ identity, item });
         setEditName(item.item_name);
         setEditCategory(item.category);
         setEditQty(item.quantity);
@@ -210,47 +309,80 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     const handleSaveEdit = async () => {
         if (!editItem || !editName.trim()) return;
+        const { identity, item } = editItem;
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        const itemId = item.id;
+        const updates = {
+            item_name: editName,
+            category: editCategory,
+            quantity: editQty,
+            min_quantity: editMinQty,
+            barcode: editBarcode || null,
+            location_zone: editZone || null,
+            location_specific: editSpecific || null,
+            description: editDescription || null,
+            expiry_date: editExpiry || null,
+        };
         try {
-            const updated = await InventoryService.update(editItem.id, {
-                item_name: editName,
-                category: editCategory,
-                quantity: editQty,
-                min_quantity: editMinQty,
-                barcode: editBarcode || null,
-                location_zone: editZone || null,
-                location_specific: editSpecific || null,
-                description: editDescription || null,
-                expiry_date: editExpiry || null,
-            });
-            if (updated) setItems((prev) => prev.map((i) => (i.id === editItem.id ? updated : i)));
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            const updated = await InventoryService.update(itemId, updates);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (updated) {
+                setInventoryData((previous) =>
+                    previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                        ? {
+                              ...previous,
+                              items: previous.items.map((item) => (item.id === itemId ? updated : item)),
+                          }
+                        : previous,
+                );
+            }
             setEditItem(null);
             triggerHaptic('medium');
             toast.success('Item updated');
             flash();
         } catch (e) {
             log.warn(' edit failed:', e);
-            toast.error('Failed to update item');
+            if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update item');
         }
     };
 
     // ── Quick quantity adjustment ──
-    const handleQuantityAdjust = async (id: string, delta: number) => {
+    const handleQuantityAdjust = async (
+        id: string,
+        delta: number,
+        identity: AuthIdentityScope = getAuthIdentityScope(),
+    ) => {
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         triggerHaptic('light');
         try {
             const updated = await InventoryService.adjustQuantity(id, delta);
-            if (updated) setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (updated) {
+                setInventoryData((previous) =>
+                    previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                        ? {
+                              ...previous,
+                              items: previous.items.map((item) => (item.id === id ? updated : item)),
+                          }
+                        : previous,
+                );
+            }
         } catch (e) {
             log.warn(' qty adjust failed:', e);
-            toast.error('Failed to update quantity');
+            if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update quantity');
         }
     };
 
-    if (showScanner) {
+    if (showScanner && inventoryDataIsCurrent) {
+        const scannerIdentity = inventoryData.identity;
         return (
             <InventoryScanner
-                onClose={() => setShowScanner(false)}
+                onClose={() => {
+                    if (isAuthIdentityScopeCurrent(scannerIdentity)) setShowScanner(false);
+                }}
                 onItemSaved={() => {
-                    loadItems();
+                    void loadItems(scannerIdentity);
                 }}
                 startInManualMode
             />
@@ -411,9 +543,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             item={item}
                                             isExpanded={expandedId === item.id}
                                             onTap={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                                            onDelete={() => handleDelete(item.id)}
-                                            onEdit={() => openEdit(item)}
-                                            onQuantityAdjust={handleQuantityAdjust}
+                                            onDelete={() => handleDelete(item.id, inventoryData.identity)}
+                                            onEdit={() => openEdit(item, inventoryData.identity)}
+                                            onQuantityAdjust={(id, delta) =>
+                                                handleQuantityAdjust(id, delta, inventoryData.identity)
+                                            }
                                         />
                                     ))}
                                 </div>
@@ -501,14 +635,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     aria-label="Scan barcode with camera"
                                     type="button"
                                     onClick={async () => {
+                                        const identity = editItem.identity;
+                                        if (!isAuthIdentityScopeCurrent(identity)) return;
                                         if (Capacitor.isNativePlatform()) {
                                             try {
                                                 const { BarcodeScanner, BarcodeFormat } =
                                                     await import('../../services/native/dataScanner');
+                                                if (!isAuthIdentityScopeCurrent(identity)) return;
                                                 const { camera } = await BarcodeScanner.checkPermissions();
+                                                if (!isAuthIdentityScopeCurrent(identity)) return;
                                                 if (camera !== 'granted') {
                                                     const r = await BarcodeScanner.requestPermissions();
-                                                    if (r.camera !== 'granted') return;
+                                                    if (r.camera !== 'granted' || !isAuthIdentityScopeCurrent(identity))
+                                                        return;
                                                 }
                                                 const { barcodes } = await BarcodeScanner.scan({
                                                     formats: [
@@ -521,6 +660,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                         BarcodeFormat.QrCode,
                                                     ],
                                                 });
+                                                if (!isAuthIdentityScopeCurrent(identity)) return;
                                                 if (barcodes.length > 0 && barcodes[0].rawValue) {
                                                     setEditBarcode(barcodes[0].rawValue);
                                                     triggerHaptic('medium');
@@ -611,7 +751,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             <UndoToast
                 isOpen={!!deletedItem}
-                message={`"${deletedItem?.item_name}" deleted`}
+                message={`"${deletedItem?.item.item_name}" deleted`}
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
             />
@@ -659,7 +799,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     </div>
                     <button
                         aria-label="Export inventory PDF"
-                        onClick={() => handleExport(exportMode, exportCategories)}
+                        onClick={() => handleExport(exportMode, exportCategories, inventoryData.identity)}
                         className="w-full py-3 bg-gradient-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
                     >
                         {exportMode === 'share' ? 'Share' : 'Download'}{' '}

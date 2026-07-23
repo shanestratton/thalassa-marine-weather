@@ -65,6 +65,12 @@ async function openPlaylistDetails() {
     return { tile, dialog: await screen.findByRole('dialog', { name: 'Harbour Mix' }) };
 }
 
+function expectModalBodyPortal(element: HTMLElement) {
+    const portal = element.closest<HTMLElement>('[data-overlay-layer="modal"]');
+    expect(portal?.parentElement).toBe(document.body);
+    expect(portal).toHaveStyle({ zIndex: '1100' });
+}
+
 describe('MusicPage modal accessibility', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -91,6 +97,7 @@ describe('MusicPage modal accessibility', () => {
         });
         expect(closeDetails).toHaveFocus();
         expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expectModalBodyPortal(dialog);
 
         expect(
             await screen.findByRole('button', {
@@ -103,7 +110,9 @@ describe('MusicPage modal accessibility', () => {
         fireEvent.click(addTracks);
 
         const search = await screen.findByRole('textbox', { name: 'Search Apple Music catalog' });
-        expect(screen.getByRole('dialog', { name: 'Add tracks' })).toHaveAccessibleDescription('to "Harbour Mix"');
+        const addTracksDialog = screen.getByRole('dialog', { name: 'Add tracks' });
+        expect(addTracksDialog).toHaveAccessibleDescription('to "Harbour Mix"');
+        expectModalBodyPortal(addTracksDialog);
         expect(screen.queryByRole('dialog', { name: 'Harbour Mix' })).not.toBeInTheDocument();
         expect(search).toHaveFocus();
 
@@ -126,6 +135,7 @@ describe('MusicPage modal accessibility', () => {
             name: 'Cancel deleting Harbour Mix playlist',
         });
         expect(alert).toHaveAccessibleDescription(/remove "Harbour Mix"/);
+        expectModalBodyPortal(alert);
         expect(screen.queryByRole('dialog', { name: 'Harbour Mix' })).not.toBeInTheDocument();
         expect(cancelDelete).toHaveFocus();
 
@@ -147,6 +157,7 @@ describe('MusicPage modal accessibility', () => {
         const dialog = await screen.findByRole('dialog', { name: 'New playlist' });
         const name = screen.getByRole('textbox', { name: 'Playlist name' });
         expect(dialog).toHaveAccessibleDescription(/Give it a name/);
+        expectModalBodyPortal(dialog);
         expect(name).toHaveFocus();
 
         fireEvent.change(name, { target: { value: 'Night Watch' } });

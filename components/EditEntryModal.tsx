@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShipLogEntry } from '../types';
 import { useFocusTrap } from '../hooks/useAccessibility';
+import { OverlayPortal } from './ui/OverlayPortal';
 
 interface EditEntryModalProps {
     isOpen: boolean;
@@ -48,8 +49,8 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     return (
-        <div
-            className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80"
+        <OverlayPortal
+            className="flex items-end sm:items-center justify-center bg-black/80"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
@@ -152,6 +153,6 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                     </div>
                 </form>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

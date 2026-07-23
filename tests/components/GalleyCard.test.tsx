@@ -19,17 +19,35 @@ vi.mock('../../services/MealPlanService', () => ({
 vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
 
 import { GalleyCard } from '../../components/chat/GalleyCard';
+import type { PassageStatus } from '../../services/PassagePlanService';
+
+const ownerPassageStatus: PassageStatus = {
+    visible: true,
+    voyageId: 'voyage-1',
+    ownerUserId: 'owner-1',
+    isOwner: true,
+    canEditStores: true,
+    canViewMeals: true,
+    canViewChat: true,
+    canViewRoute: true,
+    canViewChecklist: true,
+};
 
 describe('GalleyCard', () => {
     beforeEach(() => vi.clearAllMocks());
 
     it('renders without crashing', () => {
-        const { container } = render(<GalleyCard onOpenCookingMode={vi.fn()} />);
+        const { container } = render(<GalleyCard passageStatus={ownerPassageStatus} onOpenCookingMode={vi.fn()} />);
         expect(container).toBeDefined();
     });
 
     it('renders content', () => {
-        const { container } = render(<GalleyCard onOpenCookingMode={vi.fn()} />);
+        const { container } = render(<GalleyCard passageStatus={ownerPassageStatus} onOpenCookingMode={vi.fn()} />);
         expect(container.innerHTML.length).toBeGreaterThan(0);
+    });
+
+    it('fails closed when passage access has not been verified', () => {
+        const { container } = render(<GalleyCard onOpenCookingMode={vi.fn()} />);
+        expect(container).toBeEmptyDOMElement();
     });
 });

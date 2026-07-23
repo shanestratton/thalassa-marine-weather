@@ -23,6 +23,8 @@ import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { ChatService } from '../../services/ChatService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
@@ -131,11 +133,13 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
 
     const handleCastOff = useCallback(async () => {
         if (!selected || !safetyConfirmed) return;
+        const operationScope = getAuthIdentityScope();
         setCasting(true);
         setError('');
         triggerHaptic('heavy');
 
         const result = await castOff(selected.id);
+        if (!isAuthIdentityScopeCurrent(operationScope)) return;
         if (result.ok && result.voyage) {
             setActiveVoyage(result.voyage);
 
@@ -148,13 +152,16 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             // (the exact bug that motivated this change).
             try {
                 const { ShipLogService } = await import('../../services/ShipLogService');
-                await ShipLogService.startTracking(false, result.voyage.id);
+                if (!isAuthIdentityScopeCurrent(operationScope)) return;
+                await ShipLogService.startTracking(false, result.voyage.id, operationScope);
             } catch (e) {
+                if (!isAuthIdentityScopeCurrent(operationScope)) return;
                 console.warn('[CastOffPanel] auto-start tracking failed:', e);
                 /* best effort — user can still start tracking manually
                    from LogPage. The voyage is already cast off. */
             }
 
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             setStep('active');
             onCastOff?.(result.voyage);
         } else {
@@ -212,7 +219,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     }, []);
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-stretch justify-center" role="presentation">
+        <OverlayPortal className="bg-black/80 flex items-stretch justify-center" role="presentation">
             <div
                 ref={dialogRef}
                 role="dialog"
@@ -714,6 +721,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     </div>
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

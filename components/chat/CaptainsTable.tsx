@@ -34,6 +34,8 @@ import { triggerHaptic } from '../../utils/system';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { toast } from '../Toast';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { SafeImage } from '../ui/SafeImage';
 
 // ── Group accent palette — quieter, no pulse shadows ──
 // Active state retains the group hue so the user knows what they tapped;
@@ -251,13 +253,9 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     const instructions = (recipe.instructions || []) as RecipeStep[];
 
     return (
-        // z-[1000] keeps RecipeDetail above the ChildCard portal (z-50)
-        // and the MealCalendar Recipe Library shell (z-955) so neither
-        // of those back chevrons leak through and absorb taps meant
-        // for our close button. We also add a matching top-left back
-        // chevron — see CustomRecipeForm for the same fix.
-        <div
-            className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
+        <OverlayPortal
+            layer="nested"
+            className="flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
         >
@@ -275,7 +273,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                     for users who reach there. Both call onClose. */}
                 {recipe.image && !imageBroken ? (
                     <div className="relative">
-                        <img
+                        <SafeImage
                             src={recipe.image}
                             alt={recipe.title}
                             className="w-full h-48 object-cover rounded-t-3xl"
@@ -544,7 +542,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                     )}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 
@@ -1014,7 +1012,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         {/* Thumbnail with galley light filter */}
                                         {recipe.image && !brokenImageIds.has(recipe.supabaseId) ? (
                                             <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden relative">
-                                                <img
+                                                <SafeImage
                                                     src={recipe.image}
                                                     alt=""
                                                     className="w-full h-full object-cover"

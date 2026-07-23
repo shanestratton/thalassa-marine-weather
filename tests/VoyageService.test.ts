@@ -2,6 +2,7 @@
  * VoyageService — offline cache + type tests
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
 // Mock supabase
 vi.mock('../services/supabase', () => ({ supabase: null }));
@@ -11,6 +12,8 @@ import { getCachedActiveVoyage, type Voyage, type VoyageStatus } from '../servic
 describe('VoyageService', () => {
     beforeEach(() => {
         localStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('u-1');
     });
 
     describe('getCachedActiveVoyage', () => {
@@ -135,14 +138,30 @@ describe('VoyageService', () => {
                 updated_at: '',
             };
             localStorage.setItem('thalassa_active_voyage', JSON.stringify(voyage));
-            localStorage.setItem('thalassa_user_id', 'u-1'); // Owner
             const { isWeatherMaster } = await import('../services/VoyageService');
             const result = await isWeatherMaster();
             expect(result).toBe(true); // Owner always has access
         });
 
         it('getDraftVoyages returns cached drafts when offline', async () => {
-            const drafts = [{ id: 'v-1', voyage_name: 'Draft 1', status: 'planning' }];
+            const drafts: Voyage[] = [
+                {
+                    id: 'v-1',
+                    user_id: 'u-1',
+                    vessel_id: null,
+                    voyage_name: 'Draft 1',
+                    departure_port: null,
+                    destination_port: null,
+                    departure_time: null,
+                    eta: null,
+                    crew_count: 2,
+                    status: 'planning',
+                    weather_master_id: 'u-1',
+                    notes: null,
+                    created_at: '2026-03-20T00:00:00Z',
+                    updated_at: '2026-03-20T00:00:00Z',
+                },
+            ];
             localStorage.setItem('thalassa_draft_voyages', JSON.stringify(drafts));
             const { getDraftVoyages } = await import('../services/VoyageService');
             const result = await getDraftVoyages();
@@ -154,6 +173,41 @@ describe('VoyageService', () => {
             const { getDraftVoyages } = await import('../services/VoyageService');
             const result = await getDraftVoyages();
             expect(result).toEqual([]);
+        });
+
+        it('never exposes one account’s scoped voyage cache to another account', async () => {
+            const voyage: Voyage = {
+                id: 'voyage-a',
+                user_id: 'u-1',
+                vessel_id: null,
+                voyage_name: 'Private A voyage',
+                departure_port: null,
+                destination_port: null,
+                departure_time: null,
+                eta: null,
+                crew_count: 2,
+                status: 'active',
+                weather_master_id: 'u-1',
+                notes: null,
+                created_at: '2026-03-20T00:00:00Z',
+                updated_at: '2026-03-20T00:00:00Z',
+            };
+            localStorage.setItem(authScopedStorageKey('thalassa_active_voyage'), JSON.stringify(voyage));
+
+            setAuthIdentityScope('u-2');
+
+            expect(getCachedActiveVoyage()).toBeNull();
+            expect(await (await import('../services/VoyageService')).getActiveVoyage()).toBeNull();
+        });
+
+        it('does not guess ownership of an unattributable legacy draft', async () => {
+            localStorage.setItem(
+                'thalassa_draft_voyages',
+                JSON.stringify([{ id: 'legacy', voyage_name: 'Unknown owner', status: 'planning' }]),
+            );
+
+            const { getDraftVoyages } = await import('../services/VoyageService');
+            expect(await getDraftVoyages()).toEqual([]);
         });
     });
 });

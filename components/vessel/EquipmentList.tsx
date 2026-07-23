@@ -5,13 +5,14 @@
  *   - SwipeableEquipmentCard: swipe-to-delete card with warranty status
  *   - EquipmentDetail: full detail view with specs and warranty
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('EquipmentList');
 import { createPortal } from 'react-dom';
 import type { EquipmentItem, EquipmentCategory } from '../../types';
 import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentService';
+import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
@@ -28,6 +29,12 @@ import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SwipeableEquipmentCard, CATEGORIES, CATEGORY_ICONS } from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -38,7 +45,9 @@ interface EquipmentListProps {
 // ── Main Component ────────────────────────────────────────────
 
 export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
+    const initialScope = getAuthIdentityScope();
     const [items, setItems] = useState<EquipmentItem[]>([]);
+    const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
@@ -67,22 +76,71 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     // 3-dot menu state
     const [menuOpen, setMenuOpen] = useState(false);
+    const [deletedItem, setDeletedItem] = useState<EquipmentItem | null>(null);
+    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const mountedRef = useRef(true);
+
+    const currentOperation = useCallback(
+        (scope: AuthIdentityScope) =>
+            mountedRef.current && isAuthIdentityScopeCurrent(scope) && dataScopeKey === scope.key,
+        [dataScopeKey],
+    );
 
     // ── Load ──
     const loadItems = useCallback(() => {
+        const scope = getAuthIdentityScope();
         setLoading(true);
         try {
-            setItems(LocalEquipmentService.getAll());
+            const loaded = LocalEquipmentService.getAll();
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setDataScopeKey(scope.key);
+            setItems(loaded);
         } catch (e) {
             log.error('Failed to load equipment:', e);
-            toast.error('Failed to load equipment');
+            if (isAuthIdentityScopeCurrent(scope)) toast.error('Failed to load equipment');
         } finally {
-            setLoading(false);
+            if (isAuthIdentityScopeCurrent(scope)) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
+        mountedRef.current = true;
         loadItems();
+        const unsubscribe = subscribeAuthIdentityScope((next) => {
+            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+            if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+            deleteTimerRef.current = null;
+            setDataScopeKey(next.key);
+            setItems([]);
+            setLoading(true);
+            setSearchQuery('');
+            setSelectedItem(null);
+            setShowAddForm(false);
+            setShowEditForm(false);
+            setContextItem(null);
+            setMenuOpen(false);
+            setDeletedItem(null);
+            setNewName('');
+            setNewCategory('Propulsion');
+            setNewMake('');
+            setNewModel('');
+            setNewSerial('');
+            setNewInstallDate('');
+            setNewWarrantyExpiry('');
+            setNewNotes('');
+            reloadTimerRef.current = setTimeout(() => {
+                if (isAuthIdentityScopeCurrent(next)) loadItems();
+            }, 0);
+        });
+        return () => {
+            mountedRef.current = false;
+            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+            if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+            deleteTimerRef.current = null;
+            reloadTimerRef.current = null;
+            unsubscribe();
+        };
     }, [loadItems]);
 
     // Realtime sync — crew edits appear instantly
@@ -93,7 +151,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     // ── Filtered + grouped items ──
     const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
 
-    const filteredItems = items
+    const visibleItems = useMemo(
+        () => (dataScopeKey === getAuthIdentityScope().key ? items : []),
+        [dataScopeKey, items],
+    );
+    const filteredItems = visibleItems
         .filter((i) => {
             if (!searchQuery.trim()) return true;
             const q = searchQuery.toLowerCase();
@@ -120,19 +182,22 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     // ── Handlers ──
     const handleAdd = useCallback(async () => {
         if (!newName.trim()) return;
+        const scope = getAuthIdentityScope();
+        const input = {
+            equipment_name: newName.trim(),
+            category: newCategory,
+            make: newMake.trim(),
+            model: newModel.trim(),
+            serial_number: newSerial.trim(),
+            installation_date: newInstallDate || null,
+            warranty_expiry: newWarrantyExpiry || null,
+            manual_uri: null,
+            notes: newNotes.trim() || null,
+        };
         try {
             triggerHaptic('medium');
-            await LocalEquipmentService.create({
-                equipment_name: newName.trim(),
-                category: newCategory,
-                make: newMake.trim(),
-                model: newModel.trim(),
-                serial_number: newSerial.trim(),
-                installation_date: newInstallDate || null,
-                warranty_expiry: newWarrantyExpiry || null,
-                manual_uri: null,
-                notes: newNotes.trim() || null,
-            });
+            await LocalEquipmentService.create(input);
+            if (!currentOperation(scope)) return;
             setShowAddForm(false);
             setNewName('');
             setNewMake('');
@@ -146,17 +211,15 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             flash();
         } catch (e) {
             log.error('Failed to add equipment:', e);
-            toast.error('Failed to add equipment');
+            if (currentOperation(scope)) toast.error('Failed to add equipment');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 
-    const [deletedItem, setDeletedItem] = useState<EquipmentItem | null>(null);
-    const deleteTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
     const handleDelete = useCallback(
         (id: string) => {
-            const item = items.find((i) => i.id === id);
+            const scope = getAuthIdentityScope();
+            const item = visibleItems.find((i) => i.id === id);
             if (!item) return;
             triggerHaptic('medium');
             // Remove from UI immediately
@@ -168,55 +231,67 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             // Schedule actual delete after 5s
             if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
             deleteTimerRef.current = setTimeout(async () => {
+                if (!currentOperation(scope)) return;
                 try {
                     await LocalEquipmentService.delete(id);
                 } catch (e) {
                     log.warn(' delete failed:', e);
-                    toast.error('Failed to delete equipment');
-                    setItems((prev) => [...prev, item]);
+                    if (currentOperation(scope)) {
+                        toast.error('Failed to delete equipment');
+                        setItems((prev) => [...prev, item]);
+                    }
                 }
-                setDeletedItem(null);
+                if (currentOperation(scope)) setDeletedItem(null);
             }, 5000);
         },
-        [items],
+        [currentOperation, visibleItems],
     );
 
     const handleUndoDelete = useCallback(() => {
+        const scope = getAuthIdentityScope();
+        if (!currentOperation(scope)) return;
         if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
         if (deletedItem) {
             setItems((prev) => [...prev, deletedItem]);
             toast.success('Equipment restored');
         }
         setDeletedItem(null);
-    }, [deletedItem]);
+    }, [currentOperation, deletedItem]);
 
     const handleCopySerial = (serial: string) => {
+        const scope = getAuthIdentityScope();
         navigator.clipboard
             .writeText(serial)
             .then(() => {
-                triggerHaptic('light');
-                toast.success('Serial number copied');
+                if (currentOperation(scope)) {
+                    triggerHaptic('light');
+                    toast.success('Serial number copied');
+                }
             })
             .catch((e) => {
                 log.warn(`[EquipmentList]`, e);
-                toast.error('Could not copy — copy it manually.');
+                if (currentOperation(scope)) toast.error('Could not copy — copy it manually.');
             });
     };
 
     const handleSaveEdit = useCallback(async () => {
         if (!selectedItem || !newName.trim()) return;
+        const scope = getAuthIdentityScope();
+        const itemId = selectedItem.id;
+        const updates = {
+            equipment_name: newName.trim(),
+            category: newCategory,
+            make: newMake.trim(),
+            model: newModel.trim(),
+            serial_number: newSerial.trim(),
+            installation_date: newInstallDate || null,
+            warranty_expiry: newWarrantyExpiry || null,
+            notes: newNotes.trim() || null,
+        };
         try {
             triggerHaptic('medium');
-            await LocalEquipmentService.update(selectedItem.id, {
-                equipment_name: newName.trim(),
-                category: newCategory,
-                make: newMake.trim(),
-                model: newModel.trim(),
-                serial_number: newSerial.trim(),
-                installation_date: newInstallDate || null,
-                warranty_expiry: newWarrantyExpiry || null,
-                notes: newNotes.trim() || null,
-            });
+            await LocalEquipmentService.update(itemId, updates);
+            if (!currentOperation(scope)) return;
             setShowEditForm(false);
             loadItems();
             // Update selected item in place
@@ -224,14 +299,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 prev
                     ? {
                           ...prev,
-                          equipment_name: newName.trim(),
-                          category: newCategory,
-                          make: newMake.trim(),
-                          model: newModel.trim(),
-                          serial_number: newSerial.trim(),
-                          installation_date: newInstallDate || null,
-                          warranty_expiry: newWarrantyExpiry || null,
-                          notes: newNotes.trim() || null,
+                          ...updates,
                       }
                     : null,
             );
@@ -239,7 +307,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             flash();
         } catch (e) {
             log.error('Failed to update equipment:', e);
-            toast.error('Failed to update equipment');
+            if (currentOperation(scope)) toast.error('Failed to update equipment');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
@@ -366,12 +434,12 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Equipment Register"
-                    subtitle={`${items.length} Items Registered`}
+                    subtitle={`${visibleItems.length} Items Registered`}
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Equipment']}
                     status={<OfflineBadge />}
                     action={
-                        items.length > 0 ? (
+                        visibleItems.length > 0 ? (
                             <div className="relative">
                                 <button
                                     onClick={() => setMenuOpen(!menuOpen)}
@@ -399,10 +467,13 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                             <button
                                                 aria-label="Export equipment register as PDF"
                                                 onClick={async () => {
+                                                    const scope = getAuthIdentityScope();
+                                                    const exportItems = visibleItems.map((item) => ({ ...item }));
                                                     setMenuOpen(false);
                                                     try {
-                                                        await exportEquipmentPdf(items);
+                                                        await exportEquipmentPdf(exportItems);
                                                     } catch (e) {
+                                                        if (!currentOperation(scope)) return;
                                                         // AbortError = user dismissed the share
                                                         // sheet; anything else is a real failure.
                                                         if (e instanceof Error && e.name === 'AbortError') return;
@@ -667,9 +738,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {contextItem.manual_uri && (
                                     <button
                                         aria-label={`Open manual for ${contextItem.equipment_name}`}
-                                        onClick={() => {
-                                            window.open(contextItem.manual_uri!, '_blank');
-                                            setContextItem(null);
+                                        onClick={async () => {
+                                            const scope = getAuthIdentityScope();
+                                            const manualUri = contextItem.manual_uri!;
+                                            await DocumentSyncService.openDownload(manualUri);
+                                            if (currentOperation(scope)) setContextItem(null);
                                         }}
                                         className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors active:scale-[0.98]"
                                     >

@@ -36,6 +36,13 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('PortDirectory');
 
@@ -60,11 +67,16 @@ export interface PersonalPort {
 
 // In-memory cache — populated on first read, mirror of localStorage.
 let _cache: PersonalPort[] | null = null;
+let _cacheScopeKey: string | null = null;
 
-function load(): PersonalPort[] {
-    if (_cache !== null) return _cache;
+function load(scope: AuthIdentityScope = getAuthIdentityScope()): PersonalPort[] {
+    if (_cache !== null && _cacheScopeKey === scope.key) return _cache;
+    _cache = null;
+    _cacheScopeKey = scope.key;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        // The old unscoped directory has no owner metadata. It is left in
+        // place for explicit recovery, but never adopted into an account.
+        const raw = localStorage.getItem(authScopedStorageKey(STORAGE_KEY, scope));
         if (!raw) {
             _cache = [];
             return _cache;
@@ -93,10 +105,11 @@ function load(): PersonalPort[] {
     }
 }
 
-function persist(): void {
-    if (_cache === null) return;
+function persist(scope: AuthIdentityScope = getAuthIdentityScope()): void {
+    if (_cache === null || _cacheScopeKey !== scope.key || !isAuthIdentityScopeCurrent(scope)) return;
+    const storageKey = authScopedStorageKey(STORAGE_KEY, scope);
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(_cache));
+        localStorage.setItem(storageKey, JSON.stringify(_cache));
     } catch (e) {
         // Quota exhausted — drop oldest 10% and retry once.
         log.warn('persist failed (quota?), evicting oldest 10% and retrying:', e);
@@ -104,13 +117,20 @@ function persist(): void {
             _cache.sort((a, b) => Date.parse(b.lastUsedAt) - Date.parse(a.lastUsedAt));
             _cache = _cache.slice(0, Math.floor(_cache.length * 0.9));
             try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(_cache));
+                localStorage.setItem(storageKey, JSON.stringify(_cache));
             } catch {
                 /* still failing — give up silently */
             }
         }
     }
 }
+
+// A module-level cache must never survive an account hand-off. Persisted
+// namespaces remain intact, but the next read is forced through the new key.
+subscribeAuthIdentityScope(() => {
+    _cache = null;
+    _cacheScopeKey = null;
+});
 
 /** Normalise a typed string for comparison — trim + lowercase. */
 function norm(s: string): string {
@@ -169,7 +189,8 @@ export function recordPersonalPort(typedName: string, canonicalName: string, lat
     if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
     if (Math.abs(lat) < 0.0001 && Math.abs(lon) < 0.0001) return; // (0,0) sentinel
 
-    const list = load();
+    const scope = getAuthIdentityScope();
+    const list = load(scope);
     const q = norm(typedName);
     const now = new Date().toISOString();
     const existing = list.find((p) => norm(p.typedName) === q);
@@ -203,13 +224,13 @@ export function recordPersonalPort(typedName: string, canonicalName: string, lat
         }
     }
 
-    persist();
+    persist(scope);
     log.info(`recorded "${typedName}" → "${canonicalName}" (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
 
     // Fire-and-forget cloud sync. Skipped silently when there's no
     // Supabase client or the user isn't signed in — local cache is
     // still authoritative for the unauthenticated case.
-    void cloudUpsertPort(nextRow);
+    void cloudUpsertPort({ ...nextRow }, scope);
 }
 
 /** Return all personal ports, sorted most-recently-used first. */
@@ -221,28 +242,31 @@ export function listPersonalPorts(): PersonalPort[] {
 
 /** Remove a port by typed name (case-insensitive). Returns true if removed. */
 export function removePersonalPort(typedName: string): boolean {
-    const list = load();
+    const scope = getAuthIdentityScope();
+    const list = load(scope);
     const q = norm(typedName);
     const idx = list.findIndex((p) => norm(p.typedName) === q);
     if (idx < 0) return false;
     const removed = list.splice(idx, 1)[0];
-    persist();
+    persist(scope);
     // Fire-and-forget cloud delete. If offline / unauthenticated the
     // local removal still stands; the cloud row will stay until a
     // future syncFromCloud reconciliation drops it (next phase).
-    void cloudDeletePort(removed.typedName);
+    void cloudDeletePort(removed.typedName, scope);
     return true;
 }
 
 /** Wipe the entire personal port cache (local + cloud). */
 export function clearPersonalPorts(): void {
+    const scope = getAuthIdentityScope();
     _cache = [];
+    _cacheScopeKey = scope.key;
     try {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(authScopedStorageKey(STORAGE_KEY, scope));
     } catch {
         /* ignore */
     }
-    void cloudClearAllPorts();
+    void cloudClearAllPorts(scope);
 }
 
 // ── Supabase sync ──────────────────────────────────────────────────
@@ -274,16 +298,16 @@ function rowToPort(r: PortRow): PersonalPort {
     };
 }
 
-async function cloudUpsertPort(p: PersonalPort): Promise<void> {
-    if (!supabase) return;
+async function cloudUpsertPort(p: PersonalPort, scope: AuthIdentityScope): Promise<void> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
     try {
         const {
             data: { user },
         } = await supabase.auth.getUser();
-        if (!user) return; // unauthenticated — local-only is fine.
+        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return;
         const { error } = await supabase.from('personal_ports').upsert(
             {
-                user_id: user.id,
+                user_id: scope.userId,
                 typed_name: p.typedName,
                 canonical_name: p.canonicalName,
                 lat: p.lat,
@@ -294,38 +318,41 @@ async function cloudUpsertPort(p: PersonalPort): Promise<void> {
             },
             { onConflict: 'user_id,typed_name' },
         );
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         if (error) log.warn('cloud upsert failed:', error.message);
     } catch (e) {
         log.warn('cloud upsert threw:', e);
     }
 }
 
-async function cloudDeletePort(typedName: string): Promise<void> {
-    if (!supabase) return;
+async function cloudDeletePort(typedName: string, scope: AuthIdentityScope): Promise<void> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
     try {
         const {
             data: { user },
         } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return;
         const { error } = await supabase
             .from('personal_ports')
             .delete()
-            .eq('user_id', user.id)
+            .eq('user_id', scope.userId)
             .eq('typed_name', typedName);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         if (error) log.warn('cloud delete failed:', error.message);
     } catch (e) {
         log.warn('cloud delete threw:', e);
     }
 }
 
-async function cloudClearAllPorts(): Promise<void> {
-    if (!supabase) return;
+async function cloudClearAllPorts(scope: AuthIdentityScope): Promise<void> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
     try {
         const {
             data: { user },
         } = await supabase.auth.getUser();
-        if (!user) return;
-        const { error } = await supabase.from('personal_ports').delete().eq('user_id', user.id);
+        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return;
+        const { error } = await supabase.from('personal_ports').delete().eq('user_id', scope.userId);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         if (error) log.warn('cloud clear failed:', error.message);
     } catch (e) {
         log.warn('cloud clear threw:', e);
@@ -346,22 +373,24 @@ async function cloudClearAllPorts(): Promise<void> {
  * Returns the number of cloud rows merged (informational).
  */
 export async function syncPortsFromCloud(): Promise<number> {
-    if (!supabase) return 0;
+    const scope = getAuthIdentityScope();
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return 0;
     try {
         const {
             data: { user },
         } = await supabase.auth.getUser();
-        if (!user) return 0;
+        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return 0;
         const { data, error } = await supabase
             .from('personal_ports')
             .select('typed_name, canonical_name, lat, lon, times_used, first_used_at, last_used_at')
-            .eq('user_id', user.id);
+            .eq('user_id', scope.userId);
+        if (!isAuthIdentityScopeCurrent(scope)) return 0;
         if (error) {
             log.warn('cloud pull failed:', error.message);
             return 0;
         }
         const cloudPorts = (data ?? []).map((r) => rowToPort(r as PortRow));
-        const local = load();
+        const local = load(scope);
 
         // Build a normalised-typedName index of the local cache so we
         // can merge in O(N+M) rather than O(N×M).
@@ -403,14 +432,14 @@ export async function syncPortsFromCloud(): Promise<number> {
             local.splice(MAX_ENTRIES);
         }
 
-        persist();
+        persist(scope);
 
         // Push any local-only rows up — fire-and-forget per row so a
         // single failure doesn't abort the lot.
         for (const local_p of local) {
             const key = norm(local_p.typedName);
             if (!cloudByKey.has(key)) {
-                void cloudUpsertPort(local_p);
+                void cloudUpsertPort({ ...local_p }, scope);
             }
         }
 

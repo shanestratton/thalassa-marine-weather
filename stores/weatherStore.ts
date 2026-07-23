@@ -31,10 +31,20 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 // ── State ────────────────────────────────────────────────────
 
 export interface WeatherState {
+    /** Internal owner fence for the context → Zustand bridge. */
+    readonly identityKey: string;
+    /** Process-local generation; same user after logout/login is still a new scope. */
+    readonly identityGeneration: number;
     /** Current weather report for the active location */
     weatherData: MarineWeatherReport | null;
     /** Active voyage plan */
@@ -75,14 +85,15 @@ export interface WeatherActions {
     incrementQuota: () => void;
     clearVoyagePlan: () => void;
     /** Bulk sync from context — used by the bridge hook */
-    _sync: (partial: Partial<WeatherState>) => void;
+    _sync: (partial: Partial<WeatherState>, expectedScope: AuthIdentityScope) => void;
 }
 
 // ── Store ────────────────────────────────────────────────────
 
-export const useWeatherStore = create<WeatherState & WeatherActions>()(
-    subscribeWithSelector((set) => ({
-        // Initial state
+function blankWeatherState(scope: AuthIdentityScope): WeatherState {
+    return {
+        identityKey: scope.key,
+        identityGeneration: scope.generation,
         weatherData: null,
         voyagePlan: null,
         loading: true,
@@ -94,6 +105,22 @@ export const useWeatherStore = create<WeatherState & WeatherActions>()(
         staleRefresh: false,
         nextUpdate: null,
         historyCache: {},
+    };
+}
+
+function ownsScope(state: WeatherState, scope: AuthIdentityScope): boolean {
+    return (
+        isAuthIdentityScopeCurrent(scope) &&
+        state.identityKey === scope.key &&
+        state.identityGeneration === scope.generation
+    );
+}
+
+const initialScope = getAuthIdentityScope();
+
+export const useWeatherStore = create<WeatherState & WeatherActions>()(
+    subscribeWithSelector((set) => ({
+        ...blankWeatherState(initialScope),
 
         // Actions
         setWeatherData: (data) => set({ weatherData: data }),
@@ -108,9 +135,18 @@ export const useWeatherStore = create<WeatherState & WeatherActions>()(
         setHistoryCache: (cache) => set({ historyCache: cache }),
         incrementQuota: () => set((s) => ({ quotaUsed: s.quotaUsed + 1 })),
         clearVoyagePlan: () => set({ voyagePlan: null }),
-        _sync: (partial) => set(partial),
+        _sync: (partial, expectedScope) => set((state) => (ownsScope(state, expectedScope) ? partial : state)),
     })),
 );
+
+/**
+ * The auth fence runs before React can re-render. Blank the external store in
+ * that same synchronous turn so native/watch/voice consumers cannot observe
+ * account A while the WeatherProvider is being rebuilt for account B.
+ */
+subscribeAuthIdentityScope((next) => {
+    useWeatherStore.setState(blankWeatherState(next));
+});
 
 // ── Selectors (convenience) ──────────────────────────────────
 

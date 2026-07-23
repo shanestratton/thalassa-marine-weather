@@ -2,6 +2,8 @@
 import { captureException } from './services/sentry';
 import { crumb, startFlightRecorder } from './utils/flightRecorder';
 import { Capacitor } from '@capacitor/core';
+import { getAuthIdentityScope } from './services/authIdentityScope';
+import { writeScopedNativeDiagnostic } from './services/nativeDiagnostic';
 
 // JS BUILD-MARKER — landed via Preferences so it appears in Xcode
 // console (console.warn from WKWebView is invisible to Xcode's
@@ -21,20 +23,23 @@ const nativePreferencesPromise = Capacitor.isNativePlatform()
 
 const setNativePreference = (key: string, value: string): void => {
     if (!nativePreferencesPromise) return;
-    void nativePreferencesPromise.then((preferences) => preferences.set({ key, value })).catch(() => {});
+    const scope = getAuthIdentityScope();
+    void nativePreferencesPromise
+        .then((preferences) => writeScopedNativeDiagnostic(preferences, key, value, scope))
+        .catch(() => {});
 };
 
 if (nativePreferencesPromise) {
+    setNativePreference(
+        'BUILD_MARKER_JS',
+        `[BUILD-MARKER-JS] thalassa ${new Date().toISOString()} (bundle freshness check)`,
+    );
+    setNativePreference('BOOT_DIAG', `index.tsx loaded at ${new Date().toISOString()}`);
     void nativePreferencesPromise
         .then(async (preferences) => {
-            await preferences.set({
-                key: 'BUILD_MARKER_JS',
-                value: `[BUILD-MARKER-JS] thalassa ${new Date().toISOString()} (bundle freshness check)`,
-            });
-            await preferences.set({ key: 'BOOT_DIAG', value: `index.tsx loaded at ${new Date().toISOString()}` });
             const { value } = await preferences.get({ key: 'signalk_host' });
-            // This will show as '⚡️  TO JS {"value":"..."}' in Xcode.
-            await preferences.set({ key: 'BOOT_SK_HOST', value: `host=${value}` });
+            // Preserve the boot diagnostic without writing a private LAN host.
+            setNativePreference('BOOT_SK_HOST', `configured=${Boolean(value)}`);
         })
         .catch(() => {});
 }
@@ -329,12 +334,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     public render() {
         if (this.state.hasError) {
             return (
-                <div
+                <main
+                    role="alert"
+                    aria-labelledby="root-error-title"
                     style={{
-                        padding: '40px',
+                        padding:
+                            'max(40px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left))',
                         backgroundColor: '#0f172a',
                         color: 'white',
-                        minHeight: '100vh',
+                        minHeight: '100dvh',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -343,29 +351,31 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
                         fontFamily: 'system-ui, sans-serif',
                     }}
                 >
-                    <h1 style={{ fontSize: '2rem', marginBottom: '1rem', color: '#ef4444' }}>
+                    <h1 id="root-error-title" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#ef4444' }}>
                         Mayday! System Failure.
                     </h1>
                     <p style={{ maxWidth: '500px', marginBottom: '2rem', color: '#94a3b8' }}>
-                        The navigational computer encountered a critical error. We are working to restore systems.
+                        Thalassa hit an unexpected error. Your saved voyages and settings have not been erased.
                     </p>
-                    <div
-                        style={{
-                            padding: '1rem',
-                            backgroundColor: 'rgba(0,0,0,0.3)',
-                            borderRadius: '8px',
-                            marginBottom: '2rem',
-                            fontFamily: 'monospace',
-                            fontSize: '0.8rem',
-                            color: '#f87171',
-                        }}
-                    >
-                        {this.state.error?.message || 'Unknown Error'}
-                    </div>
+                    {import.meta.env.DEV && (
+                        <div
+                            style={{
+                                maxWidth: 'min(500px, 100%)',
+                                overflowWrap: 'anywhere',
+                                padding: '1rem',
+                                backgroundColor: 'rgba(0,0,0,0.3)',
+                                borderRadius: '8px',
+                                marginBottom: '2rem',
+                                fontFamily: 'monospace',
+                                fontSize: '0.8rem',
+                                color: '#f87171',
+                            }}
+                        >
+                            {this.state.error?.message || 'Unknown Error'}
+                        </div>
+                    )}
                     <button
-                        aria-label="Add"
                         onClick={() => {
-                            localStorage.clear();
                             window.location.reload();
                         }}
                         style={{
@@ -378,9 +388,9 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
                             cursor: 'pointer',
                         }}
                     >
-                        Factory Reset & Reboot
+                        Reload Thalassa
                     </button>
-                </div>
+                </main>
             );
         }
 

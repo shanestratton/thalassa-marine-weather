@@ -11,6 +11,7 @@ import { CrewCard, AGE_RANGES, ListingType } from '../../services/LonelyHeartsSe
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { COUNTRIES, getStatesForCountry } from '../../data/locationData';
 import { EmptyState } from '../ui/EmptyState';
+import { SafeImage } from '../ui/SafeImage';
 
 interface CrewBrowseBoardProps {
     state: CrewFinderState;
@@ -379,7 +380,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-slate-800 to-slate-900 overflow-hidden">
                                         {allPhotos.length > 0 ? (
                                             <>
-                                                <img
+                                                <SafeImage
                                                     src={allPhotos[cardPhotoIndex % allPhotos.length]}
                                                     alt=""
                                                     className="w-full h-full object-cover"

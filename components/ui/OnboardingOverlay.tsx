@@ -2,8 +2,15 @@
  * OnboardingOverlay — 4-screen first-time user walkthrough.
  * Shown once on first app open. Auto-dismissed, stored in localStorage.
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 import {
     WaveIcon,
     MapIcon,
@@ -18,6 +25,8 @@ import {
 
 const STORAGE_KEY = 'thalassa_onboarding_complete';
 const COMPLETE_EVENT = 'thalassa:intro-overlay-complete';
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
 interface OnboardingSlide {
     Icon: React.FC<{ className?: string }>;
@@ -81,6 +90,7 @@ const slides: OnboardingSlide[] = [
 ];
 
 export const OnboardingOverlay: React.FC = () => {
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     // Default to HIDDEN. Returning users on a fresh install hit a
     // race where this overlay's useState initializer read
     // localStorage before useAppController's boats-row check could
@@ -98,17 +108,24 @@ export const OnboardingOverlay: React.FC = () => {
     // never see this. Subsequent launches: STORAGE_KEY is already
     // set by previous dismiss, so even if the event somehow fires
     // we stay hidden.
-    const [visible, setVisible] = useState(false);
+    const [visibleScope, setVisibleScope] = useState<AuthIdentityScope | null>(null);
     const [current, setCurrent] = useState(0);
+    const visible =
+        visibleScope !== null &&
+        visibleScope.key === identityScope.key &&
+        visibleScope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(visibleScope);
 
     useEffect(() => {
         const handler = () => {
+            const actionScope = getAuthIdentityScope();
+            if (!actionScope.userId || !isAuthIdentityScopeCurrent(actionScope)) return;
             try {
-                if (localStorage.getItem(STORAGE_KEY)) return; // already seen
+                if (localStorage.getItem(authScopedStorageKey(STORAGE_KEY, actionScope))) return; // already seen
             } catch {
                 /* private mode — show anyway */
             }
-            setVisible(true);
+            setVisibleScope(actionScope);
             setCurrent(0);
         };
         window.addEventListener('thalassa:show-intro-overlay', handler);
@@ -116,15 +133,19 @@ export const OnboardingOverlay: React.FC = () => {
     }, []);
 
     const dismiss = useCallback(() => {
+        if (!visibleScope || !isAuthIdentityScopeCurrent(visibleScope)) {
+            setVisibleScope(null);
+            return;
+        }
         try {
-            localStorage.setItem(STORAGE_KEY, 'true');
+            localStorage.setItem(authScopedStorageKey(STORAGE_KEY, visibleScope), 'true');
         } catch (e) {
             console.warn('Suppressed:', e);
             /* noop */
         }
-        setVisible(false);
+        setVisibleScope(null);
         window.dispatchEvent(new CustomEvent(COMPLETE_EVENT));
-    }, []);
+    }, [visibleScope]);
 
     const primaryActionRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, {

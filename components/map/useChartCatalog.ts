@@ -7,32 +7,104 @@
  * Layers are inserted below sea marks and above the satellite base
  * (same z-ordering as AvNav charts).
  */
-import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
+import {
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useCallback,
+    useMemo,
+    useState,
+    useSyncExternalStore,
+    type MutableRefObject,
+} from 'react';
 import mapboxgl from 'mapbox-gl';
 import { ChartCatalogService, type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
 import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 const log = createLogger('ChartCatalog-Map');
 
 const SOURCE_PREFIX = 'chart-catalog-';
 const LAYER_PREFIX = 'chart-catalog-layer-';
 
-export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
-    const [sources, setSources] = useState<ChartSource[]>([]);
-    const addedLayersRef = useRef<Set<string>>(new Set());
+const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 
-    // Initialize service and subscribe to changes
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+interface ScopedSources {
+    scope: AuthIdentityScope;
+    sources: ChartSource[];
+}
+
+export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
+    const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
+    const hydratedSources = useMemo(() => {
+        ChartCatalogService.initialize(identityScope);
+        return ChartCatalogService.getSources(identityScope);
+    }, [identityScope]);
+    const [storedSources, setStoredSources] = useState<ScopedSources>(() => ({
+        scope: identityScope,
+        sources: hydratedSources,
+    }));
+    const sources = sameScope(storedSources.scope, identityScope) ? storedSources.sources : hydratedSources;
+    const addedLayersRef = useRef<Set<string>>(new Set());
+    const sourceUrlsRef = useRef<Map<string, string>>(new Map());
+
+    useLayoutEffect(() => {
+        setStoredSources((current) =>
+            sameScope(current.scope, identityScope)
+                ? current
+                : {
+                      scope: identityScope,
+                      sources: hydratedSources,
+                  },
+        );
+    }, [hydratedSources, identityScope]);
+
+    // Subscribe to current-account catalog changes.
     useEffect(() => {
-        ChartCatalogService.initialize();
-        setSources(ChartCatalogService.getSources());
+        const scope = identityScope;
+        ChartCatalogService.initialize(scope);
 
         const unsub = ChartCatalogService.onChange((newSources) => {
-            setSources([...newSources]);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoredSources({ scope, sources: [...newSources] });
         });
 
         return unsub;
-    }, []);
+    }, [identityScope]);
+
+    // Mapbox retains raster source URLs independently of React. Remove the
+    // old account's sources synchronously at the identity fence so a source
+    // with the same logical id cannot keep account A's key in account B.
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                const map = mapRef.current;
+                if (!map) {
+                    addedLayersRef.current.clear();
+                    sourceUrlsRef.current.clear();
+                    return;
+                }
+                for (const id of addedLayersRef.current) {
+                    const layerId = `${LAYER_PREFIX}${id}`;
+                    const sourceId = `${SOURCE_PREFIX}${id}`;
+                    if (map.getLayer(layerId)) map.removeLayer(layerId);
+                    if (map.getSource(sourceId)) map.removeSource(sourceId);
+                }
+                addedLayersRef.current.clear();
+                sourceUrlsRef.current.clear();
+            }),
+        [mapRef],
+    );
 
     // Sync enabled chart layers with the map
     useEffect(() => {
@@ -47,6 +119,15 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
             const layerId = `${LAYER_PREFIX}${src.id}`;
 
             if (src.enabled && src.tileUrl) {
+                // Mapbox sources are immutable. A key rotation changes the
+                // tile URL, so remove the old source before adding its safe
+                // replacement.
+                if (map.getSource(sourceId) && sourceUrlsRef.current.get(src.id) !== src.tileUrl) {
+                    if (map.getLayer(layerId)) map.removeLayer(layerId);
+                    map.removeSource(sourceId);
+                    addedLayersRef.current.delete(src.id);
+                    sourceUrlsRef.current.delete(src.id);
+                }
                 if (!map.getSource(sourceId)) {
                     // Add raster tile source
                     map.addSource(sourceId, {
@@ -84,6 +165,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                     );
 
                     addedLayersRef.current.add(src.id);
+                    sourceUrlsRef.current.set(src.id, src.tileUrl);
                     log.info(`Added chart layer: ${src.name}`);
                 } else {
                     // Update opacity if layer already exists
@@ -101,6 +183,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                     map.removeSource(sourceId);
                 }
                 addedLayersRef.current.delete(src.id);
+                sourceUrlsRef.current.delete(src.id);
             }
         }
 
@@ -112,6 +195,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                 if (map.getLayer(layerId)) map.removeLayer(layerId);
                 if (map.getSource(sourceId)) map.removeSource(sourceId);
                 addedLayersRef.current.delete(id);
+                sourceUrlsRef.current.delete(id);
             }
         }
     }, [mapRef, mapReady, sources]);
@@ -121,6 +205,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         if (!mapReady) return;
         const map = mapRef.current;
         const addedLayers = addedLayersRef.current;
+        const sourceUrls = sourceUrlsRef.current;
         return () => {
             if (!map) return;
             for (const id of addedLayers) {
@@ -130,6 +215,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                 if (map.getSource(sourceId)) map.removeSource(sourceId);
             }
             addedLayers.clear();
+            sourceUrls.clear();
         };
     }, [mapRef, mapReady]);
 
@@ -161,24 +247,33 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
     );
 
     // Toggle a source
-    const toggleSource = useCallback((id: ChartSourceId) => {
-        ChartCatalogService.toggleSource(id);
-    }, []);
+    const toggleSource = useCallback(
+        (id: ChartSourceId) => {
+            ChartCatalogService.toggleSource(id, identityScope);
+        },
+        [identityScope],
+    );
 
     // Disable every source — used by the single-select chart picker.
     const disableAll = useCallback(() => {
-        ChartCatalogService.disableAll();
-    }, []);
+        ChartCatalogService.disableAll(identityScope);
+    }, [identityScope]);
 
     // Set opacity
-    const setOpacity = useCallback((id: ChartSourceId, opacity: number) => {
-        ChartCatalogService.setOpacity(id, opacity);
-    }, []);
+    const setOpacity = useCallback(
+        (id: ChartSourceId, opacity: number) => {
+            ChartCatalogService.setOpacity(id, opacity, identityScope);
+        },
+        [identityScope],
+    );
 
     // Update LINZ key
-    const updateLinzKey = useCallback((key: string) => {
-        ChartCatalogService.updateLinzKey(key);
-    }, []);
+    const updateLinzKey = useCallback(
+        (key: string) => {
+            ChartCatalogService.updateLinzKey(key, identityScope);
+        },
+        [identityScope],
+    );
 
     const hasEnabledCharts = sources.some((s) => s.enabled && s.tileUrl);
 

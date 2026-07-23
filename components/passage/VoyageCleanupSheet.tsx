@@ -24,6 +24,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { deleteVoyageById, getAllVoyagesForUser, type Voyage, type VoyageStatus } from '../../services/VoyageService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 interface VoyageCleanupSheetProps {
     isOpen: boolean;
@@ -54,6 +56,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
     const [loading, setLoading] = useState(false);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [confirmId, setConfirmId] = useState<string | null>(null);
+    const refreshRequestRef = useRef(0);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
         initialFocusRef: closeButtonRef,
@@ -61,13 +64,19 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
     });
 
     const refresh = useCallback(async () => {
+        const operationScope = getAuthIdentityScope();
+        const requestId = ++refreshRequestRef.current;
+        const requestIsCurrent = () =>
+            requestId === refreshRequestRef.current && isAuthIdentityScopeCurrent(operationScope);
         setLoading(true);
         try {
             const [allVoyages, { fetchRoutesAndTracks }] = await Promise.all([
                 getAllVoyagesForUser(),
                 import('../../services/shiplog/RoutesAndTracks'),
             ]);
+            if (!requestIsCurrent()) return;
             const ra = await fetchRoutesAndTracks(true);
+            if (!requestIsCurrent()) return;
             setVoyages(allVoyages);
             setRoutes(
                 ra.routes.map((r) => ({
@@ -77,20 +86,26 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                 })),
             );
         } catch (e) {
+            if (!requestIsCurrent()) return;
             console.warn('[VoyageCleanup] refresh failed:', e);
         }
-        setLoading(false);
+        if (requestIsCurrent()) setLoading(false);
     }, []);
 
     useEffect(() => {
-        if (isOpen) refresh();
+        if (isOpen) void refresh();
+        return () => {
+            refreshRequestRef.current += 1;
+        };
     }, [isOpen, refresh]);
 
     const handleDeleteVoyage = useCallback(
         async (voyage: Voyage) => {
+            const operationScope = getAuthIdentityScope();
             setBusyId(voyage.id);
             triggerHaptic('medium');
             const ok = await deleteVoyageById(voyage.id);
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             if (ok) {
                 setVoyages((prev) => prev.filter((v) => v.id !== voyage.id));
                 onChanged?.();
@@ -103,23 +118,30 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
 
     const handleDeleteRoute = useCallback(
         async (route: SavedRoute) => {
+            const operationScope = getAuthIdentityScope();
+            const operationIsCurrent = () => isAuthIdentityScopeCurrent(operationScope);
             setBusyId(route.id);
             triggerHaptic('medium');
             try {
                 const { ShipLogService } = await import('../../services/ShipLogService');
+                if (!operationIsCurrent()) return;
                 const ok = await ShipLogService.deleteVoyage(route.id);
+                if (!operationIsCurrent()) return;
                 if (ok) {
                     setRoutes((prev) => prev.filter((r) => r.id !== route.id));
                     // Route delete cascades to the matching voyage row
                     // (EntryCrud.deleteVoyage handles that), so re-fetch
                     // voyages so the cleanup view stays consistent.
                     const all = await getAllVoyagesForUser();
+                    if (!operationIsCurrent()) return;
                     setVoyages(all);
                     onChanged?.();
                 }
             } catch (e) {
+                if (!operationIsCurrent()) return;
                 console.warn('[VoyageCleanup] route delete failed:', e);
             }
+            if (!operationIsCurrent()) return;
             setBusyId(null);
             setConfirmId(null);
         },
@@ -131,11 +153,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
     const combinedCount = voyages.length + routes.length;
 
     return (
-        <div
-            className="fixed inset-0 z-[10000] bg-black/80 flex items-stretch justify-center"
-            onClick={onClose}
-            role="presentation"
-        >
+        <OverlayPortal className="bg-black/80 flex items-stretch justify-center" onClick={onClose} role="presentation">
             <div
                 ref={dialogRef}
                 role="dialog"
@@ -295,6 +313,6 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

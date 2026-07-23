@@ -14,6 +14,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
+import { authScopedStorageKey } from '../../services/authIdentityScope';
 
 interface MobPageProps {
     onBack: () => void;
@@ -103,6 +104,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
 
     const [state, setState] = useState<MobState>(() => MobService.currentState());
     const [activating, setActivating] = useState(false);
+    const [activationError, setActivationError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [speaking, setSpeaking] = useState(false);
     /** Engine actually used for the most recent MAYDAY playback —
@@ -125,11 +127,18 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
         if (activating || state.active) return;
         triggerHaptic('heavy');
         setActivating(true);
+        setActivationError(null);
         try {
             const result = await MobService.activate();
             if (!result) {
-                alert('MOB activation failed — no GPS fix available.');
+                setActivationError(
+                    'MOB position was not marked because no fresh GPS fix is available. Keep a lookout, use the chartplotter MOB control if fitted, and retry.',
+                );
             }
+        } catch {
+            setActivationError(
+                'MOB position could not be marked. Use the chartplotter MOB control if fitted and retry immediately.',
+            );
         } finally {
             setActivating(false);
         }
@@ -230,7 +239,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const handleGoToDsc = useCallback(() => {
         triggerHaptic('light');
         if (typeof window !== 'undefined') {
-            localStorage.setItem('thalassa_dsc_intent', 'distress-mob');
+            localStorage.setItem(authScopedStorageKey('thalassa_dsc_intent'), 'distress-mob');
         }
         onNavigate?.('radio');
     }, [onNavigate]);
@@ -250,6 +259,14 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                             Tap to snapshot the current GPS fix. The app will keep a live bearing and distance back to
                             the position so the helm can return to it.
                         </p>
+                        {activationError && (
+                            <p
+                                role="alert"
+                                className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-left text-xs font-semibold leading-relaxed text-red-200"
+                            >
+                                {activationError}
+                            </p>
+                        )}
                     </div>
 
                     <button

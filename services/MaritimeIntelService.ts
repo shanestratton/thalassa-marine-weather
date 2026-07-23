@@ -6,6 +6,7 @@
  */
 import { supabaseUrl, supabaseAnonKey } from './supabase';
 import { createLogger } from '../utils/createLogger';
+import { safeExternalHttpUrl } from '../utils/safeUrl';
 
 const log = createLogger('MaritimeIntel');
 
@@ -27,6 +28,45 @@ interface CachedData {
     fetchedAt: number;
 }
 
+function boundedText(value: unknown, maxLength: number): string {
+    return typeof value === 'string'
+        ? [...value]
+              .filter((character) => {
+                  const code = character.charCodeAt(0);
+                  return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127);
+              })
+              .join('')
+              .slice(0, maxLength)
+        : '';
+}
+
+export function normaliseMaritimeArticle(value: unknown): MaritimeArticle | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const candidate = value as Record<string, unknown>;
+    const title = boundedText(candidate.title, 300).trim();
+    const url = safeExternalHttpUrl(candidate.url, true);
+    if (!title || !url) return null;
+
+    const publishedMs = typeof candidate.publishedAt === 'string' ? Date.parse(candidate.publishedAt) : Number.NaN;
+    return {
+        title,
+        snippet: boundedText(candidate.snippet, 800).trim(),
+        url,
+        source: boundedText(candidate.source, 100).trim() || 'Maritime news',
+        icon: boundedText(candidate.icon, 16).trim() || '⚓',
+        image: safeExternalHttpUrl(candidate.image, true),
+        publishedAt: Number.isFinite(publishedMs) ? new Date(publishedMs).toISOString() : new Date(0).toISOString(),
+    };
+}
+
+export function normaliseMaritimeArticles(value: unknown): MaritimeArticle[] {
+    if (!Array.isArray(value)) return [];
+    return value
+        .slice(0, 50)
+        .map(normaliseMaritimeArticle)
+        .filter((article): article is MaritimeArticle => article !== null);
+}
+
 class MaritimeIntelServiceClass {
     private articles: MaritimeArticle[] = [];
     private loading = false;
@@ -43,9 +83,14 @@ class MaritimeIntelServiceClass {
         try {
             const cached = localStorage.getItem(CACHE_KEY);
             if (cached) {
-                const data: CachedData = JSON.parse(cached);
-                if (Date.now() - data.fetchedAt < CACHE_TTL_MS) {
-                    this.articles = data.articles;
+                const data = JSON.parse(cached) as Partial<CachedData>;
+                if (
+                    typeof data.fetchedAt === 'number' &&
+                    Number.isFinite(data.fetchedAt) &&
+                    data.fetchedAt <= Date.now() &&
+                    Date.now() - data.fetchedAt < CACHE_TTL_MS
+                ) {
+                    this.articles = normaliseMaritimeArticles(data.articles);
                     return this.articles;
                 }
             }
@@ -80,8 +125,8 @@ class MaritimeIntelServiceClass {
                 return this.articles;
             }
 
-            const data = await resp.json();
-            this.articles = data.articles || [];
+            const data = (await resp.json()) as { articles?: unknown };
+            this.articles = normaliseMaritimeArticles(data.articles);
 
             // Cache to localStorage
             try {

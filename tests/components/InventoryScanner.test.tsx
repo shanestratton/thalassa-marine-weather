@@ -31,15 +31,17 @@ describe('InventoryScanner', () => {
     });
 
     it('renders content', () => {
-        const { container } = render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
-        expect(container.innerHTML.length).toBeGreaterThan(0);
+        render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
+        expect(screen.getByRole('dialog', { name: 'Inventory barcode scanner' })).toBeInTheDocument();
     });
 
     it('focuses the camera close action and handles Escape', () => {
         const onClose = vi.fn();
         render(<InventoryScanner onClose={onClose} onItemSaved={vi.fn()} />);
         const close = screen.getByRole('button', { name: 'Close camera' });
-        expect(screen.getByRole('dialog', { name: 'Inventory barcode scanner' })).toContainElement(close);
+        const dialog = screen.getByRole('dialog', { name: 'Inventory barcode scanner' });
+        expect(dialog).toContainElement(close);
+        expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(close).toHaveFocus();
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();

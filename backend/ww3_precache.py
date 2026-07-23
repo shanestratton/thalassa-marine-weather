@@ -9,25 +9,25 @@ Storage for the 4D passage planner to consume.
 This runs as a cron job (every 6 hours) to keep wave forecasts current.
 
 Pipeline:
-  1. Download WW3 GRIB2 from NOMADS GRIB Filter (significant wave height,
-     peak period, primary wave direction, wind wave height, swell height)
+  1. Download GFS-Wave/WW3 GRIB2 from NOMADS GRIB Filter (significant wave height,
+     peak period, primary wave direction, and wind wave height)
   2. Decode with cfgrib + xarray
-  3. Extract global 0.5° grid for each forecast hour (0-120h, 3h steps)
+  3. Subsample the global 0.25° grid to 1° for each forecast hour (0-120h, 3h steps)
   4. Upload JSON shards to Supabase Storage (one per forecast hour)
   5. Update metadata record in Supabase DB
 
 Data Source:
-  NOAA NOMADS GFS Wave (multi_1 global grid)
-  URL: https://nomads.ncep.noaa.gov/cgi-bin/filter_wave_multi.pl
+  NOAA NOMADS GFS-Wave global 0.25° grid (the operational WW3 successor
+  that replaced the retired Multi-1 feed in 2022)
+  URL: https://nomads.ncep.noaa.gov/cgi-bin/filter_gfswave.pl
 
 Variables:
   - HTSGW: Significant height of combined wind waves and swell (m)
   - PERPW: Primary wave mean period (s)
   - DIRPW: Primary wave direction (degrees FROM)
   - WVHGT: Significant height of wind waves (m)
-  - SWELL: Significant height of swell waves (m)
 
-Grid Resolution: 0.5° global (720x361 = ~260K points)
+Grid Resolution: 1° effective global routing cache (subsampled from 0.25°)
 Temporal: 3-hourly out to 120h (41 timesteps)
 
 Usage:
@@ -42,6 +42,7 @@ Requirements:
 import os
 import sys
 import json
+import re
 import time
 import argparse
 import tempfile
@@ -64,7 +65,7 @@ log = logging.getLogger('ww3')
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════
 
-NOMADS_BASE = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_wave_multi.pl'
+NOMADS_BASE = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfswave.pl'
 
 # WW3 variables to fetch
 WW3_VARS = {
@@ -72,18 +73,19 @@ WW3_VARS = {
     'PERPW': 'peak_period_s',   # Peak wave period
     'DIRPW': 'wave_dir_deg',    # Primary wave direction (FROM)
     'WVHGT': 'wind_wave_ht_m',  # Wind wave component
-    'SWELL': 'swell_ht_m',      # Swell component
 }
 
 # Forecast hours to download (0 to 120h, every 3h)
 FORECAST_HOURS = list(range(0, 121, 3))  # 41 timesteps
 
-# Subsampling for manageable payload: every 2nd point → 0.5° effective → 1° grid
-SUBSAMPLE = 2  # 1 = full 0.5°, 2 = 1° grid
+# Subsampling for manageable payload: every 4th 0.25° point → 1° grid
+SUBSAMPLE = 4  # 1 = full 0.25°, 2 = 0.5°, 4 = 1°
+MISSING_VALUE = -9999.0
+MAX_GRIB_BYTES = 128 * 1024 * 1024
 
 # Supabase config
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
-SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
+SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '') or os.environ.get('SUPABASE_SERVICE_KEY', '')
 STORAGE_BUCKET = 'ww3-cache'
 
 # ══════════════════════════════════════════════════════════════════
@@ -98,6 +100,16 @@ def get_latest_cycle() -> str:
     return cycle_time.strftime('%Y%m%d%H')
 
 
+def validate_cycle(cycle: str) -> str:
+    """Validate a caller-supplied model cycle before using it in URLs/paths."""
+    if not re.fullmatch(r'\d{10}', cycle):
+        raise ValueError('Cycle must use YYYYMMDDHH')
+    parsed = datetime.strptime(cycle, '%Y%m%d%H').replace(tzinfo=timezone.utc)
+    if parsed.hour not in {0, 6, 12, 18}:
+        raise ValueError('Cycle hour must be 00, 06, 12, or 18 UTC')
+    return cycle
+
+
 def download_ww3_grib(cycle: str, forecast_hour: int, tmpdir: str) -> Path | None:
     """
     Download a single WW3 GRIB2 file from NOMADS for one forecast hour.
@@ -107,14 +119,15 @@ def download_ww3_grib(cycle: str, forecast_hour: int, tmpdir: str) -> Path | Non
     cycle_hour = cycle[8:10]  # HH
 
     # Build GRIB filter URL
-    # Pattern: multi_1.glo_30m.tHHz.fHHH.grib2
+    # Current operational GFS-Wave global product.
     fhr = f'{forecast_hour:03d}'
-    filename = f'multi_1.glo_30m.t{cycle_hour}z.f{fhr}.grib2'
+    filename = f'gfswave.t{cycle_hour}z.global.0p25.f{fhr}.grib2'
 
     params = {
         'file': filename,
-        'dir': f'/multi_1.{date_str}',
+        'dir': f'/gfs.{date_str}/{cycle_hour}/wave/gridded',
         'subregion': '',  # Full global
+        'lev_surface': 'on',
     }
 
     # Add variable selections
@@ -123,6 +136,7 @@ def download_ww3_grib(cycle: str, forecast_hour: int, tmpdir: str) -> Path | Non
 
     url = NOMADS_BASE
     outpath = Path(tmpdir) / filename
+    resp = None
 
     try:
         log.info(f'Downloading f{fhr}: {filename}')
@@ -133,18 +147,36 @@ def download_ww3_grib(cycle: str, forecast_hour: int, tmpdir: str) -> Path | Non
             return None
 
         resp.raise_for_status()
+        advertised_size = int(resp.headers.get('content-length', '0') or '0')
+        if advertised_size > MAX_GRIB_BYTES:
+            raise ValueError('NOMADS GRIB2 response exceeds the safe download limit')
 
+        downloaded = 0
         with open(outpath, 'wb') as f:
             for chunk in resp.iter_content(chunk_size=65536):
+                downloaded += len(chunk)
+                if downloaded > MAX_GRIB_BYTES:
+                    raise ValueError('NOMADS GRIB2 response exceeds the safe download limit')
                 f.write(chunk)
+
+        with open(outpath, 'rb') as f:
+            signature = f.read(4)
+        if signature != b'GRIB' or outpath.stat().st_size < 1024:
+            log.error(f'  ↳ NOMADS response was not a valid GRIB2 payload')
+            outpath.unlink(missing_ok=True)
+            return None
 
         size_kb = outpath.stat().st_size / 1024
         log.info(f'  ↳ {size_kb:.0f} KB downloaded')
         return outpath
 
     except Exception as e:
+        outpath.unlink(missing_ok=True)
         log.error(f'  ↳ Download failed: {e}')
         return None
+    finally:
+        if resp is not None:
+            resp.close()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -155,13 +187,14 @@ def decode_grib(filepath: Path) -> dict | None:
     """
     Decode a WW3 GRIB2 file into a dict of numpy arrays.
     Returns { 'wave_ht_m': array, 'peak_period_s': array, ... }
-    with shape (nlat, nlon) at 0.5° resolution.
+    with shape (nlat, nlon) at the source 0.25° resolution before subsampling.
     """
+    ds = None
     try:
         ds = xr.open_dataset(
             filepath,
             engine='cfgrib',
-            backend_kwargs={'errors': 'ignore'},
+            backend_kwargs={'errors': 'raise', 'indexpath': ''},
         )
 
         result = {}
@@ -170,7 +203,6 @@ def decode_grib(filepath: Path) -> dict | None:
             'perpw': 'peak_period_s',  # Primary wave period
             'dirpw': 'wave_dir_deg',   # Primary wave direction
             'shww': 'wind_wave_ht_m',  # Wind wave height
-            'swel': 'swell_ht_m',      # Swell height
         }
 
         for grib_name, our_name in var_mapping.items():
@@ -178,8 +210,14 @@ def decode_grib(filepath: Path) -> dict | None:
                 data = ds[grib_name].values
                 if SUBSAMPLE > 1:
                     data = data[::SUBSAMPLE, ::SUBSAMPLE]
-                # Replace NaN with 0
-                data = np.nan_to_num(data, nan=0.0)
+                # Preserve missing GRIB cells explicitly. Zero can be a real
+                # calm-sea value and must never double as "no model data".
+                data = np.nan_to_num(
+                    data,
+                    nan=MISSING_VALUE,
+                    posinf=MISSING_VALUE,
+                    neginf=MISSING_VALUE,
+                )
                 result[our_name] = data.astype(np.float32)
 
         # Extract lat/lon axes
@@ -189,15 +227,40 @@ def decode_grib(filepath: Path) -> dict | None:
             lats = lats[::SUBSAMPLE]
             lons = lons[::SUBSAMPLE]
 
+        if lats.ndim != 1 or lons.ndim != 1 or len(lats) < 2 or len(lons) < 2:
+            raise ValueError('WW3 latitude/longitude axes are not one-dimensional')
+        lat_steps = np.diff(lats)
+        lon_steps = np.diff(lons)
+        if (
+            np.any(~np.isfinite(lat_steps))
+            or np.any(~np.isfinite(lon_steps))
+            or np.any(lat_steps == 0)
+            or np.any(lon_steps == 0)
+            or not np.allclose(lat_steps, lat_steps[0], atol=1e-4)
+            or not np.allclose(lon_steps, lon_steps[0], atol=1e-4)
+        ):
+            raise ValueError('WW3 latitude/longitude axes are not regular')
+
+        expected_shape = (len(lats), len(lons))
+        for name, values in result.items():
+            if name not in {'lats', 'lons'} and values.shape != expected_shape:
+                raise ValueError(f'{name} has shape {values.shape}; expected {expected_shape}')
+        required_variables = {'wave_ht_m', 'peak_period_s', 'wave_dir_deg'}
+        missing_variables = required_variables.difference(result)
+        if missing_variables:
+            raise ValueError(f'WW3 shard is missing required variables: {sorted(missing_variables)}')
+
         result['lats'] = lats.astype(np.float32)
         result['lons'] = lons.astype(np.float32)
 
-        ds.close()
         return result
 
     except Exception as e:
         log.error(f'GRIB decode failed for {filepath.name}: {e}')
         return None
+    finally:
+        if ds is not None:
+            ds.close()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -213,12 +276,15 @@ def build_json_shard(decoded: dict, forecast_hour: int, cycle: str) -> dict:
     lons = decoded['lons']
 
     shard = {
+        'schema_version': 2,
+        'model': 'NOAA_WW3',
         'cycle': cycle,
         'forecast_hour': forecast_hour,
         'valid_time': (
-            datetime.strptime(cycle, '%Y%m%d%H') +
+            datetime.strptime(cycle, '%Y%m%d%H').replace(tzinfo=timezone.utc) +
             timedelta(hours=forecast_hour)
-        ).isoformat() + 'Z',
+        ).isoformat().replace('+00:00', 'Z'),
+        'missing_value': MISSING_VALUE,
         'grid': {
             'nlat': len(lats),
             'nlon': len(lons),
@@ -226,7 +292,15 @@ def build_json_shard(decoded: dict, forecast_hour: int, cycle: str) -> dict:
             'lat_max': float(lats.max()),
             'lon_min': float(lons.min()),
             'lon_max': float(lons.max()),
-            'resolution_deg': float(np.diff(lats[:2])[0]) if len(lats) > 1 else 1.0,
+            # Explicit axes remove the historical ambiguity where a negative
+            # latitude step was incorrectly reused for longitude.
+            'resolution_deg': abs(float(np.diff(lats[:2])[0])) if len(lats) > 1 else 1.0,
+            'lat_first': float(lats[0]),
+            'lat_last': float(lats[-1]),
+            'lon_first': float(lons[0]),
+            'lon_last': float(lons[-1]),
+            'lat_step': float(np.diff(lats[:2])[0]) if len(lats) > 1 else 1.0,
+            'lon_step': float(np.diff(lons[:2])[0]) if len(lons) > 1 else 1.0,
         },
         'data': {},
     }
@@ -259,12 +333,14 @@ def upload_to_supabase(shard: dict, cycle: str, forecast_hour: int) -> bool:
 
         headers = {
             'Authorization': f'Bearer {SUPABASE_KEY}',
+            'apikey': SUPABASE_KEY,
             'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=21600',
             'x-upsert': 'true',
         }
 
-        resp = requests.post(url, data=json_bytes, headers=headers, timeout=30)
-        resp.raise_for_status()
+        with requests.post(url, data=json_bytes, headers=headers, timeout=30) as resp:
+            resp.raise_for_status()
 
         log.info(f'  ↳ Uploaded {filename} ({size_kb:.0f} KB)')
         return True
@@ -281,15 +357,17 @@ def update_metadata(cycle: str, hours_available: list[int]) -> bool:
 
     try:
         metadata = {
+            'schema_version': 2,
+            'model': 'NOAA_WW3',
             'cycle': cycle,
             'valid_from': (
-                datetime.strptime(cycle, '%Y%m%d%H')
-            ).isoformat() + 'Z',
+                datetime.strptime(cycle, '%Y%m%d%H').replace(tzinfo=timezone.utc)
+            ).isoformat().replace('+00:00', 'Z'),
             'valid_to': (
-                datetime.strptime(cycle, '%Y%m%d%H') +
+                datetime.strptime(cycle, '%Y%m%d%H').replace(tzinfo=timezone.utc) +
                 timedelta(hours=max(hours_available))
-            ).isoformat() + 'Z',
-            'hours_available': hours_available,
+            ).isoformat().replace('+00:00', 'Z'),
+            'hours_available': sorted(hours_available),
             'total_hours': len(hours_available),
             'bucket': STORAGE_BUCKET,
             'file_pattern': f'ww3_{cycle}_f{{HHH}}.json',
@@ -303,12 +381,14 @@ def update_metadata(cycle: str, hours_available: list[int]) -> bool:
 
         headers = {
             'Authorization': f'Bearer {SUPABASE_KEY}',
+            'apikey': SUPABASE_KEY,
             'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, max-age=0',
             'x-upsert': 'true',
         }
 
-        resp = requests.post(url, data=json_bytes, headers=headers, timeout=15)
-        resp.raise_for_status()
+        with requests.post(url, data=json_bytes, headers=headers, timeout=15) as resp:
+            resp.raise_for_status()
 
         log.info(f'Updated metadata: {len(hours_available)} hours from {cycle}')
         return True
@@ -334,18 +414,26 @@ def run_pipeline(cycle: str | None = None, dry_run: bool = False,
     """
     if cycle is None:
         cycle = get_latest_cycle()
+    cycle = validate_cycle(cycle)
+    if (
+        len(FORECAST_HOURS) < 2
+        or FORECAST_HOURS != sorted(set(FORECAST_HOURS))
+        or any(hour < 0 or hour > 120 or hour % 3 != 0 for hour in FORECAST_HOURS)
+    ):
+        raise ValueError('Forecast hours must be unique ascending 3-hour steps from 0 through 120')
 
     log.info(f'='*60)
     log.info(f'WW3 Pre-Cache Pipeline')
     log.info(f'Cycle:     {cycle}')
     log.info(f'Hours:     {FORECAST_HOURS[0]}-{FORECAST_HOURS[-1]} (3h steps)')
-    log.info(f'Subsample: {SUBSAMPLE}x ({"0.5" if SUBSAMPLE == 1 else f"{0.5*SUBSAMPLE}"}° effective)')
+    log.info(f'Subsample: {SUBSAMPLE}x ({0.25*SUBSAMPLE}° effective)')
     log.info(f'Dry run:   {dry_run}')
     log.info(f'='*60)
 
     t0 = time.time()
     successful_hours: list[int] = []
     failed_hours: list[int] = []
+    metadata_ok = dry_run
 
     with tempfile.TemporaryDirectory(prefix='ww3_') as tmpdir:
         if local_dir:
@@ -400,9 +488,12 @@ def run_pipeline(cycle: str | None = None, dry_run: bool = False,
             except Exception:
                 pass
 
-        # 6. Update metadata
-        if successful_hours and not dry_run:
-            update_metadata(cycle, successful_hours)
+        # 6. Publish the new cycle only after every advertised shard exists.
+        # A partial run may leave immutable cycle/hour shards behind for a
+        # later retry, but it must not replace a complete latest-cycle manifest
+        # and turn a single transient NOMADS/upload failure into an outage.
+        if successful_hours == FORECAST_HOURS and not dry_run:
+            metadata_ok = update_metadata(cycle, successful_hours)
 
     elapsed = time.time() - t0
 
@@ -415,8 +506,10 @@ def run_pipeline(cycle: str | None = None, dry_run: bool = False,
 
     if failed_hours:
         log.warning(f'Failed hours: {failed_hours}')
+    if not metadata_ok:
+        log.error('Latest-cycle metadata was not updated')
 
-    return len(failed_hours) == 0
+    return len(failed_hours) == 0 and metadata_ok
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -14,6 +14,13 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'npm:@types/geojson';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseCoordinate,
+    readJsonObject,
+    readResponseTextLimited,
+} from '../_shared/http-security.ts';
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const OVERPASS_TIMEOUT_MS = 45_000;
@@ -109,30 +116,30 @@ interface OverpassResponse {
 
 async function fetchFromOverpass(bbox: [number, number, number, number]): Promise<OsmRouteOverlay> {
     const query = buildQuery(bbox);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
-    let response: Response;
-    try {
-        // Overpass convention: POST with body `data=<query>` URL-encoded.
-        // Raw query in body without `data=` returns 406. Apache also
-        // requires a User-Agent — without one we get 406 Not Acceptable
-        // from the front-end before the query even reaches Overpass.
-        response = await fetch(OVERPASS_URL, {
+    // Overpass convention: POST with body `data=<query>` URL-encoded.
+    // Raw query in body without `data=` returns 406. Apache also
+    // requires a User-Agent — without one we get 406 Not Acceptable.
+    const response = await fetchWithTimeout(
+        OVERPASS_URL,
+        {
             method: 'POST',
             body: 'data=' + encodeURIComponent(query),
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'User-Agent': 'thalassa-osm-overlay/1.0 (https://thalassawx.app)',
             },
-            signal: controller.signal,
-        });
-    } finally {
-        clearTimeout(timeout);
-    }
+        },
+        OVERPASS_TIMEOUT_MS,
+    );
     if (!response.ok) {
         throw new Error(`Overpass returned HTTP ${response.status}`);
     }
-    const json = (await response.json()) as OverpassResponse;
+    const text = await readResponseTextLimited(response, 20_000_000);
+    if (text === null) throw new Error('Overpass response exceeded byte limit');
+    const json = JSON.parse(text) as OverpassResponse;
+    if (!json || !Array.isArray(json.elements) || json.elements.length > 25_000) {
+        throw new Error('Overpass response schema is invalid');
+    }
     return assembleOverlay(json);
 }
 
@@ -348,15 +355,33 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
 
 // ── Edge entry ──────────────────────────────────────────────────────────────
 
-const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+    if (req.method !== 'GET' && req.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'GET or POST required' }), {
+            status: 405,
+            headers: { ...CORS, 'Content-Type': 'application/json', Allow: 'GET, POST' },
+        });
+    }
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'osm_overlay', 120, 20, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
+
     try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceRoleKey) {
+            return new Response(JSON.stringify({ error: 'Overlay cache is not configured' }), {
+                status: 500,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
+        const admin = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+        });
         const url = new URL(req.url);
         let bboxStr = url.searchParams.get('bbox');
         if (!bboxStr && req.method === 'POST') {
-            const body = await req.json().catch(() => ({}));
+            const body = await readJsonObject(req, 4096);
             bboxStr =
                 typeof body?.bbox === 'string' ? body.bbox : Array.isArray(body?.bbox) ? body.bbox.join(',') : null;
         }
@@ -368,6 +393,17 @@ Deno.serve(async (req) => {
             });
         }
         const [w, s, e, n] = parts;
+        if (
+            parseCoordinate(w, 'lon') === null ||
+            parseCoordinate(e, 'lon') === null ||
+            parseCoordinate(s, 'lat') === null ||
+            parseCoordinate(n, 'lat') === null
+        ) {
+            return new Response(JSON.stringify({ error: 'bbox coordinates are invalid' }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
         // Size guard — a runaway bbox would hammer Overpass and blow the
         // response limit. 2°×2° covers any tracer/builder context.
         if (e - w > 2 || n - s > 2 || e <= w || n <= s) {
@@ -386,7 +422,12 @@ Deno.serve(async (req) => {
             .maybeSingle();
         if (hit && Date.now() - new Date(hit.fetched_at as string).getTime() < CACHE_TTL_MS) {
             return new Response(JSON.stringify(hit.payload), {
-                headers: { ...CORS, 'Content-Type': 'application/json', 'X-Overlay-Cache': 'hit' },
+                headers: {
+                    ...CORS,
+                    'Content-Type': 'application/json',
+                    'X-Overlay-Cache': 'hit',
+                    'Cache-Control': 'public, max-age=3600',
+                },
             });
         }
 
@@ -395,7 +436,12 @@ Deno.serve(async (req) => {
             .from('osm_overlay_cache')
             .upsert({ tile_key: key, payload: fresh as unknown, fetched_at: new Date().toISOString() });
         return new Response(JSON.stringify(fresh), {
-            headers: { ...CORS, 'Content-Type': 'application/json', 'X-Overlay-Cache': 'miss' },
+            headers: {
+                ...CORS,
+                'Content-Type': 'application/json',
+                'X-Overlay-Cache': 'miss',
+                'Cache-Control': 'public, max-age=3600',
+            },
         });
     } catch (err) {
         console.warn('[osm-overlay] failed:', err instanceof Error ? err.message : err);

@@ -7,18 +7,28 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { VesselRecord } from './parser.js';
 
-const BATCH_MAX = parseInt(process.env.BATCH_MAX_SIZE || '50', 10);
-const FLUSH_INTERVAL = parseInt(process.env.BATCH_FLUSH_MS || '2000', 10);
+function boundedPositiveInteger(raw: string | undefined, fallback: number, min: number, max: number): number {
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+const BATCH_MAX = boundedPositiveInteger(process.env.BATCH_MAX_SIZE, 50, 1, 500);
+const FLUSH_INTERVAL = boundedPositiveInteger(process.env.BATCH_FLUSH_MS, 2000, 250, 60_000);
 const MAX_BUFFER = 500; // Memory guard — drop oldest if exceeded
 
 export class VesselDB {
     private client: SupabaseClient;
     private buffer: Map<number, VesselRecord> = new Map(); // mmsi → latest record
     private flushTimer: ReturnType<typeof setInterval> | null = null;
+    private flushPromise: Promise<void> | null = null;
     private totalUpserts = 0;
     private totalErrors = 0;
 
-    constructor() {
+    constructor(client?: SupabaseClient) {
+        if (client) {
+            this.client = client;
+            return;
+        }
         const url = process.env.SUPABASE_URL;
         const key = process.env.SUPABASE_SERVICE_KEY;
         if (!url || !key) {
@@ -42,6 +52,9 @@ export class VesselDB {
             this.flushTimer = null;
         }
         await this.flush();
+        // One bounded retry gives a transient shutdown-time failure a chance
+        // to recover while preserving the unsent buffer if it still fails.
+        if (this.buffer.size > 0) await this.flush();
     }
 
     /** Buffer a vessel record for batch upsert */
@@ -63,7 +76,24 @@ export class VesselDB {
     }
 
     /** Flush buffered records to Supabase */
-    async flush(): Promise<void> {
+    flush(): Promise<void> {
+        // setInterval may tick while the previous network request is still in
+        // flight. Serialize drains so two snapshots can never race each other.
+        // A caller such as stop() that arrives mid-flush chains one final drain
+        // and therefore does not return before newly buffered records are sent.
+        if (this.flushPromise) {
+            return this.flushPromise.then(() => (this.buffer.size > 0 ? this.flush() : undefined));
+        }
+
+        const work = this.drainSnapshot();
+        const tracked = work.finally(() => {
+            if (this.flushPromise === tracked) this.flushPromise = null;
+        });
+        this.flushPromise = tracked;
+        return tracked;
+    }
+
+    private async drainSnapshot(): Promise<void> {
         if (this.buffer.size === 0) return;
 
         // Take a snapshot and clear buffer
@@ -73,12 +103,13 @@ export class VesselDB {
         // Process in batches
         for (let i = 0; i < records.length; i += BATCH_MAX) {
             const batch = records.slice(i, i + BATCH_MAX);
-            await this.upsertBatch(batch);
+            const saved = await this.upsertBatch(batch);
+            if (!saved) this.requeueFailed(batch);
         }
     }
 
     /** Upsert a batch of vessels into Supabase */
-    private async upsertBatch(records: VesselRecord[]): Promise<void> {
+    private async upsertBatch(records: VesselRecord[]): Promise<boolean> {
         const rows = records.map((r) => {
             const row: Record<string, unknown> = {
                 mmsi: r.mmsi,
@@ -116,12 +147,30 @@ export class VesselDB {
             if (error) {
                 console.error(`[DB] Upsert error (${rows.length} rows):`, error.message);
                 this.totalErrors++;
+                return false;
             } else {
                 this.totalUpserts += rows.length;
+                return true;
             }
         } catch (e) {
             console.error('[DB] Upsert exception:', e);
             this.totalErrors++;
+            return false;
+        }
+    }
+
+    /**
+     * Put an unsuccessful snapshot back without overwriting fresher messages
+     * that arrived while the request was in flight.
+     */
+    private requeueFailed(records: VesselRecord[]): void {
+        for (const record of records) {
+            const newer = this.buffer.get(record.mmsi);
+            if (this.buffer.size >= MAX_BUFFER && !newer) {
+                const oldest = this.buffer.keys().next().value;
+                if (oldest !== undefined) this.buffer.delete(oldest);
+            }
+            this.buffer.set(record.mmsi, newer ? { ...record, ...newer } : record);
         }
     }
 

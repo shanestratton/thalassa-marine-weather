@@ -12,14 +12,21 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@14.14.0?target=deno';
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
 
 const PLATFORM_FEE_PERCENT = 6;
 const ESCROW_TTL_HOURS = 48;
+const STRIPE_TIMEOUT_MS = 12_000;
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const json = (body: unknown, status = 200): Response => jsonResponse(body, status, corsHeaders);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Generate a random 6-digit PIN (100000-999999). */
 const generatePin = (): string => {
@@ -32,6 +39,10 @@ serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
+    if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
+
+    const caller = await requireAuthenticatedQuota(req, 'marketplace_payment_create', 10, 3600);
+    if (caller instanceof Response) return withCors(caller, corsHeaders);
 
     let rollbackClient: ReturnType<typeof createClient> | null = null;
     let rollbackListingId: string | null = null;
@@ -39,74 +50,47 @@ serve(async (req) => {
     let stripeForRollback: Stripe | null = null;
     try {
         if (Deno.env.get('MARKETPLACE_ENABLED') !== 'true') {
-            return new Response(JSON.stringify({ error: 'Marketplace payments are not currently available' }), {
-                status: 503,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return json({ error: 'Marketplace payments are not currently available' }, 503);
         }
         const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
-        if (!stripeKey) throw new Error('STRIPE_SECRET_KEY not configured');
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!stripeKey || !supabaseUrl || !supabaseServiceKey) {
+            console.error('[marketplace-payment] Required server configuration is missing');
+            return json({ error: 'Marketplace payments are not currently available' }, 503);
+        }
 
         const stripe = new Stripe(stripeKey, {
             apiVersion: '2023-10-16',
             httpClient: Stripe.createFetchHttpClient(),
+            timeout: STRIPE_TIMEOUT_MS,
+            maxNetworkRetries: 1,
         });
         stripeForRollback = stripe;
 
-        // Auth
-        const authHeader = req.headers.get('Authorization');
-        if (!authHeader) {
-            return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-                status: 401,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
         rollbackClient = supabase;
 
-        const token = authHeader.replace('Bearer ', '');
-        const {
-            data: { user },
-            error: authError,
-        } = await supabase.auth.getUser(token);
-        if (authError || !user) {
-            return new Response(JSON.stringify({ error: 'Invalid token' }), {
-                status: 401,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        const { listing_id } = await req.json();
-        if (!listing_id) {
-            return new Response(JSON.stringify({ error: 'listing_id is required' }), {
-                status: 400,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+        const body = await readJsonObject(req, 2_048);
+        const listingId = typeof body?.listing_id === 'string' ? body.listing_id.trim() : '';
+        if (!UUID_PATTERN.test(listingId)) {
+            return json({ error: 'A valid listing_id is required' }, 400);
         }
 
         // Fetch listing
         const { data: listing, error: listingError } = await supabase
             .from('marketplace_listings')
             .select('*')
-            .eq('id', listing_id)
+            .eq('id', listingId)
             .eq('status', 'available')
             .single();
 
         if (listingError || !listing) {
-            return new Response(JSON.stringify({ error: 'Listing not found or no longer available' }), {
-                status: 404,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return json({ error: 'Listing not found or no longer available' }, 404);
         }
 
-        if (listing.seller_id === user.id) {
-            return new Response(JSON.stringify({ error: 'Cannot purchase your own listing' }), {
-                status: 400,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+        if (listing.seller_id === caller.userId) {
+            return json({ error: 'Cannot purchase your own listing' }, 400);
         }
 
         // Get seller's connected Stripe account
@@ -116,11 +100,11 @@ serve(async (req) => {
             .eq('user_id', listing.seller_id)
             .single();
 
-        if (!sellerProfile?.stripe_account_id) {
-            return new Response(JSON.stringify({ error: 'Seller has not set up Stripe payments' }), {
-                status: 400,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+        if (
+            typeof sellerProfile?.stripe_account_id !== 'string' ||
+            !/^acct_[A-Za-z0-9]{8,}$/.test(sellerProfile.stripe_account_id)
+        ) {
+            return json({ error: 'Seller has not set up Stripe payments' }, 400);
         }
 
         // Calculate fees
@@ -129,16 +113,10 @@ serve(async (req) => {
         const sellerPayoutCents = amountCents - platformFeeCents;
         const stripeCurrency = (listing.currency || 'AUD').toLowerCase();
         if (!Number.isSafeInteger(amountCents) || amountCents < 100 || amountCents > 10_000_000) {
-            return new Response(JSON.stringify({ error: 'Listing price is outside payment limits' }), {
-                status: 400,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return json({ error: 'Listing price is outside payment limits' }, 400);
         }
         if (!['aud', 'nzd', 'usd'].includes(stripeCurrency)) {
-            return new Response(JSON.stringify({ error: 'Unsupported listing currency' }), {
-                status: 400,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return json({ error: 'Unsupported listing currency' }, 400);
         }
 
         // Claim the listing atomically before creating a Stripe hold. This
@@ -151,10 +129,7 @@ serve(async (req) => {
             .select('id')
             .maybeSingle();
         if (reserveError || !reserved) {
-            return new Response(JSON.stringify({ error: 'Listing was reserved by another buyer' }), {
-                status: 409,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return json({ error: 'Listing was reserved by another buyer' }, 409);
         }
         rollbackListingId = listing.id;
 
@@ -174,7 +149,7 @@ serve(async (req) => {
             },
             metadata: {
                 listing_id: listing.id,
-                buyer_id: user.id,
+                buyer_id: caller.userId,
                 seller_id: listing.seller_id,
                 listing_title: listing.title,
                 platform_fee_percent: String(PLATFORM_FEE_PERCENT),
@@ -190,7 +165,7 @@ serve(async (req) => {
             .from('marketplace_escrow')
             .insert({
                 listing_id: listing.id,
-                buyer_id: user.id,
+                buyer_id: caller.userId,
                 seller_id: listing.seller_id,
                 amount_cents: amountCents,
                 platform_fee_cents: platformFeeCents,
@@ -211,20 +186,17 @@ serve(async (req) => {
         rollbackListingId = null;
         rollbackPaymentIntentId = null;
 
-        return new Response(
-            JSON.stringify({
-                clientSecret: paymentIntent.client_secret,
-                paymentIntentId: paymentIntent.id,
-                escrowId: escrow.id,
-                escrowPin: escrowPin, // Only visible to buyer
-                expiresAt,
-                amountCents,
-                platformFeeCents,
-                sellerPayoutCents,
-                currency: stripeCurrency,
-            }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        return json({
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id,
+            escrowId: escrow.id,
+            escrowPin: escrowPin, // Only visible to buyer
+            expiresAt,
+            amountCents,
+            platformFeeCents,
+            sellerPayoutCents,
+            currency: stripeCurrency,
+        });
     } catch (err) {
         if (rollbackPaymentIntentId && stripeForRollback) {
             await stripeForRollback.paymentIntents.cancel(rollbackPaymentIntentId).catch(() => undefined);
@@ -237,9 +209,6 @@ serve(async (req) => {
                 .eq('status', 'pending');
         }
         console.error('Marketplace payment error:', err);
-        return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ error: 'Marketplace payment could not be created' }, 500);
     }
 });

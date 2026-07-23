@@ -30,9 +30,9 @@ const LonelyHeartsPage = lazyRetry(
 );
 
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { OverlayPortal } from './ui/OverlayPortal';
 import { toast } from './Toast';
 import { useSettings } from '../context/SettingsContext';
-import { moderateMessage } from '../services/ContentModerationService';
 const ChandleryPage = lazyRetry(
     () => import('./ChandleryPage').then((m) => ({ default: m.ChandleryPage })),
     'ChandleryPage',
@@ -55,7 +55,7 @@ import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
-import { type PassageStatus, getPassageStatus, getPassageStatusSync } from '../services/PassagePlanService';
+import { NO_PASSAGE_ACCESS, type PassageStatus, getPassageStatus } from '../services/PassagePlanService';
 import { WelcomeBanner } from './chat/WelcomeBanner';
 import { AuthBanner } from './chat/AuthBanner';
 import { triggerHaptic } from '../utils/system';
@@ -70,6 +70,7 @@ import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
 
 import { CREW_RANKS as _CREW_RANKS } from './chat/chatUtils';
+import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
 // --- TYPES ---
 type ChatView =
@@ -117,29 +118,39 @@ export const ChatPage: React.FC = React.memo(() => {
 
     // Loading — must be declared before hooks since they receive setLoading
     const [loading, setLoading] = useState(true);
-    const [hasCrewInvited, setHasCrewInvited] = useState(false);
+    const [hasOwnedCrew, setHasOwnedCrew] = useState(false);
+    const [hasCrewMembership, setHasCrewMembership] = useState(false);
 
     // Passage Planning visibility
-    const [_passageStatus, setPassageStatus] = useState<PassageStatus>(getPassageStatusSync());
+    const [passageStatus, setPassageStatus] = useState<PassageStatus>(NO_PASSAGE_ACCESS);
     useEffect(() => {
-        getPassageStatus()
-            .then(setPassageStatus)
-            .catch(() => {
-                /* use sync fallback */
-            });
+        let active = true;
+
+        const refreshPassageStatus = () => {
+            // A locally selected passage is not proof of ownership. Hide the
+            // permissioned surface until the service verifies this user.
+            setPassageStatus(NO_PASSAGE_ACCESS);
+            void getPassageStatus()
+                .then((status) => {
+                    if (active) setPassageStatus(status);
+                })
+                .catch(() => {
+                    if (active) setPassageStatus(NO_PASSAGE_ACCESS);
+                });
+        };
+
+        refreshPassageStatus();
 
         // Re-check when passage selection changes (from VesselHub dropdown)
-        const handlePassageChange = () => {
-            // Sync check first for immediate UI response
-            setPassageStatus(getPassageStatusSync());
-            // Then async verify
-            getPassageStatus()
-                .then(setPassageStatus)
-                .catch(() => {});
-        };
+        const handlePassageChange = () => refreshPassageStatus();
         window.addEventListener('thalassa:passage-changed', handlePassageChange);
-        return () => window.removeEventListener('thalassa:passage-changed', handlePassageChange);
+        return () => {
+            active = false;
+            window.removeEventListener('thalassa:passage-changed', handlePassageChange);
+        };
     }, []);
+
+    const canOpenCrewChat = hasOwnedCrew || (hasCrewMembership && passageStatus.visible && passageStatus.canViewChat);
 
     // --- Extracted Hooks ---
     const chatMessages = useChatMessages({ setView: setView as (v: string) => void, setNavDirection, setLoading });
@@ -239,6 +250,10 @@ export const ChatPage: React.FC = React.memo(() => {
         setReportReason,
         reportSent,
         setReportSent,
+        reportError,
+        setReportError,
+        reportSubmitting,
+        setReportSubmitting,
         handleProposeChannel,
         handleRequestAccess,
         handleSubmitJoinRequest,
@@ -255,7 +270,7 @@ export const ChatPage: React.FC = React.memo(() => {
 
     // Auth banner state (dismissible)
     const [chatAuthBanner, setChatAuthBanner] = useState(() => {
-        return !localStorage.getItem('thalassa_chat_auth_dismissed');
+        return !localStorage.getItem(authScopedStorageKey('thalassa_chat_auth_dismissed'));
     });
     // Auth state from the global authStore — same source as the AuthGate
     // at app boot. Previously this page kept its own local chatIsAuthed
@@ -269,9 +284,10 @@ export const ChatPage: React.FC = React.memo(() => {
     // Pull-to-refresh — actual message reload
     const pullRefresh = usePullToRefresh(async () => {
         if (activeChannel && view === 'messages') {
+            const identity = getAuthIdentityScope();
             triggerHaptic('medium');
             const fresh = await ChatService.getMessages(activeChannel.id);
-            setMessages(fresh);
+            if (isAuthIdentityScopeCurrent(identity)) setMessages(fresh);
         }
     });
 
@@ -290,49 +306,49 @@ export const ChatPage: React.FC = React.memo(() => {
             return;
         }
 
-        let kbShowHandle: Promise<{ remove: () => void }> | undefined;
-        let kbHideHandle: Promise<{ remove: () => void }> | undefined;
-        let usingNativePlugin = false;
+        let disposed = false;
+        let cleanupOwnedListeners: (() => void) | undefined;
 
         // Try Capacitor Keyboard plugin first (accurate on native iOS)
         import('@capacitor/keyboard')
             .then(({ Keyboard }) => {
-                usingNativePlugin = true;
-                kbShowHandle = Keyboard.addListener('keyboardWillShow', (info) => {
+                if (disposed) return;
+                const kbShowHandle = Keyboard.addListener('keyboardWillShow', (info) => {
+                    if (disposed) return;
                     setKeyboardOffset(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
                 });
-                kbHideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                const kbHideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    if (disposed) return;
                     setKeyboardOffset(0);
                 });
+                cleanupOwnedListeners = () => {
+                    void kbShowHandle.then((handle) => handle.remove());
+                    void kbHideHandle.then((handle) => handle.remove());
+                };
             })
             .catch(() => {
+                if (disposed) return;
                 // Fallback to visualViewport for web (Capacitor plugin not available)
                 const vv = window.visualViewport;
                 if (!vv) return;
                 const handleResize = () => {
+                    if (disposed) return;
                     const offset = window.innerHeight - vv.height - vv.offsetTop;
                     setKeyboardOffset(offset > 50 ? offset : 0);
                 };
                 vv.addEventListener('resize', handleResize);
                 vv.addEventListener('scroll', handleResize);
                 handleResize();
-                // Store cleanup refs on window for the teardown below
-
-                window.__chatKbCleanup = () => {
+                cleanupOwnedListeners = () => {
                     vv.removeEventListener('resize', handleResize);
                     vv.removeEventListener('scroll', handleResize);
                 };
             });
 
         return () => {
-            if (usingNativePlugin) {
-                kbShowHandle?.then((h) => h.remove());
-                kbHideHandle?.then((h) => h.remove());
-            }
-
-            window.__chatKbCleanup?.();
-
-            delete window.__chatKbCleanup;
+            disposed = true;
+            cleanupOwnedListeners?.();
+            cleanupOwnedListeners = undefined;
         };
     }, [view]);
 
@@ -404,6 +420,9 @@ export const ChatPage: React.FC = React.memo(() => {
 
     // --- INIT ---
     useEffect(() => {
+        let disposed = false;
+        const identity = getAuthIdentityScope();
+        const isCurrent = () => !disposed && isAuthIdentityScopeCurrent(identity);
         const init = async () => {
             try {
                 // Run channel load + auth init in parallel so everything appears together
@@ -414,16 +433,18 @@ export const ChatPage: React.FC = React.memo(() => {
                     log.warn('Init auth/profile failed:', e);
                 });
 
-                const [chs] = await Promise.all([loadChannels(), initWithTimeout]);
+                const [chs] = await Promise.all([loadChannels(isCurrent), initWithTimeout]);
+                if (!isCurrent()) return;
 
                 // Roles are now loaded — refresh reactive state immediately
                 refreshRoles();
                 loadUnreadCount();
 
                 // Auto-restore channel if returning from pin-view map
-                const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
+                const returnKey = authScopedStorageKey('chat_return_to_channel', identity);
+                const returnChannelId = sessionStorage.getItem(returnKey);
                 if (returnChannelId) {
-                    sessionStorage.removeItem('chat_return_to_channel');
+                    sessionStorage.removeItem(returnKey);
                     const ch = chs.find((c) => c.id === returnChannelId);
                     if (ch) openChannel(ch);
                 }
@@ -431,6 +452,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 // Refresh channels from network (bypass cache — auth may unlock new channels)
                 try {
                     const fresh = await ChatService.getChannelsFresh();
+                    if (!isCurrent()) return;
                     if (fresh.length > 0) setChannels(fresh);
                     await loadProfile();
                 } catch (e) {
@@ -442,11 +464,14 @@ export const ChatPage: React.FC = React.memo(() => {
                 try {
                     const { getMyCrew, getMyMemberships } = await import('../services/CrewService');
                     const [myCrew, myMemberships] = await Promise.all([getMyCrew(), getMyMemberships()]);
-                    setHasCrewInvited(myCrew.length > 0 || myMemberships.length > 0);
+                    if (!isCurrent()) return;
+                    setHasOwnedCrew(myCrew.length > 0);
+                    setHasCrewMembership(myMemberships.length > 0);
                 } catch {
                     /* non-critical — Crew Chat stays hidden */
                 }
             } catch (e) {
+                if (!isCurrent()) return;
                 // Outer catch — loadChannels() or channel restore failed
                 log.warn('Chat init failed — using defaults:', e);
                 setChannels(
@@ -461,20 +486,22 @@ export const ChatPage: React.FC = React.memo(() => {
         };
         init();
 
-        const visited = localStorage.getItem('crew_talk_visited');
-        if (visited) setIsFirstVisit(false);
+        const visited = localStorage.getItem(authScopedStorageKey('crew_talk_visited', identity));
+        setIsFirstVisit(!visited);
+        setChatAuthBanner(!localStorage.getItem(authScopedStorageKey('thalassa_chat_auth_dismissed', identity)));
 
         const unsub = subscribeDMs();
 
         return () => {
+            disposed = true;
             unsub();
             cleanupMessages();
             ChatService.destroy();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [chatAuthedUser?.id]);
 
-    const loadChannels = async (): Promise<ChatChannel[]> => {
+    const loadChannels = async (isCurrent: () => boolean = () => true): Promise<ChatChannel[]> => {
         // getChannels returns cached data instantly (or fetches if no cache)
         const chs = await ChatService.getChannels();
         const result =
@@ -485,6 +512,7 @@ export const ChatPage: React.FC = React.memo(() => {
                       id: `default-${i}`,
                       created_at: new Date().toISOString(),
                   }));
+        if (!isCurrent()) return [];
         setChannels(result);
         setLoading(false); // Channels visible — kill spinner immediately
         return result;
@@ -495,18 +523,38 @@ export const ChatPage: React.FC = React.memo(() => {
     // getStaticMapUrl imported from chatUtils
 
     const handleReport = async () => {
-        if (!reportingMsg) return;
-        const userId = (await ChatService.getCurrentUser())?.id;
-        if (!userId) return;
-        await reportMessage(reportingMsg.id, userId, reportReason);
-        moderateMessage(reportingMsg.id, reportingMsg.message, reportingMsg.user_id, reportingMsg.channel_id).catch(
-            () => {},
-        );
-        setReportSent(true);
-        setTimeout(() => {
-            setReportingMsg(null);
-            setReportSent(false);
-        }, 1500);
+        if (!reportingMsg || reportSubmitting) return;
+        const identity = getAuthIdentityScope();
+        const reportedMessage = reportingMsg;
+        setReportError(null);
+        setReportSubmitting(true);
+        try {
+            const userId = (await ChatService.getCurrentUser())?.id;
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!userId || userId !== identity.userId) {
+                setReportError('Sign in again before submitting this report.');
+                return;
+            }
+            const submitted = await reportMessage(reportedMessage.id, userId, reportReason);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!submitted) {
+                setReportError('Report not submitted. It may already be reported; please try again shortly.');
+                return;
+            }
+            setReportSent(true);
+            setTimeout(() => {
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                setReportingMsg(null);
+                setReportSent(false);
+                setReportError(null);
+            }, 1500);
+        } catch {
+            if (isAuthIdentityScopeCurrent(identity)) {
+                setReportError('Report not submitted. Check your connection and try again.');
+            }
+        } finally {
+            if (isAuthIdentityScopeCurrent(identity)) setReportSubmitting(false);
+        }
     };
 
     // Proposals, private channels, and join requests now provided by useChatProposals hook
@@ -557,7 +605,7 @@ export const ChatPage: React.FC = React.memo(() => {
 
     const dismissWelcome = () => {
         setIsFirstVisit(false);
-        localStorage.setItem('crew_talk_visited', 'true');
+        localStorage.setItem(authScopedStorageKey('crew_talk_visited'), 'true');
     };
 
     const goBack = () => {
@@ -756,7 +804,7 @@ export const ChatPage: React.FC = React.memo(() => {
                             onSignIn={() => setShowChatAuth(true)}
                             onDismiss={() => {
                                 setChatAuthBanner(false);
-                                localStorage.setItem('thalassa_chat_auth_dismissed', '1');
+                                localStorage.setItem(authScopedStorageKey('thalassa_chat_auth_dismissed'), '1');
                             }}
                         />
                     )}
@@ -803,15 +851,15 @@ export const ChatPage: React.FC = React.memo(() => {
                             memberChannelIds={memberChannelIds}
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
-                            hasCrewInvited={hasCrewInvited}
+                            hasCrewInvited={canOpenCrewChat}
                             vesselName={settings.vessel?.name}
                         />
                     )}
 
                     {/* ══════ JOIN REQUEST MODAL ══════ */}
                     {joinRequestChannel && (
-                        <div
-                            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
+                        <OverlayPortal
+                            className="flex items-end justify-center bg-black/70"
                             onClick={() => setJoinRequestChannel(null)}
                             role="presentation"
                         >
@@ -870,7 +918,7 @@ export const ChatPage: React.FC = React.memo(() => {
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                        </OverlayPortal>
                     )}
 
                     {/* ══════ MESSAGE VIEW ══════ */}
@@ -892,6 +940,7 @@ export const ChatPage: React.FC = React.memo(() => {
                                 onReportMsg={(msg) => {
                                     setReportingMsg(msg);
                                     setReportSent(false);
+                                    setReportError(null);
                                 }}
                                 onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
                                 onDeleteMessage={handleDeleteMessage}
@@ -925,10 +974,16 @@ export const ChatPage: React.FC = React.memo(() => {
                 <ReportModal
                     reportingMsg={reportingMsg}
                     reportSent={reportSent}
+                    reportError={reportError}
+                    reportSubmitting={reportSubmitting}
                     reportReason={reportReason}
                     setReportReason={setReportReason}
                     onSubmit={handleReport}
-                    onClose={() => setReportingMsg(null)}
+                    onClose={() => {
+                        if (reportSubmitting) return;
+                        setReportingMsg(null);
+                        setReportError(null);
+                    }}
                 />
             )}
 

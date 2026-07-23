@@ -33,6 +33,16 @@ export interface PurchasableItem {
     packageCount: number;
     /** Package label (e.g. "1kg bag") */
     packageLabel: string;
+    /** Quantity contained in one package, expressed in baseUnit */
+    packageSize: number;
+    /** Canonical unit used for the package contents */
+    baseUnit: string;
+    /** Total quantity that should be recorded in Ship's Stores */
+    inventoryQuantity: number;
+    /** Canonical Ship's Stores unit for inventoryQuantity */
+    inventoryUnit: string;
+    /** Whether the recipe amount could be converted without a density estimate */
+    conversionKnown: boolean;
     /** Whether this was matched to a known purchase unit */
     matched: boolean;
 }
@@ -91,6 +101,10 @@ const TO_WHOLE: Record<string, number> = {
     piece: 1,
     pieces: 1,
     each: 1,
+    ea: 1,
+    pc: 1,
+    pcs: 1,
+    count: 1,
     large: 1,
     medium: 1,
     small: 1,
@@ -141,6 +155,76 @@ const TO_WHOLE: Record<string, number> = {
     strips: 1,
 };
 
+type QuantityDimension = 'mass' | 'volume' | 'count';
+
+interface UnitDefinition {
+    dimension: QuantityDimension;
+    factor: number;
+}
+
+function normalizedUnit(unit: string): string {
+    return unit.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Resolve ordinary recipe units and the package-label units written by older
+ * Thalassa builds. Package labels are read for migration compatibility only;
+ * new inventory rows use g, ml, or whole.
+ */
+function unitDefinition(unit: string): UnitDefinition | null {
+    const normalized = normalizedUnit(unit);
+    const grams = TO_GRAMS[normalized];
+    if (grams !== undefined) return { dimension: 'mass', factor: grams };
+
+    const millilitres = TO_ML[normalized];
+    if (millilitres !== undefined) return { dimension: 'volume', factor: millilitres };
+
+    const whole = TO_WHOLE[normalized];
+    if (whole !== undefined) return { dimension: 'count', factor: whole };
+
+    const packagedMeasure = normalized.match(/^(\d+(?:\.\d+)?)\s*(mg|g|kg|ml|l|millilit(?:er|re)s?|lit(?:er|re)s?)\b/);
+    if (packagedMeasure) {
+        const [, amountText, measure] = packagedMeasure;
+        const amount = Number(amountText);
+        const massFactor = TO_GRAMS[measure];
+        if (massFactor !== undefined) return { dimension: 'mass', factor: amount * massFactor };
+        const volumeFactor = TO_ML[measure];
+        if (volumeFactor !== undefined) return { dimension: 'volume', factor: amount * volumeFactor };
+    }
+
+    if (/^dozen(?:\s*\(12\))?\b/.test(normalized)) {
+        return { dimension: 'count', factor: 12 };
+    }
+
+    // Labels such as "6 pack", "3 bulb pack", "1 loaf", and "100 bag box".
+    const packagedCount = normalized.match(/^(\d+(?:\.\d+)?)\s+(?!mg\b|g\b|kg\b|ml\b|l\b)[a-z]/);
+    if (packagedCount) {
+        return { dimension: 'count', factor: Number(packagedCount[1]) };
+    }
+
+    return null;
+}
+
+/**
+ * Convert a quantity only when the units are dimensionally compatible.
+ *
+ * Deliberately returns null for mass ↔ volume conversions. Ingredient density
+ * is required for those conversions, so pretending that 1 ml equals 1 g can
+ * silently overstate stores or consume the wrong amount.
+ */
+export function convertQuantity(quantity: number, fromUnit: string, toUnit: string): number | null {
+    if (!Number.isFinite(quantity)) return null;
+
+    const normalizedFrom = normalizedUnit(fromUnit);
+    const normalizedTo = normalizedUnit(toUnit);
+    if (normalizedFrom && normalizedFrom === normalizedTo) return quantity;
+
+    const from = unitDefinition(fromUnit);
+    const to = unitDefinition(toUnit);
+    if (!from || !to || from.dimension !== to.dimension || to.factor <= 0) return null;
+    return (quantity * from.factor) / to.factor;
+}
+
 // ── 200-Item Purchase Unit Lookup ──────────────────────────────────────────
 // Keywords are matched against ingredient names (case-insensitive, partial match)
 // Order matters: more specific keywords should come first
@@ -149,7 +233,10 @@ const PURCHASE_UNITS: [string[], PurchaseUnit][] = [
     // ── Baking & Pantry ──
     [['caster sugar', 'castor sugar'], { packageLabel: '1kg bag', packageSize: 1000, baseUnit: 'g' }],
     [['brown sugar', 'raw sugar'], { packageLabel: '1kg bag', packageSize: 1000, baseUnit: 'g' }],
-    [['icing sugar', 'powdered sugar', 'confectioner'], { packageLabel: '500g bag', packageSize: 500, baseUnit: 'g' }],
+    [
+        ['icing sugar', 'powdered sugar', 'confectioner sugar', 'confectioners sugar'],
+        { packageLabel: '500g bag', packageSize: 500, baseUnit: 'g' },
+    ],
     [['sugar'], { packageLabel: '1kg bag', packageSize: 1000, baseUnit: 'g' }],
     [
         ['plain flour', 'all-purpose flour', 'all purpose flour'],
@@ -314,7 +401,7 @@ const PURCHASE_UNITS: [string[], PurchaseUnit][] = [
     [['crab', 'crab meat'], { packageLabel: '200g pack', packageSize: 200, baseUnit: 'g' }],
     [['mussel', 'mussels'], { packageLabel: '1kg bag', packageSize: 1000, baseUnit: 'g' }],
     [['squid', 'calamari'], { packageLabel: '500g pack', packageSize: 500, baseUnit: 'g' }],
-    [['anchov', 'anchovies'], { packageLabel: '45g tin', packageSize: 45, baseUnit: 'g' }],
+    [['anchovy', 'anchovies'], { packageLabel: '45g tin', packageSize: 45, baseUnit: 'g' }],
     [['sardine', 'sardines'], { packageLabel: '110g tin', packageSize: 110, baseUnit: 'g' }],
 
     // ── Produce ──
@@ -424,7 +511,10 @@ const PURCHASE_UNITS: [string[], PurchaseUnit][] = [
         ['raisin', 'raisins', 'sultana', 'sultanas', 'currant', 'currants'],
         { packageLabel: '250g bag', packageSize: 250, baseUnit: 'g' },
     ],
-    [['dried cranberr', 'craisins'], { packageLabel: '200g bag', packageSize: 200, baseUnit: 'g' }],
+    [
+        ['dried cranberry', 'dried cranberries', 'craisins'],
+        { packageLabel: '200g bag', packageSize: 200, baseUnit: 'g' },
+    ],
     [['dates', 'medjool date'], { packageLabel: '250g pack', packageSize: 250, baseUnit: 'g' }],
 
     // ── Bread & Bakery ──
@@ -474,43 +564,56 @@ const PURCHASE_UNITS: [string[], PurchaseUnit][] = [
 
 // ── Conversion Logic ──────────────────────────────────────────────────────
 
-function normalizeToBase(qty: number, unit: string, baseUnit: string): number | null {
-    const u = unit.trim().toLowerCase();
-
-    if (baseUnit === 'g') {
-        const factor = TO_GRAMS[u];
-        if (factor) return qty * factor;
-        // Volume → weight approximation (rough: 1ml ≈ 1g for most ingredients)
-        const mlFactor = TO_ML[u];
-        if (mlFactor) return qty * mlFactor;
-    }
-
-    if (baseUnit === 'ml') {
-        const factor = TO_ML[u];
-        if (factor) return qty * factor;
-        // Weight → volume approximation
-        const gFactor = TO_GRAMS[u];
-        if (gFactor) return qty * gFactor;
-    }
-
-    if (baseUnit === 'whole') {
-        const factor = TO_WHOLE[u];
-        if (factor) return qty * factor;
-        // If the unit is a weight, we can't convert to "whole"
-        return null;
-    }
-
-    return null;
-}
-
 function findPurchaseUnit(ingredientName: string): PurchaseUnit | null {
-    const lower = ingredientName.toLowerCase();
+    const ingredientWords = ingredientName
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    let best: { unit: PurchaseUnit; wordCount: number; length: number } | null = null;
+
+    const wordMatches = (ingredientWord: string, keywordWord: string): boolean => {
+        if (ingredientWord === keywordWord) return true;
+        if (ingredientWord === `${keywordWord}s` || ingredientWord === `${keywordWord}es`) return true;
+        if (keywordWord.endsWith('y') && ingredientWord === `${keywordWord.slice(0, -1)}ies`) {
+            return true;
+        }
+        return false;
+    };
+
     for (const [keywords, unit] of PURCHASE_UNITS) {
         for (const kw of keywords) {
-            if (lower.includes(kw)) return unit;
+            const keywordWords = kw
+                .toLowerCase()
+                .normalize('NFKD')
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim()
+                .split(/\s+/)
+                .filter(Boolean);
+            if (keywordWords.length === 0 || keywordWords.length > ingredientWords.length) continue;
+
+            let matched = false;
+            for (let start = 0; start <= ingredientWords.length - keywordWords.length; start++) {
+                if (keywordWords.every((word, index) => wordMatches(ingredientWords[start + index], word))) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) continue;
+
+            const specificity = { wordCount: keywordWords.length, length: kw.length };
+            if (
+                !best ||
+                specificity.wordCount > best.wordCount ||
+                (specificity.wordCount === best.wordCount && specificity.length > best.length)
+            ) {
+                best = { unit, ...specificity };
+            }
         }
     }
-    return null;
+    return best?.unit ?? null;
 }
 
 /**
@@ -528,28 +631,39 @@ export function toPurchasable(ingredientName: string, recipeQty: number, recipeU
 
     if (!pu) {
         // No match — return raw quantity
+        const inventoryUnit = recipeUnit.trim() || 'each';
         return {
             name: ingredientName,
             recipeQty,
             recipeUnit,
             packageCount: Math.ceil(recipeQty),
             packageLabel: `${Math.round(recipeQty * 10) / 10} ${recipeUnit}`,
+            packageSize: recipeQty,
+            baseUnit: inventoryUnit,
+            inventoryQuantity: recipeQty,
+            inventoryUnit,
+            conversionKnown: true,
             matched: false,
         };
     }
 
     // Convert recipe amount to the purchase unit's base
-    const baseAmount = normalizeToBase(recipeQty, recipeUnit, pu.baseUnit);
+    const baseAmount = convertQuantity(recipeQty, recipeUnit, pu.baseUnit);
 
     if (baseAmount === null) {
-        // Can't convert — likely a "pinch" or unknown unit
-        // Just return 1 package as a reasonable minimum
+        // A known package is still useful, but without ingredient density or a
+        // count-to-weight mapping we cannot honestly calculate multiple packs.
         return {
             name: ingredientName,
             recipeQty,
             recipeUnit,
             packageCount: 1,
             packageLabel: pu.packageLabel,
+            packageSize: pu.packageSize,
+            baseUnit: pu.baseUnit,
+            inventoryQuantity: pu.packageSize,
+            inventoryUnit: pu.baseUnit,
+            conversionKnown: false,
             matched: true,
         };
     }
@@ -563,6 +677,11 @@ export function toPurchasable(ingredientName: string, recipeQty: number, recipeU
         recipeUnit,
         packageCount: packages,
         packageLabel: pu.packageLabel,
+        packageSize: pu.packageSize,
+        baseUnit: pu.baseUnit,
+        inventoryQuantity: packages * pu.packageSize,
+        inventoryUnit: pu.baseUnit,
+        conversionKnown: true,
         matched: true,
     };
 }

@@ -5,9 +5,10 @@
  * showing title, servings, cook time, and image thumbnail.
  * Same pattern as PinDropCard for location shares.
  */
-import React, { useState } from 'react';
-import { decodeRecipeShare, getRecipeById, type StoredRecipe } from '../../services/GalleyRecipeService';
+import React, { useEffect, useRef, useState } from 'react';
+import { getRecipeById, parseRecipeShareMessage, type StoredRecipe } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
+import { SafeImage } from '../ui/SafeImage';
 
 interface RecipeCardProps {
     message: string;
@@ -15,11 +16,20 @@ interface RecipeCardProps {
 }
 
 export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
-    const data = decodeRecipeShare(message);
+    const parsed = parseRecipeShareMessage(message);
+    const data = parsed?.recipe;
     const [expanded, setExpanded] = useState(false);
     const [recipe, setRecipe] = useState<StoredRecipe | null>(null);
     const [loading, setLoading] = useState(false);
     const [imageBroken, setImageBroken] = useState(false);
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
 
     if (!data) return null;
 
@@ -35,23 +45,35 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
 
         if (!recipe && !loading) {
             setLoading(true);
-            const full = await getRecipeById(data.recipeId);
-            setRecipe(full);
-            setLoading(false);
+            try {
+                const full = await getRecipeById(data.recipeId);
+                if (mountedRef.current) setRecipe(full);
+            } catch {
+                if (mountedRef.current) setRecipe(null);
+            } finally {
+                if (mountedRef.current) setLoading(false);
+            }
         }
     };
 
     return (
         <button
+            type="button"
             onClick={handleTap}
+            aria-expanded={expanded}
+            aria-label={`${data.title} recipe. ${expanded ? 'Collapse details' : 'View details'}`}
             className={`w-full max-w-[280px] rounded-2xl overflow-hidden text-left transition-all active:scale-[0.97] ${
                 isMine ? 'bg-sky-500/10 border border-sky-500/20' : 'bg-amber-500/10 border border-amber-500/20'
             }`}
         >
+            {parsed.note && (
+                <p className="px-3 pt-3 text-xs text-white/70 leading-relaxed whitespace-pre-wrap">{parsed.note}</p>
+            )}
+
             {/* Header with image */}
             {data.imageUrl && !imageBroken && (
                 <div className="h-28 w-full bg-slate-800 overflow-hidden">
-                    <img
+                    <SafeImage
                         src={data.imageUrl}
                         alt={data.title}
                         className="w-full h-full object-cover"
@@ -77,8 +99,11 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                 {expanded && (
                     <div className="mt-3 pt-3 border-t border-white/10 space-y-2 animate-in fade-in duration-200">
                         {loading ? (
-                            <div className="flex items-center gap-2 py-2">
-                                <div className="w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                            <div className="flex items-center gap-2 py-2" role="status">
+                                <div
+                                    aria-hidden="true"
+                                    className="w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"
+                                />
                                 <span className="text-[11px] text-gray-400">Loading recipe...</span>
                             </div>
                         ) : recipe ? (
@@ -148,5 +173,5 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
  * Used by the chat renderer to decide which component to use.
  */
 export function isRecipeShareMessage(message: string): boolean {
-    return message.startsWith('🍳RECIPE:');
+    return parseRecipeShareMessage(message) !== null;
 }

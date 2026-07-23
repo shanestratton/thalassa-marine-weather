@@ -1,6 +1,15 @@
 // deno-lint-ignore-file
 declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Response) => void };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseForecastHours,
+    parseGeoBounds,
+    readJsonObject,
+    readResponseArrayBufferLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * fetch-pressure-grid — NOAA GFS Pressure Grid (server-decoded)
  *
@@ -169,6 +178,17 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
         const E = Math.pow(2, binaryScale);
         const D = Math.pow(10, decimalScale);
         const numValues = width * height;
+        if (
+            !Number.isSafeInteger(numValues) ||
+            numValues < 1 ||
+            numValues > 2_000_000 ||
+            totalLength < 16 ||
+            offset + totalLength > buffer.byteLength
+        ) {
+            console.warn(`[GRIB2-Server] Refusing invalid grid/message dimensions: ${width}×${height}`);
+            offset += Math.max(16, Math.min(totalLength || 16, buffer.byteLength - offset));
+            continue;
+        }
         const pressure: number[] = new Array(numValues);
 
         for (let i = 0; i < numValues && i < packedData.length; i++) {
@@ -206,22 +226,25 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
-    try {
-        const body = await req.json();
-        const { north, south, east, west } = body;
-        const forecastHours: number[] = body.hours || [0, 3, 6, 9, 12];
-        const resolution: string = body.resolution || '1p00'; // '0p25' for hi-res cyclone eye
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'pressure_grid', 60, 30, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
+    try {
+        const body = await readJsonObject(req, 4096);
+        const bounds = body ? parseGeoBounds(body) : null;
+        const forecastHours = body ? parseForecastHours(body.hours, [0, 3, 6, 9, 12], 8, 120) : null;
+        const resolution = body?.resolution ?? '1p00';
         if (
-            typeof north !== 'number' ||
-            typeof south !== 'number' ||
-            typeof east !== 'number' ||
-            typeof west !== 'number'
+            !bounds ||
+            !forecastHours ||
+            (resolution !== '0p25' && resolution !== '1p00') ||
+            (resolution === '0p25' && bounds.latSpan * bounds.lonSpan > 2500)
         ) {
-            return corsResponse(JSON.stringify({ error: 'Missing bounds' }), 400, {
+            return corsResponse(JSON.stringify({ error: 'Invalid pressure-grid request bounds' }), 400, {
                 'Content-Type': 'application/json',
             });
         }
+        const { north, south, east, west } = bounds;
 
         const lonSpan = east - west;
         let leftLon: number, rightLon: number;
@@ -259,9 +282,10 @@ Deno.serve(async (req: Request) => {
             console.info(`[fetch-pressure-grid] f${fhStr}: ${noaaUrl}`);
 
             try {
-                const upstream = await fetch(noaaUrl);
+                const upstream = await fetchWithTimeout(noaaUrl, {}, 15_000);
                 if (!upstream.ok) return null;
-                const buf = await upstream.arrayBuffer();
+                const buf = await readResponseArrayBufferLimited(upstream, 12_000_000);
+                if (!buf) return null;
                 if (buf.byteLength < 100) return null;
                 return buf;
             } catch (e) {
@@ -366,9 +390,12 @@ Deno.serve(async (req: Request) => {
             'Content-Type': 'application/json',
             'X-GFS-Date': date,
             'X-GFS-Cycle': `${cycle}z`,
+            'Cache-Control': 'public, max-age=1800',
         });
     } catch (err) {
         console.error('[fetch-pressure-grid] Error:', err);
-        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
+        return corsResponse(JSON.stringify({ error: 'Pressure grid fetch failed' }), 502, {
+            'Content-Type': 'application/json',
+        });
     }
 });

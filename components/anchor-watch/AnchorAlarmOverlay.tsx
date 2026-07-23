@@ -8,6 +8,7 @@
 import React, { useId, useRef } from 'react';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 import { formatDistance, bearingToCardinal } from './anchorUtils';
 
 interface AnchorAlarmOverlayProps {
@@ -25,9 +26,10 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
     });
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
-            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
+            layer="critical"
+            className="flex flex-col items-center justify-center"
             style={{ background: 'radial-gradient(circle at center, #450a0a 0%, #1c0505 50%, #0a0202 100%)' }}
             role="alertdialog"
             aria-modal="true"
@@ -142,6 +144,6 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
             </button>
 
             <p className="text-red-400/40 text-sm mt-4 tracking-wider">Monitoring continues after silencing</p>
-        </div>
+        </OverlayPortal>
     );
 });

@@ -100,6 +100,9 @@ describe.each(sheetCases)('$name log action sheet accessibility', ({ dialogName,
 
         const dialog = screen.getByRole('dialog', { name: dialogName });
         const close = within(dialog).getByRole('button', { name: 'Close' });
+        expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
+        expect(dialog.parentElement).toBe(document.body);
+        expect(dialog.style.zIndex).toBe('1100');
         expect(close).toHaveFocus();
 
         fireEvent.keyDown(close, { key: 'Escape' });

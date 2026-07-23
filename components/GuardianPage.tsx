@@ -12,7 +12,6 @@
  *   6. Guardian Profile Setup (if no profile)
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { LocationStore } from '../stores/LocationStore';
 import {
     GuardianService,
     NearbyUser,
@@ -24,6 +23,15 @@ import { triggerHaptic } from '../utils/system';
 import { useSettings } from '../context/SettingsContext';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { PageHeader } from './ui/PageHeader';
+import { OverlayPortal } from './ui/OverlayPortal';
+import { useAuthStore } from '../stores/authStore';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+import { acquireFreshOwnshipPosition } from '../services/ownshipPosition';
 import {
     SosIcon,
     AlertTriangleIcon,
@@ -41,8 +49,17 @@ interface GuardianPageProps {
     onBack: () => void;
 }
 
+function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
+    return (
+        isAuthIdentityScopeCurrent(scope) && scope.userId === ownerId && useAuthStore.getState().user?.id === ownerId
+    );
+}
+
+type GuardianFeedback = { tone: 'error' | 'success'; message: string };
+
 export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const { settings } = useSettings();
+    const authUserId = useAuthStore((state) => state.user?.id ?? null);
 
     // ── State ──
     const [armed, setArmed] = useState(false);
@@ -51,6 +68,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [alerts, setAlerts] = useState<GuardianAlert[]>([]);
     const [_hasProfile, setHasProfile] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [feedback, setFeedback] = useState<GuardianFeedback | null>(null);
 
     // Modals
     const [showSetup, setShowSetup] = useState(false);
@@ -66,6 +84,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
     // Report form
     const [reportText, setReportText] = useState('');
+    const [stateOwnerId, setStateOwnerId] = useState<string | null>(authUserId);
+    const requestVersionRef = useRef(0);
+    const mountedRef = useRef(true);
 
     // Dialog focus management
     const setupCloseRef = useRef<HTMLButtonElement>(null);
@@ -94,79 +115,176 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [sliderX, setSliderX] = useState(0);
     const sliderXRef = useRef(0);
     const [isDragging, setIsDragging] = useState(false);
+    const sliderCleanupRef = useRef<(() => void) | null>(null);
 
     // ── Init ──
     useEffect(() => {
+        mountedRef.current = true;
+        const unsubscribeIdentity = subscribeAuthIdentityScope((next) => {
+            requestVersionRef.current += 1;
+            sliderCleanupRef.current?.();
+            sliderCleanupRef.current = null;
+            setStateOwnerId(next.userId);
+            setArmed(false);
+            setArming(false);
+            setNearbyUsers([]);
+            setAlerts([]);
+            setHasProfile(false);
+            setLoading(Boolean(next.userId));
+            setShowSetup(false);
+            setShowReport(false);
+            setShowWeather(false);
+            setShowHail(null);
+            setVesselName('');
+            setOwnerName('');
+            setDogName('');
+            setVesselBio('');
+            setReportText('');
+            setFeedback(null);
+            setSliderX(0);
+            sliderXRef.current = 0;
+            setIsDragging(false);
+        });
+        return () => {
+            mountedRef.current = false;
+            requestVersionRef.current += 1;
+            sliderCleanupRef.current?.();
+            sliderCleanupRef.current = null;
+            unsubscribeIdentity();
+        };
+    }, []);
+
+    useEffect(() => {
+        const requestVersion = ++requestVersionRef.current;
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        const requestIsCurrent = () =>
+            mountedRef.current &&
+            requestVersionRef.current === requestVersion &&
+            !!ownerId &&
+            identityIsCurrent(scope, ownerId);
+
+        setStateOwnerId(ownerId);
+        setArmed(false);
+        setArming(false);
+        setNearbyUsers([]);
+        setAlerts([]);
+        setHasProfile(false);
+        setShowSetup(false);
+        setShowReport(false);
+        setShowWeather(false);
+        setShowHail(null);
+        setVesselName('');
+        setOwnerName('');
+        setDogName('');
+        setVesselBio('');
+        setReportText('');
+        setFeedback(null);
+        setLoading(Boolean(ownerId));
+
+        const unsub = GuardianService.subscribe((state) => {
+            if (!requestIsCurrent()) return;
+            setNearbyUsers(state.nearbyUsers);
+            setAlerts(state.alerts);
+            setArmed(state.armed);
+            if (state.profile?.user_id === ownerId) {
+                setHasProfile(true);
+            }
+        });
+
         const init = async () => {
-            setLoading(true);
+            if (!requestIsCurrent()) {
+                if (!ownerId && mountedRef.current && requestVersionRef.current === requestVersion) setLoading(false);
+                return;
+            }
             await GuardianService.initialize();
-            const profile = await GuardianService.fetchProfile();
+            if (!requestIsCurrent()) return;
+            const state = GuardianService.getState();
+            const profile = state.profile?.user_id === ownerId ? state.profile : null;
+            setNearbyUsers(state.nearbyUsers);
+            setAlerts(state.alerts);
+            setArmed(state.armed);
             if (profile) {
                 setHasProfile(true);
-                setArmed(profile.armed);
                 setVesselName(profile.vessel_name || '');
                 setOwnerName(profile.owner_name || '');
                 setDogName(profile.dog_name || '');
                 setVesselBio(profile.vessel_bio || '');
             } else {
-                // Pre-fill vessel name from onboarding profile if available
-                if (settings.vessel?.name) {
-                    setVesselName(settings.vessel.name);
-                }
+                if (settings.vessel?.name) setVesselName(settings.vessel.name);
                 setShowSetup(true);
             }
-            await GuardianService.fetchNearbyUsers();
-            await GuardianService.fetchAlerts();
             setLoading(false);
         };
-        init();
+        void init();
 
-        const unsub = GuardianService.subscribe((state) => {
-            setNearbyUsers(state.nearbyUsers);
-            setAlerts(state.alerts);
-            setArmed(state.armed);
-        });
-
-        return unsub;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        return () => {
+            requestVersionRef.current += 1;
+            unsub();
+        };
+    }, [authUserId, settings.vessel?.name]);
 
     // ── ARM/DISARM handlers ──
     const handleArm = useCallback(async () => {
-        // Check GPS availability first
-        const pos = LocationStore.getState();
-        if (!pos.lat || !pos.lon) {
-            alert('Cannot arm — no GPS position available. Please enable location services.');
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
+        setArming(true);
+        setFeedback(null);
+        triggerHaptic('heavy');
+        const position = await acquireFreshOwnshipPosition({
+            maxGpsAgeMs: 30_000,
+            timeoutSec: 10,
+        });
+        if (!identityIsCurrent(scope, ownerId)) return;
+        if (!position) {
+            setFeedback({
+                tone: 'error',
+                message: 'Cannot arm without a fresh vessel GPS fix. Check location permissions and try again.',
+            });
+            setArming(false);
             return;
         }
-        setArming(true);
-        triggerHaptic('heavy');
-        const ok = await GuardianService.arm();
+        const ok = await GuardianService.arm(position);
+        if (!identityIsCurrent(scope, ownerId)) return;
         if (ok) {
             setArmed(true);
+            setFeedback({ tone: 'success', message: 'Guardian is armed at the vessel’s current GPS position.' });
             triggerHaptic('heavy');
         } else {
-            alert('Failed to arm vessel. Please ensure you have a Guardian profile set up and try again.');
+            setFeedback({
+                tone: 'error',
+                message: 'Guardian could not arm. Check your Guardian profile and connection, then try again.',
+            });
         }
         setArming(false);
-    }, []);
+    }, [authUserId]);
 
     const handleDisarm = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
         setArming(true);
+        setFeedback(null);
         triggerHaptic('medium');
         const ok = await GuardianService.disarm();
+        if (!identityIsCurrent(scope, ownerId)) return;
         if (ok) {
             setArmed(false);
+            setFeedback({ tone: 'success', message: 'Guardian is disarmed.' });
         } else {
-            alert('Failed to disarm. Please try again.');
+            setFeedback({ tone: 'error', message: 'Guardian could not disarm. Check your connection and try again.' });
         }
         setArming(false);
-    }, []);
+    }, [authUserId]);
 
     // ── Slide-to-arm touch handling ──
     const handleSliderStart = useCallback(
         (e: React.TouchEvent | React.MouseEvent) => {
-            if (arming) return;
+            const scope = getAuthIdentityScope();
+            const ownerId = authUserId;
+            if (arming || !ownerId || !identityIsCurrent(scope, ownerId)) return;
+            sliderCleanupRef.current?.();
             setIsDragging(true);
             const startX = 'touches' in e ? e.touches[0].clientX : e.clientX;
             const containerWidth = sliderRef.current?.clientWidth || 300;
@@ -182,7 +300,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             const handleEnd = () => {
                 const threshold = maxX * 0.75;
-                if (sliderXRef.current >= threshold) {
+                if (sliderXRef.current >= threshold && identityIsCurrent(scope, ownerId)) {
                     if (armed) handleDisarm();
                     else handleArm();
                 }
@@ -193,54 +311,163 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 document.removeEventListener('touchend', handleEnd);
                 document.removeEventListener('mousemove', handleMove);
                 document.removeEventListener('mouseup', handleEnd);
+                sliderCleanupRef.current = null;
             };
 
+            sliderCleanupRef.current = () => {
+                document.removeEventListener('touchmove', handleMove);
+                document.removeEventListener('touchend', handleEnd);
+                document.removeEventListener('mousemove', handleMove);
+                document.removeEventListener('mouseup', handleEnd);
+            };
             document.addEventListener('touchmove', handleMove, { passive: true });
             document.addEventListener('touchend', handleEnd);
             document.addEventListener('mousemove', handleMove);
             document.addEventListener('mouseup', handleEnd);
         },
-        [armed, arming, handleArm, handleDisarm],
+        [armed, arming, authUserId, handleArm, handleDisarm],
     );
 
     // ── Profile save ──
     const handleSaveProfile = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
         triggerHaptic('light');
-        const updates: Record<string, unknown> = {
+        const updates = {
             vessel_name: vesselName,
             owner_name: ownerName,
             dog_name: dogName,
             vessel_bio: vesselBio,
         };
-        await GuardianService.updateProfile(updates as Parameters<typeof GuardianService.updateProfile>[0]);
+        const saved = await GuardianService.updateProfile(updates);
+        if (!identityIsCurrent(scope, ownerId)) return;
+        if (!saved) {
+            setFeedback({
+                tone: 'error',
+                message: 'Guardian profile could not be saved. Check the details and your connection, then try again.',
+            });
+            return;
+        }
         setHasProfile(true);
         setShowSetup(false);
-    }, [vesselName, ownerName, dogName, vesselBio]);
+        setFeedback({ tone: 'success', message: 'Guardian profile saved.' });
+    }, [authUserId, vesselName, ownerName, dogName, vesselBio]);
 
     // ── Report suspicious ──
     const handleReport = useCallback(async () => {
         if (!reportText.trim()) return;
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
+        const description = reportText.trim();
         triggerHaptic('heavy');
-        const result = await GuardianService.reportSuspicious(reportText.trim());
+        const result = await GuardianService.reportSuspicious(description);
+        if (!identityIsCurrent(scope, ownerId)) return;
         if (result.success) {
             setReportText('');
             setShowReport(false);
+            setFeedback({
+                tone: 'success',
+                message:
+                    result.notified > 0
+                        ? `Safety alert broadcast to ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
+                        : 'Safety alert broadcast.',
+            });
+        } else {
+            setFeedback({
+                tone: 'error',
+                message: 'The safety alert could not be sent. Confirm your GPS fix and connection, then try again.',
+            });
         }
-    }, [reportText]);
+    }, [authUserId, reportText]);
 
     // ── Hail ──
-    const handleHail = useCallback(async (user: NearbyUser, message: string) => {
-        triggerHaptic('light');
-        await GuardianService.sendHail(user.user_id, message);
-        setShowHail(null);
-    }, []);
+    const handleHail = useCallback(
+        async (user: NearbyUser, message: string) => {
+            const scope = getAuthIdentityScope();
+            const ownerId = authUserId;
+            const targetUserId = user.user_id;
+            if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
+            triggerHaptic('light');
+            const sent = await GuardianService.sendHail(targetUserId, message);
+            if (!identityIsCurrent(scope, ownerId)) return;
+            if (sent) {
+                setShowHail(null);
+                setFeedback({ tone: 'success', message: `Hail sent to ${user.vessel_name || 'the nearby vessel'}.` });
+            } else {
+                setFeedback({
+                    tone: 'error',
+                    message: 'The hail could not be sent. Check your connection and try again.',
+                });
+            }
+        },
+        [authUserId],
+    );
 
     // ── Weather broadcast ──
-    const handleWeatherBroadcast = useCallback(async (message: string) => {
+    const handleWeatherBroadcast = useCallback(
+        async (message: string) => {
+            const scope = getAuthIdentityScope();
+            const ownerId = authUserId;
+            if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
+            triggerHaptic('medium');
+            const result = await GuardianService.broadcastWeatherSpike(message);
+            if (!identityIsCurrent(scope, ownerId)) return;
+            if (result.success) {
+                setShowWeather(false);
+                setFeedback({
+                    tone: 'success',
+                    message:
+                        result.notified > 0
+                            ? `Weather alert broadcast to ${result.notified} nearby ${result.notified === 1 ? 'vessel' : 'vessels'}.`
+                            : 'Weather alert broadcast.',
+                });
+            } else {
+                setFeedback({
+                    tone: 'error',
+                    message:
+                        'The weather alert could not be sent. Confirm your GPS fix and connection, then try again.',
+                });
+            }
+        },
+        [authUserId],
+    );
+
+    const handleSetTripwire = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
+        setFeedback(null);
         triggerHaptic('medium');
-        await GuardianService.broadcastWeatherSpike(message);
-        setShowWeather(false);
-    }, []);
+        const position = await acquireFreshOwnshipPosition({
+            maxGpsAgeMs: 30_000,
+            timeoutSec: 10,
+        });
+        if (!identityIsCurrent(scope, ownerId)) return;
+        if (!position) {
+            setFeedback({
+                tone: 'error',
+                message:
+                    'A fresh vessel GPS fix is required to set the tripwire. Check location permissions and try again.',
+            });
+            return;
+        }
+        const ok = await GuardianService.setHomeCoordinate(position.lat, position.lon);
+        if (!identityIsCurrent(scope, ownerId)) return;
+        if (!ok) {
+            setFeedback({
+                tone: 'error',
+                message: 'The tripwire could not be set. Check your Guardian profile and connection, then try again.',
+            });
+            return;
+        }
+        triggerHaptic('heavy');
+        setFeedback({
+            tone: 'success',
+            message: 'Tripwire set at the vessel’s current GPS position with a 100 m guard radius.',
+        });
+    }, [authUserId]);
 
     // ── Alert type styling ──
     // Icon is a ReactNode so each alert type gets a real SVG (migrated
@@ -307,7 +534,10 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         return `${hrs}h ago`;
     };
 
-    if (loading) {
+    const identityAligned =
+        stateOwnerId === authUserId && getAuthIdentityScope().userId === authUserId && Boolean(authUserId);
+
+    if (loading || !identityAligned) {
         return (
             <div className="w-full h-full flex items-center justify-center">
                 <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
@@ -356,6 +586,28 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ── Scrollable Content ── */}
             <div className="flex-1 overflow-y-auto px-4 space-y-5">
+                {feedback && (
+                    <div
+                        role={feedback.tone === 'error' ? 'alert' : 'status'}
+                        aria-live={feedback.tone === 'error' ? 'assertive' : 'polite'}
+                        className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-xs ${
+                            feedback.tone === 'error'
+                                ? 'border-red-500/30 bg-red-500/10 text-red-200'
+                                : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                        }`}
+                    >
+                        <span className="flex-1 leading-relaxed">{feedback.message}</span>
+                        <button
+                            type="button"
+                            onClick={() => setFeedback(null)}
+                            className="shrink-0 rounded-md p-1 text-current opacity-70 transition-opacity hover:opacity-100"
+                            aria-label="Dismiss Guardian message"
+                        >
+                            <XIcon className="h-4 w-4" />
+                        </button>
+                    </div>
+                )}
+
                 {/* ═══ ZONE 1: BAY PRESENCE HERO ═══ */}
                 <div className="relative bg-gradient-to-br from-emerald-500/15 to-sky-500/15 border border-emerald-500/20 rounded-2xl p-5 overflow-hidden">
                     {/* Animated radar pulse */}
@@ -526,21 +778,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                     {/* Digital Tripwire */}
                     <button
                         aria-label="Set digital tripwire at current position"
-                        onClick={async () => {
-                            triggerHaptic('medium');
-                            const pos = LocationStore.getState();
-                            if (!pos.lat || !pos.lon) {
-                                alert('No GPS position available — please enable location services.');
-                                return;
-                            }
-                            const ok = await GuardianService.setHomeCoordinate(pos.lat, pos.lon);
-                            if (ok) {
-                                triggerHaptic('heavy');
-                                alert(
-                                    `Home set at ${pos.lat.toFixed(4)}°, ${pos.lon.toFixed(4)}° — you'll be alerted if your vessel moves outside 100m.`,
-                                );
-                            }
-                        }}
+                        onClick={handleSetTripwire}
                         className="bg-gradient-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
                         <div className="mb-1.5 text-purple-300">
@@ -683,9 +921,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ═══ MODAL: PROFILE SETUP ═══ */}
             {showSetup && (
-                <div
+                <OverlayPortal
                     role="presentation"
-                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
                 >
                     <div
                         ref={setupDialogRef}
@@ -784,14 +1022,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             Save Guardian Profile
                         </button>
                     </div>
-                </div>
+                </OverlayPortal>
             )}
 
             {/* ═══ MODAL: REPORT SUSPICIOUS ═══ */}
             {showReport && (
-                <div
+                <OverlayPortal
                     role="presentation"
-                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
                 >
                     <div
                         ref={reportDialogRef}
@@ -863,14 +1101,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             </button>
                         </div>
                     </div>
-                </div>
+                </OverlayPortal>
             )}
 
             {/* ═══ MODAL: WEATHER ALERT ═══ */}
             {showWeather && (
-                <div
+                <OverlayPortal
                     role="presentation"
-                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
                 >
                     <div
                         ref={weatherDialogRef}
@@ -937,14 +1175,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             Cancel
                         </button>
                     </div>
-                </div>
+                </OverlayPortal>
             )}
 
             {/* ═══ MODAL: HAIL ═══ */}
             {showHail && (
-                <div
+                <OverlayPortal
                     role="presentation"
-                    className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
                 >
                     <div
                         ref={hailDialogRef}
@@ -986,7 +1224,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             Cancel
                         </button>
                     </div>
-                </div>
+                </OverlayPortal>
             )}
         </div>
     );

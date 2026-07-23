@@ -1,9 +1,17 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useThalassa } from '../context/ThalassaContext';
 import { supabase } from '../services/supabase';
 import { createLogger } from '../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 const log = createLogger('NotifMgr');
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
 interface NotificationManagerProps {
     onNotify: (message: string) => void;
@@ -11,10 +19,20 @@ interface NotificationManagerProps {
 
 export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNotify }) => {
     const { weatherData, settings, user } = useThalassa();
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const lastAlertTime = useRef<number>(0);
     const alertedConditions = useRef<Set<string>>(new Set());
+    const alertScopeKey = useRef(identityScope.key);
 
     useEffect(() => {
+        const actionScope = identityScope;
+        if (alertScopeKey.current !== actionScope.key) {
+            alertScopeKey.current = actionScope.key;
+            lastAlertTime.current = 0;
+            alertedConditions.current.clear();
+        }
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
+        if ((user?.id ?? null) !== actionScope.userId) return;
         if (!weatherData || !weatherData.current) return;
 
         const now = Date.now();
@@ -32,7 +50,9 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
          * so the send-push Edge Function delivers it via APNs even when backgrounded.
          */
         const checkAndNotify = (id: string, title: string, body: string) => {
-            if (alertedConditions.current.has(id)) return;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            const alertKey = `${id}:${weatherData.locationName || 'unknown'}`;
+            if (alertedConditions.current.has(alertKey)) return;
 
             // 1. In-App Toast (always)
             onNotify(title);
@@ -46,7 +66,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             }
 
             // 3. Queue for APNs push delivery (so it arrives when app is backgrounded)
-            if (supabase && user?.id) {
+            if (supabase && actionScope.userId) {
                 supabase
                     .rpc('queue_self_push', {
                         p_notification_type: 'weather_alert',
@@ -58,12 +78,13 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
                         },
                     })
                     .then(({ error }) => {
+                        if (!isAuthIdentityScopeCurrent(actionScope)) return;
                         if (error) log.warn('Push request failed:', error.message);
                         else log.info('Weather alert queued for push:', id);
                     });
             }
 
-            alertedConditions.current.add(id);
+            alertedConditions.current.add(alertKey);
             lastAlertTime.current = Date.now();
         };
 
@@ -169,7 +190,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [weatherData, settings.notifications, onNotify, user?.id]);
+    }, [identityScope, weatherData, settings.notifications, onNotify, user?.id]);
 
     return null; // Headless component
 };

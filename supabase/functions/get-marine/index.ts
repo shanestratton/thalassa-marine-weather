@@ -4,6 +4,9 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, parseCoordinate, readResponseJsonObjectLimited } from '../_shared/http-security.ts';
+
 /**
  * get-marine — waves, swell, sea temperature and current.
  *
@@ -45,6 +48,7 @@ const CORS: Record<string, string> = {
 };
 
 const BASE_URL = 'https://customer-marine-api.open-meteo.com/v1/marine';
+const MAX_UPSTREAM_BYTES = 2_000_000;
 
 /** Kept in lockstep with the Pi route so both machines answer identically. */
 const HOURLY =
@@ -63,15 +67,75 @@ function json(body: unknown, status: number) {
     });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isValidMarinePayload(value: Record<string, unknown>): boolean {
+    if (
+        typeof value.latitude !== 'number' ||
+        !Number.isFinite(value.latitude) ||
+        typeof value.longitude !== 'number' ||
+        !Number.isFinite(value.longitude) ||
+        !isRecord(value.current) ||
+        !isRecord(value.hourly)
+    ) {
+        return false;
+    }
+
+    if (
+        typeof value.current.time !== 'string' ||
+        value.current.time.length > 64 ||
+        (value.current.wave_height !== null &&
+            (typeof value.current.wave_height !== 'number' || !Number.isFinite(value.current.wave_height)))
+    ) {
+        return false;
+    }
+
+    const times = value.hourly.time;
+    if (
+        !Array.isArray(times) ||
+        times.length === 0 ||
+        times.length > 192 ||
+        !times.every((time) => typeof time === 'string' && time.length <= 64)
+    ) {
+        return false;
+    }
+    if (
+        !Array.isArray(value.hourly.wave_height) ||
+        value.hourly.wave_height.length === 0 ||
+        value.hourly.wave_height.length > 192 ||
+        !value.hourly.wave_height.every((item) => item === null || (typeof item === 'number' && Number.isFinite(item)))
+    ) {
+        return false;
+    }
+
+    for (const [key, series] of Object.entries(value.hourly)) {
+        if (key === 'time') continue;
+        if (
+            !Array.isArray(series) ||
+            series.length > 192 ||
+            series.length !== times.length ||
+            !series.every((item) => item === null || (typeof item === 'number' && Number.isFinite(item)))
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method !== 'GET') return json({ error: 'GET required' }, 405);
 
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'marine', 120, 20, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
+
     try {
         const url = new URL(req.url);
-        const lat = parseFloat(url.searchParams.get('lat') ?? '');
-        const lon = parseFloat(url.searchParams.get('lon') ?? '');
-        if (!isFinite(lat) || !isFinite(lon)) return json({ error: 'lat and lon required' }, 400);
+        const lat = parseCoordinate(url.searchParams.get('lat'), 'lat');
+        const lon = parseCoordinate(url.searchParams.get('lon'), 'lon');
+        if (lat === null || lon === null) return json({ error: 'lat/lon must be valid coordinates' }, 400);
 
         // 2dp — matches the Pi's cache key granularity (~1 km), so the two
         // machines answer for the same grid point rather than one of them
@@ -80,6 +144,7 @@ Deno.serve(async (req: Request) => {
         const rlon = Number(lon.toFixed(2));
 
         const key = Deno.env.get('OPEN_METEO_API_KEY') ?? '';
+        if (!key) return json({ error: 'Marine service is not configured' }, 500);
         const params = new URLSearchParams({
             latitude: String(rlat),
             longitude: String(rlon),
@@ -87,14 +152,18 @@ Deno.serve(async (req: Request) => {
             current: CURRENT,
             timezone: 'auto',
         });
-        if (key) params.set('apikey', key);
+        params.set('apikey', key);
 
-        const upstream = await fetch(`${BASE_URL}?${params.toString()}`);
+        const upstream = await fetchWithTimeout(`${BASE_URL}?${params.toString()}`, {}, 12_000);
         if (!upstream.ok) {
+            await upstream.body?.cancel().catch(() => undefined);
             return json({ error: 'Marine upstream failed', status: upstream.status }, 502);
         }
 
-        const data = await upstream.json();
+        const data = await readResponseJsonObjectLimited(upstream, MAX_UPSTREAM_BYTES);
+        if (!data || !isValidMarinePayload(data)) {
+            return json({ error: 'Marine upstream returned an invalid response' }, 502);
+        }
         return new Response(JSON.stringify(data), {
             status: 200,
             headers: {
@@ -105,7 +174,8 @@ Deno.serve(async (req: Request) => {
                 'Cache-Control': 'public, max-age=900',
             },
         });
-    } catch (err) {
-        return json({ error: 'Marine fetch failed', message: (err as Error)?.message ?? String(err) }, 502);
+    } catch {
+        console.error('[get-marine] upstream request failed');
+        return json({ error: 'Marine fetch failed' }, 502);
     }
 });

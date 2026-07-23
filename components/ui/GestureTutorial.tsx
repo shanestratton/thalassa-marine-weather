@@ -1,6 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { t } from '../../theme';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 interface GestureTutorialProps {
     onDismiss: () => void;
@@ -228,33 +235,48 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
 
 // Storage key for tutorial state
 const TUTORIAL_KEY = 'thalassa_tutorial_completed';
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
 /**
  * Hook to manage tutorial visibility
  */
 export const useTutorial = () => {
-    const [showTutorial, setShowTutorial] = useState(false);
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    const [visibleScope, setVisibleScope] = useState<AuthIdentityScope | null>(null);
+    const showTutorial =
+        visibleScope !== null &&
+        visibleScope.key === identityScope.key &&
+        visibleScope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(visibleScope);
 
     useEffect(() => {
+        const actionScope = identityScope;
         // Check if tutorial was completed
-        const completed = localStorage.getItem(TUTORIAL_KEY);
+        const completed = localStorage.getItem(authScopedStorageKey(TUTORIAL_KEY, actionScope));
         if (!completed) {
             // Delay showing tutorial until app is loaded
-            setTimeout(() => setShowTutorial(true), 2000);
+            const timer = window.setTimeout(() => {
+                if (isAuthIdentityScopeCurrent(actionScope)) setVisibleScope(actionScope);
+            }, 2000);
+            return () => window.clearTimeout(timer);
         }
-    }, []);
+        return undefined;
+    }, [identityScope]);
 
     const dismissTutorial = () => {
-        setShowTutorial(false);
-        localStorage.setItem(TUTORIAL_KEY, 'true');
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        setVisibleScope(null);
+        localStorage.setItem(authScopedStorageKey(TUTORIAL_KEY, identityScope), 'true');
     };
 
     const neverShowAgain = () => {
-        localStorage.setItem(TUTORIAL_KEY, 'never');
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        localStorage.setItem(authScopedStorageKey(TUTORIAL_KEY, identityScope), 'never');
     };
 
     const resetTutorial = () => {
-        localStorage.removeItem(TUTORIAL_KEY);
+        localStorage.removeItem(authScopedStorageKey(TUTORIAL_KEY, identityScope));
     };
 
     return {

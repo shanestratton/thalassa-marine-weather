@@ -12,6 +12,7 @@ import {
     type TrackingState,
     type StoredPosition,
 } from '../services/shiplog/TrackingStateStore';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const store = new Map<string, string>();
 
@@ -29,6 +30,7 @@ vi.mock('@capacitor/preferences', () => ({
 
 describe('TrackingStateStore', () => {
     beforeEach(() => {
+        setAuthIdentityScope('tracking-owner');
         store.clear();
     });
 
@@ -56,7 +58,7 @@ describe('TrackingStateStore', () => {
         });
 
         it('returns null and does not throw on corrupt JSON', async () => {
-            store.set('ship_log_tracking_state', 'not json{{{');
+            store.set(authScopedStorageKey('ship_log_tracking_state'), 'not json{{{');
             await expect(loadTrackingState()).resolves.toBeNull();
         });
     });
@@ -79,7 +81,7 @@ describe('TrackingStateStore', () => {
         });
 
         it('returns null and does not throw on corrupt JSON', async () => {
-            store.set('ship_log_last_position', 'garbage');
+            store.set(authScopedStorageKey('ship_log_last_position'), 'garbage');
             await expect(getLastPosition()).resolves.toBeNull();
         });
     });
@@ -92,10 +94,10 @@ describe('TrackingStateStore', () => {
                 timestamp: 't',
                 cumulativeDistanceNM: 0,
             });
-            store.set('ship_log_voyage_start', '2026-05-02T06:00:00Z');
+            store.set(authScopedStorageKey('ship_log_voyage_start'), '2026-05-02T06:00:00Z');
             await clearVoyageState();
-            expect(store.has('ship_log_last_position')).toBe(false);
-            expect(store.has('ship_log_voyage_start')).toBe(false);
+            expect(store.has(authScopedStorageKey('ship_log_last_position'))).toBe(false);
+            expect(store.has(authScopedStorageKey('ship_log_voyage_start'))).toBe(false);
         });
 
         it('leaves the live tracking-state key intact', async () => {
@@ -114,6 +116,64 @@ describe('TrackingStateStore', () => {
             await clearVoyageState();
             await expect(loadTrackingState()).resolves.toEqual(state);
             await expect(getLastPosition()).resolves.toBeNull();
+        });
+    });
+
+    describe('account and generation fences', () => {
+        it('keeps tracking state and last position isolated across A→B→A', async () => {
+            const scopeA = getAuthIdentityScope();
+            await saveTrackingState({
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false,
+                currentVoyageId: 'voyage-a',
+            });
+            await saveLastPosition({
+                latitude: 1,
+                longitude: 2,
+                timestamp: 'a',
+                cumulativeDistanceNM: 3,
+            });
+
+            setAuthIdentityScope('tracking-owner-b');
+            await expect(loadTrackingState()).resolves.toBeNull();
+            await expect(getLastPosition()).resolves.toBeNull();
+            await saveTrackingState({
+                isTracking: false,
+                isPaused: false,
+                isRapidMode: false,
+                currentVoyageId: 'voyage-b',
+            });
+
+            setAuthIdentityScope('tracking-owner');
+            await expect(loadTrackingState()).resolves.toMatchObject({ currentVoyageId: 'voyage-a' });
+            await expect(getLastPosition()).resolves.toMatchObject({ timestamp: 'a' });
+
+            // A callback captured before the switch cannot overwrite the
+            // newer A generation after the account returns.
+            await saveTrackingState(
+                {
+                    isTracking: false,
+                    isPaused: false,
+                    isRapidMode: false,
+                    currentVoyageId: 'stale-a',
+                },
+                scopeA,
+            );
+            await expect(loadTrackingState()).resolves.toMatchObject({ currentVoyageId: 'voyage-a' });
+        });
+
+        it('ignores unattributed global legacy values (fail closed)', async () => {
+            store.set(
+                'ship_log_tracking_state',
+                JSON.stringify({
+                    isTracking: true,
+                    isPaused: false,
+                    isRapidMode: false,
+                    currentVoyageId: 'global-legacy',
+                }),
+            );
+            await expect(loadTrackingState()).resolves.toBeNull();
         });
     });
 });

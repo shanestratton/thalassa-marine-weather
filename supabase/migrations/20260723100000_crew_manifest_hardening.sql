@@ -303,11 +303,12 @@ AS $$
             WHERE membership.owner_id = p_owner_id
               AND membership.crew_user_id = auth.uid()
               AND membership.status = 'accepted'
-              AND (
-                  p_register = ANY(membership.shared_registers)
-                  OR (
-                      p_register = 'stores'
-                      AND CASE
+              AND CASE
+                  -- `shared_registers = ['stores']` is a visibility grant. It
+                  -- must never bypass the separate edit permission used by the
+                  -- stores UPDATE policies and the SECURITY DEFINER delta RPC.
+                  WHEN p_register = 'stores' THEN
+                      CASE
                           WHEN p_write THEN coalesce(
                               (membership.permissions->>'can_edit_stores')::boolean,
                               false
@@ -320,8 +321,8 @@ AS $$
                               false
                           )
                       END
-                  )
-              )
+                  ELSE p_register = ANY(membership.shared_registers)
+              END
        );
 $$;
 REVOKE ALL ON FUNCTION public.can_access_vessel_register(UUID, TEXT, BOOLEAN)

@@ -44,14 +44,17 @@ describe('ProcessOverlay', () => {
     });
 
     it('renders a spinner', () => {
-        const { container } = render(<ProcessOverlay />);
-        expect(container.querySelector('.animate-spin')).toBeInTheDocument();
+        render(<ProcessOverlay />);
+        expect(document.body.querySelector('.animate-spin')).toBeInTheDocument();
     });
 
-    it('covers the full viewport with fixed positioning', () => {
-        const { container } = render(<ProcessOverlay />);
-        const overlay = container.firstChild as HTMLElement;
+    it('portals above app chrome and covers the full viewport', () => {
+        render(<ProcessOverlay />);
+        const overlay = screen.getByRole('dialog');
         expect(overlay.className).toContain('fixed');
         expect(overlay.className).toContain('inset-0');
+        expect(overlay).toHaveAttribute('data-overlay-layer', 'modal');
+        expect(overlay.style.zIndex).toBe('1100');
+        expect(overlay.parentElement).toBe(document.body);
     });
 });

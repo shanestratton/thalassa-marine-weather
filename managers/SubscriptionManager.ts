@@ -12,6 +12,11 @@
 
 import { supabase } from '../services/supabase';
 import { createLogger } from '../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../services/authIdentityScope';
 
 const log = createLogger('SubscriptionManager');
 
@@ -82,12 +87,16 @@ export async function getTrialRemainingDays(): Promise<number> {
 export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
     // No Supabase → free
     if (!supabase) return makeFreeInfo();
+    const operationScope = getAuthIdentityScope();
+    if (!operationScope.userId) return makeFreeInfo();
 
     // Get current user
     const {
         data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return makeFreeInfo();
+    if (!user || user.id !== operationScope.userId || !isAuthIdentityScopeCurrent(operationScope)) {
+        return makeFreeInfo();
+    }
 
     // Return cached if fresh and same user
     const now = Date.now();
@@ -103,6 +112,7 @@ export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
             .eq('id', user.id)
             .single();
 
+        if (!isAuthIdentityScopeCurrent(operationScope)) return makeFreeInfo();
         if (error || !data) {
             log.warn('Failed to fetch profile, defaulting to free', error);
             return makeFreeInfo();
@@ -127,9 +137,21 @@ export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
  * Call after purchase confirmation or auth state change.
  */
 export async function refreshSubscription(): Promise<void> {
-    cachedInfo = null;
-    cacheTimestamp = 0;
+    clearCache();
     await getSubscriptionStatus();
+}
+
+/**
+ * Return a fresh cache entry only when it belongs to the exact active auth
+ * identity. Render-path feature gates must never reuse account A's paid tier
+ * while account B is being established.
+ */
+export function getCachedSubscriptionStatus(): SubscriptionInfo | null {
+    const scope = getAuthIdentityScope();
+    if (!scope.userId || !cachedInfo || cachedUserId !== scope.userId || Date.now() - cacheTimestamp >= CACHE_TTL_MS) {
+        return null;
+    }
+    return cachedInfo;
 }
 
 /**
@@ -163,6 +185,12 @@ export function clearCache(): void {
     cachedUserId = null;
     cacheTimestamp = 0;
 }
+
+// Auth transitions are a synchronous entitlement boundary. The next account
+// stays fail-closed until its own status has been verified.
+subscribeAuthIdentityScope(() => {
+    clearCache();
+});
 
 // --- INTERNAL HELPERS ---
 

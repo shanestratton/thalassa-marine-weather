@@ -25,6 +25,7 @@ import { triggerHaptic } from '../../utils/system';
 import { useUI } from '../../context/UIContext';
 import { requestPassageMode, type PassageHandoffDetail } from '../../services/passageHandoff';
 import { PageHeader } from '../ui/PageHeader';
+import { getAuthIdentityScope } from '../../services/authIdentityScope';
 
 interface GpxImportPageProps {
     onBack: () => void;
@@ -246,9 +247,10 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
         // Navigate to map and hand off the passage. Sticky request —
         // survives the map view's lazy mount (services/passageHandoff).
+        const operationScope = getAuthIdentityScope();
         setPage('map');
         setTimeout(() => {
-            requestPassageMode(detail);
+            requestPassageMode(detail, operationScope);
         }, 300);
     }, [routeData, setPage]);
 

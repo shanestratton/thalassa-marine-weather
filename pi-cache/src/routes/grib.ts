@@ -20,7 +20,7 @@ import {
     cachedBinaryPost,
     supabaseEdgeUrl,
     supabaseHeaders,
-    openMeteoUrl,
+    openMeteoProxyRequest,
 } from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
@@ -37,15 +37,15 @@ export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `grib:wind:${lat}:${lon}:${days}d`;
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'forecast',
                 `latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=${days}`,
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.GRIB,
                 source: 'open-meteo-wind',
             });
@@ -67,15 +67,15 @@ export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `grib:pressure:${lat}:${lon}:${days}d`;
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'forecast',
                 `latitude=${lat}&longitude=${lon}&hourly=pressure_msl,surface_pressure&forecast_days=${days}`,
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.GRIB,
                 source: 'open-meteo-pressure',
             });
@@ -97,15 +97,15 @@ export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `grib:waves:${lat}:${lon}`;
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'marine',
                 `latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,wind_wave_height,wind_wave_direction,wind_wave_period`,
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.GRIB,
                 source: 'open-meteo-marine',
             });
@@ -127,15 +127,15 @@ export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `grib:precip:${lat}:${lon}:${days}d`;
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'forecast',
                 `latitude=${lat}&longitude=${lon}&hourly=precipitation,precipitation_probability,rain,showers,snowfall&forecast_days=${days}`,
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.GRIB,
                 source: 'open-meteo-precip',
             });
@@ -158,26 +158,28 @@ export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `grib:composite:${lat}:${lon}:${days}d`;
+            const atmosphereUpstream = openMeteoProxyRequest(
+                config,
+                'forecast',
+                `latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,precipitation_probability,cloud_cover,temperature_2m&wind_speed_unit=kn&forecast_days=${days}`,
+            );
+            const marineUpstream = openMeteoProxyRequest(
+                config,
+                'marine',
+                `latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period`,
+            );
 
             // Fetch atmosphere + marine in parallel
             const [atmoResult, marineResult] = await Promise.allSettled([
                 cachedJsonFetch(cache, {
+                    ...atmosphereUpstream,
                     cacheKey: `${key}:atmo`,
-                    url: openMeteoUrl(
-                        config,
-                        'forecast',
-                        `latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,precipitation_probability,cloud_cover,temperature_2m&wind_speed_unit=kn&forecast_days=${days}`,
-                    ),
                     ttlMs: TTL.GRIB,
                     source: 'open-meteo-composite',
                 }),
                 cachedJsonFetch(cache, {
+                    ...marineUpstream,
                     cacheKey: `${key}:marine`,
-                    url: openMeteoUrl(
-                        config,
-                        'marine',
-                        `latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period`,
-                    ),
                     ttlMs: TTL.GRIB,
                     source: 'open-meteo-marine-composite',
                 }),

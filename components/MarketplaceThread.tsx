@@ -17,6 +17,15 @@ const log = createLogger('MarketplaceThread');
 import { type MarketplaceListing, CATEGORY_ICONS } from '../services/MarketplaceService';
 import { supabase } from '../services/supabase';
 import { toast } from './Toast';
+import { useAuthStore } from '../stores/authStore';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { SafeImage } from './ui/SafeImage';
 
 interface MarketplaceThreadProps {
     listing: MarketplaceListing;
@@ -26,91 +35,285 @@ interface MarketplaceThreadProps {
 
 interface ThreadMessage {
     id: string;
+    listing_id: string;
     sender_id: string;
+    recipient_id: string;
     content: string;
     created_at: string;
 }
 
-export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, otherPartyId, onBack }) => {
-    const [messages, setMessages] = useState<ThreadMessage[]>([]);
-    const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [userId, setUserId] = useState<string | null>(null);
-    const [sending, setSending] = useState(false);
+const SAFE_POSTGREST_FILTER_TOKEN = /^[A-Za-z0-9_-]+$/;
 
+function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
+    return (
+        isAuthIdentityScopeCurrent(scope) && scope.userId === ownerId && useAuthStore.getState().user?.id === ownerId
+    );
+}
+
+async function remoteIdentityMatches(scope: AuthIdentityScope, ownerId: string): Promise<boolean> {
+    if (!supabase || !identityIsCurrent(scope, ownerId)) return false;
+    try {
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        return !error && user?.id === ownerId && identityIsCurrent(scope, ownerId);
+    } catch {
+        return false;
+    }
+}
+
+function isExactThreadMessage(
+    message: ThreadMessage,
+    listingId: string,
+    ownerId: string,
+    otherPartyId: string,
+): boolean {
+    if (message.listing_id !== listingId) return false;
+    return (
+        (message.sender_id === ownerId && message.recipient_id === otherPartyId) ||
+        (message.sender_id === otherPartyId && message.recipient_id === ownerId)
+    );
+}
+
+function mergeThreadMessages(current: ThreadMessage[], incoming: ThreadMessage[]): ThreadMessage[] {
+    const byId = new Map(current.map((message) => [message.id, message]));
+    for (const message of incoming) byId.set(message.id, message);
+    return [...byId.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
+export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, otherPartyId, onBack }) => {
+    const authUserId = useAuthStore((state) => state.user?.id ?? null);
+    const threadScopeRef = useRef<AuthIdentityScope>(getAuthIdentityScope());
+    const threadOwnerId = threadScopeRef.current.userId;
+    const [messageState, setMessageState] = useState<{ ownerId: string | null; rows: ThreadMessage[] }>({
+        ownerId: threadOwnerId,
+        rows: [],
+    });
+    const [draftState, setDraftState] = useState<{ ownerId: string | null; value: string }>({
+        ownerId: threadOwnerId,
+        value: '',
+    });
+    const [loadingState, setLoadingState] = useState<{ ownerId: string | null; loading: boolean }>({
+        ownerId: threadOwnerId,
+        loading: true,
+    });
+    const [sendingState, setSendingState] = useState<{ ownerId: string | null; sending: boolean }>({
+        ownerId: threadOwnerId,
+        sending: false,
+    });
     const scrollRef = useRef<HTMLDivElement>(null);
+    const scrollTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+    const sendingScopeRef = useRef<AuthIdentityScope | null>(null);
+
+    const threadIsCurrent =
+        !!threadOwnerId && authUserId === threadOwnerId && identityIsCurrent(threadScopeRef.current, threadOwnerId);
+
+    const clearScrollTimers = useCallback(() => {
+        for (const timer of scrollTimersRef.current) clearTimeout(timer);
+        scrollTimersRef.current.clear();
+    }, []);
+
+    const scheduleScroll = useCallback(
+        (scope: AuthIdentityScope, ownerId: string, delayMs: number, behavior?: ScrollBehavior) => {
+            const timer = setTimeout(() => {
+                scrollTimersRef.current.delete(timer);
+                if (threadScopeRef.current !== scope || !identityIsCurrent(scope, ownerId)) {
+                    return;
+                }
+                scrollRef.current?.scrollTo({
+                    top: scrollRef.current.scrollHeight,
+                    behavior,
+                });
+            }, delayMs);
+            scrollTimersRef.current.add(timer);
+        },
+        [],
+    );
+
+    useEffect(() => {
+        const unsubscribeIdentity = subscribeAuthIdentityScope(() => {
+            clearScrollTimers();
+            sendingScopeRef.current = null;
+            setMessageState({ ownerId: null, rows: [] });
+            setDraftState({ ownerId: null, value: '' });
+            setLoadingState({ ownerId: null, loading: false });
+            setSendingState({ ownerId: null, sending: false });
+        });
+        return () => {
+            unsubscribeIdentity();
+            clearScrollTimers();
+        };
+    }, [clearScrollTimers]);
 
     // ── Load user + messages ──
     useEffect(() => {
-        if (!supabase) return;
+        const client = supabase;
+        const scope = threadScopeRef.current;
+        const ownerId = scope.userId;
+        const listingId = listing.id;
+        const counterpartyId = otherPartyId;
+        let active = true;
+        let channel: RealtimeChannel | null = null;
 
-        (async () => {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (user) setUserId(user.id);
+        const operationIsCurrent = () =>
+            active && threadScopeRef.current === scope && !!ownerId && identityIsCurrent(scope, ownerId);
 
-            // Load messages
-            const { data } = await supabase
+        clearScrollTimers();
+        setMessageState({ ownerId, rows: [] });
+        setDraftState({ ownerId, value: '' });
+        setSendingState({ ownerId, sending: false });
+        setLoadingState({ ownerId, loading: !!ownerId });
+
+        if (
+            !client ||
+            !ownerId ||
+            !SAFE_POSTGREST_FILTER_TOKEN.test(ownerId) ||
+            !SAFE_POSTGREST_FILTER_TOKEN.test(counterpartyId) ||
+            !SAFE_POSTGREST_FILTER_TOKEN.test(listingId) ||
+            counterpartyId === ownerId ||
+            !operationIsCurrent()
+        ) {
+            setLoadingState({ ownerId, loading: false });
+            return () => {
+                active = false;
+            };
+        }
+
+        void (async () => {
+            if (!(await remoteIdentityMatches(scope, ownerId)) || !operationIsCurrent()) {
+                if (operationIsCurrent()) setLoadingState({ ownerId, loading: false });
+                return;
+            }
+
+            // Subscribe before the initial read, then merge/dedupe the read so
+            // a message arriving in the subscribe/query gap cannot disappear.
+            channel = client
+                .channel(`mp_thread_${scope.generation}_${listingId}_${ownerId}_${counterpartyId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'marketplace_messages',
+                        filter: `listing_id=eq.${listingId}`,
+                    },
+                    (payload: { new: ThreadMessage }) => {
+                        const message = payload.new;
+                        if (
+                            !operationIsCurrent() ||
+                            !isExactThreadMessage(message, listingId, ownerId, counterpartyId)
+                        ) {
+                            return;
+                        }
+                        setMessageState((current) => ({
+                            ownerId,
+                            rows:
+                                current.ownerId === ownerId ? mergeThreadMessages(current.rows, [message]) : [message],
+                        }));
+                        scheduleScroll(scope, ownerId, 50, 'smooth');
+                    },
+                )
+                .subscribe();
+
+            const { data, error } = await client
                 .from('marketplace_messages')
                 .select('*')
-                .eq('listing_id', listing.id)
+                .eq('listing_id', listingId)
+                .or(
+                    `and(sender_id.eq.${ownerId},recipient_id.eq.${counterpartyId}),and(sender_id.eq.${counterpartyId},recipient_id.eq.${ownerId})`,
+                )
                 .order('created_at', { ascending: true });
 
-            if (data) setMessages(data as ThreadMessage[]);
-            setLoading(false);
-
-            // Scroll to bottom
-            setTimeout(() => {
-                scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-            }, 100);
-        })();
-
-        // Realtime subscription for new messages
-        const channel = supabase
-            .channel(`mp_thread_${listing.id}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'marketplace_messages',
-                    filter: `listing_id=eq.${listing.id}`,
-                },
-                (payload: { new: ThreadMessage }) => {
-                    setMessages((prev) => [...prev, payload.new]);
-                    setTimeout(() => {
-                        scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight, behavior: 'smooth' });
-                    }, 50);
-                },
-            )
-            .subscribe();
+            if (!operationIsCurrent()) return;
+            const rows = error
+                ? []
+                : ((data || []) as ThreadMessage[]).filter((message) =>
+                      isExactThreadMessage(message, listingId, ownerId, counterpartyId),
+                  );
+            setMessageState((current) => ({
+                ownerId,
+                rows: current.ownerId === ownerId ? mergeThreadMessages(current.rows, rows) : rows,
+            }));
+            setLoadingState({ ownerId, loading: false });
+            scheduleScroll(scope, ownerId, 100);
+        })().catch((error) => {
+            if (!operationIsCurrent()) return;
+            log.error('Failed to load marketplace thread:', error);
+            setLoadingState({ ownerId, loading: false });
+        });
 
         return () => {
-            supabase?.removeChannel(channel);
+            active = false;
+            clearScrollTimers();
+            if (channel) void client.removeChannel(channel);
         };
-    }, [listing.id, listing.seller_id]);
+    }, [authUserId, clearScrollTimers, listing.id, otherPartyId, scheduleScroll]);
 
     // ── Send message ──
     const sendMessage = useCallback(async () => {
-        if (!input.trim() || !supabase || !userId || sending) return;
-        setSending(true);
+        const client = supabase;
+        const scope = threadScopeRef.current;
+        const ownerId = scope.userId;
+        const content = draftState.ownerId === ownerId ? draftState.value.trim() : '';
+        if (
+            !content ||
+            !client ||
+            !ownerId ||
+            !otherPartyId ||
+            !SAFE_POSTGREST_FILTER_TOKEN.test(ownerId) ||
+            !SAFE_POSTGREST_FILTER_TOKEN.test(otherPartyId) ||
+            !SAFE_POSTGREST_FILTER_TOKEN.test(listing.id) ||
+            otherPartyId === ownerId ||
+            sendingScopeRef.current === scope ||
+            !identityIsCurrent(scope, ownerId)
+        ) {
+            return;
+        }
+        sendingScopeRef.current = scope;
+        setSendingState({ ownerId, sending: true });
 
         try {
-            await supabase.from('marketplace_messages').insert({
+            if (!(await remoteIdentityMatches(scope, ownerId)) || !identityIsCurrent(scope, ownerId)) return;
+
+            const { error } = await client.from('marketplace_messages').insert({
                 listing_id: listing.id,
-                sender_id: userId,
+                sender_id: ownerId,
                 recipient_id: otherPartyId,
-                content: input.trim(),
+                content,
             });
-            setInput('');
+
+            if (!identityIsCurrent(scope, ownerId)) return;
+            if (error) {
+                log.error('Failed to send:', error);
+                toast.error('Failed to send message');
+                return;
+            }
+            setDraftState((current) => ({
+                ownerId,
+                value: current.ownerId === ownerId && current.value.trim() === content ? '' : current.value,
+            }));
         } catch (e) {
-            log.error('Failed to send:', e);
-            toast.error('Failed to send message');
+            if (identityIsCurrent(scope, ownerId)) {
+                log.error('Failed to send:', e);
+                toast.error('Failed to send message');
+            }
         } finally {
-            setSending(false);
+            if (sendingScopeRef.current === scope) sendingScopeRef.current = null;
+            if (identityIsCurrent(scope, ownerId)) {
+                setSendingState({ ownerId, sending: false });
+            }
         }
-    }, [input, listing.id, userId, otherPartyId, sending]);
+    }, [draftState, listing.id, otherPartyId]);
+
+    const messages = threadIsCurrent && messageState.ownerId === threadOwnerId ? messageState.rows : [];
+    const input = threadIsCurrent && draftState.ownerId === threadOwnerId ? draftState.value : '';
+    const loading = threadIsCurrent && loadingState.ownerId === threadOwnerId && loadingState.loading;
+    const sending = threadIsCurrent && sendingState.ownerId === threadOwnerId && sendingState.sending;
+
+    if (!threadIsCurrent) {
+        return <div className="h-full w-full bg-slate-900" aria-label="Marketplace conversation closed" />;
+    }
 
     // ── Render ──
     return (
@@ -143,7 +346,12 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 {/* Thumbnail */}
                 <div className="w-16 h-16 rounded-xl bg-white/[0.06] shrink-0 overflow-hidden">
                     {listing.images?.[0] ? (
-                        <img src={listing.images[0]} loading="lazy" alt="" className="w-full h-full object-cover" />
+                        <SafeImage
+                            src={listing.images[0]}
+                            loading="lazy"
+                            alt=""
+                            className="w-full h-full object-cover"
+                        />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-3xl">
                             {CATEGORY_ICONS[listing.category] || '📦'}
@@ -182,7 +390,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                     </div>
                 ) : (
                     messages.map((msg) => {
-                        const isOwn = msg.sender_id === userId;
+                        const isOwn = msg.sender_id === threadOwnerId;
 
                         return (
                             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
@@ -213,9 +421,13 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 <input
                     type="text"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                        if (threadIsCurrent && threadOwnerId) {
+                            setDraftState({ ownerId: threadOwnerId, value: e.target.value });
+                        }
+                    }}
                     onKeyDown={(e) => {
-                        if (e.key === 'Enter') sendMessage();
+                        if (e.key === 'Enter') void sendMessage();
                     }}
                     placeholder="Type a message..."
                     className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"

@@ -26,13 +26,22 @@ import {
 import { requestTracerOpen } from '../../services/deepLink';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import {
+    getAuthIdentityScope,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 // Grouping is the SHARED helper (groupTracesByTrip) so this Trip box and the
 // tracer card's "open a saved route" list can never drift (2026-07-17).
-const buildTrips = (): TripGroup[] => groupTracesByTrip(loadSavedTraces());
+const buildTrips = (scope: AuthIdentityScope): TripGroup[] => groupTracesByTrip(loadSavedTraces(scope));
 
 export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenChart }) => {
-    const [trips, setTrips] = React.useState<TripGroup[]>(() => buildTrips());
+    const [tripSnapshot, setTripSnapshot] = React.useState(() => {
+        const scope = getAuthIdentityScope();
+        return { scope, trips: buildTrips(scope) };
+    });
+    const { trips } = tripSnapshot;
     const [selectedKey, setSelectedKey] = React.useState('');
     // The legs open in a MODAL, not inline (Shane 2026-07-19: "it pushes
     // everything down the page and makes stuff go under the cta button"). A
@@ -55,9 +64,24 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
         initialFocusRef: closeButtonRef,
         onEscape: closeLegs,
     });
+    React.useEffect(
+        () =>
+            subscribeAuthIdentityScope((next) => {
+                // The route ids and names in this snapshot are private. Replace
+                // them at the synchronous fence; until React commits, click
+                // closures retain the old scope and deepLink rejects them.
+                setTripSnapshot({ scope: next, trips: buildTrips(next) });
+                setLegsOpen(false);
+                setSelectedKey('');
+            }),
+        [],
+    );
     // Saved routes land from the cloud merge after mount — refresh once the
     // punter actually opens the dropdown so the list is never stale.
-    const refresh = (): void => setTrips(buildTrips());
+    const refresh = (): void => {
+        const scope = getAuthIdentityScope();
+        setTripSnapshot({ scope, trips: buildTrips(scope) });
+    };
 
     const selected = trips.find((t) => t.key === selectedKey) ?? null;
     const lastLeg = selected ? selected.legs[selected.legs.length - 1] : null;
@@ -143,7 +167,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                         key={leg.id}
                                         onClick={() => {
                                             triggerHaptic('light');
-                                            requestTracerOpen({ kind: 'load-saved', id: leg.id });
+                                            requestTracerOpen({ kind: 'load-saved', id: leg.id }, tripSnapshot.scope);
                                             onOpenChart();
                                         }}
                                         className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
@@ -163,7 +187,10 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                     <button
                                         onClick={() => {
                                             triggerHaptic('medium');
-                                            requestTracerOpen({ kind: 'new-leg', fromId: lastLeg!.id });
+                                            requestTracerOpen(
+                                                { kind: 'new-leg', fromId: lastLeg!.id },
+                                                tripSnapshot.scope,
+                                            );
                                             onOpenChart();
                                         }}
                                         className="flex w-full items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-left shadow-[0_0_14px_rgba(245,158,11,0.25)] active:scale-[0.99]"

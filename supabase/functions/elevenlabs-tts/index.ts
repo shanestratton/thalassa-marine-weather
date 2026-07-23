@@ -5,6 +5,13 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    jsonResponse,
+    readJsonObject,
+    readResponseArrayBufferLimited,
+    readResponseTextLimited,
+} from '../_shared/http-security.ts';
 
 /**
  * elevenlabs-tts — thin TTS forwarder for the iOS orchestrator.
@@ -220,21 +227,12 @@ Deno.serve(async (req: Request) => {
 
     const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
     if (!apiKey) {
-        return new Response(JSON.stringify({ error: 'ELEVENLABS_API_KEY not configured' }), {
-            status: 500,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-        });
+        console.error('[elevenlabs-tts] API key is not configured');
+        return jsonResponse({ error: 'Speech service is not configured' }, 503, CORS);
     }
 
-    let body: AskBody;
-    try {
-        body = await req.json();
-    } catch {
-        return new Response(JSON.stringify({ error: 'invalid JSON' }), {
-            status: 400,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-        });
-    }
+    const body = (await readJsonObject(req, 8_192)) as AskBody | null;
+    if (!body) return jsonResponse({ error: 'Invalid request body' }, 400, CORS);
 
     const text = (body.text || '').trim();
     if (!text || text.length > 5000) {
@@ -270,36 +268,49 @@ Deno.serve(async (req: Request) => {
     };
 
     const t0 = Date.now();
-    const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': apiKey,
-            Accept: 'audio/mpeg',
-        },
-        body: JSON.stringify({
-            text: prepareForTTS(text),
-            model_id: 'eleven_flash_v2_5',
-            voice_settings: voiceSettings,
-        }),
-    });
-
-    if (!upstream.ok) {
-        const errBody = await upstream.text();
-        console.error(`[elevenlabs-tts] ${upstream.status}: ${errBody.slice(0, 300)}`);
-        return new Response(JSON.stringify({ error: `ElevenLabs ${upstream.status}` }), {
-            status: 502,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-        });
+    let upstream: Response;
+    try {
+        upstream = await fetchWithTimeout(
+            `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'xi-api-key': apiKey,
+                    Accept: 'audio/mpeg',
+                },
+                body: JSON.stringify({
+                    text: prepareForTTS(text),
+                    model_id: 'eleven_flash_v2_5',
+                    voice_settings: voiceSettings,
+                }),
+            },
+            30_000,
+        );
+    } catch (error) {
+        console.error('[elevenlabs-tts] Upstream request failed:', error);
+        return jsonResponse({ error: 'Speech generation is temporarily unavailable' }, 502, CORS);
     }
 
-    const arrayBuffer = await upstream.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    const audio_b64 = btoa(binary);
+    if (!upstream.ok) {
+        const errBody = await readResponseTextLimited(upstream, 32_000);
+        console.error(`[elevenlabs-tts] ${upstream.status}: ${(errBody ?? '').slice(0, 300)}`);
+        return jsonResponse({ error: 'Speech generation is temporarily unavailable' }, 502, CORS);
+    }
 
-    return new Response(JSON.stringify({ audio_b64, ms: Date.now() - t0 }), {
-        headers: { ...CORS, 'Content-Type': 'application/json' },
-    });
+    const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
+    if (!contentType.startsWith('audio/')) {
+        console.error(`[elevenlabs-tts] Unexpected upstream content type: ${contentType}`);
+        return jsonResponse({ error: 'Speech service returned an invalid response' }, 502, CORS);
+    }
+    const arrayBuffer = await readResponseArrayBufferLimited(upstream, 10_000_000);
+    if (!arrayBuffer) return jsonResponse({ error: 'Generated speech exceeded the size limit' }, 502, CORS);
+    const bytes = new Uint8Array(arrayBuffer);
+    const chunks: string[] = [];
+    for (let i = 0; i < bytes.byteLength; i += 32_768) {
+        chunks.push(String.fromCharCode(...bytes.subarray(i, i + 32_768)));
+    }
+    const audio_b64 = btoa(chunks.join(''));
+
+    return jsonResponse({ audio_b64, ms: Date.now() - t0 }, 200, CORS);
 });

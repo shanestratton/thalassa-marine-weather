@@ -1,5 +1,5 @@
 /**
- * voiceHistoryStore — Zustand-persisted conversation history for Bosun.
+ * voiceHistoryStore — identity-scoped conversation history for Bosun.
  *
  * Replaces the per-component-mount `useState<VoiceTurn[]>` in BosunConsole
  * so the skipper's conversation survives closing + reopening the voice
@@ -22,10 +22,17 @@
  * appears to "fail" even though her reply is already on screen.
  */
 
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { VoiceTurn } from '../types/voice';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 /**
  * Hard cap on how many turns we keep in localStorage. Reduced from 50
@@ -36,6 +43,7 @@ import type { VoiceTurn } from '../types/voice';
  * skipper to scroll through.
  */
 const MAX_PERSISTED_TURNS = 25;
+const STORAGE_KEY = 'thalassa-bosun-voice-history';
 
 interface VoiceHistoryState {
     turns: VoiceTurn[];
@@ -133,46 +141,151 @@ const quotaAwareStorage: StateStorage = {
     },
 };
 
+function scopedStorageKey(scope: AuthIdentityScope = getAuthIdentityScope()): string {
+    return authScopedStorageKey(STORAGE_KEY, scope);
+}
+
+function isVoiceTurn(value: unknown): value is VoiceTurn {
+    if (!value || typeof value !== 'object') return false;
+    const turn = value as Partial<VoiceTurn>;
+    if (
+        typeof turn.id !== 'string' ||
+        !Number.isFinite(turn.timestamp) ||
+        typeof turn.transcript !== 'string' ||
+        !turn.response ||
+        typeof turn.response !== 'object'
+    ) {
+        return false;
+    }
+
+    const response = turn.response;
+    return (
+        typeof response.transcript === 'string' &&
+        typeof response.answer_text === 'string' &&
+        (response.source === 'bosun' || response.source === 'cloud' || response.source === 'unknown')
+    );
+}
+
+/**
+ * Read only the current identity's namespace. The old unscoped key is
+ * intentionally never adopted: it contains no trustworthy owner marker, so
+ * assigning it to whichever account happens to sign in first would expose one
+ * skipper's private conversation to another.
+ */
+function readPersistedTurns(scope: AuthIdentityScope): VoiceTurn[] {
+    // This adapter is deliberately synchronous even though StateStorage also
+    // permits async implementations.
+    const raw = quotaAwareStorage.getItem(scopedStorageKey(scope)) as string | null;
+    if (!raw) return [];
+
+    try {
+        const parsed = JSON.parse(raw) as { state?: { turns?: unknown } };
+        const turns = parsed.state?.turns;
+        if (!Array.isArray(turns)) return [];
+        return turns.filter(isVoiceTurn).slice(-MAX_PERSISTED_TURNS);
+    } catch {
+        return [];
+    }
+}
+
+const identityScopedQuotaStorage: StateStorage = {
+    getItem: () => quotaAwareStorage.getItem(scopedStorageKey()),
+    setItem: (_name, value) => quotaAwareStorage.setItem(scopedStorageKey(), value),
+    removeItem: () => quotaAwareStorage.removeItem(scopedStorageKey()),
+};
+
+type BoundActions = Pick<VoiceHistoryState, 'addTurn' | 'upsertTurnSorted' | 'clearHistory'>;
+
+let setStoreState: StoreApi<VoiceHistoryState>['setState'];
+
+function actionsForScope(scope: AuthIdentityScope): BoundActions {
+    return {
+        addTurn: (turn) => {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoreState((state: VoiceHistoryState) => {
+                if (!isAuthIdentityScopeCurrent(scope) || state.turns.some((existing) => existing.id === turn.id)) {
+                    return state;
+                }
+                const turns = [...state.turns, turn].slice(-MAX_PERSISTED_TURNS);
+                return { turns };
+            });
+        },
+        upsertTurnSorted: (turn) => {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoreState((state: VoiceHistoryState) => {
+                if (!isAuthIdentityScopeCurrent(scope) || state.turns.some((existing) => existing.id === turn.id)) {
+                    return state;
+                }
+
+                // Most remote turns arrive at the end, but an older crewmate
+                // turn can race. Keep the shared conversation chronological.
+                const turns = [...state.turns];
+                let index = turns.length - 1;
+                while (index >= 0 && turns[index].timestamp > turn.timestamp) index--;
+                turns.splice(index + 1, 0, turn);
+                const cappedTurns = turns.slice(-MAX_PERSISTED_TURNS);
+                return { turns: cappedTurns };
+            });
+        },
+        clearHistory: () => {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoreState((state: VoiceHistoryState) => {
+                if (!isAuthIdentityScopeCurrent(scope)) return state;
+                return { turns: [] };
+            });
+        },
+    };
+}
+
+const initialScope = getAuthIdentityScope();
+
 export const useVoiceHistoryStore = create<VoiceHistoryState>()(
     persist(
-        (set) => ({
-            turns: [],
-            addTurn: (turn) =>
-                set((state) => {
-                    // Dedupe local-write echoes too: if a turn with this
-                    // id already exists, leave the existing one alone.
-                    if (state.turns.some((t) => t.id === turn.id)) return state;
-                    const next = [...state.turns, turn];
-                    return { turns: next.slice(-MAX_PERSISTED_TURNS) };
-                }),
-            upsertTurnSorted: (turn) =>
-                set((state) => {
-                    if (state.turns.some((t) => t.id === turn.id)) return state;
-                    // Find insert position by timestamp. Most remote turns
-                    // arrive at the end, but a crewmate's older turn could
-                    // race — putting them in chronological order keeps the
-                    // conversation log readable.
-                    const next = [...state.turns];
-                    let i = next.length - 1;
-                    while (i >= 0 && next[i].timestamp > turn.timestamp) i--;
-                    next.splice(i + 1, 0, turn);
-                    return { turns: next.slice(-MAX_PERSISTED_TURNS) };
-                }),
-            clearHistory: () => set({ turns: [] }),
-        }),
+        (set) => {
+            setStoreState = set;
+            return {
+                turns: [],
+                ...actionsForScope(initialScope),
+            };
+        },
         {
-            name: 'thalassa-bosun-voice-history',
-            storage: createJSONStorage(() => quotaAwareStorage),
-            // Don't persist the audio_b64 on each turn — it's the biggest
-            // field and we have no need to replay TTS across sessions.
-            // Skipper sees the text; replay button is fine to be disabled
-            // on rehydrated turns.
+            name: STORAGE_KEY,
+            storage: createJSONStorage(() => identityScopedQuotaStorage),
+            merge: (persisted, current) => {
+                const turns = (persisted as Partial<VoiceHistoryState> | undefined)?.turns;
+                return {
+                    ...current,
+                    turns: Array.isArray(turns) ? turns.filter(isVoiceTurn).slice(-MAX_PERSISTED_TURNS) : [],
+                };
+            },
+            // Don't persist audio_b64 — it is the largest field and replaying
+            // TTS across application sessions is unnecessary.
             partialize: (state) => ({
-                turns: state.turns.map((t) => ({
-                    ...t,
-                    response: { ...t.response, audio_b64: undefined },
+                turns: state.turns.map((turn) => ({
+                    ...turn,
+                    response: { ...turn.response, audio_b64: undefined },
                 })),
             }),
         },
     ),
 );
+
+subscribeAuthIdentityScope((next) => {
+    // Swap both data and action closures synchronously. A timer or async
+    // callback holding account A's old action cannot mutate account B after
+    // this listener returns because that action remains fenced to A.
+    try {
+        useVoiceHistoryStore.setState(
+            {
+                turns: readPersistedTurns(next),
+                ...actionsForScope(next),
+            },
+            true,
+        );
+    } catch (error) {
+        // Zustand applies the in-memory replacement before persistence. Do not
+        // let disabled/corrupt browser storage abort the auth fence and prevent
+        // later identity subscribers from clearing their own private state.
+        console.warn('[voiceHistoryStore] failed to persist identity transition', error);
+    }
+});

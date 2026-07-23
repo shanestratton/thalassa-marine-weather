@@ -15,37 +15,67 @@
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../../utils/createLogger';
 import type { VoyageSummary } from './VoyageSummary';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from '../authIdentityScope';
 
 const log = createLogger('VoyageSummaryCache');
-const KEY_PREFIX = 'thalassa_voyage_summaries_v1_';
+const CACHE_KEY = 'thalassa_voyage_summaries_v2';
+const CACHE_VERSION = 2;
 
 interface CachedSummaries {
+    version: typeof CACHE_VERSION;
+    ownerKey: string;
+    ownerUserId: string;
     at: number;
     summaries: VoyageSummary[];
 }
 
-const keyFor = (userId: string) => `${KEY_PREFIX}${userId}`;
+const keyFor = (scope: AuthIdentityScope) => authScopedStorageKey(CACHE_KEY, scope);
 
-/** Read cached summaries for a user, or null if none/parse error. */
-export async function getCachedSummaries(userId: string | null | undefined): Promise<VoyageSummary[] | null> {
-    if (!userId) return null;
+/** Read cached summaries for the captured account, or null if stale/invalid. */
+export async function getCachedSummaries(
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<VoyageSummary[] | null> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
     try {
-        const { value } = await Preferences.get({ key: keyFor(userId) });
-        if (!value) return null;
-        const parsed = JSON.parse(value) as CachedSummaries;
-        return Array.isArray(parsed.summaries) ? parsed.summaries : null;
+        const { value } = await Preferences.get({ key: keyFor(scope) });
+        if (!isAuthIdentityScopeCurrent(scope) || !value) return null;
+        const parsed = JSON.parse(value) as Partial<CachedSummaries>;
+        if (
+            parsed.version !== CACHE_VERSION ||
+            parsed.ownerKey !== scope.key ||
+            parsed.ownerUserId !== scope.userId ||
+            !Array.isArray(parsed.summaries)
+        ) {
+            return null;
+        }
+        return parsed.summaries;
     } catch (e) {
         log.warn('read failed', e);
         return null;
     }
 }
 
-/** Persist the latest summaries for a user (last-write wins). */
-export async function setCachedSummaries(userId: string | null | undefined, summaries: VoyageSummary[]): Promise<void> {
-    if (!userId) return;
+/** Persist the latest summaries for the captured account (last-write wins). */
+export async function setCachedSummaries(
+    summaries: VoyageSummary[],
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<void> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+    const payload = JSON.stringify({
+        version: CACHE_VERSION,
+        ownerKey: scope.key,
+        ownerUserId: scope.userId,
+        at: Date.now(),
+        summaries,
+    } satisfies CachedSummaries);
     try {
-        const payload = JSON.stringify({ at: Date.now(), summaries } satisfies CachedSummaries);
-        await Preferences.set({ key: keyFor(userId), value: payload });
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await Preferences.set({ key: keyFor(scope), value: payload });
     } catch (e) {
         log.warn('write failed', e);
     }

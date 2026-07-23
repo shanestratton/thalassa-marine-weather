@@ -4,6 +4,7 @@
  */
 import React, { useCallback, useId, useRef } from 'react';
 import { type ClientFilterResult } from '../../services/ContentModerationService';
+import { MAX_CHAT_MESSAGE_CHARS } from '../../services/chat/messagePolicy';
 import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 
 export interface ChatComposerProps {
@@ -46,6 +47,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
     }) => {
         const attachTriggerRef = useRef<HTMLButtonElement>(null);
         const attachMenuId = useId();
+        const messageLimitId = useId();
         const closeAttachMenu = useCallback(() => setShowAttachMenu(false), [setShowAttachMenu]);
         const attachMenuRef = useMenuNavigation<HTMLDivElement>(showAttachMenu, {
             triggerRef: attachTriggerRef,
@@ -200,8 +202,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     onKeyDown={(e) => e.key === 'Enter' && onSend()}
                                     placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
                                     aria-label={isQuestion ? 'Ask the crew a question' : 'Type a message'}
+                                    aria-describedby={messageLimitId}
+                                    maxLength={MAX_CHAT_MESSAGE_CHARS}
                                     className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
                                 />
+                                <span id={messageLimitId} className="sr-only">
+                                    Maximum {MAX_CHAT_MESSAGE_CHARS.toLocaleString()} characters
+                                </span>
                             </div>
                             <button
                                 onClick={() => onSend()}

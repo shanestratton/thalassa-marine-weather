@@ -9,6 +9,14 @@ import { create } from 'zustand';
 import type { VoyagePlan, Waypoint } from '../types';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { createLogger } from '../utils/createLogger';
+import { useSettingsStore } from './settingsStore';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 const log = createLogger('FollowRoute');
 
@@ -136,10 +144,15 @@ function diffRoutes(
     return { changed: changes.length > 0, description: changes.length > 0 ? changes.join('. ') + '.' : '' };
 }
 
-function saveToStorage(state: FollowRouteState) {
+function storageKey(scope: AuthIdentityScope = getAuthIdentityScope()): string {
+    return authScopedStorageKey(STORAGE_KEY, scope);
+}
+
+function saveToStorage(state: FollowRouteState, scope: AuthIdentityScope = getAuthIdentityScope()) {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
         const { isRefreshing, ...persist } = state;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(persist));
+        localStorage.setItem(storageKey(scope), JSON.stringify(persist));
     } catch {
         /* quota */
     }
@@ -153,15 +166,17 @@ function saveToStorage(state: FollowRouteState) {
  *  bumps), so age off startedAt with a generous ceiling is safe. */
 const FOLLOW_RESUME_MAX_AGE_MS = 7 * 24 * 3600_000;
 
-function loadFromStorage(): FollowRouteState | null {
+function loadFromStorage(scope: AuthIdentityScope = getAuthIdentityScope()): FollowRouteState | null {
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        // The legacy unscoped value has no durable owner marker. Do not
+        // guess which skipper owns ports, timing and route geometry.
+        const raw = localStorage.getItem(storageKey(scope));
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (parsed.isFollowing && parsed.voyagePlan) {
             const ageMs = Date.now() - new Date(parsed.startedAt ?? 0).getTime();
             if (!Number.isFinite(ageMs) || ageMs > FOLLOW_RESUME_MAX_AGE_MS) {
-                clearStorage(); // zombie — drop rather than resume
+                clearStorage(scope); // zombie — drop rather than resume
                 return null;
             }
             return { ...parsed, isRefreshing: false };
@@ -172,9 +187,9 @@ function loadFromStorage(): FollowRouteState | null {
     return null;
 }
 
-function clearStorage() {
+function clearStorage(scope: AuthIdentityScope = getAuthIdentityScope()) {
     try {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(storageKey(scope));
     } catch {
         /* best effort */
     }
@@ -182,10 +197,16 @@ function clearStorage() {
 
 // ── Store ────────────────────────────────────────────────────────
 
+// Invalidates an in-flight weather refresh when the follow is stopped,
+// replaced, or the authenticated identity changes.
+let followMutationGeneration = 0;
+
 export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>()((set, get) => ({
     ...(loadFromStorage() || INITIAL_STATE),
 
     startFollowing: (plan, voyageId) => {
+        followMutationGeneration += 1;
+        const scope = getAuthIdentityScope();
         log.info(`Starting follow mode: ${plan.origin} → ${plan.destination}`);
         const routeCoords = computeRouteFromPlan(plan);
         const newState: FollowRouteState = {
@@ -201,18 +222,32 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
             isRefreshing: false,
         };
         set(newState);
-        saveToStorage(newState);
+        saveToStorage(newState, scope);
     },
 
     stopFollowing: () => {
+        followMutationGeneration += 1;
+        const scope = getAuthIdentityScope();
         log.info('Stopping follow mode');
         set(INITIAL_STATE);
-        clearStorage();
+        clearStorage(scope);
     },
 
     refreshRoute: async () => {
         const s = get();
         if (!s.isFollowing || !s.voyagePlan) return;
+        const scope = getAuthIdentityScope();
+        const refreshGeneration = followMutationGeneration;
+        const refreshIsCurrent = () => {
+            const current = get();
+            return (
+                isAuthIdentityScopeCurrent(scope) &&
+                refreshGeneration === followMutationGeneration &&
+                current.isFollowing &&
+                current.startedAt === s.startedAt &&
+                current.voyageId === s.voyageId
+            );
+        };
 
         // TRACED routes are GEOMETRY-LOCKED: the skipper validated that exact
         // line leg-by-leg, and the weather optimiser is allowed to move points
@@ -220,9 +255,10 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
         // validated trace with an unvalidated one (adversarial audit,
         // 2026-07-08). Weather refresh for traces is a timestamp-only no-op.
         if (isTracedPlan(s.voyagePlan)) {
+            if (!refreshIsCurrent()) return;
             const newState: FollowRouteState = { ...get(), lastRefresh: new Date().toISOString(), isRefreshing: false };
             set(newState);
-            saveToStorage(newState);
+            saveToStorage(newState, scope);
             return;
         }
         set({ isRefreshing: true });
@@ -231,7 +267,8 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
             let updatedPlan = { ...s.voyagePlan };
             try {
                 const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
-                const vessel = JSON.parse(localStorage.getItem('thalassa_settings') || '{}')?.vessel;
+                if (!refreshIsCurrent()) return;
+                const vessel = useSettingsStore.getState().settings.vessel;
                 if (vessel) {
                     updatedPlan = await enhanceVoyagePlanWithWeather(updatedPlan, vessel, updatedPlan.departureDate);
                 }
@@ -239,6 +276,7 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
                 log.warn('Weather re-routing failed:', e);
             }
 
+            if (!refreshIsCurrent()) return;
             const { changed, description } = diffRoutes(
                 s.voyagePlan.waypoints || [],
                 updatedPlan.waypoints || [],
@@ -260,11 +298,11 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
                 isRefreshing: false,
             };
             set(newState);
-            saveToStorage(newState);
+            saveToStorage(newState, scope);
             log.info(changed ? `Route changed: ${description}` : 'Route unchanged after refresh');
         } catch (err) {
             log.error('Route refresh failed:', err);
-            set({ isRefreshing: false });
+            if (refreshIsCurrent()) set({ isRefreshing: false });
         }
     },
 
@@ -293,4 +331,12 @@ useFollowRouteStore.subscribe((state) => {
             useFollowRouteStore.getState().refreshRoute();
         }, REFRESH_INTERVAL_MS);
     }
+});
+
+// Zustand stores live for the life of the app. Swap their complete data
+// snapshot synchronously with authStore's identity fence so account B never
+// renders account A's followed route, even during an offline transition.
+subscribeAuthIdentityScope((next) => {
+    followMutationGeneration += 1;
+    useFollowRouteStore.setState(loadFromStorage(next) || INITIAL_STATE);
 });

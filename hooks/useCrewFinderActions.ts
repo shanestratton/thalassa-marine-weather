@@ -7,7 +7,7 @@
  * compatibility scoring, icebreakers, helpers.
  */
 
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { CrewFinderState, CrewFinderAction } from './useCrewFinderState';
@@ -23,14 +23,58 @@ import { toast } from '../components/Toast';
 import { triggerHaptic } from '../utils/system';
 import { LocationStore } from '../stores/LocationStore';
 import React from 'react';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 const log = createLogger('CrewFinderActions');
+
+type ScopedServiceResult<T> = { status: 'current'; value: T } | { status: 'stale' } | { status: 'unauthenticated' };
+
+type CrewFinderServiceInternals = {
+    currentUserId: string | null;
+};
+
+/**
+ * LonelyHeartsService stores its user ID on `this`. Give every logical
+ * operation an identity-bound facade so an A upload cannot start with A,
+ * await compression, then resume with the singleton's newly initialized B ID.
+ * Object.create preserves all service methods while shadowing only the mutable
+ * identity field; operations for B can begin immediately without waiting for a
+ * slow or hung A request.
+ */
+function serviceForIdentity(scope: AuthIdentityScope): typeof LonelyHeartsService {
+    const scopedService = Object.create(LonelyHeartsService) as typeof LonelyHeartsService;
+    (scopedService as unknown as CrewFinderServiceInternals).currentUserId = scope.userId;
+    return scopedService;
+}
+
+async function runForIdentity<T>(
+    scope: AuthIdentityScope,
+    operation: (service: typeof LonelyHeartsService) => Promise<T>,
+): Promise<ScopedServiceResult<T>> {
+    if (!isAuthIdentityScopeCurrent(scope)) return { status: 'stale' };
+    if (!scope.userId) return { status: 'unauthenticated' };
+
+    const value = await operation(serviceForIdentity(scope));
+    if (!isAuthIdentityScopeCurrent(scope)) return { status: 'stale' };
+    return { status: 'current', value };
+}
+
+function subscribeIdentitySnapshot(onStoreChange: () => void): () => void {
+    return subscribeAuthIdentityScope(() => onStoreChange());
+}
 
 // ────────────────────────────────────────────────────────────
 // Hook
 // ────────────────────────────────────────────────────────────
 
 export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dispatch<CrewFinderAction>) {
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
     const {
         view,
         listings,
@@ -107,7 +151,6 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
         [dispatch, state.filterSkills],
     );
     const setShowFilters = useCallback((v: boolean) => dispatch({ type: 'SET_SHOW_FILTERS', payload: v }), [dispatch]);
-    const setMatches = useCallback((v: SailorMatch[]) => dispatch({ type: 'SET_MATCHES', payload: v }), [dispatch]);
     const setHasSearched = useCallback((v: boolean) => dispatch({ type: 'SET_HAS_SEARCHED', payload: v }), [dispatch]);
     const setBlockedUserIds = useCallback(
         (v: Set<string> | ((prev: Set<string>) => Set<string>)) =>
@@ -159,11 +202,6 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
         (v: string) => dispatch({ type: 'SET_EDIT_LOCATION_COUNTRY', payload: v }),
         [dispatch],
     );
-    const setDeleting = useCallback((v: boolean) => dispatch({ type: 'SET_DELETING', payload: v }), [dispatch]);
-    const setShowDeleteConfirm = useCallback(
-        (v: boolean) => dispatch({ type: 'SET_SHOW_DELETE_CONFIRM', payload: v }),
-        [dispatch],
-    );
     const setKbHeight = useCallback((v: number) => dispatch({ type: 'SET_KB_HEIGHT', payload: v }), [dispatch]);
     const setCurrentCardIndex = useCallback(
         (v: number | ((prev: number) => number)) =>
@@ -197,35 +235,70 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
     const swipeStartY = useRef(0);
     const isSwipeTracking = useRef(false);
     const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
+    const delayedCallbacks = useRef<Set<number>>(new Set());
+
+    const clearDelayedCallbacks = useCallback(() => {
+        for (const timer of delayedCallbacks.current) window.clearTimeout(timer);
+        delayedCallbacks.current.clear();
+    }, []);
+
+    const scheduleForIdentity = useCallback((scope: AuthIdentityScope, callback: () => void, delayMs: number) => {
+        const timer = window.setTimeout(() => {
+            delayedCallbacks.current.delete(timer);
+            if (isAuthIdentityScopeCurrent(scope)) callback();
+        }, delayMs);
+        delayedCallbacks.current.add(timer);
+    }, []);
+
+    useEffect(() => {
+        const unsubscribe = subscribeAuthIdentityScope(() => {
+            clearDelayedCallbacks();
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        });
+        return () => {
+            unsubscribe();
+            clearDelayedCallbacks();
+        };
+    }, [clearDelayedCallbacks]);
 
     // ── Keyboard height detection ──
     useEffect(() => {
+        const scope = identityScope;
         if (view !== 'my_profile') {
             setKbHeight(0);
             return;
         }
+        let active = true;
         let cleanup: (() => void) | undefined;
         if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
+            void import('@capacitor/keyboard')
                 .then(({ Keyboard }) => {
+                    if (!active || !isAuthIdentityScopeCurrent(scope)) return;
                     const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                        if (!isAuthIdentityScopeCurrent(scope)) return;
                         setKbHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            const container = myProfileScrollRef.current;
-                            if (!focused || !container) return;
-                            if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
-                            const focusRect = focused.getBoundingClientRect();
-                            const containerRect = container.getBoundingClientRect();
-                            const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
-                            const targetScroll = offsetInContainer - containerRect.height * 0.3;
-                            container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
-                        }, 50);
+                        scheduleForIdentity(
+                            scope,
+                            () => {
+                                const focused = document.activeElement as HTMLElement;
+                                const container = myProfileScrollRef.current;
+                                if (!focused || !container) return;
+                                if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
+                                const focusRect = focused.getBoundingClientRect();
+                                const containerRect = container.getBoundingClientRect();
+                                const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
+                                const targetScroll = offsetInContainer - containerRect.height * 0.3;
+                                container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+                            },
+                            50,
+                        );
                     });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => setKbHeight(0));
+                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        if (isAuthIdentityScopeCurrent(scope)) setKbHeight(0);
+                    });
                     cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
+                        void showHandle.then((h) => h.remove());
+                        void hideHandle.then((h) => h.remove());
                     };
                 })
                 .catch(() => {
@@ -235,6 +308,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             const vp = window.visualViewport;
             if (vp) {
                 const handleResize = () => {
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
                     const kbH = window.innerHeight - vp.height;
                     setKbHeight(kbH > 50 ? kbH : 0);
                 };
@@ -243,42 +317,75 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             }
         }
         return () => {
+            active = false;
             cleanup?.();
-            setKbHeight(0);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [view]);
+    }, [view, identityScope.generation, scheduleForIdentity]);
 
     // ── Init ──
     useEffect(() => {
-        const init = async () => {
-            await LonelyHeartsService.init();
-            await Promise.all([loadMatches(), loadProfile()]);
-            const blocked = await LonelyHeartsService.getBlockedUserIds();
-            setBlockedUserIds(new Set(blocked));
-            LonelyHeartsService.updateLastActive();
-            const used = await LonelyHeartsService.hasSuperLikedToday();
-            setSuperLikeUsed(used);
+        const scope = identityScope;
+        let active = true;
+        if (!scope.userId) {
             setLoading(false);
+            return;
+        }
+
+        void runForIdentity(scope, async (service) => {
+            const [matches, loadedProfile, blocked, superLikeUsed] = await Promise.all([
+                service.getMatches(),
+                service.getCrewProfile(scope.userId!),
+                service.getBlockedUserIds(),
+                service.hasSuperLikedToday(),
+                service.updateLastActive(),
+            ]);
+            return { matches, loadedProfile, blocked, superLikeUsed };
+        })
+            .then((result) => {
+                if (!active || result.status !== 'current' || !isAuthIdentityScopeCurrent(scope)) return;
+                dispatch({ type: 'SET_MATCHES', payload: result.value.matches });
+                if (result.value.loadedProfile) {
+                    dispatch({ type: 'LOAD_PROFILE', payload: result.value.loadedProfile });
+                }
+                dispatch({ type: 'SET_BLOCKED_USER_IDS', payload: new Set(result.value.blocked) });
+                dispatch({ type: 'SET_SUPER_LIKE_USED', payload: result.value.superLikeUsed });
+                dispatch({ type: 'SET_LOADING', payload: false });
+            })
+            .catch((error) => {
+                if (!active || !isAuthIdentityScopeCurrent(scope)) return;
+                log.warn('Crew Finder initialization failed:', error);
+                dispatch({ type: 'SET_LOADING', payload: false });
+            });
+
+        return () => {
+            active = false;
         };
-        init();
+        // Setter shims deliberately stay out of this dependency list; dispatch
+        // is stable and the auth generation is the lifecycle boundary.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [identityScope.generation, dispatch]);
 
     // ── Auto-fill location from GPS ──
     useEffect(() => {
+        const scope = identityScope;
         if (editLocationCity || editLocationState || editLocationCountry) return;
         if (view !== 'my_profile') return;
         const loc = LocationStore.getState();
         if (!loc.lat || !loc.lon) return;
-        (async () => {
+        const controller = new AbortController();
+        void (async () => {
             try {
                 const res = await fetch(
                     `https://nominatim.openstreetmap.org/reverse?lat=${loc.lat}&lon=${loc.lon}&format=json&zoom=10&addressdetails=1`,
-                    { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } },
+                    {
+                        headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' },
+                        signal: controller.signal,
+                    },
                 );
-                if (!res.ok) return;
+                if (!res.ok || !isAuthIdentityScopeCurrent(scope)) return;
                 const data = await res.json();
+                if (!isAuthIdentityScopeCurrent(scope)) return;
                 const addr = data.address || {};
                 const city = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || '';
                 const st = addr.state || addr.region || addr.county || '';
@@ -290,31 +397,30 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                 /* GPS or network unavailable */
             }
         })();
+        return () => controller.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [view, editLocationCity, editLocationState, editLocationCountry]);
+    }, [view, editLocationCity, editLocationState, editLocationCountry, identityScope.generation]);
 
     // ── Data loading ──
     const loadListings = useCallback(
-        async (f?: CrewSearchFilters) => {
-            const data = await LonelyHeartsService.getCrewListings(f || filters);
-            setListings(data);
+        async (f?: CrewSearchFilters, scope: AuthIdentityScope = getAuthIdentityScope()): Promise<boolean> => {
+            try {
+                const result = await runForIdentity(scope, (service) => service.getCrewListings(f || filters));
+                if (result.status !== 'current' || !isAuthIdentityScopeCurrent(scope)) return false;
+                dispatch({ type: 'SET_LISTINGS', payload: result.value });
+                return true;
+            } catch (error) {
+                if (isAuthIdentityScopeCurrent(scope)) log.warn('Crew listings load failed:', error);
+                return false;
+            }
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [filters],
+        [dispatch, filters],
     );
-
-    const loadMatches = async () => {
-        const m = await LonelyHeartsService.getMatches();
-        setMatches(m);
-    };
-
-    const loadProfile = async () => {
-        const dp = await LonelyHeartsService.getCrewProfile();
-        if (dp) dispatch({ type: 'LOAD_PROFILE', payload: dp as CrewProfile });
-    };
 
     // ── Search ──
     const applyFilters = async () => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
         const f: CrewSearchFilters = {};
         if (filterListingType) f.listing_type = filterListingType;
         if (filterGender) f.gender = filterGender;
@@ -327,56 +433,32 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
         if (filterLocationCity) f.location_city = filterLocationCity;
         setFilters(f);
         setLoading(true);
-        await loadListings(f);
+        const loaded = await loadListings(f, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         setLoading(false);
+        if (!loaded) return;
         setShowFilters(false);
         setHasSearched(true);
     };
 
     const clearFilters = async () => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
         dispatch({ type: 'CLEAR_FILTERS' });
         setLoading(true);
-        await loadListings({});
+        await loadListings({}, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         setLoading(false);
     };
 
     // ── Save Profile ──
     const handleSaveProfile = async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let uid = (LonelyHeartsService as any).currentUserId as string | null;
-        log.info('[CrewFinder Save] uid from service:', uid?.slice(0, 8) || 'null');
-        if (!uid) {
-            await LonelyHeartsService.init();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            uid = (LonelyHeartsService as any).currentUserId as string | null;
-            log.info('[CrewFinder Save] uid after re-init:', uid?.slice(0, 8) || 'null');
-        }
-        if (!uid) {
-            try {
-                const { supabase } = await import('../services/supabase');
-                if (supabase) {
-                    const {
-                        data: { session },
-                    } = await supabase.auth.getSession();
-                    log.info('[CrewFinder Save] direct session check:', session?.user?.id?.slice(0, 8) || 'null');
-                    if (session?.user?.id) {
-                        uid = session.user.id;
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (LonelyHeartsService as any).currentUserId = uid;
-                    }
-                } else {
-                    log.info('[CrewFinder Save] supabase is null (not configured)');
-                }
-            } catch (e) {
-                console.warn('[CrewFinder Save] direct session check failed:', e);
-            }
-        }
-        if (!uid) {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) {
             toast.error('Sign in first — go to Vessel > Settings > Account');
             return;
         }
-        setSaving(true);
-        await LonelyHeartsService.updateCrewProfile({
+        const updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>> = {
             listing_type: (editListingType as ListingType) || null,
             first_name: editFirstName.trim() || null,
             gender: editGender || null,
@@ -399,33 +481,74 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             pets: editPets || null,
             interests: editInterests,
             photo_url: editPhotos[0] || null,
-        });
-        await loadProfile();
-        setSaving(false);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2500);
+        };
+
+        setSaving(true);
+        try {
+            const result = await runForIdentity(scope, async (service) => {
+                const updated = await service.updateCrewProfile(updates);
+                if (!updated || !isAuthIdentityScopeCurrent(scope)) return { updated, loadedProfile: null };
+                const loadedProfile = await service.getCrewProfile(scope.userId!);
+                return { updated, loadedProfile };
+            });
+            if (result.status === 'stale' || !isAuthIdentityScopeCurrent(scope)) return;
+            if (result.status === 'unauthenticated') {
+                setSaving(false);
+                toast.error('Unable to verify this account — sign in again');
+                return;
+            }
+
+            setSaving(false);
+            if (!result.value.updated) {
+                toast.error('Could not save your listing');
+                return;
+            }
+            if (result.value.loadedProfile) {
+                dispatch({ type: 'LOAD_PROFILE', payload: result.value.loadedProfile });
+            }
+            setSaved(true);
+            scheduleForIdentity(scope, () => setSaved(false), 2500);
+        } catch (error) {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            log.warn('Crew profile save failed:', error);
+            setSaving(false);
+            toast.error('Could not save your listing');
+        }
     };
 
     // ── Photo Upload ──
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
         const idx = pendingPhotoIdx;
         setPhotoError('');
         setUploadingPhotoIdx(idx);
-        const result = await LonelyHeartsService.uploadCrewPhoto(file);
-        if (result.success && result.url) {
-            setEditPhotos((prev) => {
-                const next = [...prev];
-                while (next.length <= idx) next.push('');
-                next[idx] = result.url!;
-                return next.filter(Boolean);
-            });
-        } else {
-            setPhotoError(result.error || 'Upload failed');
+        try {
+            const scopedResult = await runForIdentity(scope, (service) => service.uploadCrewPhoto(file));
+            if (scopedResult.status === 'stale' || !isAuthIdentityScopeCurrent(scope)) return;
+            if (scopedResult.status === 'unauthenticated') {
+                setPhotoError('Unable to verify this account');
+            } else if (scopedResult.value.success && scopedResult.value.url) {
+                setEditPhotos((prev) => {
+                    const next = [...prev];
+                    while (next.length <= idx) next.push('');
+                    next[idx] = scopedResult.value.url!;
+                    return next.filter(Boolean);
+                });
+            } else {
+                setPhotoError(scopedResult.value.error || 'Upload failed');
+            }
+            setUploadingPhotoIdx(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        } catch (error) {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            log.warn('Crew photo upload failed:', error);
+            setPhotoError('Upload failed');
+            setUploadingPhotoIdx(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
-        setUploadingPhotoIdx(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handlePhotoRemove = (idx: number) => {
@@ -434,45 +557,71 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
 
     // ── Like / Interest ──
     const handleLike = async (card: CrewCard) => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
         const alreadyLiked = likedUsers.has(card.user_id);
         if (alreadyLiked) {
             setLikedUsers((prev) => {
                 const next = new Set(prev);
                 next.delete(card.user_id);
                 try {
-                    localStorage.setItem('crew_liked_users', JSON.stringify([...next]));
+                    if (isAuthIdentityScopeCurrent(scope)) {
+                        localStorage.setItem(
+                            authScopedStorageKey('crew_liked_users', scope),
+                            JSON.stringify([...next]),
+                        );
+                    }
                 } catch (e) {
                     console.warn(`[CrewFinder]`, e);
                 }
                 return next;
             });
-            await LonelyHeartsService.recordLike(card.user_id, false);
-            await loadMatches();
         } else {
             setLikedUsers((prev) => {
                 const next = new Set(prev);
                 next.add(card.user_id);
                 try {
-                    localStorage.setItem('crew_liked_users', JSON.stringify([...next]));
+                    if (isAuthIdentityScopeCurrent(scope)) {
+                        localStorage.setItem(
+                            authScopedStorageKey('crew_liked_users', scope),
+                            JSON.stringify([...next]),
+                        );
+                    }
                 } catch (e) {
                     console.warn(`[CrewFinder]`, e);
                 }
                 return next;
             });
-            const result = await LonelyHeartsService.recordLike(card.user_id, true);
-            if (result.matched) {
-                await loadMatches();
+        }
+
+        try {
+            const result = await runForIdentity(scope, async (service) => {
+                const likeResult = await service.recordLike(card.user_id, !alreadyLiked);
+                if (!isAuthIdentityScopeCurrent(scope)) return { likeResult, matches: null };
+                const matches = alreadyLiked || likeResult.matched ? await service.getMatches() : null;
+                return { likeResult, matches };
+            });
+            if (result.status !== 'current' || !isAuthIdentityScopeCurrent(scope)) return;
+            if (result.value.matches) {
+                dispatch({ type: 'SET_MATCHES', payload: result.value.matches });
+            }
+            if (!alreadyLiked && result.value.likeResult.matched) {
                 toast.success(`⭐ It's a Match! You and ${card.display_name} starred each other!`);
             }
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('Crew like failed:', error);
         }
     };
 
     const trackMessagedUser = useCallback((userId: string) => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
         setMessagedUsers((prev) => {
+            if (!isAuthIdentityScopeCurrent(scope)) return prev;
             const next = new Set(prev);
             next.add(userId);
             try {
-                localStorage.setItem('crew_messaged_users', JSON.stringify([...next]));
+                localStorage.setItem(authScopedStorageKey('crew_messaged_users', scope), JSON.stringify([...next]));
             } catch (e) {
                 console.warn(`[CrewFinder]`, e);
             }
@@ -483,87 +632,163 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
 
     // ── Block / Report ──
     const handleBlock = async (userId: string, displayName: string) => {
-        const success = await LonelyHeartsService.blockUser(userId);
-        if (success) {
-            setBlockedUserIds((prev) => new Set([...prev, userId]));
-            setListings((prev) => prev.filter((l) => l.user_id !== userId));
-            toast.success(`${displayName} blocked — they won't appear in your feed`);
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
+        try {
+            const result = await runForIdentity(scope, (service) => service.blockUser(userId));
+            if (result.status !== 'current' || !isAuthIdentityScopeCurrent(scope)) return;
+            if (result.value) {
+                setBlockedUserIds((prev) => new Set([...prev, userId]));
+                setListings((prev) => prev.filter((l) => l.user_id !== userId));
+                toast.success(`${displayName} blocked — they won't appear in your feed`);
+            }
+            setShowActionMenu(null);
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('Crew block failed:', error);
         }
-        setShowActionMenu(null);
     };
 
     const handleReport = async () => {
         if (!showReportModal || !reportReason.trim()) return;
-        const success = await LonelyHeartsService.reportUser(showReportModal, reportReason.trim());
-        if (success) {
-            await handleBlock(showReportModal, 'User');
-            toast.success('Report submitted — thanks for keeping the community safe');
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
+        const targetId = showReportModal;
+        const reason = reportReason.trim();
+        try {
+            const result = await runForIdentity(scope, async (service) => {
+                const reported = await service.reportUser(targetId, reason);
+                if (!reported || !isAuthIdentityScopeCurrent(scope)) return { reported, blocked: false };
+                const blocked = await service.blockUser(targetId);
+                return { reported, blocked };
+            });
+            if (result.status !== 'current' || !isAuthIdentityScopeCurrent(scope)) return;
+            if (result.value.reported) {
+                if (result.value.blocked) {
+                    setBlockedUserIds((prev) => new Set([...prev, targetId]));
+                    setListings((prev) => prev.filter((listing) => listing.user_id !== targetId));
+                    toast.success(`User blocked — they won't appear in your feed`);
+                }
+                toast.success('Report submitted — thanks for keeping the community safe');
+            }
+            setShowReportModal(null);
+            setReportReason('');
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('Crew report failed:', error);
         }
-        setShowReportModal(null);
-        setReportReason('');
     };
 
     // ── Super Like ──
     const handleSuperLike = async () => {
         if (!showSuperLikeModal) return;
-        const result = await LonelyHeartsService.recordSuperLike(showSuperLikeModal.user_id, superLikeMessage.trim());
-        setLikedUsers((prev) => {
-            const next = new Set(prev);
-            next.add(showSuperLikeModal.user_id);
-            try {
-                localStorage.setItem('crew_liked_users', JSON.stringify([...next]));
-            } catch (e) {
-                console.warn(`[CrewFinder]`, e);
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
+        const target = showSuperLikeModal;
+        const message = superLikeMessage.trim();
+        try {
+            const result = await runForIdentity(scope, async (service) => {
+                const superLike = await service.recordSuperLike(target.user_id, message);
+                if (!superLike.matched || !isAuthIdentityScopeCurrent(scope)) {
+                    return { superLike, matches: null };
+                }
+                const matches = await service.getMatches();
+                return { superLike, matches };
+            });
+            if (result.status !== 'current' || !isAuthIdentityScopeCurrent(scope)) return;
+
+            setLikedUsers((prev) => {
+                const next = new Set(prev);
+                next.add(target.user_id);
+                try {
+                    if (isAuthIdentityScopeCurrent(scope)) {
+                        localStorage.setItem(
+                            authScopedStorageKey('crew_liked_users', scope),
+                            JSON.stringify([...next]),
+                        );
+                    }
+                } catch (error) {
+                    console.warn(`[CrewFinder]`, error);
+                }
+                return next;
+            });
+            setSuperLikeUsed(true);
+            if (result.value.matches) {
+                dispatch({ type: 'SET_MATCHES', payload: result.value.matches });
             }
-            return next;
-        });
-        setSuperLikeUsed(true);
-        if (result.matched) {
-            await loadMatches();
-            toast.success(`🌟 Super Match! You and ${showSuperLikeModal.display_name} are connected!`);
-        } else {
-            toast.success(`🌟 Super Like sent to ${showSuperLikeModal.display_name}!`);
+            if (result.value.superLike.matched) {
+                toast.success(`🌟 Super Match! You and ${target.display_name} are connected!`);
+            } else {
+                toast.success(`🌟 Super Like sent to ${target.display_name}!`);
+            }
+            setShowSuperLikeModal(null);
+            setSuperLikeMessage('');
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('Crew super-like failed:', error);
         }
-        setShowSuperLikeModal(null);
-        setSuperLikeMessage('');
     };
 
     // ── Delete Listing ──
     const handleDeleteProfile = useCallback(async () => {
-        setDeleting(true);
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
+        dispatch({ type: 'SET_DELETING', payload: true });
         triggerHaptic('medium');
-        const success = await LonelyHeartsService.deleteCrewProfile();
-        if (success) {
-            dispatch({ type: 'RESET_PROFILE' });
-            toast.success('Listing removed from board');
-            await loadListings();
-        } else {
+        try {
+            const result = await runForIdentity(scope, async (service) => {
+                const deleted = await service.deleteCrewProfile();
+                if (!deleted || !isAuthIdentityScopeCurrent(scope)) return { deleted, listings: null };
+                const nextListings = await service.getCrewListings(filters);
+                return { deleted, listings: nextListings };
+            });
+            if (result.status === 'stale' || !isAuthIdentityScopeCurrent(scope)) return;
+            if (result.status === 'current' && result.value.deleted) {
+                dispatch({ type: 'RESET_PROFILE' });
+                if (result.value.listings) {
+                    dispatch({ type: 'SET_LISTINGS', payload: result.value.listings });
+                }
+                toast.success('Listing removed from board');
+                return;
+            }
             toast.error('Failed to delete listing');
-            setDeleting(false);
-            setShowDeleteConfirm(false);
+            dispatch({ type: 'SET_DELETING', payload: false });
+            dispatch({ type: 'SET_SHOW_DELETE_CONFIRM', payload: false });
+        } catch (error) {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            log.warn('Crew listing deletion failed:', error);
+            toast.error('Failed to delete listing');
+            dispatch({ type: 'SET_DELETING', payload: false });
+            dispatch({ type: 'SET_SHOW_DELETE_CONFIRM', payload: false });
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loadListings, dispatch]);
+    }, [dispatch, filters]);
 
     // ── Card Stack Navigation ──
     const goToNextCard = useCallback(() => {
         if (isAnimating || listings.length === 0) return;
+        const scope = getAuthIdentityScope();
         dispatch({ type: 'SWIPE_ANIMATE', payload: { direction: 'left' } });
-        setTimeout(() => {
-            dispatch({
-                type: 'SWIPE_COMPLETE',
-                payload: { newIndex: Math.min(currentCardIndex + 1, listings.length) },
-            });
-        }, 250);
-    }, [listings.length, isAnimating, currentCardIndex, dispatch]);
+        scheduleForIdentity(
+            scope,
+            () => {
+                dispatch({
+                    type: 'SWIPE_COMPLETE',
+                    payload: { newIndex: Math.min(currentCardIndex + 1, listings.length) },
+                });
+            },
+            250,
+        );
+    }, [listings.length, isAnimating, currentCardIndex, dispatch, scheduleForIdentity]);
 
     const goToPrevCard = useCallback(() => {
         if (isAnimating || currentCardIndex <= 0) return;
+        const scope = getAuthIdentityScope();
         dispatch({ type: 'SWIPE_ANIMATE', payload: { direction: 'right' } });
-        setTimeout(() => {
-            dispatch({ type: 'SWIPE_COMPLETE', payload: { newIndex: Math.max(currentCardIndex - 1, 0) } });
-        }, 250);
-    }, [currentCardIndex, isAnimating, dispatch]);
+        scheduleForIdentity(
+            scope,
+            () => {
+                dispatch({ type: 'SWIPE_COMPLETE', payload: { newIndex: Math.max(currentCardIndex - 1, 0) } });
+            },
+            250,
+        );
+    }, [currentCardIndex, isAnimating, dispatch, scheduleForIdentity]);
 
     const goToStart = useCallback(() => {
         dispatch({ type: 'GO_TO_START' });
@@ -751,8 +976,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
     };
 
     // ── Derived values ──
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const currentUserId = (LonelyHeartsService as any).currentUserId as string | null;
+    const currentUserId = identityScope.userId;
     const matchedUserIds = useMemo(() => new Set(state.matches.map((m) => m.user_id)), [state.matches]);
 
     return {

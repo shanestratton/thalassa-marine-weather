@@ -1,5 +1,3 @@
-import { CapacitorHttp } from '@capacitor/core';
-import { getErrorMessage } from '../../utils/createLogger';
 import { rateLimiter } from '../../utils/rateLimiter';
 
 /**
@@ -22,52 +20,20 @@ export { rateLimiter };
  * API Key Resolution
  *
  * Architecture:
- * - WorldTides, StormGlass, Gemini: Keys live in Supabase Secrets,
- *   accessed via Edge Function proxies. Client-side keys are only
- *   used as a fallback if the proxy is unavailable.
+ * - WorldTides, StormGlass, Gemini: Keys live in Supabase Secrets and
+ *   are never resolved in client code.
  * - Mapbox, Transistor: Client-side SDK keys (secured by domain/device)
  * - Supabase: Anon key (secured by RLS)
- * - Open-Meteo: Commercial API with generous limits
+ * - Open-Meteo: Commercial key lives only in the proxy-openmeteo Edge Function
  */
 
-export const getApiKey = () => {
-    // StormGlass key — check env var (for direct fallback only)
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY) {
-        return import.meta.env.VITE_STORMGLASS_API_KEY;
-    }
-    if (
-        typeof process !== 'undefined' &&
-        process.env &&
-        process.env.VITE_STORMGLASS_API_KEY &&
-        process.env.VITE_STORMGLASS_API_KEY.length > 20
-    ) {
-        return process.env.VITE_STORMGLASS_API_KEY;
-    }
-    // No hardcoded fallback — key lives in Supabase Secrets
-    return null;
-};
-
-export const getOpenMeteoKey = () => {
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY) {
-        return import.meta.env.VITE_OPEN_METEO_API_KEY;
-    }
+export const getApiKey = (): string | null => {
+    // Compatibility shim for old diagnostics. StormGlass is proxy-only.
     return null;
 };
 
 export const getWorldTidesKey = () => {
-    // WorldTides key — check env var (for direct fallback only)
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORLDTIDES_API_KEY) {
-        return import.meta.env.VITE_WORLDTIDES_API_KEY;
-    }
-    if (
-        typeof process !== 'undefined' &&
-        process.env &&
-        process.env.VITE_WORLDTIDES_API_KEY &&
-        process.env.VITE_WORLDTIDES_API_KEY.length > 10
-    ) {
-        return process.env.VITE_WORLDTIDES_API_KEY;
-    }
-    // No hardcoded fallback — key lives in Supabase Secrets
+    // Compatibility shim. WorldTides is proxy-only.
     return null;
 };
 
@@ -96,30 +62,7 @@ export const isWorldTidesKeyPresent = () => {
 
 // Returns RAW string for debugging UI
 export const debugStormglassConnection = async (): Promise<string> => {
-    const key = getApiKey();
-    if (!key) return 'Mode: Supabase Edge Proxy (key server-side)';
-
-    const url = 'https://api.stormglass.io/v2/weather/point?lat=0&lng=0&params=windSpeed';
-    try {
-        const options = {
-            url: url,
-            headers: { Authorization: key },
-        };
-        const res = await CapacitorHttp.get(options);
-
-        const headers = res.headers;
-        let quotaInfo = '';
-        if (headers && headers['x-quota-remaining']) {
-            quotaInfo = ` | Quota: ${headers['x-quota-remaining']}/${headers['x-quota-total']}`;
-        }
-
-        if (res.status === 200) return `Success: Connected (direct)${quotaInfo}`;
-        if (res.status === 402 || res.status === 429) return `Error: Quota Exceeded${quotaInfo}`;
-        if (res.status === 401 || res.status === 403) return 'Error: Invalid API Key';
-        return `Error: HTTP ${res.status}`;
-    } catch (e: unknown) {
-        return `Error: Network Fail (${getErrorMessage(e)})`;
-    }
+    return 'Mode: Supabase Edge Proxy (key server-side)';
 };
 
 export const checkStormglassStatus = async (): Promise<{
@@ -127,19 +70,8 @@ export const checkStormglassStatus = async (): Promise<{
     message: string;
     code?: number;
 }> => {
-    const key = getApiKey();
-    if (!key) return { status: 'OK', message: 'Using Supabase Edge Proxy' };
-
-    try {
-        const options = {
-            url: 'https://api.stormglass.io/v2/weather/point?lat=58.5&lng=17.8&params=windSpeed&start=2024-01-01&end=2024-01-01',
-            headers: { Authorization: key },
-        };
-        const res = await CapacitorHttp.get(options);
-
-        if (res.status === 200) return { status: 'OK', message: 'Service Operational' };
-        return { status: 'ERROR', message: `HTTP ${res.status}`, code: res.status };
-    } catch (e: unknown) {
-        return { status: 'ERROR', message: getErrorMessage(e) };
-    }
+    // Do not spend paid quota (or expose a secret) just to paint Settings.
+    // Real proxy failures are reported by the weather request that encounters
+    // them.
+    return { status: 'OK', message: 'Server-side proxy' };
 };

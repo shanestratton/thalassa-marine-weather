@@ -54,26 +54,55 @@ const PRIORITY_RULES: Record<DataPriority, PriorityRule> = {
 
 type StatusListener = (state: ConnectionState) => void;
 const listeners: StatusListener[] = [];
+let satelliteOverride = false;
 let currentState: ConnectionState = detectConnection();
+
+interface NetworkConnection extends EventTarget {
+    type?: string;
+    effectiveType?: string;
+    downlink?: number;
+    saveData?: boolean;
+}
+
+interface NavigatorWithConnection extends Navigator {
+    connection?: NetworkConnection;
+    mozConnection?: NetworkConnection;
+    webkitConnection?: NetworkConnection;
+}
+
+function getNetworkConnection(): NetworkConnection | undefined {
+    const nav = navigator as NavigatorWithConnection;
+    return nav.connection ?? nav.mozConnection ?? nav.webkitConnection;
+}
 
 /**
  * Detect current connection quality using Network Information API.
  */
 function detectConnection(): ConnectionState {
+    if (satelliteOverride) {
+        return {
+            quality: 'low',
+            type: 'satellite',
+            effectiveDownlink: 0.02, // ~20kbps
+            saveData: true,
+        };
+    }
+
     if (!navigator.onLine) {
         return { quality: 'offline', type: 'none', effectiveDownlink: 0, saveData: false };
     }
 
     // Network Information API (Chromium + Android)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const nav = navigator as any;
-    const conn = nav.connection || nav.mozConnection || nav.webkitConnection;
+    const conn = getNetworkConnection();
 
     if (conn) {
-        const type = (conn.type || 'unknown') as string;
-        const effectiveType = (conn.effectiveType || '4g') as string;
-        const downlink = conn.downlink || 10;
-        const saveData = conn.saveData || false;
+        const type = conn.type ?? 'unknown';
+        const effectiveType = conn.effectiveType ?? '4g';
+        const downlink =
+            typeof conn.downlink === 'number' && Number.isFinite(conn.downlink) && conn.downlink >= 0
+                ? conn.downlink
+                : 10;
+        const saveData = conn.saveData === true;
 
         // Map to our connection type
         let connType: ConnectionType = 'unknown';
@@ -84,6 +113,11 @@ function detectConnection(): ConnectionState {
             else connType = '2g';
         } else if (type === 'bluetooth' || type === 'ethernet') {
             connType = 'wifi'; // Treat wired/BT as high-speed
+        } else if (effectiveType === '4g' || effectiveType === '3g' || effectiveType === '2g') {
+            // Chromium commonly exposes effectiveType without exposing type.
+            connType = effectiveType;
+        } else if (effectiveType === 'slow-2g') {
+            connType = '2g';
         }
 
         // Detect satellite: very low downlink + not wifi
@@ -113,7 +147,12 @@ function refreshState(): void {
     const prev = currentState;
     currentState = detectConnection();
 
-    if (prev.quality !== currentState.quality || prev.type !== currentState.type) {
+    if (
+        prev.quality !== currentState.quality ||
+        prev.type !== currentState.type ||
+        prev.effectiveDownlink !== currentState.effectiveDownlink ||
+        prev.saveData !== currentState.saveData
+    ) {
         listeners.forEach((fn) => fn(currentState));
     }
 }
@@ -158,60 +197,62 @@ export function getAllowedOperations(): string[] {
 /** Subscribe to connection changes */
 export function onConnectionChange(fn: StatusListener): () => void {
     listeners.push(fn);
+    // Monitoring is lazy so importing this module does not create a permanent
+    // timer, but subscribers still receive real network transitions without
+    // requiring a separate bootstrap call.
+    startConnectionMonitor();
     return () => {
         const idx = listeners.indexOf(fn);
         if (idx >= 0) listeners.splice(idx, 1);
+        if (listeners.length === 0) stopConnectionMonitor();
     };
 }
 
 /** Force satellite mode (manual override for testing or Iridium GO!) */
 export function forceSatelliteMode(enabled: boolean): void {
-    if (enabled) {
-        currentState = {
-            quality: 'low',
-            type: 'satellite',
-            effectiveDownlink: 0.02, // ~20kbps
-            saveData: true,
-        };
-    } else {
-        currentState = detectConnection();
-    }
+    satelliteOverride = enabled;
+    currentState = detectConnection();
     listeners.forEach((fn) => fn(currentState));
 }
 
 // ── Start/Stop ─────────────────────────────────────────────────────────────
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+let monitorStarted = false;
+let monitoredConnection: NetworkConnection | undefined;
 
 /** Start monitoring connection quality */
 export function startConnectionMonitor(): void {
+    if (monitorStarted) return;
+    monitorStarted = true;
+
     // Listen for online/offline events
     window.addEventListener('online', refreshState);
     window.addEventListener('offline', refreshState);
 
     // Network Information API change event
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conn = (navigator as any).connection;
-    if (conn) {
-        conn.addEventListener('change', refreshState);
-    }
+    monitoredConnection = getNetworkConnection();
+    monitoredConnection?.addEventListener('change', refreshState);
 
     // Poll every 30s as fallback
     pollInterval = setInterval(refreshState, 30_000);
+    refreshState();
 }
 
 /** Stop monitoring */
 export function stopConnectionMonitor(): void {
+    if (!monitorStarted) return;
+    monitorStarted = false;
+
     window.removeEventListener('online', refreshState);
     window.removeEventListener('offline', refreshState);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conn = (navigator as any).connection;
-    if (conn) {
-        conn.removeEventListener('change', refreshState);
-    }
+    // Remove the listener from the exact connection object used at start. The
+    // browser may replace navigator.connection after a network transition.
+    monitoredConnection?.removeEventListener('change', refreshState);
+    monitoredConnection = undefined;
 
-    if (pollInterval) {
+    if (pollInterval !== null) {
         clearInterval(pollInterval);
         pollInterval = null;
     }

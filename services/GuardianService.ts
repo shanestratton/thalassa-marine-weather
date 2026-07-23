@@ -1,26 +1,23 @@
 /**
- * GuardianService — Maritime Neighborhood Watch service layer.
+ * GuardianService — identity-bound Maritime Neighbourhood Watch service.
  *
- * Handles:
- * - Guardian profile CRUD (vessel identity, MMSI claim)
- * - ARM/DISARM for BOLO system
- * - Bay Presence (nearby Thalassa users)
- * - Suspicious activity reporting
- * - Weather spike broadcasting
- * - Hail (social pings)
- * - GPS heartbeat (position updates)
- * - Alert feed (recent alerts nearby)
- *
- * Singleton with pub/sub for UI reactivity.
+ * A Guardian BOLO remains a server-side safety state until its owner disarms
+ * it. Changing the signed-in account deliberately does not disarm that BOLO,
+ * but it does synchronously hide all of its private client state and stops its
+ * timers. The next account must initialise its own session before it can see
+ * or control Guardian.
  */
-import { supabase } from './supabase';
-import { LocationStore } from '../stores/LocationStore';
-
 import { createLogger } from '../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
+import { supabase } from './supabase';
+import { acquireFreshOwnshipPosition, type OwnshipPosition } from './ownshipPosition';
 
 const log = createLogger('GuardianService');
-
-// ── Types ──
 
 export interface GuardianProfile {
     user_id: string;
@@ -75,7 +72,6 @@ export type GuardianState = {
 
 type GuardianListener = (state: GuardianState) => void;
 
-// ── Pre-set Hail Messages ──
 export const HAIL_MESSAGES = [
     { emoji: '🏴‍☠️', text: 'Ahoy!' },
     { emoji: '🍻', text: 'Sundowners?' },
@@ -87,7 +83,6 @@ export const HAIL_MESSAGES = [
     { emoji: '🐟', text: 'Fish biting yet?' },
 ] as const;
 
-// ── Pre-set Weather Spike Templates ──
 export const WEATHER_TEMPLATES = [
     { emoji: '💨', text: 'Wind gusting strong in the bay — check anchors' },
     { emoji: '⛈️', text: 'Squall approaching — secure everything on deck' },
@@ -97,14 +92,15 @@ export const WEATHER_TEMPLATES = [
     { emoji: '🌡️', text: 'Strong current change — reset your anchor bearing' },
 ] as const;
 
-// ── Heartbeat interval ──
-const HEARTBEAT_INTERVAL_MS = 60_000; // 1 minute
-const NEARBY_POLL_INTERVAL_MS = 30_000; // 30 seconds
+const HEARTBEAT_INTERVAL_MS = 60_000;
+const NEARBY_POLL_INTERVAL_MS = 30_000;
+const SAFE_USER_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const MAX_PROFILE_TEXT = 500;
+const MAX_ALERT_TEXT = 1_000;
+const MAX_HAIL_TEXT = 300;
 
-// ── Service Class ──
-
-class GuardianServiceClass {
-    private state: GuardianState = {
+function emptyState(): GuardianState {
+    return {
         profile: null,
         nearbyUsers: [],
         alerts: [],
@@ -112,72 +108,129 @@ class GuardianServiceClass {
         armed: false,
         nearbyCount: 0,
     };
+}
+
+function validCoordinates(lat: number | null | undefined, lon: number | null | undefined): lat is number {
+    return (
+        typeof lat === 'number' &&
+        Number.isFinite(lat) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        typeof lon === 'number' &&
+        Number.isFinite(lon) &&
+        lon >= -180 &&
+        lon <= 180
+    );
+}
+
+function normaliseText(value: unknown, maxLength: number): string | null {
+    if (typeof value !== 'string') return null;
+    const text = value.trim();
+    if (!text || text.length > maxLength) return null;
+    return text;
+}
+
+function cloneProfile(profile: GuardianProfile | null): GuardianProfile | null {
+    return profile ? { ...profile } : null;
+}
+
+function cloneNearby(users: NearbyUser[]): NearbyUser[] {
+    return users.map((user) => ({ ...user }));
+}
+
+function cloneAlerts(alerts: GuardianAlert[]): GuardianAlert[] {
+    return alerts.map((alert) => ({ ...alert, data: { ...alert.data } }));
+}
+
+function cloneState(state: GuardianState): GuardianState {
+    return {
+        ...state,
+        profile: cloneProfile(state.profile),
+        nearbyUsers: cloneNearby(state.nearbyUsers),
+        alerts: cloneAlerts(state.alerts),
+    };
+}
+
+class GuardianServiceClass {
+    private state = emptyState();
     private listeners = new Set<GuardianListener>();
     private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     private nearbyTimer: ReturnType<typeof setInterval> | null = null;
-    private initialized = false;
+    private initializedScopeKey: string | null = null;
+    private initializePromise: Promise<void> | null = null;
+    private lifecycleVersion = 0;
 
-    // ── Lifecycle ──
+    constructor() {
+        subscribeAuthIdentityScope(() => {
+            // The identity fence fires before React publishes the new user.
+            // Clear A synchronously so B can never render A's Guardian data.
+            this.lifecycleVersion += 1;
+            this.clearTimers();
+            this.initializedScopeKey = null;
+            this.initializePromise = null;
+            this.state = emptyState();
+            this.notify();
+        });
+    }
 
-    /**
-     * Initialize the Guardian service — fetch profile, start heartbeat.
-     * Safe to call multiple times (idempotent).
-     */
     async initialize(): Promise<void> {
-        if (this.initialized || !supabase) return;
-        this.initialized = true;
+        const scope = getAuthIdentityScope();
+        if (!supabase || !scope.userId) {
+            this.stop();
+            return;
+        }
+        if (this.initializedScopeKey === scope.key && this.initializePromise) {
+            return this.initializePromise;
+        }
+        if (this.initializedScopeKey === scope.key && this.heartbeatTimer && this.nearbyTimer) return;
 
-        await this.fetchProfile();
-        this.startHeartbeat();
-        this.startNearbyPolling();
+        this.lifecycleVersion += 1;
+        const version = this.lifecycleVersion;
+        this.clearTimers();
+        this.initializedScopeKey = scope.key;
+        this.state = { ...emptyState(), loading: true };
+        this.notify();
+
+        const initialization = (async () => {
+            if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return;
+            await Promise.all([
+                this.fetchProfileFor(scope, version),
+                this.fetchNearbyUsersFor(scope, version),
+                this.fetchAlertsFor(scope, version),
+            ]);
+            if (!this.operationIsCurrent(scope, version)) return;
+            this.state = { ...this.state, loading: false };
+            this.notify();
+            this.startHeartbeat(scope, version);
+            this.startNearbyPolling(scope, version);
+        })().finally(() => {
+            if (this.initializePromise === initialization) this.initializePromise = null;
+            if (
+                this.operationIsCurrent(scope, version) &&
+                (!this.heartbeatTimer || !this.nearbyTimer) &&
+                this.state.loading
+            ) {
+                this.state = { ...this.state, loading: false };
+                this.notify();
+            }
+        });
+        this.initializePromise = initialization;
+        return initialization;
     }
 
-    /** Cleanup timers on app teardown */
     stop(): void {
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
-        if (this.nearbyTimer) {
-            clearInterval(this.nearbyTimer);
-            this.nearbyTimer = null;
-        }
-        this.initialized = false;
+        this.lifecycleVersion += 1;
+        this.clearTimers();
+        this.initializedScopeKey = null;
+        this.initializePromise = null;
+        this.state = emptyState();
+        this.notify();
     }
-
-    // ── Profile CRUD ──
 
     async fetchProfile(): Promise<GuardianProfile | null> {
-        if (!supabase) return null;
-
-        try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return null;
-
-            const { data, error } = await supabase
-                .from('guardian_profiles')
-                .select('*')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-            if (error) {
-                log.warn('[Guardian] Profile fetch error:', error.message);
-                return null;
-            }
-
-            this.state = {
-                ...this.state,
-                profile: data,
-                armed: data?.armed ?? false,
-            };
-            this.notify();
-            return data;
-        } catch (e) {
-            log.warn('[Guardian] Profile fetch exception:', e);
-            return null;
-        }
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return null;
+        return this.fetchProfileFor(scope, this.lifecycleVersion);
     }
 
     async updateProfile(
@@ -185,395 +238,496 @@ class GuardianServiceClass {
             Pick<GuardianProfile, 'vessel_name' | 'vessel_bio' | 'owner_name' | 'dog_name' | 'mmsi' | 'home_radius_m'>
         >,
     ): Promise<boolean> {
-        if (!supabase) return false;
+        const operation = await this.captureVerifiedOperation();
+        if (!operation || !supabase) return false;
+        const { scope, ownerId, version } = operation;
+        const sanitised: Record<string, string | number | null> = {};
+
+        for (const key of ['vessel_name', 'vessel_bio', 'owner_name', 'dog_name'] as const) {
+            if (updates[key] === undefined) continue;
+            if (typeof updates[key] !== 'string' || updates[key]!.length > MAX_PROFILE_TEXT) return false;
+            sanitised[key] = updates[key]!.trim();
+        }
+        if (updates.mmsi !== undefined) {
+            if (updates.mmsi !== null && !this.validMmsi(updates.mmsi)) return false;
+            sanitised.mmsi = updates.mmsi;
+        }
+        if (updates.home_radius_m !== undefined) {
+            if (
+                !Number.isFinite(updates.home_radius_m) ||
+                !Number.isInteger(updates.home_radius_m) ||
+                updates.home_radius_m < 10 ||
+                updates.home_radius_m > 10_000
+            ) {
+                return false;
+            }
+            sanitised.home_radius_m = updates.home_radius_m;
+        }
+        if (!Object.keys(sanitised).length) return false;
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return false;
-
             const { error } = await supabase.from('guardian_profiles').upsert(
                 {
-                    user_id: user.id,
-                    ...updates,
+                    user_id: ownerId,
+                    ...sanitised,
                     updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'user_id' },
             );
-
-            if (error) {
-                log.error('[Guardian] Profile update error:', error.message);
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Profile update error:', error.message);
                 return false;
             }
-
-            await this.fetchProfile();
-            return true;
-        } catch (e) {
-            log.error('[Guardian] Profile update exception:', e);
+            await this.fetchProfileFor(scope, version);
+            return this.operationIsCurrent(scope, version);
+        } catch (error) {
+            log.error('[Guardian] Profile update exception:', error);
             return false;
         }
     }
 
-    /** Claim an MMSI for this user */
     async claimMMSI(mmsi: number): Promise<{ success: boolean; error?: string }> {
-        if (!supabase) return { success: false, error: 'Not connected' };
+        if (!this.validMmsi(mmsi)) return { success: false, error: 'MMSI must be exactly 9 digits' };
+        const operation = await this.captureVerifiedOperation();
+        if (!operation || !supabase) return { success: false, error: 'Not authenticated' };
+        const { scope, ownerId, version } = operation;
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return { success: false, error: 'Not authenticated' };
-
             const { error } = await supabase.from('guardian_profiles').upsert(
                 {
-                    user_id: user.id,
+                    user_id: ownerId,
                     mmsi,
                     mmsi_verified: false,
                     updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'user_id' },
             );
-
+            if (!this.operationIsCurrent(scope, version)) return { success: false, error: 'Account changed' };
             if (error) {
-                if (error.code === '23505') {
-                    return { success: false, error: 'This MMSI is already claimed by another user' };
-                }
-                return { success: false, error: error.message };
+                return {
+                    success: false,
+                    error: error.code === '23505' ? 'This MMSI is already claimed by another user' : error.message,
+                };
             }
-
-            await this.fetchProfile();
-            return { success: true };
-        } catch (e) {
-            return { success: false, error: String(e) };
+            await this.fetchProfileFor(scope, version);
+            return this.operationIsCurrent(scope, version)
+                ? { success: true }
+                : { success: false, error: 'Account changed' };
+        } catch (error) {
+            return { success: false, error: String(error) };
         }
     }
 
-    // ── ARM / DISARM (BOLO System) ──
-
-    async arm(): Promise<boolean> {
-        if (!supabase) return false;
-
-        const pos = LocationStore.getState();
-        if (!pos.lat || !pos.lon) {
-            log.warn('[Guardian] Cannot arm — no GPS position');
+    async arm(positionOverride?: OwnshipPosition): Promise<boolean> {
+        const operation = await this.captureVerifiedOperation();
+        if (!operation || !supabase) return false;
+        const { scope, version } = operation;
+        const position =
+            positionOverride ??
+            (await acquireFreshOwnshipPosition({
+                maxGpsAgeMs: 30_000,
+                timeoutSec: 10,
+            }));
+        if (!this.operationIsCurrent(scope, version)) return false;
+        if (!position || !validCoordinates(position.lat, position.lon)) {
+            log.warn('[Guardian] Cannot arm — invalid GPS position');
             return false;
         }
+        const lat = position.lat;
+        const lon = position.lon;
 
         try {
-            const { error } = await supabase.rpc('guardian_arm', {
-                lat: pos.lat,
-                lon: pos.lon,
-            });
-
-            if (error) {
-                log.error('[Guardian] Arm error:', error.message);
+            const { error } = await supabase.rpc('guardian_arm', { lat, lon });
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Arm error:', error.message);
                 return false;
             }
-
             this.state = { ...this.state, armed: true };
             this.notify();
-            await this.fetchProfile();
-            return true;
-        } catch (e) {
-            log.error('[Guardian] Arm exception:', e);
+            await this.fetchProfileFor(scope, version);
+            return this.operationIsCurrent(scope, version);
+        } catch (error) {
+            log.error('[Guardian] Arm exception:', error);
             return false;
         }
     }
 
     async disarm(): Promise<boolean> {
-        if (!supabase) return false;
-
+        const operation = await this.captureVerifiedOperation();
+        if (!operation || !supabase) return false;
+        const { scope, version } = operation;
         try {
             const { error } = await supabase.rpc('guardian_disarm');
-
-            if (error) {
-                log.error('[Guardian] Disarm error:', error.message);
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Disarm error:', error.message);
                 return false;
             }
-
             this.state = { ...this.state, armed: false };
             this.notify();
-            await this.fetchProfile();
-            return true;
-        } catch (e) {
-            log.error('[Guardian] Disarm exception:', e);
+            await this.fetchProfileFor(scope, version);
+            return this.operationIsCurrent(scope, version);
+        } catch (error) {
+            log.error('[Guardian] Disarm exception:', error);
             return false;
         }
     }
 
-    // ── Bay Presence ──
-
     async fetchNearbyUsers(): Promise<NearbyUser[]> {
-        if (!supabase) return [];
-
-        const pos = LocationStore.getState();
-        if (!pos.lat || !pos.lon) return [];
-
-        try {
-            const { data, error } = await supabase.rpc('thalassa_users_nearby', {
-                query_lat: pos.lat,
-                query_lon: pos.lon,
-                radius_nm: 5,
-            });
-
-            if (error) {
-                log.warn('[Guardian] Nearby fetch error:', error.message);
-                return [];
-            }
-
-            const users = (data || []) as NearbyUser[];
-            this.state = {
-                ...this.state,
-                nearbyUsers: users,
-                nearbyCount: users.length,
-            };
-            this.notify();
-            return users;
-        } catch (e) {
-            log.warn('[Guardian] Nearby fetch exception:', e);
-            return [];
-        }
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return [];
+        return this.fetchNearbyUsersFor(scope, this.lifecycleVersion);
     }
-
-    // ── Alert Feed ──
 
     async fetchAlerts(): Promise<GuardianAlert[]> {
-        if (!supabase) return [];
-
-        const pos = LocationStore.getState();
-        if (!pos.lat || !pos.lon) return [];
-
-        try {
-            const { data, error } = await supabase.rpc('guardian_alerts_nearby', {
-                query_lat: pos.lat,
-                query_lon: pos.lon,
-                radius_nm: 10,
-                max_hours: 24,
-            });
-
-            if (error) {
-                log.warn('[Guardian] Alerts fetch error:', error.message);
-                return [];
-            }
-
-            const alerts = (data || []) as GuardianAlert[];
-            this.state = { ...this.state, alerts };
-            this.notify();
-            return alerts;
-        } catch (e) {
-            log.warn('[Guardian] Alerts fetch exception:', e);
-            return [];
-        }
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return [];
+        return this.fetchAlertsFor(scope, this.lifecycleVersion);
     }
 
-    // ── Report Suspicious ──
-
-    async reportSuspicious(description: string): Promise<{
-        success: boolean;
-        notified: number;
-    }> {
-        if (!supabase) return { success: false, notified: 0 };
-
-        const pos = LocationStore.getState();
-        if (!pos.lat || !pos.lon) return { success: false, notified: 0 };
+    async reportSuspicious(description: string): Promise<{ success: boolean; notified: number }> {
+        const text = normaliseText(description, MAX_ALERT_TEXT);
+        const operation = await this.captureVerifiedOperation();
+        if (!text || !operation || !supabase) return { success: false, notified: 0 };
+        const { scope, ownerId, version } = operation;
+        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 30_000, timeoutSec: 10 });
+        if (!this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
+        if (!position || !validCoordinates(position.lat, position.lon)) return { success: false, notified: 0 };
+        const lat = position.lat;
+        const lon = position.lon;
+        const profile = this.state.profile?.user_id === ownerId ? cloneProfile(this.state.profile) : null;
+        const vesselName = normaliseText(profile?.vessel_name, MAX_PROFILE_TEXT) ?? 'A nearby vessel';
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return { success: false, notified: 0 };
-
-            const vesselName = this.state.profile?.vessel_name || 'A nearby vessel';
-
             const { data, error } = await supabase.rpc('broadcast_guardian_alert', {
-                sender_user_id: user.id,
+                sender_user_id: ownerId,
                 p_alert_type: 'suspicious',
-                lat: pos.lat,
-                lon: pos.lon,
+                lat,
+                lon,
                 radius_nm: 5,
                 p_title: '🚨 Suspicious Activity Reported',
-                p_body: `${vesselName}: ${description}`,
-                alert_data: { description },
+                p_body: `${vesselName}: ${text}`,
+                alert_data: { description: text },
             });
-
-            if (error) {
-                log.error('[Guardian] Report suspicious error:', error.message);
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Report suspicious error:', error.message);
                 return { success: false, notified: 0 };
             }
-
-            await this.fetchAlerts();
-            return { success: true, notified: data as number };
-        } catch (e) {
-            log.error('[Guardian] Report suspicious exception:', e);
+            await this.fetchAlertsFor(scope, version);
+            return {
+                success: this.operationIsCurrent(scope, version),
+                notified: Number.isFinite(Number(data)) ? Number(data) : 0,
+            };
+        } catch (error) {
+            log.error('[Guardian] Report suspicious exception:', error);
             return { success: false, notified: 0 };
         }
     }
 
-    // ── Weather Spike Broadcast ──
-
-    async broadcastWeatherSpike(message: string): Promise<{
-        success: boolean;
-        notified: number;
-    }> {
-        if (!supabase) return { success: false, notified: 0 };
-
-        const pos = LocationStore.getState();
-        if (!pos.lat || !pos.lon) return { success: false, notified: 0 };
+    async broadcastWeatherSpike(message: string): Promise<{ success: boolean; notified: number }> {
+        const text = normaliseText(message, MAX_ALERT_TEXT);
+        const operation = await this.captureVerifiedOperation();
+        if (!text || !operation || !supabase) return { success: false, notified: 0 };
+        const { scope, ownerId, version } = operation;
+        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 30_000, timeoutSec: 10 });
+        if (!this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
+        if (!position || !validCoordinates(position.lat, position.lon)) return { success: false, notified: 0 };
+        const lat = position.lat;
+        const lon = position.lon;
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return { success: false, notified: 0 };
-
             const { data, error } = await supabase.rpc('broadcast_guardian_alert', {
-                sender_user_id: user.id,
+                sender_user_id: ownerId,
                 p_alert_type: 'weather_spike',
-                lat: pos.lat,
-                lon: pos.lon,
+                lat,
+                lon,
                 radius_nm: 5,
                 p_title: '⚠️ Weather Alert — Bay Watch',
-                p_body: message,
-                alert_data: { message },
+                p_body: text,
+                alert_data: { message: text },
             });
-
-            if (error) {
-                log.error('[Guardian] Weather broadcast error:', error.message);
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Weather broadcast error:', error.message);
                 return { success: false, notified: 0 };
             }
-
-            await this.fetchAlerts();
-            return { success: true, notified: data as number };
-        } catch (e) {
-            log.error('[Guardian] Weather broadcast exception:', e);
+            await this.fetchAlertsFor(scope, version);
+            return {
+                success: this.operationIsCurrent(scope, version),
+                notified: Number.isFinite(Number(data)) ? Number(data) : 0,
+            };
+        } catch (error) {
+            log.error('[Guardian] Weather broadcast exception:', error);
             return { success: false, notified: 0 };
         }
     }
 
-    // ── Hail (Social Ping) ──
-
     async sendHail(targetUserId: string, message: string): Promise<boolean> {
-        if (!supabase) return false;
+        const targetId = targetUserId.trim();
+        const text = normaliseText(message, MAX_HAIL_TEXT);
+        const operation = await this.captureVerifiedOperation();
+        if (!text || !SAFE_USER_ID.test(targetId) || !operation || !supabase) return false;
+        const { scope, ownerId, version } = operation;
+        if (targetId === ownerId) return false;
+
+        const profile = this.state.profile?.user_id === ownerId ? cloneProfile(this.state.profile) : null;
+        const ownerName = normaliseText(profile?.owner_name, MAX_PROFILE_TEXT) ?? 'Someone';
+        const vesselName = normaliseText(profile?.vessel_name, MAX_PROFILE_TEXT) ?? 'a nearby vessel';
+        const fullMessage = `${ownerName} on ${vesselName} says: ${text}`;
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return false;
-
-            const ownerName = this.state.profile?.owner_name || 'Someone';
-            const vesselName = this.state.profile?.vessel_name || 'a nearby vessel';
-            const fullMessage = `${ownerName} on ${vesselName} says: ${message}`;
-
-            // Send as DM via existing chat_direct_messages
             const { data: sentMessage, error } = await supabase
                 .from('chat_direct_messages')
                 .insert({
-                    sender_id: user.id,
-                    recipient_id: targetUserId,
+                    sender_id: ownerId,
+                    recipient_id: targetId,
                     sender_name: ownerName,
                     message: `🏴‍☠️ ${fullMessage}`,
                 })
                 .select('id')
                 .single();
-
-            if (error) {
-                log.error('[Guardian] Hail error:', error.message);
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Hail error:', error.message);
                 return false;
             }
-
-            // The database derives the recipient and safe push copy from the
-            // newly-created DM; clients cannot enqueue arbitrary notifications.
             if (sentMessage?.id) {
                 await supabase.rpc('queue_dm_push', { p_message_id: sentMessage.id });
             }
-
-            return true;
-        } catch (e) {
-            log.error('[Guardian] Hail exception:', e);
+            return this.operationIsCurrent(scope, version);
+        } catch (error) {
+            log.error('[Guardian] Hail exception:', error);
             return false;
         }
     }
 
-    // ── Set Home Coordinate (Geofence) ──
-
     async setHomeCoordinate(lat: number, lon: number, radiusM: number = 100): Promise<boolean> {
-        if (!supabase) return false;
+        if (
+            !validCoordinates(lat, lon) ||
+            !Number.isFinite(radiusM) ||
+            !Number.isInteger(radiusM) ||
+            radiusM < 10 ||
+            radiusM > 10_000
+        ) {
+            return false;
+        }
+        const operation = await this.captureVerifiedOperation();
+        if (!operation || !supabase) return false;
+        const { scope, ownerId, version } = operation;
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return false;
-
             const { error } = await supabase.from('guardian_profiles').upsert(
                 {
-                    user_id: user.id,
+                    user_id: ownerId,
                     home_coordinate: `SRID=4326;POINT(${lon} ${lat})`,
                     home_radius_m: radiusM,
                     updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'user_id' },
             );
-
-            if (error) {
-                log.error('[Guardian] Set home error:', error.message);
+            if (error || !this.operationIsCurrent(scope, version)) {
+                if (error) log.error('[Guardian] Set home error:', error.message);
                 return false;
             }
-
-            await this.fetchProfile();
-            return true;
-        } catch (e) {
-            log.error('[Guardian] Set home exception:', e);
+            await this.fetchProfileFor(scope, version);
+            return this.operationIsCurrent(scope, version);
+        } catch (error) {
+            log.error('[Guardian] Set home exception:', error);
             return false;
         }
     }
 
-    // ── GPS Heartbeat ──
+    getState(): GuardianState {
+        return cloneState(this.state);
+    }
 
-    private startHeartbeat(): void {
-        if (this.heartbeatTimer) return;
+    subscribe(listener: GuardianListener): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
 
+    private async captureVerifiedOperation(): Promise<{
+        scope: AuthIdentityScope;
+        ownerId: string;
+        version: number;
+    } | null> {
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        const version = this.lifecycleVersion;
+        if (!ownerId || !SAFE_USER_ID.test(ownerId) || !(await this.remoteIdentityMatches(scope))) return null;
+        return this.operationIsCurrent(scope, version) ? { scope, ownerId, version } : null;
+    }
+
+    private async remoteIdentityMatches(scope: AuthIdentityScope): Promise<boolean> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
+        try {
+            const {
+                data: { user },
+                error,
+            } = await supabase.auth.getUser();
+            return !error && user?.id === scope.userId && isAuthIdentityScopeCurrent(scope);
+        } catch {
+            return false;
+        }
+    }
+
+    private operationIsCurrent(scope: AuthIdentityScope, version: number): boolean {
+        return (
+            isAuthIdentityScopeCurrent(scope) &&
+            scope.userId !== null &&
+            SAFE_USER_ID.test(scope.userId) &&
+            version === this.lifecycleVersion
+        );
+    }
+
+    private async fetchProfileFor(scope: AuthIdentityScope, version: number): Promise<GuardianProfile | null> {
+        if (!supabase || !scope.userId || !this.operationIsCurrent(scope, version)) return null;
+        const ownerId = scope.userId;
+        try {
+            if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return null;
+            const { data, error } = await supabase
+                .from('guardian_profiles')
+                .select('*')
+                .eq('user_id', ownerId)
+                .maybeSingle();
+            if (!this.operationIsCurrent(scope, version)) return null;
+            if (error) {
+                log.warn('[Guardian] Profile fetch error:', error.message);
+                return null;
+            }
+            const profile = data && data.user_id === ownerId ? (data as GuardianProfile) : null;
+            this.state = { ...this.state, profile, armed: profile?.armed ?? false };
+            this.notify();
+            return cloneProfile(profile);
+        } catch (error) {
+            log.warn('[Guardian] Profile fetch exception:', error);
+            return null;
+        }
+    }
+
+    private async fetchNearbyUsersFor(scope: AuthIdentityScope, version: number): Promise<NearbyUser[]> {
+        if (!supabase || !scope.userId || !this.operationIsCurrent(scope, version)) return [];
+        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
+        if (!this.operationIsCurrent(scope, version)) return [];
+        if (!position || !validCoordinates(position.lat, position.lon)) return [];
+        const lat = position.lat;
+        const lon = position.lon;
+        try {
+            if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return [];
+            const { data, error } = await supabase.rpc('thalassa_users_nearby', {
+                query_lat: lat,
+                query_lon: lon,
+                radius_nm: 5,
+            });
+            if (!this.operationIsCurrent(scope, version)) return [];
+            if (error) {
+                log.warn('[Guardian] Nearby fetch error:', error.message);
+                return [];
+            }
+            const users = Array.isArray(data)
+                ? (data as NearbyUser[]).filter(
+                      (user) =>
+                          user &&
+                          SAFE_USER_ID.test(user.user_id) &&
+                          user.user_id !== scope.userId &&
+                          Number.isFinite(user.distance_nm) &&
+                          user.distance_nm >= 0,
+                  )
+                : [];
+            this.state = { ...this.state, nearbyUsers: cloneNearby(users), nearbyCount: users.length };
+            this.notify();
+            return cloneNearby(users);
+        } catch (error) {
+            log.warn('[Guardian] Nearby fetch exception:', error);
+            return [];
+        }
+    }
+
+    private async fetchAlertsFor(scope: AuthIdentityScope, version: number): Promise<GuardianAlert[]> {
+        if (!supabase || !scope.userId || !this.operationIsCurrent(scope, version)) return [];
+        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
+        if (!this.operationIsCurrent(scope, version)) return [];
+        if (!position || !validCoordinates(position.lat, position.lon)) return [];
+        const lat = position.lat;
+        const lon = position.lon;
+        try {
+            if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return [];
+            const { data, error } = await supabase.rpc('guardian_alerts_nearby', {
+                query_lat: lat,
+                query_lon: lon,
+                radius_nm: 10,
+                max_hours: 24,
+            });
+            if (!this.operationIsCurrent(scope, version)) return [];
+            if (error) {
+                log.warn('[Guardian] Alerts fetch error:', error.message);
+                return [];
+            }
+            const alerts = Array.isArray(data)
+                ? (data as GuardianAlert[]).filter(
+                      (alert) =>
+                          alert &&
+                          typeof alert.id === 'string' &&
+                          validCoordinates(alert.lat, alert.lon) &&
+                          typeof alert.title === 'string' &&
+                          typeof alert.body === 'string',
+                  )
+                : [];
+            this.state = { ...this.state, alerts: cloneAlerts(alerts) };
+            this.notify();
+            return cloneAlerts(alerts);
+        } catch (error) {
+            log.warn('[Guardian] Alerts fetch exception:', error);
+            return [];
+        }
+    }
+
+    private startHeartbeat(scope: AuthIdentityScope, version: number): void {
+        if (this.heartbeatTimer || !this.operationIsCurrent(scope, version)) return;
         const beat = async () => {
-            if (!supabase) return;
-            const pos = LocationStore.getState();
-            if (!pos.lat || !pos.lon) return;
-
+            if (!supabase || !this.operationIsCurrent(scope, version) || !(await this.remoteIdentityMatches(scope))) {
+                return;
+            }
+            const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
+            if (!this.operationIsCurrent(scope, version)) return;
+            if (!position || !validCoordinates(position.lat, position.lon)) return;
+            const lat = position.lat;
+            const lon = position.lon;
             try {
-                await supabase.rpc('guardian_heartbeat', {
-                    lat: pos.lat,
-                    lon: pos.lon,
-                });
+                if (!this.operationIsCurrent(scope, version)) return;
+                await supabase.rpc('guardian_heartbeat', { lat, lon });
             } catch {
-                // Silent fail — heartbeat is best-effort
+                // Heartbeats are best-effort. The next interval retries.
             }
         };
-
-        beat(); // Immediate first beat
-        this.heartbeatTimer = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+        void beat();
+        this.heartbeatTimer = setInterval(() => void beat(), HEARTBEAT_INTERVAL_MS);
     }
 
-    private startNearbyPolling(): void {
-        if (this.nearbyTimer) return;
-        this.fetchNearbyUsers();
-        this.nearbyTimer = setInterval(() => this.fetchNearbyUsers(), NEARBY_POLL_INTERVAL_MS);
+    private startNearbyPolling(scope: AuthIdentityScope, version: number): void {
+        if (this.nearbyTimer || !this.operationIsCurrent(scope, version)) return;
+        this.nearbyTimer = setInterval(() => {
+            void Promise.all([this.fetchNearbyUsersFor(scope, version), this.fetchAlertsFor(scope, version)]);
+        }, NEARBY_POLL_INTERVAL_MS);
     }
 
-    // ── Pub/Sub ──
-
-    getState(): GuardianState {
-        return { ...this.state };
+    private clearTimers(): void {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        if (this.nearbyTimer) clearInterval(this.nearbyTimer);
+        this.heartbeatTimer = null;
+        this.nearbyTimer = null;
     }
 
-    subscribe(fn: GuardianListener): () => void {
-        this.listeners.add(fn);
-        return () => this.listeners.delete(fn);
+    private validMmsi(mmsi: number): boolean {
+        return Number.isInteger(mmsi) && mmsi >= 100_000_000 && mmsi <= 999_999_999;
     }
 
     private notify(): void {
-        const snapshot = { ...this.state };
-        for (const fn of this.listeners) fn(snapshot);
+        const snapshot = cloneState(this.state);
+        for (const listener of [...this.listeners]) {
+            try {
+                listener(cloneState(snapshot));
+            } catch (error) {
+                log.warn('[Guardian] Listener failed:', error);
+            }
+        }
     }
 }
 

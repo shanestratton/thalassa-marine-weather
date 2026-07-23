@@ -6,6 +6,8 @@
 // shape consumed by NoticeToMarinersService.
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, jsonResponse, readResponseTextLimited } from '../_shared/http-security.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -23,18 +25,24 @@ interface BroadcastWarningPayload {
 let cache: { fetchedAt: number; payload: BroadcastWarningPayload } | null = null;
 
 async function fetchWarnings(): Promise<BroadcastWarningPayload> {
-    const response = await fetch(NGA_URL, {
-        headers: {
-            Accept: 'application/json',
-            'User-Agent':
-                'Mozilla/5.0 (compatible; ThalassaMarine/1.0; +https://github.com/shanestratton/thalassa-marine-weather)',
+    const response = await fetchWithTimeout(
+        NGA_URL,
+        {
+            headers: {
+                Accept: 'application/json',
+                'User-Agent':
+                    'Mozilla/5.0 (compatible; ThalassaMarine/1.0; +https://github.com/shanestratton/thalassa-marine-weather)',
+            },
         },
-    });
+        15_000,
+    );
     if (!response.ok) throw new Error(`NGA MSI returned ${response.status}`);
 
-    const payload = (await response.json()) as Partial<BroadcastWarningPayload>;
+    const text = await readResponseTextLimited(response, 8_000_000);
+    if (text === null) throw new Error('NGA MSI response exceeded the safety limit');
+    const payload = JSON.parse(text) as Partial<BroadcastWarningPayload>;
     if (!Array.isArray(payload['broadcast-warn'])) throw new Error('NGA MSI returned an invalid warning payload');
-    return { 'broadcast-warn': payload['broadcast-warn'] };
+    return { 'broadcast-warn': payload['broadcast-warn'].slice(0, 5_000) };
 }
 
 function json(payload: object, cacheStatus: 'HIT' | 'MISS' | 'STALE', status = 200): Response {
@@ -44,6 +52,8 @@ function json(payload: object, cacheStatus: 'HIT' | 'MISS' | 'STALE', status = 2
             ...CORS_HEADERS,
             'Content-Type': 'application/json',
             'X-Cache': cacheStatus,
+            'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+            'X-Content-Type-Options': 'nosniff',
         },
     });
 }
@@ -51,11 +61,11 @@ function json(payload: object, cacheStatus: 'HIT' | 'MISS' | 'STALE', status = 2
 serve(async (request) => {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
     if (request.method !== 'GET') {
-        return new Response(JSON.stringify({ error: 'method not allowed' }), {
-            status: 405,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'GET required' }, 405, CORS_HEADERS);
     }
+
+    const caller = await requireAuthenticatedOrPublicQuota(request, 'nga_msi', 240, 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS_HEADERS);
 
     try {
         if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) return json(cache.payload, 'HIT');
@@ -65,10 +75,10 @@ serve(async (request) => {
         return json(payload, 'MISS');
     } catch (error) {
         if (cache) return json({ ...cache.payload, _stale: true }, 'STALE');
-        const message = error instanceof Error ? error.message : String(error);
-        return new Response(JSON.stringify({ error: message }), {
-            status: 502,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'X-Cache': 'MISS' },
+        console.error('[proxy-nga-msi] Refresh failed:', error);
+        return jsonResponse({ error: 'NGA notices are temporarily unavailable' }, 502, {
+            ...CORS_HEADERS,
+            'X-Cache': 'MISS',
         });
     }
 });

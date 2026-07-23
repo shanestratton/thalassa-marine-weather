@@ -12,6 +12,13 @@
  * On native the WebView serves from '/', so everything below no-ops.
  */
 
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
+
 /** The desktop passage-builder front door(s) — linked from every
  *  yacht's public voyage-log page. */
 const BUILDER_PATHS = new Set(['/plan', '/builder']);
@@ -46,7 +53,6 @@ export function initialViewFromUrl(): string | null {
 // window event opens the tracer immediately; if the request fires
 // before MapHub mounts (auth check finishing first), the flag survives
 // until MapHub's mount effect consumes it.
-let pendingTracerOpen = false;
 
 /** Optional follow-up the tracer performs right after opening — the PLAN
  *  page's front-door entries (Shane 2026-07-16): load a picked saved route or
@@ -59,26 +65,104 @@ export type TracerOpenAction =
     /** Plot the NEXT leg of a trip: pin 1 pre-dropped + LOCKED at the
      *  previous leg's exact final coordinates (Shane 2026-07-17). */
     | { kind: 'new-leg'; fromId: string };
-let pendingTracerAction: TracerOpenAction | null = null;
 
-export function requestTracerOpen(action: TracerOpenAction | null = null): void {
-    pendingTracerOpen = true;
-    pendingTracerAction = action;
+export interface TracerOpenEventDetail {
+    readonly requestId: number;
+    readonly identity: AuthIdentityScope;
+}
+
+interface PendingTracerRequest extends TracerOpenEventDetail {
+    readonly action: TracerOpenAction | null;
+}
+
+let nextTracerRequestId = 0;
+let pendingTracerRequest: PendingTracerRequest | null = null;
+let approvedTracerRequest: PendingTracerRequest | null = null;
+const dispatchingTracerRequestIds: number[] = [];
+
+function sameIdentity(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+function eventMatchesRequest(event: Event | undefined, request: PendingTracerRequest): boolean {
+    if (!event) {
+        const activeRequestId = dispatchingTracerRequestIds.at(-1);
+        return activeRequestId === undefined || activeRequestId === request.requestId;
+    }
+    if (!(event instanceof CustomEvent)) return false;
+    const detail = event.detail as Partial<TracerOpenEventDetail> | null;
+    return (
+        detail?.requestId === request.requestId && !!detail.identity && sameIdentity(detail.identity, request.identity)
+    );
+}
+
+/**
+ * Stage an identity-owned tracer handoff. The optional expected scope lets an
+ * async picker reject a click/result that belongs to the generation it began
+ * under rather than re-labelling private route/voyage identity as the account
+ * that happens to be active when it finishes.
+ */
+export function requestTracerOpen(
+    action: TracerOpenAction | null = null,
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
+): void {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+
+    const request: PendingTracerRequest = {
+        requestId: ++nextTracerRequestId,
+        identity: expectedScope,
+        action,
+    };
+    pendingTracerRequest = request;
+    approvedTracerRequest = null;
     try {
-        window.dispatchEvent(new CustomEvent('thalassa:trace-mode'));
+        // Keep a synchronous dispatch context as well as tagged event detail.
+        // This protects existing listeners that have not yet been upgraded to
+        // pass the Event into consumeTracerOpenRequest().
+        dispatchingTracerRequestIds.push(request.requestId);
+        window.dispatchEvent(
+            new CustomEvent<TracerOpenEventDetail>('thalassa:trace-mode', {
+                detail: { requestId: request.requestId, identity: request.identity },
+            }),
+        );
     } catch {
         /* flag alone still does the job on next MapHub mount */
+    } finally {
+        dispatchingTracerRequestIds.pop();
     }
 }
 
-export function consumeTracerOpenRequest(): boolean {
-    const was = pendingTracerOpen;
-    pendingTracerOpen = false;
-    return was;
+/**
+ * Claim the current identity's request. Event-driven consumers should pass the
+ * event so a delayed/replayed A event can never claim a newer B request.
+ */
+export function consumeTracerOpenRequest(event?: Event): boolean {
+    const request = pendingTracerRequest;
+    if (!request) return false;
+    if (!isAuthIdentityScopeCurrent(request.identity)) {
+        pendingTracerRequest = null;
+        approvedTracerRequest = null;
+        return false;
+    }
+
+    if (!eventMatchesRequest(event, request)) return false;
+
+    pendingTracerRequest = null;
+    approvedTracerRequest = request;
+    return true;
 }
 
 export function consumeTracerAction(): TracerOpenAction | null {
-    const a = pendingTracerAction;
-    pendingTracerAction = null;
-    return a;
+    const request = approvedTracerRequest;
+    approvedTracerRequest = null;
+    if (!request || !isAuthIdentityScopeCurrent(request.identity)) return null;
+    return request.action;
 }
+
+// These handoffs can contain private saved-route ids and voyage labels. The
+// auth store flips this fence before publishing the next user, so remove every
+// reference synchronously rather than waiting for a React consumer to remount.
+subscribeAuthIdentityScope(() => {
+    pendingTracerRequest = null;
+    approvedTracerRequest = null;
+});

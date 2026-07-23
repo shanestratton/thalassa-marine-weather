@@ -18,6 +18,13 @@ import { PiSetupWizard } from '../components/voice/PiSetupWizard';
 import type { MarketplaceListing } from '../services/MarketplaceService';
 import type { TaskWithStatus } from '../services/MaintenanceService';
 
+function expectModalBodyPortal(element: HTMLElement) {
+    const portal = element.closest<HTMLElement>('[data-overlay-layer="modal"]');
+    expect(portal).not.toBeNull();
+    expect(portal?.parentElement).toBe(document.body);
+    expect(portal).toHaveStyle({ zIndex: '1100' });
+}
+
 describe('direct dialog accessibility', () => {
     it('contains the basket and restores focus to its opener', () => {
         const onClose = vi.fn();
@@ -72,6 +79,7 @@ describe('direct dialog accessibility', () => {
             />,
         );
         const name = screen.getByRole('textbox', { name: 'Channel name' });
+        expectModalBodyPortal(screen.getByRole('dialog', { name: 'New Channel' }));
         expect(name).toHaveFocus();
         fireEvent.keyDown(name, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
@@ -107,7 +115,7 @@ describe('direct dialog accessibility', () => {
         const { rerender } = render(
             <>
                 <button>Compare models</button>
-                <ModelComparisonMatrix visible={false} onClose={onClose} selectedModel="auto" />
+                <ModelComparisonMatrix visible={false} onClose={onClose} selectedModel="best_match" />
             </>,
         );
         const opener = screen.getByRole('button', { name: 'Compare models' });
@@ -116,7 +124,7 @@ describe('direct dialog accessibility', () => {
         rerender(
             <>
                 <button>Compare models</button>
-                <ModelComparisonMatrix visible onClose={onClose} selectedModel="auto" />
+                <ModelComparisonMatrix visible onClose={onClose} selectedModel="best_match" />
             </>,
         );
         const close = screen.getByRole('button', { name: 'Close' });
@@ -126,7 +134,7 @@ describe('direct dialog accessibility', () => {
         rerender(
             <>
                 <button>Compare models</button>
-                <ModelComparisonMatrix visible={false} onClose={onClose} selectedModel="auto" />
+                <ModelComparisonMatrix visible={false} onClose={onClose} selectedModel="best_match" />
             </>,
         );
         expect(opener).toHaveFocus();
@@ -142,6 +150,7 @@ describe('direct dialog accessibility', () => {
         fireEvent.click(opener);
 
         const close = screen.getByRole('button', { name: 'Close rain forecast detail' });
+        expectModalBodyPortal(screen.getByRole('dialog', { name: 'Rain Forecast' }));
         expect(close).toHaveFocus();
         expect(document.body.style.overflow).toBe('hidden');
         fireEvent.keyDown(close, { key: 'Escape' });
@@ -179,6 +188,7 @@ describe('direct dialog accessibility', () => {
             />,
         );
         const serviceClose = screen.getByRole('button', { name: 'Close service sheet' });
+        expectModalBodyPortal(screen.getByRole('dialog', { name: 'Change engine oil' }));
         expect(serviceClose).toHaveFocus();
         fireEvent.keyDown(serviceClose, { key: 'Escape' });
         expect(closeService).toHaveBeenCalledOnce();
@@ -187,7 +197,9 @@ describe('direct dialog accessibility', () => {
         const closeSetup = vi.fn();
         render(<PiSetupWizard isOpen onClose={closeSetup} />);
         const setupClose = screen.getByRole('button', { name: 'Close setup' });
-        expect(screen.getByRole('dialog', { name: 'Set up Pi' })).toContainElement(setupClose);
+        const setupDialog = screen.getByRole('dialog', { name: 'Set up Pi' });
+        expect(setupDialog).toContainElement(setupClose);
+        expectModalBodyPortal(setupDialog);
         expect(setupClose).toHaveFocus();
         fireEvent.click(screen.getByRole('button', { name: "I'm ready" }));
         const nextStep = screen.getByLabelText(/Setup step: 2 of 5/);

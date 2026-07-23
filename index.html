@@ -15,15 +15,16 @@
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <meta name="theme-color" content="#0f172a" />
+        <meta name="referrer" content="no-referrer" />
         <!-- Content Security Policy — restrict external sources -->
         <meta
             http-equiv="Content-Security-Policy"
             content="default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.sh;
+      script-src 'self' 'unsafe-inline';
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
       font-src 'self' https://fonts.gstatic.com;
       img-src 'self' data: blob: https: http:;
-      connect-src 'self' data: http: https://*.supabase.co wss://*.supabase.co https://*.open-meteo.com https://api.stormglass.io https://api.mapbox.com https://events.mapbox.com https://tiles.openseamap.org https://tile.openweathermap.org https://server.arcgisonline.com https://*.arcgis.com https://api.rainviewer.com https://tilecache.rainviewer.com https://nominatim.openstreetmap.org https://generativelanguage.googleapis.com https://weatherkit.apple.com https://*.weatherkit.apple.com https://*.sentry.io https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com https://*.noaa.gov https://api.knackwx.com https://*.maptiler.com https://realearth.ssec.wisc.edu https://gibs.earthdata.nasa.gov https://services.geoplatform.gov https://cdn.jsdelivr.net https://mesonet.agron.iastate.edu https://nowcoast.noaa.gov https://api.spoonacular.com https://img.spoonacular.com wss://*.blitzortung.org:* https://api.deepgram.com wss://api.deepgram.com https://*.workers.dev wss://*.workers.dev https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com ;
+      connect-src 'self' data: http: https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com https://marine-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.mapbox.com https://events.mapbox.com https://tiles.openseamap.org https://tile.openweathermap.org https://server.arcgisonline.com https://*.arcgis.com https://api.rainviewer.com https://tilecache.rainviewer.com https://nominatim.openstreetmap.org https://*.sentry.io https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com https://*.noaa.gov https://api.knackwx.com https://*.maptiler.com https://realearth.ssec.wisc.edu https://gibs.earthdata.nasa.gov https://services.geoplatform.gov https://cdn.jsdelivr.net https://mesonet.agron.iastate.edu https://nowcoast.noaa.gov wss://*.blitzortung.org:* https://api.deepgram.com wss://api.deepgram.com https://*.workers.dev wss://*.workers.dev https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com ;
       media-src 'self' blob: data:;
       worker-src 'self' blob:;
       frame-src 'none';
@@ -186,27 +187,6 @@
                 box-shadow: 0 0 16px rgba(239, 68, 68, 0.25);
             }
         </style>
-        <!-- Importmap: runtime dependencies only, pinned to exact versions -->
-        <script type="importmap">
-            {
-                "imports": {
-                    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
-                    "react/": "https://esm.sh/react@18.3.1/",
-                    "react": "https://esm.sh/react@18.3.1",
-                    "@google/genai": "https://esm.sh/@google/genai@1.33.0",
-                    "@dnd-kit/core": "https://esm.sh/@dnd-kit/core@6.3.1",
-                    "@dnd-kit/sortable": "https://esm.sh/@dnd-kit/sortable@10.0.0",
-                    "@dnd-kit/utilities": "https://esm.sh/@dnd-kit/utilities@3.2.2",
-                    "path": "https://esm.sh/path@0.12.7",
-                    "zod": "https://esm.sh/zod@3.22.4",
-                    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.88.0",
-                    "@capacitor/core": "https://esm.sh/@capacitor/core@8.0.0",
-                    "@capacitor/cli": "https://esm.sh/@capacitor/cli@8.0.0",
-                    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@8.0.0",
-                    "url": "https://esm.sh/url@0.11.4"
-                }
-            }
-        </script>
         <link rel="stylesheet" href="/index.css" />
     </head>
 

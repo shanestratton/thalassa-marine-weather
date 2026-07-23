@@ -1,9 +1,9 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
-import { getOpenMeteoKey } from '../keys';
 import { isWxServerAvailable, wxServerBase } from '../wxServer';
 import { isConcreteModel } from '../forecastModels';
+import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
@@ -206,7 +206,6 @@ const doFetchOpenMeteo = async (
     model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
     const now = new Date();
-    const apiKey = getOpenMeteoKey();
 
     // normalize (wrap/clamp) - copied logic
     const safeLat = Math.max(-90, Math.min(90, lat));
@@ -220,14 +219,6 @@ const doFetchOpenMeteo = async (
     // has no best_match domain and would answer HTTP 200 with all-null
     // fields, which is worse than failing.
     const useWxServer = isConcreteModel(model) && (await isWxServerAvailable());
-    const baseUrl = useWxServer ? `${wxServerBase()}/v1/forecast` : 'https://customer-api.open-meteo.com/v1/forecast';
-
-    if (!useWxServer && (!apiKey || apiKey.length <= 5)) {
-        throw new Error(
-            `STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`,
-        );
-    }
-
     const params = new URLSearchParams({
         latitude: safeLat.toFixed(4),
         longitude: safeLon.toFixed(4),
@@ -242,24 +233,24 @@ const doFetchOpenMeteo = async (
         // actually standard OM API returns it.
     });
 
-    if (!useWxServer && apiKey) params.append('apikey', apiKey);
-
     // Fetch Weather — try Pi Cache combined endpoint first (instant if pre-fetched),
-    // then fall back to direct API call
-    const directUrl = `${baseUrl}?${params.toString()}`;
+    // then fall back to the server-side commercial proxy.
+    const wxUrl = `${wxServerBase()}/v1/forecast?${params.toString()}`;
 
     const fetchDirect = async (): Promise<OMWeatherResponse> => {
-        // wx server: always direct — the Pi passthrough can't reach the
-        // tailnet and adds latency to a 1-3 ms origin.
-        const fetchUrl = useWxServer
-            ? directUrl
-            : piCache.passthroughUrl(directUrl, 15 * 60 * 1000, 'open-meteo') || directUrl;
-        const res = await CapacitorHttp.get({ url: fetchUrl });
+        if (!useWxServer) {
+            return fetchOpenMeteoProxy<OMWeatherResponse>('forecast', Object.fromEntries(params.entries()));
+        }
+
+        // The private tailnet wx server carries no commercial credential and
+        // answers in single-digit milliseconds, so concrete-model requests
+        // can continue to use it directly.
+        const res = await CapacitorHttp.get({ url: wxUrl });
         if (!res || res.status !== 200) throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
         if (!res.data) throw new Error('OpenMeteo returned no data');
-        let d = res.data as OMWeatherResponse;
-        if (typeof d === 'string') d = JSON.parse(d);
-        return d;
+        let data = res.data as OMWeatherResponse;
+        if (typeof data === 'string') data = JSON.parse(data);
+        return data;
     };
 
     // Pi Cache combined endpoint — serves the full dataset pre-fetched by the

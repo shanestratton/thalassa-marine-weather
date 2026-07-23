@@ -20,7 +20,7 @@ import {
 import type { UserSettings } from '../../types';
 
 afterEach(() => {
-    localStorage.removeItem(SETTINGS_MIRROR_KEY);
+    localStorage.clear();
 });
 
 describe('mergeSettings — sync-seed / async-load parity', () => {

@@ -3,6 +3,7 @@
  * Shows community share + browse community options.
  */
 import React, { useRef } from 'react';
+import { OverlayPortal } from '../../components/ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ShareSheetProps {
@@ -29,12 +30,12 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
     });
 
     return (
-        <div
+        <OverlayPortal
             ref={sheetRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="share-sheet-title"
-            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+            className="flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
         >
             {/* Header bar */}
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
@@ -188,6 +189,6 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

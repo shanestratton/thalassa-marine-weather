@@ -110,6 +110,7 @@ vi.mock('../services/CrewService', () => ({
 
 vi.mock('../services/vessel/SyncService', () => ({
     syncNow: vi.fn(() => Promise.resolve()),
+    requestFullReconciliation: vi.fn(() => Promise.resolve()),
 }));
 
 import { TripLegPicker } from '../components/passage/TripLegPicker';
@@ -173,7 +174,9 @@ describe('passage and vessel dialog accessibility', () => {
             </>,
         );
         const close = screen.getByRole('button', { name: 'Close trip overview' });
-        expect(screen.getByRole('dialog', { name: 'Trip Overview Brisbane → Cairns' })).toContainElement(close);
+        const dialog = screen.getByRole('dialog', { name: 'Trip Overview Brisbane → Cairns' });
+        expect(dialog).toContainElement(close);
+        expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(close).toHaveFocus();
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
@@ -205,7 +208,9 @@ describe('passage and vessel dialog accessibility', () => {
             </>,
         );
         const close = screen.getByRole('button', { name: 'Close cleanup sheet' });
-        expect(screen.getByRole('dialog', { name: 'Manage Saved Trips' })).toContainElement(close);
+        const dialog = screen.getByRole('dialog', { name: 'Manage Saved Trips' });
+        expect(dialog).toContainElement(close);
+        expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(close).toHaveFocus();
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
@@ -254,7 +259,9 @@ describe('passage and vessel dialog accessibility', () => {
             </>,
         );
         const close = screen.getByRole('button', { name: 'Close dialog' });
-        expect(screen.getByRole('dialog', { name: 'Select Voyage' })).toContainElement(close);
+        const dialog = screen.getByRole('dialog', { name: 'Select Voyage' });
+        expect(dialog).toContainElement(close);
+        expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(close).toHaveFocus();
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();

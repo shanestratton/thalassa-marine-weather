@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toPurchasable, toPurchasableList } from '../services/PurchaseUnits';
+import { convertQuantity, toPurchasable, toPurchasableList } from '../services/PurchaseUnits';
 
 describe('toPurchasable', () => {
     describe('known ingredient matching', () => {
@@ -25,6 +25,9 @@ describe('toPurchasable', () => {
             const result = toPurchasable('honey', 2, 'tbsp');
             expect(result.matched).toBe(true);
             expect(result.packageLabel).toContain('jar');
+            expect(result.conversionKnown).toBe(false);
+            expect(result.inventoryQuantity).toBe(500);
+            expect(result.inventoryUnit).toBe('g');
         });
     });
 
@@ -64,6 +67,8 @@ describe('toPurchasable', () => {
             const result = toPurchasable('olive oil', 2, 'liters');
             // 2L = 2000ml → 4 × 500ml bottles
             expect(result.packageCount).toBe(4);
+            expect(result.inventoryQuantity).toBe(2000);
+            expect(result.inventoryUnit).toBe('ml');
         });
     });
 
@@ -118,6 +123,43 @@ describe('toPurchasable', () => {
         it('matches extra virgin olive oil before olive oil', () => {
             const ev = toPurchasable('extra virgin olive oil', 250, 'ml');
             expect(ev.matched).toBe(true);
+        });
+
+        it('does not mistake eggplant for eggs', () => {
+            const result = toPurchasable('eggplant', 1, 'whole');
+            expect(result.packageLabel).toBe('1 piece');
+            expect(result.inventoryUnit).toBe('whole');
+        });
+
+        it('matches egg noodles more specifically than eggs', () => {
+            const result = toPurchasable('egg noodles', 250, 'g');
+            expect(result.packageLabel).toBe('400g pack');
+            expect(result.inventoryQuantity).toBe(400);
+        });
+
+        it('matches cream cheese more specifically than cream', () => {
+            const result = toPurchasable('cream cheese', 200, 'g');
+            expect(result.packageLabel).toBe('250g block');
+            expect(result.inventoryUnit).toBe('g');
+        });
+
+        it('matches canned tomatoes more specifically than fresh tomatoes', () => {
+            const result = toPurchasable('canned tomatoes', 300, 'g');
+            expect(result.packageLabel).toBe('400g can');
+            expect(result.inventoryQuantity).toBe(400);
+        });
+    });
+
+    describe('dimension-safe conversion', () => {
+        it('converts compatible metric units and legacy package labels', () => {
+            expect(convertQuantity(1.5, 'kg', 'g')).toBe(1500);
+            expect(convertQuantity(2, '1kg bag', 'g')).toBe(2000);
+            expect(convertQuantity(1, 'dozen (12)', 'whole')).toBe(12);
+        });
+
+        it('refuses mass-to-volume guesses without ingredient density', () => {
+            expect(convertQuantity(2, 'tbsp', 'g')).toBeNull();
+            expect(convertQuantity(500, 'g', 'ml')).toBeNull();
         });
     });
 });

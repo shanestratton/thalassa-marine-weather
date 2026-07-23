@@ -11,7 +11,8 @@
  * - Premium-gated: full data only for premium users
  */
 
-import { supabase, supabaseUrl, supabaseAnonKey } from './supabase';
+import { supabase, supabaseUrl } from './supabase';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { decodeMmsi, getMmsiFlag, type MmsiDecodedResult } from '../utils/MmsiDecoder';
 import { createLogger } from '../utils/createLogger';
 
@@ -206,11 +207,9 @@ class VesselMetadataServiceClass {
         try {
             // Direct fetch to Edge Function with query params
             const fnUrl = `${supabaseUrl}/functions/v1/lookup-vessel?mmsi=${mmsi}`;
+            const authHeaders = await getAuthenticatedFunctionHeaders();
             const resp = await fetch(fnUrl, {
-                headers: {
-                    Authorization: `Bearer ${supabaseAnonKey}`,
-                    apikey: supabaseAnonKey,
-                },
+                headers: authHeaders,
                 signal: AbortSignal.timeout(12000),
             });
 

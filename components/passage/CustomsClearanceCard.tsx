@@ -12,7 +12,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { VoyagePlan } from '../../types';
 import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ShareIcon, MapPinIcon } from '../Icons';
 import { findCountryData, difficultyStyle } from '../../data/customsDb';
-import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
+import { safeExternalHttpUrl } from '../../utils/safeUrl';
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
@@ -32,14 +33,11 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
 }) => {
     const customs = voyagePlan.customs;
     const [activeTab, setActiveTab] = useState<'depart' | 'arrive'>('depart');
-    const [checkedDocs, setCheckedDocs] = useState<Record<string, boolean>>(() => {
-        try {
-            const stored = localStorage.getItem('thalassa_customs_docs');
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
-    });
+    const [checkedDocs, setCheckedDocs] = useScopedReadinessStorageState<Record<string, boolean>>(
+        'thalassa_customs_docs',
+        voyageId,
+        {},
+    );
 
     const { syncCheck } = useReadinessSync(
         voyageId,
@@ -53,16 +51,11 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
         (key: string) => {
             setCheckedDocs((prev) => {
                 const next = { ...prev, [key]: !prev[key] };
-                try {
-                    localStorage.setItem('thalassa_customs_docs', JSON.stringify(next));
-                } catch {
-                    /* ignore */
-                }
                 syncCheck(key, next[key]);
                 return next;
             });
         },
-        [syncCheck],
+        [setCheckedDocs, syncCheck],
     );
 
     // Notify parent of checked state changes
@@ -127,6 +120,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     const activeCountryName = activeTab === 'depart' ? departLabel : arriveLabel;
     const activePortInput = activeTab === 'depart' ? departInput : arriveInput;
     const activePortIsPOE = activeTab === 'depart' ? departPortIsPOE : arrivePortIsPOE;
+    const activeGuideUrl = safeExternalHttpUrl(activeData?.guideUrl, true);
 
     return (
         <div className="space-y-4">
@@ -239,11 +233,12 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-line">
                                 {activeData.yachtExport}
                             </p>
-                            {activeData.guideUrl && (
+                            {activeGuideUrl && (
                                 <a
-                                    href={activeData.guideUrl}
+                                    href={activeGuideUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    referrerPolicy="no-referrer"
                                     className="mt-3 flex items-center gap-2 w-fit px-4 py-2.5 bg-gradient-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-sky-500/10"
                                 >
                                     <ShareIcon className="w-3.5 h-3.5" />
@@ -254,11 +249,12 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     )}
 
                     {/* ── Guide Link (if not yacht export) ── */}
-                    {activeData.guideUrl && !(activeTab === 'depart' && activeData.yachtExport) && (
+                    {activeGuideUrl && !(activeTab === 'depart' && activeData.yachtExport) && (
                         <a
-                            href={activeData.guideUrl}
+                            href={activeGuideUrl}
                             target="_blank"
                             rel="noopener noreferrer"
+                            referrerPolicy="no-referrer"
                             className="flex items-center gap-2 w-fit px-4 py-2.5 bg-gradient-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98]"
                         >
                             <ShareIcon className="w-3.5 h-3.5" />
@@ -376,17 +372,21 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                                 <span className="font-mono">{contact.vhf}</span>
                                             </div>
                                         )}
-                                        {contact.website && (
-                                            <a
-                                                href={contact.website}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition-colors"
-                                            >
-                                                <ShareIcon className="w-3 h-3 shrink-0" />
-                                                <span className="truncate max-w-[180px]">Website</span>
-                                            </a>
-                                        )}
+                                        {(() => {
+                                            const website = safeExternalHttpUrl(contact.website, true);
+                                            return website ? (
+                                                <a
+                                                    href={website}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    referrerPolicy="no-referrer"
+                                                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition-colors"
+                                                >
+                                                    <ShareIcon className="w-3 h-3 shrink-0" />
+                                                    <span className="truncate max-w-[180px]">Website</span>
+                                                </a>
+                                            ) : null;
+                                        })()}
                                     </div>
                                     {contact.notes && (
                                         <div className="text-[11px] text-gray-400 mt-1">{contact.notes}</div>

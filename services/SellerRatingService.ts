@@ -9,6 +9,12 @@
  */
 
 import { supabase } from './supabase';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -36,21 +42,50 @@ export interface SellerReputation {
 // --- CONFIG ---
 const RATINGS_TABLE = 'marketplace_ratings';
 
+function identityStillOwns(scope: AuthIdentityScope, ownerId: string | null = scope.userId): boolean {
+    return isAuthIdentityScopeCurrent(scope) && scope.userId === ownerId;
+}
+
+async function remoteIdentityMatches(scope: AuthIdentityScope): Promise<boolean> {
+    if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
+    try {
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        if (!scope.userId) return !user;
+        return !error && user?.id === scope.userId;
+    } catch {
+        return false;
+    }
+}
+
 // --- SERVICE ---
 
 class SellerRatingServiceClass {
-    private userId: string | null = null;
+    private userId: string | null = getAuthIdentityScope().userId;
+
+    constructor() {
+        subscribeAuthIdentityScope((next) => {
+            // Rating ownership changes immediately with the auth fence; no
+            // promise from the previous account may leave its user id behind.
+            this.userId = next.userId;
+        });
+    }
 
     async initialize(): Promise<void> {
+        const scope = getAuthIdentityScope();
+        this.userId = scope.userId;
         if (!supabase) return;
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        this.userId = user?.id || null;
+
+        const matches = await remoteIdentityMatches(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        this.userId = matches ? scope.userId : null;
     }
 
     getCurrentUserId(): string | null {
-        return this.userId;
+        return this.userId === getAuthIdentityScope().userId ? this.userId : null;
     }
 
     // ────────────────────────── QUERIES ──────────────────────────
@@ -67,6 +102,8 @@ class SellerRatingServiceClass {
         };
 
         if (!supabase) return empty;
+        const scope = getAuthIdentityScope();
+        if (!(await remoteIdentityMatches(scope))) return empty;
 
         const { data, error } = await supabase
             .from(RATINGS_TABLE)
@@ -75,10 +112,11 @@ class SellerRatingServiceClass {
             .order('created_at', { ascending: false })
             .limit(20);
 
-        if (error || !data || data.length === 0) return empty;
+        if (!isAuthIdentityScopeCurrent(scope) || error || !data || data.length === 0) return empty;
 
         const totalStars = data.reduce((sum, r) => sum + r.stars, 0);
 
+        if (!isAuthIdentityScopeCurrent(scope)) return empty;
         return {
             seller_id: sellerId,
             avg_stars: Math.round((totalStars / data.length) * 10) / 10,
@@ -91,16 +129,19 @@ class SellerRatingServiceClass {
      * Check if the current user has already rated a specific listing.
      */
     async hasRated(listingId: string): Promise<boolean> {
-        if (!supabase || !this.userId) return false;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const buyerId = scope.userId;
+        if (!buyerId || !(await remoteIdentityMatches(scope))) return false;
 
         const { data } = await supabase
             .from(RATINGS_TABLE)
             .select('id')
             .eq('listing_id', listingId)
-            .eq('buyer_id', this.userId)
+            .eq('buyer_id', buyerId)
             .limit(1);
 
-        return (data?.length || 0) > 0;
+        return identityStillOwns(scope, buyerId) && (data?.length || 0) > 0;
     }
 
     // ────────────────────────── MUTATIONS ──────────────────────────
@@ -115,8 +156,10 @@ class SellerRatingServiceClass {
         stars: number,
         comment?: string,
     ): Promise<SellerRating | null> {
-        if (!supabase || !this.userId) return null;
-        if (this.userId === sellerId) return null; // Can't rate yourself
+        if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        const buyerId = scope.userId;
+        if (!buyerId || buyerId === sellerId || !(await remoteIdentityMatches(scope))) return null;
 
         const clampedStars = Math.max(1, Math.min(5, Math.round(stars)));
 
@@ -125,13 +168,14 @@ class SellerRatingServiceClass {
             .insert({
                 listing_id: listingId,
                 seller_id: sellerId,
-                buyer_id: this.userId,
+                buyer_id: buyerId,
                 stars: clampedStars,
                 comment: comment?.trim() || null,
             })
             .select()
             .single();
 
+        if (!identityStillOwns(scope, buyerId)) return null;
         if (error) {
             log.error('[SellerRating] Rate failed:', error.message);
             return null;
@@ -144,11 +188,14 @@ class SellerRatingServiceClass {
      * Delete own rating (if buyer changes mind).
      */
     async deleteRating(ratingId: string): Promise<boolean> {
-        if (!supabase || !this.userId) return false;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const buyerId = scope.userId;
+        if (!buyerId || !(await remoteIdentityMatches(scope))) return false;
 
-        const { error } = await supabase.from(RATINGS_TABLE).delete().eq('id', ratingId).eq('buyer_id', this.userId); // RLS: can only delete own
+        const { error } = await supabase.from(RATINGS_TABLE).delete().eq('id', ratingId).eq('buyer_id', buyerId); // RLS: can only delete own
 
-        return !error;
+        return identityStillOwns(scope, buyerId) && !error;
     }
 }
 

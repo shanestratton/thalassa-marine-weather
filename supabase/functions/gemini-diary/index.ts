@@ -5,6 +5,7 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, readJsonObject, readResponseTextLimited } from '../_shared/http-security.ts';
 
 /**
  * gemini-diary — Captain's Journal AI Assistant
@@ -26,7 +27,7 @@ import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.
 const CORS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -51,19 +52,24 @@ async function callGemini(apiKey: string, contents: unknown[], systemInstruction
         };
     }
 
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
+    const res = await fetchWithTimeout(
+        url,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        },
+        45_000,
+    );
 
+    const responseText = await readResponseTextLimited(res, 2_000_000);
+    if (responseText === null) throw new Error('Gemini response exceeded the safety limit');
     if (!res.ok) {
-        const err = await res.text().catch(() => '');
-        console.error(`[gemini-diary] Gemini API error ${res.status}: ${err}`);
+        console.error(`[gemini-diary] Gemini API error ${res.status}: ${responseText.slice(0, 500)}`);
         throw new Error(`Gemini API error: ${res.status}`);
     }
 
-    const data = await res.json();
+    const data = JSON.parse(responseText);
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
 }
 
@@ -79,7 +85,14 @@ async function handleEnhance(
     },
 ) {
     const { text, mood, location, weather } = body;
-    if (!text || text.trim().length < 5) {
+    if (
+        !text ||
+        text.trim().length < 5 ||
+        text.length > 20_000 ||
+        mood.length > 80 ||
+        (location?.length ?? 0) > 200 ||
+        (weather?.length ?? 0) > 500
+    ) {
         return jsonResponse({ error: 'Text too short to enhance' }, 400);
     }
 
@@ -127,8 +140,15 @@ async function handleTranscribe(
     },
 ) {
     const { audio_base64, mime_type } = body;
-    if (!audio_base64) {
-        return jsonResponse({ error: 'No audio data provided' }, 400);
+    const allowedMimeTypes = new Set(['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/ogg']);
+    if (
+        !audio_base64 ||
+        audio_base64.length > 10_000_000 ||
+        audio_base64.length % 4 !== 0 ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(audio_base64) ||
+        !allowedMimeTypes.has(mime_type)
+    ) {
+        return jsonResponse({ error: 'Invalid audio data' }, 400);
     }
 
     const systemPrompt = `You are a speech-to-text transcription engine for a maritime captain's voice diary.
@@ -186,15 +206,26 @@ Deno.serve(async (req: Request) => {
             return jsonResponse({ error: 'Gemini not configured' }, 500);
         }
 
-        const body = await req.json();
+        const body = await readJsonObject(req, 10_100_000);
+        if (!body) return jsonResponse({ error: 'Invalid request body' }, 400);
         const { action } = body;
 
-        if (action === 'enhance' && (typeof body.text !== 'string' || body.text.length > 20_000)) {
-            return jsonResponse({ error: 'Invalid journal text' }, 400);
+        if (
+            action === 'enhance' &&
+            (typeof body.text !== 'string' ||
+                body.text.length > 20_000 ||
+                typeof body.mood !== 'string' ||
+                body.mood.length > 80 ||
+                (body.location !== undefined && (typeof body.location !== 'string' || body.location.length > 200)) ||
+                (body.weather !== undefined && (typeof body.weather !== 'string' || body.weather.length > 500)))
+        ) {
+            return jsonResponse({ error: 'Invalid journal request' }, 400);
         }
         if (
             action === 'transcribe' &&
-            (typeof body.audio_base64 !== 'string' || body.audio_base64.length > 20_000_000)
+            (typeof body.audio_base64 !== 'string' ||
+                body.audio_base64.length > 10_000_000 ||
+                typeof body.mime_type !== 'string')
         ) {
             return jsonResponse({ error: 'Invalid or oversized audio' }, 400);
         }
@@ -203,14 +234,28 @@ Deno.serve(async (req: Request) => {
 
         switch (action) {
             case 'enhance':
-                return await handleEnhance(apiKey, body);
+                return await handleEnhance(
+                    apiKey,
+                    body as {
+                        text: string;
+                        mood: string;
+                        location?: string;
+                        weather?: string;
+                    },
+                );
             case 'transcribe':
-                return await handleTranscribe(apiKey, body);
+                return await handleTranscribe(
+                    apiKey,
+                    body as {
+                        audio_base64: string;
+                        mime_type: string;
+                    },
+                );
             default:
-                return jsonResponse({ error: `Unknown action: ${action}` }, 400);
+                return jsonResponse({ error: 'Unknown action' }, 400);
         }
     } catch (err) {
         console.error('[gemini-diary] Error:', err);
-        return jsonResponse({ error: String(err) }, 500);
+        return jsonResponse({ error: 'Diary assistant is temporarily unavailable' }, 502);
     }
 });

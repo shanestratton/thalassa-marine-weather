@@ -77,6 +77,7 @@ vi.mock('../utils', () => ({
 import { useAppController } from '../hooks/useAppController';
 import { useLiveLocationName } from '../hooks/useLiveLocationName';
 import { LocationStore } from '../stores/LocationStore';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 /** A minimal report shape — only what the controller's effects touch. */
 const report = (locationName: string, lat: number, lon: number) => ({
@@ -91,6 +92,7 @@ const settle = () =>
     });
 
 beforeEach(() => {
+    setAuthIdentityScope(null);
     h.weatherData = null;
     h.selectLocation.mockClear();
     h.reverseGeocode.mockReset();

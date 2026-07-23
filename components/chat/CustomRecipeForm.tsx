@@ -22,6 +22,8 @@ import { triggerHaptic } from '../../utils/system';
 import { toast } from '../Toast';
 import { createLogger } from '../../utils/createLogger';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { SafeImage } from '../ui/SafeImage';
 
 const log = createLogger('CustomRecipeForm');
 
@@ -291,7 +293,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 />
                 {photoPreview ? (
                     <div className="relative">
-                        <img
+                        <SafeImage
                             src={photoPreview}
                             alt="Recipe preview"
                             className="w-full h-40 object-cover rounded-xl border border-white/[0.08]"
@@ -477,7 +479,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
             {/* Recipe summary */}
             <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                 {photoPreview ? (
-                    <img src={photoPreview} alt="" className="w-14 h-14 rounded-lg object-cover" />
+                    <SafeImage src={photoPreview} alt="" className="w-14 h-14 rounded-lg object-cover" />
                 ) : (
                     <div className="w-14 h-14 rounded-lg bg-amber-500/10 flex items-center justify-center text-xl">
                         🍽️
@@ -544,14 +546,9 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
-        // z-[1000] sits ABOVE the ChildCard portal (z-50) that wraps
-        // the Recipe Library + above the MealCalendar Recipe Library
-        // shell (z-955), so neither of those back chevrons leak
-        // through and confuse the user about which "back" they're
-        // tapping. The form's own back chevron (top-left) is the
-        // single, unambiguous way out.
-        <div
-            className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
+        <OverlayPortal
+            layer="nested"
+            className="flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
             // Reserve space for the iOS keyboard at the bottom of the
@@ -653,6 +650,6 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     )}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

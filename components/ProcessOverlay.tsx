@@ -1,15 +1,16 @@
 import React, { useId } from 'react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { t } from '../theme';
+import { OverlayPortal } from './ui/OverlayPortal';
 
 export const ProcessOverlay: React.FC<{ message?: string }> = ({ message = 'Updating...' }) => {
     const messageId = useId();
     const dialogRef = useFocusTrap<HTMLDivElement>(true);
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
-            className="fixed inset-0 z-[2000] bg-slate-900/60 flex items-center justify-center animate-in fade-in duration-300"
+            className="bg-slate-900/60 flex items-center justify-center animate-in fade-in duration-300"
             role="dialog"
             aria-modal="true"
             aria-labelledby={messageId}
@@ -29,6 +30,6 @@ export const ProcessOverlay: React.FC<{ message?: string }> = ({ message = 'Upda
                     {message}
                 </span>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

@@ -57,6 +57,7 @@ import { getLastPosition, saveLastPosition, type TrackingState } from './Trackin
 import { type GpsTrackBuffer } from './GpsTrackBuffer';
 import { getBestPosition } from './PositionResolver';
 import { checkIsOnWater } from './waterDetection';
+import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 
 const log = createLogger('ShipLog.Capture');
 
@@ -88,6 +89,10 @@ const MAX_ACCELERATION_KTS = 50;
  * step through thinned points.
  */
 export interface CaptureContext {
+    /** Immutable account generation that armed this capture callback. */
+    identityScope: AuthIdentityScope;
+    /** False once this voyage/session has been paused, stopped, or replaced. */
+    isSessionCurrent: () => boolean;
     trackingState: TrackingState;
     saveTrackingState: () => Promise<void>;
 
@@ -96,11 +101,22 @@ export interface CaptureContext {
     setCachedFix: (pos: CachedPosition | null) => void;
 
     trackBuffer: GpsTrackBuffer;
+    /**
+     * Durable escape hatch for points whose owning session becomes stale
+     * after they have been drained. The orchestrator stores these under the
+     * captured account/voyage; they must never be pushed into a replacement
+     * session's live buffer.
+     */
+    handoffBufferedPoints?: (points: CachedPosition[]) => Promise<void>;
 
     getLastWaterStatus: () => boolean | undefined;
     setLastWaterStatus: (v: boolean | undefined) => void;
 
     rescheduleAdaptiveInterval: () => Promise<void>;
+}
+
+function contextIsCurrent(ctx: CaptureContext): boolean {
+    return isAuthIdentityScopeCurrent(ctx.identityScope) && ctx.isSessionCurrent();
 }
 
 // ── captureImmediate ────────────────────────────────────────────────
@@ -115,6 +131,7 @@ export async function captureImmediate(
     voyageId?: string,
     waypointLabel: string = 'Voyage Start',
 ): Promise<ShipLogEntry | null> {
+    if (!contextIsCurrent(ctx)) return null;
     const startedAtMs = Date.now();
     const timestamp = new Date(startedAtMs).toISOString();
     const effectiveVoyageId = voyageId || ctx.trackingState.currentVoyageId || `voyage_${Date.now()}`;
@@ -181,6 +198,7 @@ export async function captureImmediate(
         const deadline = startedAtMs + GPS_WARMUP_MAX_MS;
         while (Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_POLL_MS));
+            if (!contextIsCurrent(ctx)) return null;
             const buffered = ctx.trackBuffer.peek();
             if (buffered) {
                 bestPos = buffered;
@@ -197,6 +215,7 @@ export async function captureImmediate(
                     const fetched = ctx.isNative
                         ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
                         : await webGetFreshPosition();
+                    if (!contextIsCurrent(ctx)) return null;
                     if (isFreshFix(fetched)) {
                         bestPos = fetched;
                         break;
@@ -211,7 +230,7 @@ export async function captureImmediate(
         entry.longitude = bestPos.longitude;
         entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
 
-        if (bestPos.heading !== null && bestPos.heading !== undefined && bestPos.heading !== 0) {
+        if (typeof bestPos.heading === 'number' && Number.isFinite(bestPos.heading)) {
             entry.courseDeg = Math.round(bestPos.heading);
         }
 
@@ -225,7 +244,8 @@ export async function captureImmediate(
         // (the key clears at every stop), so it still carries; for
         // 'Voyage Start' it could be a crashed prior voyage's leftover,
         // so it conservatively resets.
-        const lastPos = await getLastPosition();
+        const lastPos = await getLastPosition(ctx.identityScope);
+        if (!contextIsCurrent(ctx)) return null;
         const sameVoyage =
             !!lastPos &&
             (lastPos.voyageId === effectiveVoyageId ||
@@ -238,19 +258,12 @@ export async function captureImmediate(
         }
         entry.cumulativeDistanceNM = Math.round(cumulativeDistanceNM * 100) / 100;
 
-        await saveLastPosition({
-            latitude: bestPos.latitude,
-            longitude: bestPos.longitude,
-            timestamp,
-            cumulativeDistanceNM,
-            voyageId: effectiveVoyageId,
-        });
-
         // On-water check (fail-open: assume water if check throws,
         // since a false positive on land is less bad than a false negative
         // on water — the latter would make career totals miss real voyages).
         try {
             entry.isOnWater = await checkIsOnWater(bestPos.latitude, bestPos.longitude);
+            if (!contextIsCurrent(ctx)) return null;
             ctx.setLastWaterStatus(entry.isOnWater);
         } catch (e) {
             log.warn('checkIsOnWater threw', e);
@@ -262,13 +275,37 @@ export async function captureImmediate(
         needsGpsRetry = true;
     }
 
-    const { saved, entryId, wasOffline } = await saveEntryOnlineOrOffline(entry);
+    if (!contextIsCurrent(ctx)) return null;
+    const { saved, entryId, wasOffline } = await saveEntryOnlineOrOffline(entry, ctx.identityScope, () =>
+        contextIsCurrent(ctx),
+    );
+    if (!contextIsCurrent(ctx)) return null;
+
+    // The entry is the durability boundary. Advancing last-position before
+    // this write made a failed Voyage Start/End save invisible to the next
+    // fix: distance then continued from a point that did not exist in the
+    // log. Only commit the delta anchor after the entry was saved/queued.
+    if (bestPos) {
+        await saveLastPosition(
+            {
+                latitude: bestPos.latitude,
+                longitude: bestPos.longitude,
+                timestamp,
+                cumulativeDistanceNM: entry.cumulativeDistanceNM ?? 0,
+                voyageId: effectiveVoyageId,
+            },
+            ctx.identityScope,
+        );
+        if (!contextIsCurrent(ctx)) return null;
+    }
+
     if (!wasOffline && needsGpsRetry && entryId) {
-        retryGpsAndUpdateEntry(entryId);
+        retryGpsAndUpdateEntry(entryId, ctx.identityScope, () => contextIsCurrent(ctx));
     }
 
     ctx.trackingState.lastEntryTime = timestamp;
     await ctx.saveTrackingState();
+    if (!contextIsCurrent(ctx)) return null;
 
     return saved ?? (entry as ShipLogEntry);
 }
@@ -325,12 +362,31 @@ export interface CaptureLogOptions {
     fixOverride?: CachedPosition;
 }
 
+type CaptureLogOutcome =
+    | { status: 'saved'; entry: ShipLogEntry }
+    | { status: 'filtered' }
+    | { status: 'stale' }
+    | { status: 'durability-failed'; error: unknown };
+
 /**
  * Core logging path. Computes deltas vs last saved position, applies
  * sanity gates, persists, and asks the scheduler to re-evaluate the
  * adaptive interval.
  */
 export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = {}): Promise<ShipLogEntry | null> {
+    const outcome = await captureLogWithOutcome(ctx, opts);
+    return outcome.status === 'saved' ? outcome.entry : null;
+}
+
+/**
+ * Internal loss-aware form used by buffered replay. A public `null` means
+ * several intentionally different things (dedup, spike rejection, stale
+ * session, or a failed durable write); draining code must distinguish them
+ * so it only consumes points that were either persisted or deliberately
+ * filtered.
+ */
+async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOptions = {}): Promise<CaptureLogOutcome> {
+    if (!contextIsCurrent(ctx)) return { status: 'stale' };
     const {
         entryType = 'auto',
         notes,
@@ -343,12 +399,14 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
         fixOverride,
     } = opts;
 
+    let persistedEntry: ShipLogEntry | null = null;
     try {
         const bestPos = fixOverride ?? (await getBestPosition(ctx.getCachedFix(), ctx.isNative));
+        if (!contextIsCurrent(ctx)) return { status: 'stale' };
         if (!bestPos) {
             // No GPS — skip this auto entry (will retry on next tick).
             // Manual entries can proceed with zero position.
-            if (entryType === 'auto') return null;
+            if (entryType === 'auto') return { status: 'filtered' };
         }
 
         const entryVoyageId = voyageId || ctx.trackingState.currentVoyageId || `voyage_${Date.now()}`;
@@ -385,7 +443,8 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
         }
         const timestamp = entryTime.toISOString();
 
-        let lastPos = await getLastPosition();
+        let lastPos = await getLastPosition(ctx.identityScope);
+        if (!contextIsCurrent(ctx)) return { status: 'stale' };
         // A stored position from a DIFFERENT voyage is not a valid delta
         // reference — distance/speed must never bleed across voyages.
         // A MISSING voyageId is legacy data written during the active
@@ -410,7 +469,7 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             if (!skipDedup && entryType === 'auto' && distanceNM < DEDUP_THRESHOLD_NM) {
                 ctx.trackingState.lastCheckTime = Date.now();
                 ctx.trackingState.lastCheckDeduped = true;
-                return null;
+                return { status: 'filtered' };
             }
 
             const timeDiffMs = new Date(timestamp).getTime() - new Date(lastPos.timestamp).getTime();
@@ -432,14 +491,14 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
                 log.warn(
                     `Speed spike rejected: ${speedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap — dropping entry`,
                 );
-                return null;
+                return { status: 'filtered' };
             } else if (lastPos.speedKts !== undefined && lastPos.speedKts >= 0) {
                 const accel = speedKts - lastPos.speedKts;
                 if (accel > MAX_ACCELERATION_KTS) {
                     log.warn(
                         `Acceleration spike rejected: +${accel.toFixed(1)}kn jump (${lastPos.speedKts.toFixed(1)} → ${speedKts.toFixed(1)}) — dropping entry`,
                     );
-                    return null;
+                    return { status: 'filtered' };
                 }
             }
 
@@ -448,6 +507,7 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             if (distanceNM >= STATIONARY_THRESHOLD_NM) {
                 ctx.trackingState.lastMovementTime = timestamp;
                 await ctx.saveTrackingState();
+                if (!contextIsCurrent(ctx)) return { status: 'stale' };
             }
         }
 
@@ -470,7 +530,7 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
         const effectiveWaypointName = entryType === 'auto' ? 'Latest Position' : waypointName;
 
         if (entryType === 'auto') {
-            demotePreviousAutoWaypoint(entryVoyageId).catch(() => {
+            demotePreviousAutoWaypoint(entryVoyageId, ctx.identityScope, () => contextIsCurrent(ctx)).catch(() => {
                 /* best effort */
             });
         }
@@ -506,21 +566,31 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             isOnWater: ctx.getLastWaterStatus(),
         };
 
-        const { saved } = await saveEntryOnlineOrOffline(entry);
+        if (!contextIsCurrent(ctx)) return { status: 'stale' };
+        const { saved } = await saveEntryOnlineOrOffline(entry, ctx.identityScope, () => contextIsCurrent(ctx));
+        persistedEntry = saved ?? (entry as ShipLogEntry);
+        // The append may have completed just before a lifecycle fence moved
+        // on. It is still durable, so buffered replay must consume it rather
+        // than enqueue a duplicate into another session.
+        if (!contextIsCurrent(ctx)) return { status: 'saved', entry: persistedEntry };
 
         // Turn pins never advance the delta reference — their position
         // is BEHIND the boat, and anchoring lastPos there would measure
         // the next real fix against the past (phantom distance + a
         // corrupted speed/acceleration gate).
         if (!isPinOverride) {
-            await saveLastPosition({
-                latitude,
-                longitude,
-                timestamp,
-                cumulativeDistanceNM,
-                speedKts,
-                voyageId: entryVoyageId,
-            });
+            await saveLastPosition(
+                {
+                    latitude,
+                    longitude,
+                    timestamp,
+                    cumulativeDistanceNM,
+                    speedKts,
+                    voyageId: entryVoyageId,
+                },
+                ctx.identityScope,
+            );
+            if (!contextIsCurrent(ctx)) return { status: 'saved', entry: persistedEntry };
         }
 
         // Pins carry a backdated timestamp — rewinding lastEntryTime to
@@ -532,16 +602,24 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
         ctx.trackingState.lastCheckTime = Date.now();
         ctx.trackingState.lastCheckDeduped = false;
         await ctx.saveTrackingState();
+        if (!contextIsCurrent(ctx)) return { status: 'saved', entry: persistedEntry };
 
         // Re-evaluate adaptive interval (fire-and-forget).
         ctx.rescheduleAdaptiveInterval().catch((err) => {
             log.warn('captureLog: adaptive reschedule failed', err);
         });
 
-        return saved ?? (entry as ShipLogEntry);
+        return { status: 'saved', entry: persistedEntry };
     } catch (error) {
-        log.error('captureLog failed', error);
-        return null;
+        if (persistedEntry) {
+            // The track point itself is safe. Metadata persistence can retry
+            // on a later capture; replaying this point would create a second
+            // logical entry.
+            log.error('captureLog metadata update failed after entry persistence', error);
+            return { status: 'saved', entry: persistedEntry };
+        }
+        log.error('captureLog durable capture failed', error);
+        return { status: 'durability-failed', error };
     }
 }
 
@@ -567,6 +645,7 @@ export interface AddManualOptions {
  * through "Start tracking first" UX.
  */
 export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}): Promise<ShipLogEntry | null> {
+    if (!contextIsCurrent(ctx)) return null;
     const { notes, waypointName, eventCategory, engineStatus, voyageId } = opts;
     const timestamp = new Date().toISOString();
     const entryType: EntryType = waypointName ? 'waypoint' : 'manual';
@@ -595,17 +674,19 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
 
     try {
         const bestPos = await getBestPosition(ctx.getCachedFix(), ctx.isNative);
+        if (!contextIsCurrent(ctx)) return null;
         if (bestPos) {
             const { latitude, longitude, heading } = bestPos;
             entry.latitude = latitude;
             entry.longitude = longitude;
             entry.positionFormatted = formatPositionDMS(latitude, longitude);
 
-            if (heading !== null && heading !== undefined && heading !== 0) {
+            if (typeof heading === 'number' && Number.isFinite(heading)) {
                 entry.courseDeg = Math.round(heading);
             }
 
-            const lastPos = await getLastPosition();
+            const lastPos = await getLastPosition(ctx.identityScope);
+            if (!contextIsCurrent(ctx)) return null;
             // Only delta against a position from THIS voyage (missing
             // voyageId = legacy data written mid-voyage — still valid).
             if (lastPos && (lastPos.voyageId === undefined || lastPos.voyageId === effectiveVoyageId)) {
@@ -613,20 +694,30 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
                 entry.distanceNM = Math.round(distanceNM * 100) / 100;
                 entry.cumulativeDistanceNM = Math.round((lastPos.cumulativeDistanceNM + distanceNM) * 100) / 100;
             }
-
-            await saveLastPosition({
-                latitude,
-                longitude,
-                timestamp,
-                cumulativeDistanceNM: entry.cumulativeDistanceNM || 0,
-                voyageId: effectiveVoyageId,
-            });
         }
     } catch (gpsError) {
         log.warn('addManual: GPS failed, using placeholder', gpsError);
     }
 
-    const { saved } = await saveEntryOnlineOrOffline(entry);
+    if (!contextIsCurrent(ctx)) return null;
+    const { saved } = await saveEntryOnlineOrOffline(entry, ctx.identityScope, () => contextIsCurrent(ctx));
+    if (!contextIsCurrent(ctx)) return null;
+
+    // As with captureImmediate, never let a failed entry write advance the
+    // voyage's durable delta anchor.
+    if (entry.latitude !== 0 || entry.longitude !== 0) {
+        await saveLastPosition(
+            {
+                latitude: entry.latitude ?? 0,
+                longitude: entry.longitude ?? 0,
+                timestamp,
+                cumulativeDistanceNM: entry.cumulativeDistanceNM ?? 0,
+                voyageId: effectiveVoyageId,
+            },
+            ctx.identityScope,
+        );
+        if (!contextIsCurrent(ctx)) return null;
+    }
     return saved ?? (entry as ShipLogEntry);
 }
 
@@ -637,29 +728,90 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
  * significant point. Wired into the AdaptiveScheduler as the onTick
  * callback.
  */
-// Re-entrancy latch: the scheduler tick and the heartbeat catch-up can
-// both call flushBufferedTrack; two interleaved drains would split one
-// batch across two out-of-order replay loops.
-let isFlushing = false;
+export type FlushBufferedTrackResult = 'complete' | 'retry-pending' | 'stale';
 
-export async function flushBufferedTrack(ctx: CaptureContext): Promise<void> {
-    if (!ctx.trackingState.isTracking || ctx.trackingState.isPaused) return;
-    if (isFlushing) return;
-    isFlushing = true;
-    try {
-        await flushBufferedTrackInner(ctx);
-    } finally {
-        isFlushing = false;
+// Scheduler, heartbeat, and stop can converge on the same buffer. Join the
+// active promise instead of returning early: stop must know when the drain it
+// is relying on has actually finished.
+const activeFlushes = new WeakMap<GpsTrackBuffer, Promise<FlushBufferedTrackResult>>();
+
+// A normal GpsTrackBuffer deliberately caps live samples. A failed durable
+// append is different: those accepted points may not be evicted. If restoring
+// a suffix plus fixes that arrived during the await exceeds the ring capacity,
+// retain the trimmed prefix here and splice it back into the next drain.
+const retryOverflow = new WeakMap<GpsTrackBuffer, CachedPosition[]>();
+
+/**
+ * Atomically take every retained point, including overflow protected after a
+ * prior persistence failure. ShipLogService also uses this for account
+ * handoff so no retry-only prefix remains attached to a replacement owner.
+ */
+export function drainBufferedTrackForHandoff(trackBuffer: GpsTrackBuffer): CachedPosition[] {
+    const overflow = retryOverflow.get(trackBuffer) ?? [];
+    retryOverflow.delete(trackBuffer);
+    return [...overflow, ...trackBuffer.drain()];
+}
+
+function restoreUnprocessedSuffix(trackBuffer: GpsTrackBuffer, suffix: CachedPosition[]): void {
+    if (suffix.length === 0) return;
+
+    // Fixes can arrive while an append awaits Preferences/Supabase. Drain
+    // those first, then restore failed-old before new in one synchronous
+    // transaction so chronology is preserved.
+    const arrivals = trackBuffer.drain();
+    const retained = [...suffix, ...arrivals];
+    for (const point of retained) trackBuffer.push(point);
+
+    const trimmedCount = Math.max(0, retained.length - trackBuffer.length);
+    if (trimmedCount > 0) {
+        retryOverflow.set(trackBuffer, retained.slice(0, trimmedCount));
     }
 }
 
-async function flushBufferedTrackInner(ctx: CaptureContext): Promise<void> {
-    const rawPoints = ctx.trackBuffer.drain();
+async function retainForOwningSession(ctx: CaptureContext, points: CachedPosition[]): Promise<void> {
+    if (points.length === 0) return;
+    if (contextIsCurrent(ctx)) {
+        restoreUnprocessedSuffix(ctx.trackBuffer, points);
+        return;
+    }
+    // Never put A's stale suffix back into the singleton live buffer after B
+    // has taken ownership. The orchestrator persists it under A's scoped
+    // handoff key instead.
+    if (ctx.handoffBufferedPoints) {
+        await ctx.handoffBufferedPoints(points);
+    } else {
+        // Standalone/test consumers without a lifecycle orchestrator still
+        // get at-least-once retention.
+        restoreUnprocessedSuffix(ctx.trackBuffer, points);
+    }
+}
+
+export function flushBufferedTrack(ctx: CaptureContext): Promise<FlushBufferedTrackResult> {
+    if (!contextIsCurrent(ctx) || !ctx.trackingState.isTracking || ctx.trackingState.isPaused) {
+        return Promise.resolve('stale');
+    }
+
+    const active = activeFlushes.get(ctx.trackBuffer);
+    if (active) return active;
+
+    const operation = flushBufferedTrackInner(ctx).finally(() => {
+        if (activeFlushes.get(ctx.trackBuffer) === operation) {
+            activeFlushes.delete(ctx.trackBuffer);
+        }
+    });
+    activeFlushes.set(ctx.trackBuffer, operation);
+    return operation;
+}
+
+async function flushBufferedTrackInner(ctx: CaptureContext): Promise<FlushBufferedTrackResult> {
+    if (!contextIsCurrent(ctx)) return 'stale';
+    const rawPoints = drainBufferedTrackForHandoff(ctx.trackBuffer);
 
     // Empty buffer → fall back to single capture (heartbeat catch-up).
     if (rawPoints.length === 0) {
-        await captureLog(ctx);
-        return;
+        const outcome = await captureLogWithOutcome(ctx);
+        if (outcome.status === 'durability-failed') return 'retry-pending';
+        return outcome.status === 'stale' ? 'stale' : 'complete';
     }
 
     // 2026-05-19: log every raw point — no RDP, no thinTrack. Shane's
@@ -677,7 +829,27 @@ async function flushBufferedTrackInner(ctx: CaptureContext): Promise<void> {
     // points teleported to the flush location (zig-zag). It also left
     // lastBgLocation pinned to a stale replay point after the loop;
     // the live cache now stays live.
-    for (const pos of rawPoints) {
-        await captureLog(ctx, { skipDedup: true, fixOverride: pos });
+    for (let index = 0; index < rawPoints.length; index++) {
+        if (!contextIsCurrent(ctx)) {
+            await retainForOwningSession(ctx, rawPoints.slice(index));
+            return 'stale';
+        }
+
+        const outcome = await captureLogWithOutcome(ctx, {
+            skipDedup: true,
+            fixOverride: rawPoints[index],
+        });
+        if (outcome.status === 'durability-failed') {
+            await retainForOwningSession(ctx, rawPoints.slice(index));
+            return 'retry-pending';
+        }
+        if (outcome.status === 'stale') {
+            await retainForOwningSession(ctx, rawPoints.slice(index));
+            return 'stale';
+        }
+        // saved and deliberately filtered points are both consumed. A
+        // filtered spike/dedup is not a durability failure and must not block
+        // the valid suffix behind it.
     }
+    return 'complete';
 }

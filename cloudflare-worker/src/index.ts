@@ -44,6 +44,18 @@
  *   bidirectional state of the bridge.
  */
 
+import {
+    boundedDeepgramParams,
+    frameByteLength,
+    isProxyTicket,
+    MAX_FRAME_BYTES,
+    MAX_SESSION_MS,
+    MAX_UPSTREAM_BYTES,
+    TICKET_LOOKUP_MS,
+    UPSTREAM_HANDSHAKE_MS,
+    validateClientFrame,
+} from './policy';
+
 export interface Env {
     DEEPGRAM_API_KEY: string;
     SUPABASE_ANON_KEY: string;
@@ -56,8 +68,35 @@ export interface Env {
 // "Fetch API cannot load: wss://..." TypeError immediately.
 const DEEPGRAM_BASE = 'https://api.deepgram.com/v1/listen';
 
-/** Params we consume on the Worker side; everything else forwards to Deepgram. */
-const WORKER_OWN_PARAMS = new Set(['apikey', 'ticket', 'token', 'access_token']);
+async function readBoundedText(response: Response, maxBytes: number): Promise<string | null> {
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxBytes) return null;
+    if (!response.body) return '';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > maxBytes) {
+                await reader.cancel();
+                return null;
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+}
 
 export default {
     async fetch(req: Request, env: Env): Promise<Response> {
@@ -79,29 +118,49 @@ export default {
         if (!env.DEEPGRAM_API_KEY) {
             return new Response('Worker not configured: DEEPGRAM_API_KEY missing', { status: 500 });
         }
-        if (!ticket) return new Response('Unauthorized: missing ticket', { status: 401 });
-        const ticketResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_deepgram_proxy_ticket`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                apikey: env.SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({ p_ticket: ticket }),
-        });
-        const ticketValid = ticketResponse.ok ? ((await ticketResponse.json()) as boolean) : false;
+        if (!isProxyTicket(ticket)) return new Response('Unauthorized', { status: 401 });
+
+        // Validate the complete speech contract before consuming the one-use
+        // ticket. Unknown/duplicate parameters must never become an arbitrary
+        // Deepgram billing surface.
+        const upstreamParams = boundedDeepgramParams(reqUrl);
+        if (!upstreamParams) return new Response('Invalid speech configuration', { status: 400 });
+
+        let supabaseOrigin: string;
+        try {
+            const configured = new URL(env.SUPABASE_URL);
+            if (configured.protocol !== 'https:' || configured.username || configured.password) throw new Error();
+            supabaseOrigin = configured.origin;
+        } catch {
+            return new Response('Worker not configured: invalid Supabase URL', { status: 500 });
+        }
+
+        const ticketAbort = new AbortController();
+        const ticketTimer = setTimeout(() => ticketAbort.abort(), TICKET_LOOKUP_MS);
+        let ticketValid = false;
+        try {
+            const ticketResponse = await fetch(`${supabaseOrigin}/rest/v1/rpc/consume_deepgram_proxy_ticket`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    apikey: env.SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({ p_ticket: ticket }),
+                signal: ticketAbort.signal,
+            });
+            const body = await readBoundedText(ticketResponse, 16);
+            ticketValid = ticketResponse.ok && body?.trim() === 'true';
+        } catch (error) {
+            console.error('[dg-proxy] ticket validation failed', error);
+        } finally {
+            clearTimeout(ticketTimer);
+        }
         if (!ticketValid) {
-            return new Response('Unauthorized: invalid or expired ticket', { status: 401 });
+            return new Response('Unauthorized', { status: 401 });
         }
 
         // ── 3. Build the upstream Deepgram URL ─────────────────────
-        // Forward all client-supplied params (model, encoding, sample_rate,
-        // keywords, endpointing, etc.) verbatim. Strip our own auth params.
-        const upstreamParams = new URLSearchParams();
-        for (const [k, v] of reqUrl.searchParams) {
-            if (WORKER_OWN_PARAMS.has(k)) continue;
-            upstreamParams.append(k, v);
-        }
         const upstreamUrl = `${DEEPGRAM_BASE}?${upstreamParams.toString()}`;
 
         // ── 4. Open the upstream WebSocket via fetch upgrade ───────
@@ -112,32 +171,35 @@ export default {
         // server-side because there's no length-of-subprotocol-value
         // quirk like the WKWebView one.
         let upstreamResponse: Response;
+        const upstreamAbort = new AbortController();
+        const upstreamTimer = setTimeout(() => upstreamAbort.abort(), UPSTREAM_HANDSHAKE_MS);
         try {
             upstreamResponse = await fetch(upstreamUrl, {
                 headers: {
                     Upgrade: 'websocket',
                     'Sec-WebSocket-Protocol': `token, ${env.DEEPGRAM_API_KEY}`,
                 },
+                signal: upstreamAbort.signal,
             });
         } catch (err) {
             const e = err as Error;
             const detail = `${e.name}: ${e.message}`;
             console.error(`[dg-proxy] upstream fetch threw: ${detail}`, e.stack);
-            // Surface the actual error in the response body so the
-            // skipper can see it client-side instead of just "502".
-            return new Response(`Upstream fetch threw: ${detail}\nURL: ${upstreamUrl.slice(0, 200)}`, {
+            return new Response('Voice upstream unavailable', {
                 status: 502,
                 headers: { 'Content-Type': 'text/plain' },
             });
+        } finally {
+            clearTimeout(upstreamTimer);
         }
 
         if (upstreamResponse.status !== 101) {
-            const body = await upstreamResponse.text();
-            console.error(`[dg-proxy] upstream status ${upstreamResponse.status}: ${body.slice(0, 200)}`);
-            return new Response(
-                `Upstream rejected upgrade: HTTP ${upstreamResponse.status}\nBody: ${body.slice(0, 200)}`,
-                { status: 502, headers: { 'Content-Type': 'text/plain' } },
-            );
+            console.error(`[dg-proxy] upstream status ${upstreamResponse.status}`);
+            void upstreamResponse.body?.cancel();
+            return new Response('Voice upstream unavailable', {
+                status: 502,
+                headers: { 'Content-Type': 'text/plain' },
+            });
         }
 
         const upstream = upstreamResponse.webSocket;
@@ -172,120 +234,127 @@ export default {
             console.warn(`[dg-proxy] hello send failed: ${(err as Error).message}`);
         }
 
-        // ── 7. Bridge: client → upstream ───────────────────────────
+        // ── 7. Bounded bridge + lifecycle propagation ─────────────
         let clientChunks = 0;
         let clientBytes = 0;
-        serverSocket.addEventListener('message', (ev) => {
-            clientChunks++;
-            const data = (ev as MessageEvent).data;
-            if (data instanceof ArrayBuffer) {
-                clientBytes += data.byteLength;
-            }
-            // Sample-log so the Worker tail can verify audio is
-            // flowing without spamming on every chunk.
-            if (clientChunks === 1 || clientChunks % 50 === 0) {
-                const dataDesc =
-                    typeof data === 'string'
-                        ? `text:"${(data as string).slice(0, 60)}"`
-                        : data instanceof ArrayBuffer
-                          ? `binary:${data.byteLength}B`
-                          : `unknown:${typeof data}`;
-                console.log(`[dg-proxy] client→upstream chunk #${clientChunks} ${dataDesc}`);
-            }
-            try {
-                upstream.send(data);
-            } catch (err) {
-                console.warn(`[dg-proxy] upstream send failed: ${(err as Error).message}`);
-            }
-        });
-
-        // ── 8. Bridge: upstream → client ───────────────────────────
         let upstreamMessages = 0;
-        upstream.addEventListener('message', (ev) => {
-            upstreamMessages++;
-            const data = (ev as MessageEvent).data;
-            if (upstreamMessages <= 3 || upstreamMessages % 50 === 0) {
-                const preview =
-                    typeof data === 'string' ? data.slice(0, 200) : `<binary ${(data as ArrayBuffer).byteLength}B>`;
-                console.log(`[dg-proxy] upstream→client msg #${upstreamMessages}: ${preview}`);
-            }
-            try {
-                serverSocket.send(data);
-            } catch (err) {
-                console.warn(`[dg-proxy] client send failed: ${(err as Error).message}`);
-            }
-        });
-
-        // ── 9. Lifecycle propagation ───────────────────────────────
-        // Track whether either side has initiated close so we don't
-        // re-propagate (which can keep the Worker alive past actual
-        // session end and trigger Cloudflare's "code hung" error
-        // when the runtime can't tell the session is really done).
+        let upstreamBytes = 0;
         let closing = false;
-        const closeBoth = (initiator: 'client' | 'upstream', ev: CloseEvent): void => {
+        let sessionTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const safeCloseCode = (code: number): number =>
+            code >= 1000 && code <= 4999 && code !== 1005 && code !== 1006 ? code : 1000;
+        const closeBoth = (code: number, reason: string): void => {
             if (closing) return;
             closing = true;
-            const c = ev.code;
-            // RFC 6455: codes <1000, 1005, 1006 can't be sent in a
-            // Close frame. Map to 1000 (normal) since we're explicitly
-            // tearing down rather than reporting an error.
-            const safeCode = c >= 1000 && c !== 1005 && c !== 1006 ? c : 1000;
-            const safeReason = ev.reason || (initiator === 'upstream' ? `upstream closed ${c}` : '');
-            if (initiator === 'upstream') {
-                // Tell client what happened upstream BEFORE we close their side.
+            if (sessionTimer) clearTimeout(sessionTimer);
+            sessionTimer = null;
+            const safeCode = safeCloseCode(code);
+            // A short ASCII reason stays inside the RFC 6455 123-byte cap.
+            const safeReason = reason.replace(/[^\x20-\x7e]/g, '').slice(0, 100);
+            try {
+                serverSocket.close(safeCode, safeReason);
+            } catch {
+                /* already closed */
+            }
+            try {
+                upstream.close(safeCode, safeReason);
+            } catch {
+                /* already closed */
+            }
+        };
+        sessionTimer = setTimeout(() => closeBoth(1000, 'session limit reached'), MAX_SESSION_MS);
+
+        serverSocket.addEventListener('message', (ev) => {
+            if (closing) return;
+            const decision = validateClientFrame((ev as MessageEvent).data, clientBytes);
+            if (!decision.accepted) {
+                closeBoth(decision.closeCode, decision.reason);
+                return;
+            }
+            clientChunks += 1;
+            clientBytes += decision.bytes;
+            if (clientChunks === 1 || clientChunks % 50 === 0) {
+                console.log(
+                    `[dg-proxy] client→upstream chunk #${clientChunks} bytes=${decision.bytes} total=${clientBytes}`,
+                );
+            }
+            try {
+                upstream.send(decision.data);
+            } catch (err) {
+                console.warn(`[dg-proxy] upstream send failed: ${(err as Error).message}`);
+                closeBoth(1011, 'upstream send failed');
+            }
+        });
+
+        upstream.addEventListener('message', (ev) => {
+            if (closing) return;
+            const data = (ev as MessageEvent).data;
+            const bytes = frameByteLength(data);
+            if (bytes == null || bytes > MAX_FRAME_BYTES || upstreamBytes > MAX_UPSTREAM_BYTES - bytes) {
+                closeBoth(1009, 'upstream data limit exceeded');
+                return;
+            }
+            upstreamMessages += 1;
+            upstreamBytes += bytes;
+            if (upstreamMessages <= 3 || upstreamMessages % 50 === 0) {
+                console.log(
+                    `[dg-proxy] upstream→client msg #${upstreamMessages} bytes=${bytes} total=${upstreamBytes}`,
+                );
+            }
+            try {
+                serverSocket.send(data as ArrayBuffer | string);
+            } catch (err) {
+                console.warn(`[dg-proxy] client send failed: ${(err as Error).message}`);
+                closeBoth(1011, 'client send failed');
+            }
+        });
+
+        upstream.addEventListener('close', (ev) => {
+            const closeEv = ev as CloseEvent;
+            console.log(
+                `[dg-proxy] upstream closed code=${closeEv.code} | session: ` +
+                    `client→upstream chunks=${clientChunks} bytes=${clientBytes}, ` +
+                    `upstream→client msgs=${upstreamMessages} bytes=${upstreamBytes}`,
+            );
+            if (!closing) {
                 try {
                     serverSocket.send(
                         JSON.stringify({
                             type: 'UpstreamClose',
-                            code: c,
-                            reason: ev.reason || '',
+                            code: closeEv.code,
+                            reason: closeEv.reason.slice(0, 120),
                             ts: Date.now(),
                         }),
                     );
                 } catch {
                     /* client may already be closed */
                 }
-                try {
-                    serverSocket.close(safeCode, safeReason);
-                } catch {
-                    /* ignore */
-                }
-            } else {
-                try {
-                    upstream.close(safeCode, safeReason);
-                } catch {
-                    /* ignore */
-                }
             }
-        };
-
-        upstream.addEventListener('close', (ev) => {
-            const closeEv = ev as CloseEvent;
-            console.log(
-                `[dg-proxy] upstream closed code=${closeEv.code} reason="${closeEv.reason}" | session: ` +
-                    `client→upstream chunks=${clientChunks} bytes=${clientBytes}, ` +
-                    `upstream→client msgs=${upstreamMessages}`,
-            );
-            closeBoth('upstream', closeEv);
+            closeBoth(closeEv.code, 'upstream closed');
         });
 
         upstream.addEventListener('error', () => {
             console.error('[dg-proxy] upstream error');
-            try {
-                serverSocket.send(JSON.stringify({ type: 'UpstreamError', ts: Date.now() }));
-            } catch {
-                /* ignore */
+            if (!closing) {
+                try {
+                    serverSocket.send(JSON.stringify({ type: 'UpstreamError', ts: Date.now() }));
+                } catch {
+                    /* ignore */
+                }
             }
+            closeBoth(1011, 'upstream error');
         });
 
         serverSocket.addEventListener('close', (ev) => {
             const closeEv = ev as CloseEvent;
             console.log(`[dg-proxy] client closed code=${closeEv.code}`);
-            closeBoth('client', closeEv);
+            closeBoth(closeEv.code, 'client closed');
         });
 
         serverSocket.addEventListener('error', () => {
             console.error('[dg-proxy] client error');
+            closeBoth(1011, 'client error');
         });
 
         // ── 10. Return the client end of the pair to the caller ────

@@ -874,7 +874,6 @@ class PiCacheServiceImpl {
         > | null;
         const supabaseUrl = envSrc?.VITE_SUPABASE_URL || '';
         const supabaseAnonKey = envSrc?.VITE_SUPABASE_ANON_KEY || envSrc?.VITE_SUPABASE_KEY || '';
-        const openMeteoApiKey = envSrc?.VITE_OPEN_METEO_API_KEY || '';
 
         if (!supabaseUrl || !supabaseAnonKey) {
             log.warn(
@@ -888,7 +887,6 @@ class PiCacheServiceImpl {
         const ok = await this.pushConfig({
             supabaseUrl,
             supabaseAnonKey,
-            openMeteoApiKey: openMeteoApiKey || undefined,
             prefetchLat: loc.lat,
             prefetchLon: loc.lon,
             prefetchRadius: 5,
@@ -908,7 +906,6 @@ class PiCacheServiceImpl {
     async pushConfig(config: {
         supabaseUrl: string;
         supabaseAnonKey: string;
-        openMeteoApiKey?: string;
         prefetchLat?: number;
         prefetchLon?: number;
         prefetchRadius?: number;

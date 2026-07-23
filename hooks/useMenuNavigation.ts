@@ -18,8 +18,8 @@ const MENU_ITEM_SELECTOR = '[role="menuitem"]:not([disabled])';
 export function useMenuNavigation<T extends HTMLElement = HTMLDivElement>(
     isOpen: boolean,
     options: MenuNavigationOptions,
-): RefObject<T | null> {
-    const menuRef = useRef<T | null>(null);
+): RefObject<T> {
+    const menuRef = useRef<T>(null);
     const optionsRef = useRef(options);
     optionsRef.current = options;
 

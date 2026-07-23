@@ -5,6 +5,7 @@
 import React from 'react';
 import { ChatChannel } from '../../services/ChatService';
 import { useTheme } from '../../context/ThemeContext';
+import { SafeImage } from '../ui/SafeImage';
 
 type ChatView =
     | 'channels'
@@ -114,7 +115,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 >
                                     <div className="w-full h-full rounded-xl overflow-hidden">
                                         {myAvatarUrl ? (
-                                            <img
+                                            <SafeImage
                                                 src={myAvatarUrl}
                                                 loading="lazy"
                                                 alt=""

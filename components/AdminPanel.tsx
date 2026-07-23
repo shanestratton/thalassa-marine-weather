@@ -16,6 +16,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { toast } from './Toast';
+import { SafeImage } from './ui/SafeImage';
 
 // ── Types ──
 
@@ -413,7 +414,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                         >
                                             <div className="flex items-center gap-2.5">
                                                 {req.avatar_url ? (
-                                                    <img
+                                                    <SafeImage
                                                         src={req.avatar_url}
                                                         className="w-9 h-9 rounded-full object-cover border border-white/10"
                                                         alt={`${req.display_name} avatar`}
@@ -491,7 +492,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                 className="w-full px-3.5 py-3.5 flex items-center gap-3 text-left min-h-[56px]"
                                             >
                                                 {user.avatar_url ? (
-                                                    <img
+                                                    <SafeImage
                                                         src={user.avatar_url}
                                                         className="w-10 h-10 rounded-full object-cover border border-white/10"
                                                         alt=""

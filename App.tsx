@@ -14,9 +14,6 @@ import { LocationStarMenu } from './components/LocationStarMenu';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
-// FollowRouteBadge unmounted 2026-05-19 — stop-following lives in the
-// SystemStatusButton i-card now. See comment block in JSX below for
-// the rationale.
 import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
@@ -35,6 +32,7 @@ import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
 import { TIER_INFO } from './services/SubscriptionService';
+import { SafeImage } from './components/ui/SafeImage';
 
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
@@ -417,38 +415,19 @@ const App: React.FC = () => {
             </Suspense>
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
-            {/* Active-route banner removed 2026-05-19 — it floated
-                above EVERY tab and ate prime screen real estate even
-                when the user wasn't looking at the chart. The Stop-
-                Following control lives in the SystemStatusButton ("i"
-                card) on every page, with the same confirmation modal,
-                so users can still kill an active follow from anywhere
-                — they just open the i-card instead of dismissing a
-                always-on banner. Active-route state remains visible
-                in the i-card's "Following Route" row.
-
-                Keeping the mount commented (not deleted) so the next
-                person investigating "where did the banner go" can see
-                the rationale. The component itself stays exported in
-                case we want to revive it in a less aggressive form
-                (e.g. only on the chart tab) later.
-
-                <div
-                    className="fixed left-0 right-0 z-[900] pointer-events-none"
-                    style={{ top: 'calc(env(safe-area-inset-top) + 80px)' }}
-                >
-                    <div className="pointer-events-auto">
-                        <FollowRouteBadge />
-                    </div>
-                </div>
-            */}
+            {/* Active-route status and stop controls live in SystemStatusButton
+                instead of consuming fixed space above every tab. */}
 
             {/* BACKGROUND */}
             {showBackgroundImage ? (
-                <div
-                    className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 transform scale-105"
-                    style={{ backgroundImage: `url(${bgImage})` }}
-                >
+                <div className="absolute inset-0 z-0 overflow-hidden">
+                    <SafeImage
+                        src={bgImage}
+                        alt=""
+                        aria-hidden="true"
+                        loading="eager"
+                        className="absolute inset-0 h-full w-full scale-105 object-cover transition-all duration-1000"
+                    />
                     <div className="absolute inset-0 bg-black/30"></div>
                     <div className="absolute inset-0 bg-gradient-to-b from-slate-900/90 via-slate-900/40 to-slate-900/90"></div>
                 </div>
@@ -462,7 +441,7 @@ const App: React.FC = () => {
             </Suspense>
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
-                {/* The full-width strip ConnectivityBanner used to live here.
+                {/* The retired full-width connectivity strip used to live here.
                     Removed 2026-05-08 — three concrete problems it was causing:
                       (a) On Dashboard, the strip took ~70px of flex flow,
                           which pushed `<main>`'s PageTransition wrapper down.
@@ -482,8 +461,7 @@ const App: React.FC = () => {
                     Replaced with a small wifi-slash icon next to the "The
                     Sailor's Assistant" subtitle (see header below) and a
                     matching tiny chip on the map page. The map's floating
-                    `<ConnectivityBanner variant="floating" />` is also
-                    removed (see map block lower in this file). */}
+                    equivalent was removed at the same time. */}
 
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />

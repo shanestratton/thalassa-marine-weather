@@ -12,7 +12,6 @@
  * Yacht database selection has moved to VesselTab (Settings → Vessel Profile).
  */
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import type { PolarData } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { PolarChart } from './PolarChart';
@@ -22,6 +21,7 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { OverlayPortal } from '../ui/OverlayPortal';
 import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon } from '../Icons';
 
 type InputTab = 'import' | 'manual';
@@ -256,101 +256,99 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             {/* ═══════════════════════════════════════════ */}
             {/* ADVANCED POLAR INPUT — Overlay Card        */}
             {/* ═══════════════════════════════════════════ */}
-            {showAdvancedInput &&
-                createPortal(
+            {showAdvancedInput && (
+                <OverlayPortal
+                    className="flex items-center justify-center p-4 bg-black/70"
+                    onClick={() => setShowAdvancedInput(false)}
+                    role="presentation"
+                >
                     <div
-                        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70"
-                        onClick={() => setShowAdvancedInput(false)}
-                        role="presentation"
+                        ref={advancedDialogRef}
+                        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-white/10 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={advancedTitleId}
                     >
-                        <div
-                            ref={advancedDialogRef}
-                            className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-white/10 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
-                            onClick={(e) => e.stopPropagation()}
-                            role="dialog"
-                            aria-modal="true"
-                            aria-labelledby={advancedTitleId}
-                        >
-                            {/* Header */}
-                            <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 rounded-t-2xl">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-1 h-4 rounded-full bg-sky-500" />
-                                    <h2
-                                        id={advancedTitleId}
-                                        className="text-sm font-bold text-white uppercase tracking-wider"
-                                    >
-                                        Advanced Polar Input
-                                    </h2>
-                                </div>
-                                <button
-                                    type="button"
-                                    ref={advancedCloseRef}
-                                    onClick={() => setShowAdvancedInput(false)}
-                                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
-                                    aria-label="Close advanced polar input"
+                        {/* Header */}
+                        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 rounded-t-2xl">
+                            <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 rounded-full bg-sky-500" />
+                                <h2
+                                    id={advancedTitleId}
+                                    className="text-sm font-bold text-white uppercase tracking-wider"
                                 >
-                                    <svg
-                                        className="w-5 h-5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                        aria-hidden="true"
-                                    >
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
+                                    Advanced Polar Input
+                                </h2>
                             </div>
-
-                            {/* Content */}
-                            <div className="p-4">
-                                {/* Tab Switcher */}
-                                <div
-                                    className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6"
-                                    role="group"
-                                    aria-label="Polar input method"
+                            <button
+                                type="button"
+                                ref={advancedCloseRef}
+                                onClick={() => setShowAdvancedInput(false)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                                aria-label="Close advanced polar input"
+                            >
+                                <svg
+                                    className="w-5 h-5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                    aria-hidden="true"
                                 >
-                                    {(['import', 'manual'] as InputTab[]).map((tab) => (
-                                        <button
-                                            type="button"
-                                            key={tab}
-                                            onClick={() => setActiveTab(tab)}
-                                            aria-pressed={activeTab === tab}
-                                            className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 ${
-                                                activeTab === tab
-                                                    ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/30'
-                                                    : 'text-gray-400 hover:text-white'
-                                            }`}
-                                        >
-                                            {tab === 'import' ? (
-                                                <DownloadIcon className="w-4 h-4" />
-                                            ) : (
-                                                <EditIcon className="w-4 h-4" />
-                                            )}
-                                            <span>{tab === 'import' ? 'Import' : 'Manual'}</span>
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {activeTab === 'import' && (
-                                    <ImportTab
-                                        onImport={(data, filename) => {
-                                            updatePolar(data, filename, 'file_import');
-                                            setShowAdvancedInput(false);
-                                        }}
-                                    />
-                                )}
-                                {activeTab === 'manual' && (
-                                    <ManualTab
-                                        polarData={polarData}
-                                        onChange={(data) => updatePolar(data, boatModel, 'manual')}
-                                    />
-                                )}
-                            </div>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
                         </div>
-                    </div>,
-                    document.body,
-                )}
+
+                        {/* Content */}
+                        <div className="p-4">
+                            {/* Tab Switcher */}
+                            <div
+                                className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6"
+                                role="group"
+                                aria-label="Polar input method"
+                            >
+                                {(['import', 'manual'] as InputTab[]).map((tab) => (
+                                    <button
+                                        type="button"
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        aria-pressed={activeTab === tab}
+                                        className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 ${
+                                            activeTab === tab
+                                                ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/30'
+                                                : 'text-gray-400 hover:text-white'
+                                        }`}
+                                    >
+                                        {tab === 'import' ? (
+                                            <DownloadIcon className="w-4 h-4" />
+                                        ) : (
+                                            <EditIcon className="w-4 h-4" />
+                                        )}
+                                        <span>{tab === 'import' ? 'Import' : 'Manual'}</span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {activeTab === 'import' && (
+                                <ImportTab
+                                    onImport={(data, filename) => {
+                                        updatePolar(data, filename, 'file_import');
+                                        setShowAdvancedInput(false);
+                                    }}
+                                />
+                            )}
+                            {activeTab === 'manual' && (
+                                <ManualTab
+                                    polarData={polarData}
+                                    onChange={(data) => updatePolar(data, boatModel, 'manual')}
+                                />
+                            )}
+                        </div>
+                    </div>
+                </OverlayPortal>
+            )}
 
             {/* Reset Smart Polar confirmation dialog */}
             <ConfirmDialog

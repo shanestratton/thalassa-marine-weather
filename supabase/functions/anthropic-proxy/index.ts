@@ -5,6 +5,7 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { readResponseTextLimited } from '../_shared/http-security.ts';
 
 /**
  * anthropic-proxy — thin pass-through to api.anthropic.com/v1/messages.
@@ -90,8 +91,9 @@ Deno.serve(async (req: Request) => {
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) {
-        return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }), {
-            status: 500,
+        console.error('[anthropic-proxy] ANTHROPIC_API_KEY is not configured');
+        return new Response(JSON.stringify({ error: 'AI service is not configured' }), {
+            status: 503,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });
     }
@@ -99,7 +101,7 @@ Deno.serve(async (req: Request) => {
     // Read the body verbatim — we don't parse or modify the Anthropic
     // request shape. The client owns it.
     const bodyText = await req.text();
-    if (!bodyText || bodyText.length > 250_000) {
+    if (!bodyText || new TextEncoder().encode(bodyText).byteLength > 250_000) {
         return new Response(JSON.stringify({ error: 'empty body' }), {
             status: 400,
             headers: { ...CORS, 'Content-Type': 'application/json' },
@@ -149,10 +151,7 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
         clearTimeout(watchdog);
         const e = err as Error;
-        const message =
-            e.name === 'AbortError'
-                ? `Anthropic request timed out after ${Math.round(ANTHROPIC_TIMEOUT_MS / 1000)}s`
-                : `Anthropic upstream error: ${e.message}`;
+        const message = e.name === 'AbortError' ? 'Anthropic request timed out' : 'Anthropic upstream request failed';
         console.error('[anthropic-proxy]', message);
         return new Response(JSON.stringify({ error: message }), {
             status: 502,
@@ -162,7 +161,14 @@ Deno.serve(async (req: Request) => {
         clearTimeout(watchdog);
     }
 
-    const responseText = await upstream.text();
+    const responseText = await readResponseTextLimited(upstream, 2_000_000);
+    if (responseText === null) {
+        console.error('[anthropic-proxy] Upstream response exceeded the byte limit');
+        return new Response(JSON.stringify({ error: 'AI response exceeded the safety limit' }), {
+            status: 502,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
     const ms = Date.now() - t0;
 
     // Parse just enough to log usage. Don't fail the call if parsing

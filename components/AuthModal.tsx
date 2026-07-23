@@ -5,6 +5,7 @@ import { getErrorMessage } from '../utils/createLogger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { Capacitor } from '@capacitor/core';
+import { OverlayPortal, type OverlayLayer } from './ui/OverlayPortal';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -13,6 +14,7 @@ const log = createLogger('AuthModal');
 interface AuthModalProps {
     isOpen: boolean;
     onClose: () => void;
+    layer?: OverlayLayer;
 }
 
 type AuthStep = 'input' | 'otp' | 'success';
@@ -24,7 +26,7 @@ const sanitizeEmail = (raw: string): string =>
         .trim()
         .toLowerCase();
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = 'modal' }) => {
     const [step, setStep] = useState<AuthStep>('input');
     const [email, setEmail] = useState('');
     const [otp, setOtp] = useState('');
@@ -284,8 +286,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     };
 
     return (
-        <div
-            className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+        <OverlayPortal
+            layer={layer}
+            className="flex items-center justify-center p-4"
             style={{
                 // Shift the entire flex container up by the keyboard height
                 // so the centered modal sits in the visible portion of the screen
@@ -333,7 +336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             <LockIcon className="w-8 h-8 text-sky-400" />
                         </div>
 
-                        <h2 className="text-2xl font-bold text-white mb-2">
+                        <h2 id="auth-title" className="text-2xl font-bold text-white mb-2">
                             {step === 'success' ? 'Welcome Aboard!' : 'Sync Your Logs'}
                         </h2>
                         <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
@@ -488,6 +491,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     </div>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

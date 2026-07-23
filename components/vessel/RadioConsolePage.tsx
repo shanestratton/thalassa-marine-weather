@@ -17,6 +17,7 @@ import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
 import { GearIcon } from '../Icons';
+import { authScopedStorageKey } from '../../services/authIdentityScope';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -223,11 +224,12 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     // Honour an incoming "distress-mob" intent from MobPage
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        const intent = localStorage.getItem('thalassa_dsc_intent');
+        const intentKey = authScopedStorageKey('thalassa_dsc_intent');
+        const intent = localStorage.getItem(intentKey);
         if (intent === 'distress-mob') {
             setDscMode('distress');
             setNatureOfDistress('mob');
-            localStorage.removeItem('thalassa_dsc_intent');
+            localStorage.removeItem(intentKey);
         }
     }, []);
 
@@ -439,7 +441,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                     {!callSign && !mmsi && !rego && (
                         <button
                             onClick={() => {
-                                localStorage.setItem('thalassa_settings_return_to', 'radio');
+                                localStorage.setItem(authScopedStorageKey('thalassa_settings_return_to'), 'radio');
                                 onNavigate?.('settings');
                             }}
                             className="px-2.5 py-1 rounded-md bg-white/[0.02] border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"

@@ -34,6 +34,7 @@ import {
 import { isMusicEngaged, subscribeMusicEngagement } from '../../services/musicEngagement';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
+import { SafeImage } from '../ui/SafeImage';
 
 const EMPTY_NOW_PLAYING: NowPlaying = {
     title: '',
@@ -249,11 +250,17 @@ export const GlobalNowPlayingBar: React.FC = () => {
         >
             {/* Artwork */}
             {artwork ? (
-                <img
+                <SafeImage
                     src={artwork}
                     alt=""
                     className="w-10 h-10 rounded-lg object-cover shrink-0"
+                    loading="eager"
                     onError={() => setImageFailed(true)}
+                    fallback={
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500/30 to-cyan-500/20 shrink-0 flex items-center justify-center">
+                            <span className="text-base">🎵</span>
+                        </div>
+                    }
                 />
             ) : (
                 <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500/30 to-cyan-500/20 shrink-0 flex items-center justify-center">

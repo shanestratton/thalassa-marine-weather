@@ -21,10 +21,13 @@ import {
     updateRates,
     getRatesAge,
 } from '../services/GlobalUnitService';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
 describe('GlobalUnitService', () => {
     beforeEach(() => {
         localStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('account-a');
     });
 
     // ── Currency ─────────────────────────
@@ -232,6 +235,21 @@ describe('GlobalUnitService', () => {
             const prefs = getUnitPreferences();
             expect(prefs.currency).toBe('EUR');
             expect(prefs.unitSystem).toBe('metric'); // unchanged
+        });
+
+        it('keeps preferences isolated across accounts and ignores the legacy global key', () => {
+            localStorage.setItem('thalassa_unit_prefs', JSON.stringify({ currency: 'GBP', unitSystem: 'imperial' }));
+            setUnitPreferences({ currency: 'USD', unitSystem: 'imperial' });
+            expect(localStorage.getItem(authScopedStorageKey('thalassa_unit_prefs'))).toContain('"USD"');
+
+            setAuthIdentityScope('account-b');
+            expect(getUnitPreferences()).toEqual({ currency: 'AUD', unitSystem: 'metric' });
+            setUnitPreferences({ currency: 'EUR' });
+
+            setAuthIdentityScope('account-a');
+            expect(getUnitPreferences()).toEqual({ currency: 'USD', unitSystem: 'imperial' });
+            setAuthIdentityScope('account-b');
+            expect(getUnitPreferences()).toEqual({ currency: 'EUR', unitSystem: 'metric' });
         });
     });
 

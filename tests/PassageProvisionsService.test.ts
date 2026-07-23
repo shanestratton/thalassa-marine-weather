@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { findStoreMatch, setAlias, removeAlias, getAllAliases } from '../services/PassageProvisionsService';
 import type { StoresItem } from '../types';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -95,6 +96,8 @@ describe('findStoreMatch', () => {
 describe('Alias management', () => {
     beforeEach(() => {
         localStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('account-a');
     });
 
     it('sets and retrieves an alias', () => {
@@ -127,5 +130,20 @@ describe('Alias management', () => {
 
     it('returns empty object when no aliases set', () => {
         expect(getAllAliases()).toEqual({});
+    });
+
+    it('isolates learned mappings by account and ignores the legacy global map', () => {
+        localStorage.setItem('thalassa_ingredient_aliases', JSON.stringify({ legacy: 's5' }));
+        setAlias('coriander', 's1');
+
+        setAuthIdentityScope('account-b');
+        expect(getAllAliases()).toEqual({});
+        setAlias('coriander', 's2');
+
+        setAuthIdentityScope('account-a');
+        expect(getAllAliases()).toEqual({ coriander: 's1' });
+        setAuthIdentityScope('account-b');
+        expect(getAllAliases()).toEqual({ coriander: 's2' });
+        expect(getAllAliases()).not.toHaveProperty('legacy');
     });
 });

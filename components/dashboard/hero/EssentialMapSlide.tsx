@@ -11,6 +11,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { UnitPreferences } from '../../../types';
 import { convertSpeed, degreesToCardinal } from '../../../utils';
 import { piCache } from '../../../services/PiCacheService';
+import { SafeImage } from '../../ui/SafeImage';
 
 interface EssentialMapSlideProps {
     slideIdx: number;
@@ -62,6 +63,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     useEffect(() => {
         if (!staticUrl) return;
         const img = new Image();
+        img.referrerPolicy = 'no-referrer';
         img.onload = () => setMapLoaded(true);
         img.src = staticUrl;
     }, [staticUrl]);
@@ -232,7 +234,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
             >
                 {/* Layer 1: Dark basemap — fades in progressively when loaded */}
                 {staticUrl && (
-                    <img
+                    <SafeImage
                         src={staticUrl}
                         alt="Location map"
                         className="absolute inset-0 w-full h-full"
@@ -274,9 +276,10 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                                         : `https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`;
                                                     const src = piCache.passthroughTileUrl(directSrc) || directSrc;
                                                     return (
-                                                        <img
+                                                        <SafeImage
                                                             key={`${frameKey}-${t.key}`}
                                                             src={src}
+                                                            allowLocalNetworkHttp
                                                             alt=""
                                                             className="absolute"
                                                             style={{

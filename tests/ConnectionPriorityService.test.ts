@@ -1,7 +1,7 @@
 /**
  * ConnectionPriorityService — network-aware throttling tests
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // We must re-import after each test module reset because
 // the module has top-level state.
@@ -14,6 +14,12 @@ describe('ConnectionPriorityService', () => {
         Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
         (navigator as any).connection = undefined;
         mod = await import('../services/ConnectionPriorityService');
+    });
+
+    afterEach(() => {
+        mod.stopConnectionMonitor();
+        vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
     describe('getConnectionState', () => {
@@ -101,6 +107,110 @@ describe('ConnectionPriorityService', () => {
             unsub();
             mod.forceSatelliteMode(true);
             expect(cb).not.toHaveBeenCalled();
+        });
+
+        it('lazily monitors while subscribed and tears down after the final unsubscribe', () => {
+            vi.useFakeTimers();
+            const addSpy = vi.spyOn(window, 'addEventListener');
+            const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+            const unsubscribeFirst = mod.onConnectionChange(vi.fn());
+            const unsubscribeSecond = mod.onConnectionChange(vi.fn());
+
+            expect(addSpy.mock.calls.filter(([event]) => event === 'online')).toHaveLength(1);
+            expect(vi.getTimerCount()).toBe(1);
+            unsubscribeFirst();
+            expect(vi.getTimerCount()).toBe(1);
+            unsubscribeSecond();
+            expect(removeSpy.mock.calls.filter(([event]) => event === 'online')).toHaveLength(1);
+            expect(vi.getTimerCount()).toBe(0);
+        });
+    });
+
+    describe('connection monitoring lifecycle', () => {
+        it('starts once and tears down the exact listeners and poller once', () => {
+            vi.useFakeTimers();
+            const connection = new EventTarget();
+            const connectionAddSpy = vi.spyOn(connection, 'addEventListener');
+            const connectionRemoveSpy = vi.spyOn(connection, 'removeEventListener');
+            Object.assign(connection, { effectiveType: '4g', downlink: 10, saveData: false });
+            Object.defineProperty(navigator, 'connection', {
+                value: connection,
+                writable: true,
+                configurable: true,
+            });
+            const windowAddSpy = vi.spyOn(window, 'addEventListener');
+            const windowRemoveSpy = vi.spyOn(window, 'removeEventListener');
+
+            mod.startConnectionMonitor();
+            mod.startConnectionMonitor();
+
+            expect(windowAddSpy.mock.calls.filter(([event]) => event === 'online')).toHaveLength(1);
+            expect(windowAddSpy.mock.calls.filter(([event]) => event === 'offline')).toHaveLength(1);
+            expect(connectionAddSpy).toHaveBeenCalledTimes(1);
+            expect(vi.getTimerCount()).toBe(1);
+
+            mod.stopConnectionMonitor();
+            mod.stopConnectionMonitor();
+
+            expect(windowRemoveSpy.mock.calls.filter(([event]) => event === 'online')).toHaveLength(1);
+            expect(windowRemoveSpy.mock.calls.filter(([event]) => event === 'offline')).toHaveLength(1);
+            expect(connectionRemoveSpy).toHaveBeenCalledTimes(1);
+            expect(vi.getTimerCount()).toBe(0);
+        });
+
+        it('treats a zero-downlink connection as satellite instead of defaulting to broadband', () => {
+            const connection = new EventTarget();
+            Object.assign(connection, {
+                effectiveType: 'slow-2g',
+                downlink: 0,
+                saveData: false,
+            });
+            Object.defineProperty(navigator, 'connection', {
+                value: connection,
+                writable: true,
+                configurable: true,
+            });
+
+            mod.forceSatelliteMode(false);
+
+            expect(mod.getConnectionState()).toMatchObject({
+                quality: 'low',
+                type: 'satellite',
+                effectiveDownlink: 0,
+            });
+        });
+
+        it('keeps the explicit satellite override active across monitor refreshes', () => {
+            vi.useFakeTimers();
+            mod.forceSatelliteMode(true);
+
+            mod.startConnectionMonitor();
+            vi.advanceTimersByTime(60_000);
+
+            expect(mod.getConnectionState()).toMatchObject({
+                quality: 'low',
+                type: 'satellite',
+                saveData: true,
+            });
+        });
+
+        it('notifies listeners when save-data or downlink changes without a type change', () => {
+            const connection = new EventTarget();
+            Object.assign(connection, { effectiveType: '4g', downlink: 10, saveData: false });
+            Object.defineProperty(navigator, 'connection', {
+                value: connection,
+                writable: true,
+                configurable: true,
+            });
+            mod.forceSatelliteMode(false);
+            const listener = vi.fn();
+            mod.onConnectionChange(listener);
+            Object.assign(connection, { downlink: 8, saveData: true });
+
+            connection.dispatchEvent(new Event('change'));
+
+            expect(listener).toHaveBeenCalledWith(expect.objectContaining({ effectiveDownlink: 8, saveData: true }));
         });
     });
 

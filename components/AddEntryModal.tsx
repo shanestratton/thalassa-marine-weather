@@ -3,7 +3,7 @@
  * IMO-compliant with event categories and watch period display
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('AddEntryModal');
@@ -13,7 +13,14 @@ import { useFocusTrap } from '../hooks/useAccessibility';
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { GpsService } from '../services/GpsService';
 import { toast } from './Toast';
+import { OverlayPortal } from './ui/OverlayPortal';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 import {
     EyeIcon,
     CompassIcon,
@@ -60,6 +67,9 @@ interface AddEntryModalProps {
     selectedVoyageId?: string | null;
 }
 
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
 export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onSuccess, selectedVoyageId }) => {
     const [notes, setNotes] = useState('');
     const [waypointName, setWaypointName] = useState('');
@@ -69,6 +79,60 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     const [fetchingPos, setFetchingPos] = useState(false);
     const [listening, setListening] = useState(false);
     const [polishing, setPolishing] = useState(false);
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    const openOwnerRef = useRef<AuthIdentityScope | null>(isOpen ? identityScope : null);
+    const recognitionRef = useRef<{ abort?: () => void } | null>(null);
+
+    if (!isOpen) {
+        openOwnerRef.current = null;
+    } else if (!openOwnerRef.current) {
+        openOwnerRef.current = identityScope;
+    }
+    const openOwner = openOwnerRef.current;
+    const openBelongsToCurrentIdentity =
+        openOwner !== null &&
+        openOwner.key === identityScope.key &&
+        openOwner.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(openOwner);
+
+    useEffect(() => {
+        // Stop microphone capture at the security boundary itself. The render
+        // gate below already hides A's form synchronously; this listener also
+        // prevents the physical speech recognizer lingering until React runs
+        // its effect cleanup.
+        return subscribeAuthIdentityScope(() => {
+            recognitionRef.current?.abort?.();
+            recognitionRef.current = null;
+        });
+    }, []);
+
+    useEffect(() => {
+        if (isOpen && openOwner && !isAuthIdentityScopeCurrent(openOwner)) {
+            setNotes('');
+            setWaypointName('');
+            setIsWaypoint(false);
+            setEventCategory('observation');
+            setSaving(false);
+            setFetchingPos(false);
+            setListening(false);
+            setPolishing(false);
+            onClose();
+        }
+    }, [identityScope, isOpen, onClose, openOwner]);
+
+    useEffect(() => {
+        if (isOpen) return;
+        recognitionRef.current?.abort?.();
+        recognitionRef.current = null;
+        setNotes('');
+        setWaypointName('');
+        setIsWaypoint(false);
+        setEventCategory('observation');
+        setSaving(false);
+        setFetchingPos(false);
+        setListening(false);
+        setPolishing(false);
+    }, [isOpen]);
 
     // Current watch info
     const now = new Date();
@@ -78,10 +142,12 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     // MUST be called before any early returns (Rules of Hooks)
     const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
 
-    if (!isOpen) return null;
+    if (!isOpen || !openBelongsToCurrentIdentity) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        const actionScope = openOwnerRef.current;
+        if (!actionScope || !isAuthIdentityScopeCurrent(actionScope)) return;
 
         if (!notes.trim() && !isWaypoint) {
             toast.error('Please enter notes or create a waypoint');
@@ -98,17 +164,20 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
             const trimmedNotes = notes.trim();
             const trimmedWaypoint = isWaypoint ? waypointName.trim() : undefined;
 
-            await ShipLogService.addManualEntry(
+            const entry = await ShipLogService.addManualEntry(
                 trimmedNotes || undefined,
                 trimmedWaypoint,
                 eventCategory,
                 undefined, // engineStatus
                 selectedVoyageId || undefined, // Add to selected voyage if available
             );
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (!entry) throw new Error('Log entry was not saved');
 
             // Auto-create a Repair task in R&M when event type is Repair
             if (eventCategory === 'equipment' && trimmedNotes) {
                 try {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     await LocalMaintenanceService.createTask({
                         title: trimmedNotes.slice(0, 80), // Use notes as task title (truncated)
                         description: trimmedNotes.length > 80 ? trimmedNotes : null,
@@ -121,12 +190,15 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         last_completed: null,
                         is_active: true,
                     });
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     toast.success('Repair task added to R&M');
                 } catch (err) {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     log.error('[AddEntry] Failed to create repair task:', err);
                 }
             }
 
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             setNotes('');
             setWaypointName('');
             setIsWaypoint(false);
@@ -134,15 +206,17 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
             onSuccess();
             onClose();
         } catch (error) {
-            toast.error('Failed to add entry. Please try again.');
+            if (isAuthIdentityScopeCurrent(actionScope)) {
+                toast.error('Failed to add entry. Please try again.');
+            }
         } finally {
-            setSaving(false);
+            if (isAuthIdentityScopeCurrent(actionScope)) setSaving(false);
         }
     };
 
     return (
-        <div
-            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80"
+        <OverlayPortal
+            className="flex items-end justify-center bg-black/80"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
@@ -256,12 +330,15 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             type="button"
                             disabled={fetchingPos}
                             onClick={async () => {
+                                const actionScope = openOwnerRef.current;
+                                if (!actionScope || !isAuthIdentityScopeCurrent(actionScope)) return;
                                 setFetchingPos(true);
                                 try {
                                     const pos = await GpsService.getCurrentPosition({
                                         staleLimitMs: 30_000,
                                         timeoutSec: 10,
                                     });
+                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                                     if (!pos) throw new Error('No position');
                                     const lat = pos.latitude;
                                     const lon = pos.longitude;
@@ -273,9 +350,11 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                     );
                                     toast.success('Position added');
                                 } catch (e) {
-                                    toast.error('Could not get position');
+                                    if (isAuthIdentityScopeCurrent(actionScope)) {
+                                        toast.error('Could not get position');
+                                    }
                                 } finally {
-                                    setFetchingPos(false);
+                                    if (isAuthIdentityScopeCurrent(actionScope)) setFetchingPos(false);
                                 }
                             }}
                             className="flex-[2] flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-800 border border-white/10 rounded-lg text-sm font-bold transition-colors hover:bg-slate-700 active:scale-[0.97] disabled:opacity-50"
@@ -310,6 +389,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             aria-label="SR"
                             type="button"
                             onClick={() => {
+                                const actionScope = openOwnerRef.current;
+                                if (!actionScope || !isAuthIdentityScopeCurrent(actionScope)) return;
                                 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
                                 if (!SR) {
                                     toast.error('Speech recognition not supported');
@@ -317,6 +398,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                 }
                                 if (listening) return;
                                 const recognition = new SR();
+                                recognitionRef.current = recognition;
                                 recognition.lang = 'en-AU';
                                 recognition.interimResults = false;
                                 recognition.maxAlternatives = 1;
@@ -325,14 +407,20 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                 recognition.onresult = (event: {
                                     results: { length: number; 0: { 0: { transcript: string } } };
                                 }) => {
+                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                                     const transcript = event.results[0][0].transcript;
                                     setNotes((prev) => (prev ? `${prev} ${transcript}` : transcript));
                                     toast.success('Voice captured');
                                 };
                                 recognition.onerror = () => {
-                                    toast.error('Voice capture failed');
+                                    if (isAuthIdentityScopeCurrent(actionScope)) {
+                                        toast.error('Voice capture failed');
+                                    }
                                 };
-                                recognition.onend = () => setListening(false);
+                                recognition.onend = () => {
+                                    if (recognitionRef.current === recognition) recognitionRef.current = null;
+                                    if (isAuthIdentityScopeCurrent(actionScope)) setListening(false);
+                                };
                                 recognition.start();
                             }}
                             className={`flex-1 flex items-center justify-center px-2 py-2.5 border rounded-lg text-sm font-bold transition-colors active:scale-[0.97] ${
@@ -362,6 +450,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             type="button"
                             disabled={polishing || !notes.trim()}
                             onClick={() => {
+                                const actionScope = openOwnerRef.current;
+                                if (!actionScope || !isAuthIdentityScopeCurrent(actionScope)) return;
                                 if (!notes.trim()) return;
                                 setPolishing(true);
                                 try {
@@ -422,6 +512,6 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                     </div>
                 </form>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

@@ -12,9 +12,14 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { supabase } from '../../services/supabase';
 import { redeemManifestCode } from '../../services/CrewService';
-import { syncNow } from '../../services/vessel/SyncService';
+import { requestFullReconciliation } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+} from '../../services/authIdentityScope';
 
 interface JoinVesselProps {
     onJoined: (vesselName: string) => void;
@@ -28,7 +33,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
     const [errorMsg, setErrorMsg] = useState('');
     const [offlinePending, setOfflinePending] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const firstInputRef = useRef<HTMLInputElement>(null);
+    const firstInputRef = useRef<HTMLInputElement | null>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: firstInputRef,
         onEscape: onClose,
@@ -66,6 +71,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
     };
 
     const handleSubmit = useCallback(async () => {
+        const identity = getAuthIdentityScope();
         const formatted = formatCode();
         if (formatted.length < 7) {
             setErrorMsg('Enter all 6 characters');
@@ -78,7 +84,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
         if (!supabase) {
             // Offline mesh mode: cache the code for later validation
             try {
-                localStorage.setItem('thalassa_pending_manifest', formatted);
+                localStorage.setItem(authScopedStorageKey('thalassa_pending_manifest', identity), formatted);
                 setStatus('pending');
                 setOfflinePending(true);
                 setVesselName('Vessel (offline)');
@@ -93,6 +99,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
 
         try {
             const result = await redeemManifestCode(formatted);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             if (!result.success) {
                 setErrorMsg(result.error || 'Invalid or expired code');
                 setStatus('error');
@@ -104,10 +111,13 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
             setStatus('pending');
 
             triggerHaptic('medium');
-            syncNow().catch(() => {
-                /* will sync when approved */
+            // Joining expands the caller's RLS-visible history. An incremental
+            // cursor from before membership cannot discover older rows.
+            requestFullReconciliation().catch(() => {
+                /* will retry through the periodic engine */
             });
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             console.warn('Suppressed:', e);
             setErrorMsg('Connection error — try again');
             setStatus('error');

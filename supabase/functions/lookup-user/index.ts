@@ -1,122 +1,59 @@
 /**
- * lookup-user — Supabase Edge Function
+ * Compatibility wrapper for the bounded database lookup used by CrewService.
  *
- * Looks up a user by email address using the service_role key.
- * Used by the Crew Sharing feature to find crew members by email.
- *
- * Requires authentication — only logged-in users can look up other users.
- * Returns minimal info (user_id, email) — no sensitive data exposed.
- *
- * Required Secrets:
- * - SUPABASE_URL: Auto-provided
- * - SUPABASE_SERVICE_ROLE_KEY: Auto-provided
+ * New clients call `lookup_user_by_email` directly. Keeping this endpoint
+ * avoids breaking older clients without exposing the Auth admin list API.
  */
-
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const json = (body: unknown, status = 200): Response => jsonResponse(body, status, corsHeaders);
+
 serve(async (req: Request) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders });
+    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+    if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
+
+    const caller = await requireAuthenticatedQuota(req, 'lookup_user_edge', 60, 3600);
+    if (caller instanceof Response) return withCors(caller, corsHeaders);
+
+    const body = await readJsonObject(req, 2_048);
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (email.length < 3 || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ error: 'A valid email address is required' }, 400);
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const authorization = req.headers.get('authorization');
+    if (!supabaseUrl || !anonKey || !authorization) {
+        return json({ error: 'Server authentication is not configured' }, 500);
     }
 
     try {
-        // Verify the caller is authenticated
-        const authHeader = req.headers.get('Authorization');
-        if (!authHeader) {
-            return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-                status: 401,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Create a client with the caller's JWT to verify they're logged in
-        const anonClient = createClient(
-            Deno.env.get('SUPABASE_URL')!,
-            Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-            { global: { headers: { Authorization: authHeader } } },
-        );
-
-        const {
-            data: { user: caller },
-            error: authError,
-        } = await anonClient.auth.getUser();
-        if (authError || !caller) {
-            return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-                status: 401,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Parse request
-        const { email } = await req.json();
-        if (!email || typeof email !== 'string') {
-            return new Response(JSON.stringify({ error: 'Missing email parameter' }), {
-                status: 400,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Prevent looking up yourself
-        if (email.toLowerCase() === caller.email?.toLowerCase()) {
-            return new Response(JSON.stringify({ found: false, reason: 'self' }), {
-                status: 200,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Use service_role to query auth.users (client-side can't do this)
-        const adminClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-
-        // List users filtered by email (admin API)
-        const { data: listData, error: listError } = await adminClient.auth.admin.listUsers({
-            page: 1,
-            perPage: 1,
+        // The RPC performs its own exact-email validation, self-check, quota,
+        // and only returns the minimum identity required for an invitation.
+        const client = createClient(supabaseUrl, anonKey, {
+            global: { headers: { Authorization: authorization } },
+            auth: { persistSession: false, autoRefreshToken: false },
         });
-
-        if (listError) {
-            console.error('[lookup-user] Admin list error:', listError.message);
-            return new Response(JSON.stringify({ error: 'Lookup failed' }), {
-                status: 500,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Search through users for the email match
-        // Note: For large user bases, you'd want a direct SQL query instead
-        const { data: allUsers } = await adminClient.auth.admin.listUsers({
-            page: 1,
-            perPage: 1000,
+        const { data, error } = await client.rpc('lookup_user_by_email', {
+            lookup_email: email,
         });
-
-        const targetUser = allUsers?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
-
-        if (!targetUser) {
-            return new Response(JSON.stringify({ found: false }), {
-                status: 200,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+        if (error) {
+            console.error(`[lookup-user] RPC failed: ${error.message}`);
+            return json({ error: 'Lookup unavailable' }, 503);
         }
-
-        return new Response(
-            JSON.stringify({
-                found: true,
-                user_id: targetUser.id,
-                email: targetUser.email,
-            }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        return json(data ?? { found: false });
     } catch (error) {
-        console.error('[lookup-user] Error:', error);
-        return new Response(JSON.stringify({ error: 'Internal error' }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        console.error('[lookup-user] Unhandled lookup failure:', error);
+        return json({ error: 'Lookup unavailable' }, 503);
     }
 });

@@ -7,13 +7,23 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AisGuardZone } from '../services/AisGuardZone';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
+
+const TEST_ACCOUNT_A = 'guard-account-a';
+const TEST_ACCOUNT_B = 'guard-account-b';
+const GUARD_STORAGE_KEY = 'thalassa_guard_zone';
 
 describe('AisGuardZone', () => {
     beforeEach(() => {
         localStorage.clear();
-        AisGuardZone.setEnabled(false);
-        AisGuardZone.setRadius(2); // Reset to default
-        AisGuardZone.clearAlerts();
+        for (const identity of [null, TEST_ACCOUNT_A, TEST_ACCOUNT_B]) {
+            setAuthIdentityScope(identity);
+            AisGuardZone.setEnabled(false);
+            AisGuardZone.setRadius(2);
+            AisGuardZone.clearAlerts();
+        }
+        localStorage.clear();
+        setAuthIdentityScope(TEST_ACCOUNT_A);
     });
 
     // ── Initial state ──
@@ -44,9 +54,10 @@ describe('AisGuardZone', () => {
 
         it('persists to localStorage', () => {
             AisGuardZone.setEnabled(true);
-            const saved = localStorage.getItem('thalassa_guard_zone');
+            const saved = localStorage.getItem(authScopedStorageKey(GUARD_STORAGE_KEY));
             expect(saved).not.toBeNull();
             const parsed = JSON.parse(saved!);
+            expect(parsed.ownerKey).toBe(getAuthIdentityScope().key);
             expect(parsed.enabled).toBe(true);
         });
     });
@@ -61,7 +72,7 @@ describe('AisGuardZone', () => {
 
         it('persists radius to localStorage', () => {
             AisGuardZone.setRadius(3);
-            const saved = JSON.parse(localStorage.getItem('thalassa_guard_zone')!);
+            const saved = JSON.parse(localStorage.getItem(authScopedStorageKey(GUARD_STORAGE_KEY))!);
             expect(saved.radiusNm).toBe(3);
         });
     });
@@ -163,6 +174,115 @@ describe('AisGuardZone', () => {
 
             const state2 = AisGuardZone.getState();
             expect(state2.enabled).toBe(false);
+        });
+    });
+
+    describe('identity isolation and physical safety', () => {
+        it('hides account A config from B while A physical watch keeps detecting targets', () => {
+            const accountAScope = getAuthIdentityScope();
+            AisGuardZone.setRadius(5);
+            AisGuardZone.setEnabled(true);
+
+            setAuthIdentityScope(TEST_ACCOUNT_B);
+            expect(AisGuardZone.getState()).toEqual({
+                enabled: false,
+                radiusNm: 2,
+                alerts: [],
+            });
+
+            const alerts = AisGuardZone.checkFeatures(-33.868, 151.209, [
+                makeGeoFeature(123456789, -33.87, 151.21, 'Account A physical watch'),
+            ]);
+            expect(alerts).toHaveLength(1);
+            expect(AisGuardZone.getState().alerts).toEqual([]);
+
+            setAuthIdentityScope(TEST_ACCOUNT_A);
+            expect(AisGuardZone.getState().enabled).toBe(true);
+            expect(AisGuardZone.getState().radiusNm).toBe(5);
+            expect(AisGuardZone.getState().alerts[0]?.mmsi).toBe(123456789);
+            expect(localStorage.getItem(authScopedStorageKey(GUARD_STORAGE_KEY, accountAScope))).toContain(
+                '"radiusNm":5',
+            );
+        });
+
+        it('does not let a delayed account A setter overwrite account B', () => {
+            const accountAScope = getAuthIdentityScope();
+            AisGuardZone.setRadius(4);
+
+            setAuthIdentityScope(TEST_ACCOUNT_B);
+            AisGuardZone.setRadius(40, accountAScope);
+            AisGuardZone.setEnabled(true, accountAScope);
+
+            expect(AisGuardZone.getState()).toEqual({
+                enabled: false,
+                radiusNm: 2,
+                alerts: [],
+            });
+            setAuthIdentityScope(TEST_ACCOUNT_A);
+            expect(AisGuardZone.getState().radiusNm).toBe(4);
+            expect(AisGuardZone.getState().enabled).toBe(false);
+        });
+
+        it('ignores unattributed legacy persisted config', () => {
+            localStorage.setItem(GUARD_STORAGE_KEY, JSON.stringify({ enabled: true, radiusNm: 40 }));
+
+            setAuthIdentityScope('guard-new-account');
+
+            expect(AisGuardZone.getState()).toEqual({
+                enabled: false,
+                radiusNm: 2,
+                alerts: [],
+            });
+        });
+
+        it('restores only a correctly attributed scoped configuration', () => {
+            const userId = 'guard-restored-account';
+            const ownerKey = `user:${userId}`;
+            const scope = { key: ownerKey, userId, generation: getAuthIdentityScope().generation };
+            localStorage.setItem(
+                authScopedStorageKey(GUARD_STORAGE_KEY, scope),
+                JSON.stringify({
+                    version: 2,
+                    ownerKey,
+                    ownerUserId: userId,
+                    enabled: true,
+                    radiusNm: 7,
+                }),
+            );
+
+            setAuthIdentityScope(userId);
+
+            expect(AisGuardZone.getState()).toEqual({
+                enabled: true,
+                radiusNm: 7,
+                alerts: [],
+            });
+        });
+
+        it('rejects an owner-mismatched scoped configuration', () => {
+            const userId = 'guard-mismatched-account';
+            const ownerKey = `user:${userId}`;
+            const scope = { key: ownerKey, userId, generation: getAuthIdentityScope().generation };
+            const key = authScopedStorageKey(GUARD_STORAGE_KEY, scope);
+            localStorage.setItem(
+                key,
+                JSON.stringify({
+                    version: 2,
+                    ownerKey: 'user:someone-else',
+                    ownerUserId: 'someone-else',
+                    enabled: true,
+                    radiusNm: 25,
+                }),
+            );
+
+            setAuthIdentityScope(userId);
+
+            expect(AisGuardZone.getState()).toEqual({
+                enabled: false,
+                radiusNm: 2,
+                alerts: [],
+            });
+            expect(localStorage.getItem(key)).toBeNull();
         });
     });
 });

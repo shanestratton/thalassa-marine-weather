@@ -60,38 +60,53 @@ export async function isBosunReachable(): Promise<boolean> {
 }
 
 /** Shared POST helper with JS-enforced timeout via AbortController. */
-async function postJson(url: string, body: object, timeoutMs: number): Promise<{ status: number; data: unknown }> {
+async function postJson(
+    url: string,
+    body: object,
+    timeoutMs: number,
+    signal?: AbortSignal,
+): Promise<{ status: number; data: unknown }> {
+    signal?.throwIfAborted();
     const ctrl = new AbortController();
+    const abortFromCaller = () => ctrl.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
     const watchdog = setTimeout(() => ctrl.abort(), timeoutMs);
-    let response: Response;
     try {
-        response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: ctrl.signal,
-        });
-    } catch (err) {
-        const e = err as Error;
-        if (e.name === 'AbortError') {
-            throw new BosunUnreachableError(`Bosun timed out after ${Math.round(timeoutMs / 1000)}s.`);
+        let response: Response;
+        try {
+            response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: ctrl.signal,
+            });
+        } catch (err) {
+            const e = err as Error;
+            if (e.name === 'AbortError') {
+                if (signal?.aborted) throw e;
+                throw new BosunUnreachableError(`Bosun timed out after ${Math.round(timeoutMs / 1000)}s.`);
+            }
+            throw new BosunUnreachableError(`Could not reach Bosun: ${e.message}`);
         }
-        throw new BosunUnreachableError(`Could not reach Bosun: ${e.message}`);
+
+        let data: unknown = null;
+        try {
+            data = await response.json();
+        } catch {
+            signal?.throwIfAborted();
+            /* non-JSON body */
+        }
+        return { status: response.status, data };
     } finally {
         clearTimeout(watchdog);
+        signal?.removeEventListener('abort', abortFromCaller);
     }
-
-    let data: unknown = null;
-    try {
-        data = await response.json();
-    } catch {
-        /* non-JSON body */
-    }
-    return { status: response.status, data };
 }
 
 /** Send a typed-text query to Bosun. */
-export async function askBosunText(req: VoiceQueryRequest): Promise<VoiceQueryResponse> {
+export async function askBosunText(req: VoiceQueryRequest, signal?: AbortSignal): Promise<VoiceQueryResponse> {
+    signal?.throwIfAborted();
     const base = getBosunBase();
     if (!base) {
         throw new BosunUnreachableError('No Pi discovered on the boat network. Connect to boat WiFi and try again.');
@@ -100,17 +115,20 @@ export async function askBosunText(req: VoiceQueryRequest): Promise<VoiceQueryRe
         `${base}/api/text/ask`,
         { text: req.text, session_id: req.sessionId },
         BOSUN_REQUEST_TIMEOUT_MS,
+        signal,
     );
     return parseResponse(r, req.text);
 }
 
 /** Send a recorded audio blob to Bosun (Whisper.cpp STT server-side). */
-export async function askBosunVoice(audioBlob: Blob): Promise<VoiceQueryResponse> {
+export async function askBosunVoice(audioBlob: Blob, signal?: AbortSignal): Promise<VoiceQueryResponse> {
+    signal?.throwIfAborted();
     const base = getBosunBase();
     if (!base) {
         throw new BosunUnreachableError('No Pi discovered on the boat network. Connect to boat WiFi and try again.');
     }
     const audio_b64 = await blobToBase64(audioBlob);
+    signal?.throwIfAborted();
     if (!audio_b64) {
         throw new Error('Recorded audio is empty — try holding for a moment longer.');
     }
@@ -118,6 +136,7 @@ export async function askBosunVoice(audioBlob: Blob): Promise<VoiceQueryResponse
         `${base}/api/voice/ask`,
         { audio_b64, mime_type: audioBlob.type || 'audio/mp4' },
         BOSUN_REQUEST_TIMEOUT_MS,
+        signal,
     );
     return parseResponse(r);
 }

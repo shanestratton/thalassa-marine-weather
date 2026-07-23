@@ -8,11 +8,15 @@ import { PinService, SavedPin } from '../../services/PinService';
 import { ShipLogEntry } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { getStaticMapUrl } from './chatUtils';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { SafeImage } from '../ui/SafeImage';
 
 // --- Report Modal ---
 export interface ReportModalProps {
     reportingMsg: ChatMessage;
     reportSent: boolean;
+    reportError?: string | null;
+    reportSubmitting?: boolean;
     reportReason: 'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other';
     setReportReason: (v: 'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other') => void;
     onSubmit: () => void;
@@ -20,11 +24,22 @@ export interface ReportModalProps {
 }
 
 export const ReportModal: React.FC<ReportModalProps> = React.memo(
-    ({ reportingMsg, reportSent, reportReason, setReportReason, onSubmit, onClose }) => {
+    ({
+        reportingMsg,
+        reportSent,
+        reportError = null,
+        reportSubmitting = false,
+        reportReason,
+        setReportReason,
+        onSubmit,
+        onClose,
+    }) => {
         const closeButtonRef = useRef<HTMLButtonElement>(null);
         const dialogRef = useFocusTrap<HTMLDivElement>(true, {
             initialFocusRef: closeButtonRef,
-            onEscape: onClose,
+            onEscape: () => {
+                if (!reportSubmitting) onClose();
+            },
         });
 
         // Submitting replaces the focused action row. Move focus to the
@@ -34,10 +49,12 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
         }, [reportSent]);
 
         return (
-            <div
-                className="absolute inset-0 z-50 flex items-center justify-center"
+            <OverlayPortal
+                className="flex items-center justify-center"
                 role="presentation"
-                onClick={onClose}
+                onClick={() => {
+                    if (!reportSubmitting) onClose();
+                }}
             >
                 <div className="absolute inset-0 bg-black/60" />
                 <div
@@ -45,7 +62,12 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="report-message-title"
-                    aria-describedby={reportSent ? 'report-success-description' : 'report-message-context'}
+                    aria-describedby={
+                        reportSent
+                            ? 'report-success-description'
+                            : `report-message-context${reportError ? ' report-submit-error' : ''}`
+                    }
+                    aria-busy={reportSubmitting}
                     className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down"
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -83,6 +105,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                         aria-pressed={reportReason === r}
                                         key={r}
                                         onClick={() => setReportReason(r)}
+                                        disabled={reportSubmitting}
                                         className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${
                                             reportReason === r
                                                 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
@@ -102,6 +125,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                     ref={closeButtonRef}
                                     aria-label="Cancel report"
                                     onClick={onClose}
+                                    disabled={reportSubmitting}
                                     className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors"
                                 >
                                     Cancel
@@ -109,15 +133,21 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                 <button
                                     aria-label="Submit report"
                                     onClick={onSubmit}
-                                    className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors"
+                                    disabled={reportSubmitting}
+                                    className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors disabled:opacity-50"
                                 >
-                                    Submit Report
+                                    {reportSubmitting ? 'Submitting…' : 'Submit Report'}
                                 </button>
                             </div>
+                            {reportError && (
+                                <p id="report-submit-error" role="alert" className="mt-3 text-xs text-red-300">
+                                    {reportError}
+                                </p>
+                            )}
                         </>
                     )}
                 </div>
-            </div>
+            </OverlayPortal>
         );
     },
 );
@@ -203,7 +233,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                         </div>
                     )}
                     <div className="relative w-full h-[120px] rounded-xl overflow-hidden border border-white/[0.08] mb-2">
-                        <img
+                        <SafeImage
                             src={getStaticMapUrl(pinLat, pinLng)}
                             alt="Pin location"
                             className="w-full h-full object-cover"
@@ -498,8 +528,8 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
     });
 
     return (
-        <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6"
+        <OverlayPortal
+            className="flex items-center justify-center bg-black/70 p-6"
             role="presentation"
             onClick={onClose}
         >
@@ -555,7 +585,7 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 });
 TrackDisclaimerModal.displayName = 'TrackDisclaimerModal';

@@ -10,9 +10,8 @@
  * Grid is stored as [row][col] where row 0 = south, row N = north (bottom-up for GL textures).
  */
 
-import { getOpenMeteoKey } from './keys';
-import { piCache } from '../PiCacheService';
 import { withDeadline } from '../../utils/deadline';
+import { fetchOpenMeteoPoints } from './openMeteoProxy';
 // The WindGrid shape + texture encoding live in a dependency-free module so
 // the WebGL renderer can be reused off-app (public voyage-log page) without
 // this file's fetch stack. Re-exported here so existing importers are
@@ -69,22 +68,20 @@ export async function fetchWindGrid(
             }
         }
 
-        const multiLats = points.map((p) => p.lat).join(',');
-        const multiLons = points.map((p) => p.lon).join(',');
-
-        // Use commercial API (required — no free fallback for App Store compliance)
-        const omKey = getOpenMeteoKey();
-        if (!omKey) return null;
-        const directUrl = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${WIND_FIELD_HOURS}&timezone=auto&apikey=${omKey}`;
-
-        // Route through Pi Cache when available (6h TTL matches GFS model runs)
-        const fetchUrl = piCache.passthroughUrl(directUrl, 6 * 60 * 60 * 1000, 'wind-field') || directUrl;
-        // JS-level deadline — AbortSignal is a no-op under CapacitorHttp (see utils/deadline.ts)
-        const response = await withDeadline(fetch(fetchUrl), 30_000, 'open-meteo-wind-grid');
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        const results = Array.isArray(data) ? data : [data];
+        const results = await withDeadline(
+            fetchOpenMeteoPoints<{
+                hourly?: {
+                    wind_speed_10m?: number[];
+                    wind_direction_10m?: number[];
+                };
+            }>('forecast', points, {
+                hourly: 'wind_speed_10m,wind_direction_10m',
+                forecast_hours: WIND_FIELD_HOURS,
+                timezone: 'auto',
+            }),
+            30_000,
+            'open-meteo-wind-grid',
+        );
 
         const uniqueLats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
         const uniqueLons = [...new Set(points.map((p) => p.lon))].sort((a, b) => a - b);
@@ -271,44 +268,16 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
             }
         }
 
-        const BATCH_SIZE = 50;
-        const allResults: unknown[] = new Array(allPoints.length).fill(null);
-
-        const omKey = getOpenMeteoKey();
-        if (!omKey) return null;
-        const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
-        const keyParam = `&apikey=${omKey}`;
-
-        const batches: { start: number; end: number }[] = [];
-        for (let i = 0; i < allPoints.length; i += BATCH_SIZE) {
-            batches.push({ start: i, end: Math.min(i + BATCH_SIZE, allPoints.length) });
-        }
-
-        const CONCURRENCY = 4;
-        for (let b = 0; b < batches.length; b += CONCURRENCY) {
-            const chunk = batches.slice(b, b + CONCURRENCY);
-            const promises = chunk.map(async ({ start, end }) => {
-                const batchPoints = allPoints.slice(start, end);
-                const latParam = batchPoints.map((p) => p.lat).join(',');
-                const lonParam = batchPoints.map((p) => p.lon).join(',');
-
-                const url = `${baseUrl}?latitude=${latParam}&longitude=${lonParam}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${GLOBAL_GRID_HOURS}&timezone=auto${keyParam}`;
-
-                const response = await withDeadline(fetch(url), 30_000, 'open-meteo-global-batch');
-                if (!response.ok) {
-                    return;
-                }
-
-                const data = await response.json();
-                const results = Array.isArray(data) ? data : [data];
-
-                for (let i = 0; i < results.length; i++) {
-                    allResults[start + i] = results[i];
-                }
-            });
-
-            await Promise.all(promises);
-        }
+        const allResults = await fetchOpenMeteoPoints<Record<string, unknown>>(
+            'forecast',
+            allPoints,
+            {
+                hourly: 'wind_speed_10m,wind_direction_10m',
+                forecast_hours: GLOBAL_GRID_HOURS,
+                timezone: 'auto',
+            },
+            4,
+        );
 
         const validCount = allResults.filter((r) => (r as Record<string, unknown>)?.hourly).length;
         if (validCount < allPoints.length * 0.5) {

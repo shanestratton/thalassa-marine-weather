@@ -8,6 +8,7 @@ import React from 'react';
 import type { EquipmentItem } from '../../../types';
 import { createLogger } from '../../../utils/createLogger';
 import { triggerHaptic } from '../../../utils/system';
+import { DocumentSyncService } from '../../../services/vessel/DocumentSyncService';
 import { CATEGORY_ICONS } from './SwipeableEquipmentCard';
 
 const log = createLogger('EquipmentDetail');
@@ -33,9 +34,9 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
             });
     };
 
-    const openManual = () => {
+    const openManual = async () => {
         if (item.manual_uri) {
-            window.open(item.manual_uri, '_blank');
+            await DocumentSyncService.openDownload(item.manual_uri);
         }
     };
 

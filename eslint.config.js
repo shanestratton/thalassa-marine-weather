@@ -7,10 +7,10 @@ export default tseslint.config(
     // Global ignores
     {
         ignores: [
-            'dist/**',
-            'build/**',
-            'storybook-static/**',
-            'coverage/**',
+            '**/dist/**',
+            '**/build/**',
+            '**/storybook-static/**',
+            '**/coverage/**',
             '.next/**',
             'node_modules/**',
             'supabase/functions/**',
@@ -24,11 +24,6 @@ export default tseslint.config(
             // (3221 errors locally vs. ~250 on CI was the giveaway). CI
             // doesn't see them; local should match.
             '.claude/**',
-            // Compiled output of the Pi cache server. The .ts source under
-            // pi-cache/src/ is what humans edit; the .js under dist/ is
-            // generated. Linting the compiled output spammed CI with
-            // 'Buffer is not defined' on every push.
-            'pi-cache/dist/**',
         ],
     },
 

@@ -13,18 +13,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { MarketplaceListing, CATEGORY_ICONS } from '../../services/MarketplaceService';
-import { ChatService } from '../../services/ChatService';
 import { SellerRatingService, SellerReputation } from '../../services/SellerRatingService';
 import { t } from '../../theme';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { formatPrice, getConditionColor, getAvatarGradient, timeAgo } from './helpers';
+import { SafeImage } from '../ui/SafeImage';
 
 export interface ListingCardProps {
     listing: MarketplaceListing;
     isOwn: boolean;
-    onMessageSeller: (listing: MarketplaceListing) => void;
+    onMessageSeller: (listing: MarketplaceListing, message?: string) => Promise<boolean>;
     onMarkSold: (id: string) => void;
     onDelete: (id: string) => void;
     onFlagLocation?: (listing: MarketplaceListing) => void;
@@ -38,6 +38,8 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
         const [showActions, setShowActions] = useState(false);
         const [showOfferInput, setShowOfferInput] = useState(false);
         const [offerPrice, setOfferPrice] = useState('');
+        const [messageSending, setMessageSending] = useState(false);
+        const [offerSending, setOfferSending] = useState(false);
 
         // Swipe-to-delete (owner only)
         const {
@@ -76,6 +78,34 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
         };
 
         const hasImages = listing.images.length > 0;
+
+        const handleOpenConversation = async () => {
+            if (messageSending) return;
+            setMessageSending(true);
+            try {
+                await onMessageSeller(listing);
+            } finally {
+                setMessageSending(false);
+            }
+        };
+
+        const handleSendOffer = async () => {
+            const numericOffer = Number(offerPrice);
+            if (!Number.isFinite(numericOffer) || numericOffer <= 0 || offerSending) return;
+            const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
+            const offerFormatted = formatPrice(numericOffer, listing.currency);
+            const text = `Hi ${sellerFirst}! I'd like to offer ${offerFormatted} for your "${listing.title}" (listed at ${formatPrice(listing.price, listing.currency)}). Let me know!`;
+            setOfferSending(true);
+            try {
+                const accepted = await onMessageSeller(listing, text);
+                if (accepted) {
+                    setShowOfferInput(false);
+                    setOfferPrice('');
+                }
+            } finally {
+                setOfferSending(false);
+            }
+        };
 
         return (
             <div
@@ -122,7 +152,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                             {/* Image Section */}
                             {hasImages && (
                                 <div className="relative w-full aspect-[16/10] overflow-hidden bg-slate-800/50">
-                                    <img
+                                    <SafeImage
                                         src={listing.images[imageIdx]}
                                         alt={listing.title}
                                         className="w-full h-full object-cover"
@@ -366,7 +396,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                     {/* Seller */}
                                     <div className="flex items-center gap-2.5">
                                         {listing.seller_avatar ? (
-                                            <img
+                                            <SafeImage
                                                 src={listing.seller_avatar}
                                                 className="w-8 h-8 rounded-full object-cover border border-white/10"
                                                 alt=""
@@ -425,10 +455,11 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                             <div className="flex items-center gap-2">
                                                 <button
                                                     aria-label="Message Seller"
-                                                    onClick={() => onMessageSeller(listing)}
+                                                    onClick={() => void handleOpenConversation()}
+                                                    disabled={messageSending}
                                                     className="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[11px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
                                                 >
-                                                    💬 Message
+                                                    {messageSending ? 'Opening…' : '💬 Message'}
                                                 </button>
                                                 {listing.status === 'available' && (
                                                     <button
@@ -473,30 +504,24 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         />
                                                     </div>
                                                     <button
-                                                        aria-label="View listing price history"
-                                                        onClick={() => {
-                                                            if (!offerPrice || parseFloat(offerPrice) <= 0) return;
-                                                            const sellerFirst = (listing.seller_name || 'Seller').split(
-                                                                ' ',
-                                                            )[0];
-                                                            const offerFormatted = formatPrice(
-                                                                parseFloat(offerPrice),
-                                                                listing.currency,
-                                                            );
-                                                            const text = `Hi ${sellerFirst}! I'd like to offer ${offerFormatted} for your "${listing.title}" (listed at ${formatPrice(listing.price, listing.currency)}). Let me know!`;
-                                                            ChatService.sendDM(listing.seller_id, text);
-                                                            if (onMessageSeller) onMessageSeller(listing);
-                                                            setShowOfferInput(false);
-                                                            setOfferPrice('');
-                                                        }}
-                                                        disabled={!offerPrice || parseFloat(offerPrice) <= 0}
+                                                        aria-label="Send offer to seller"
+                                                        onClick={() => void handleSendOffer()}
+                                                        disabled={
+                                                            offerSending ||
+                                                            !offerPrice ||
+                                                            !Number.isFinite(Number(offerPrice)) ||
+                                                            Number(offerPrice) <= 0
+                                                        }
                                                         className={`px-3 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider active:scale-95 transition-all ${
-                                                            !offerPrice || parseFloat(offerPrice) <= 0
+                                                            offerSending ||
+                                                            !offerPrice ||
+                                                            !Number.isFinite(Number(offerPrice)) ||
+                                                            Number(offerPrice) <= 0
                                                                 ? 'bg-white/[0.04] border border-white/10 text-white/30'
                                                                 : 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
                                                         }`}
                                                     >
-                                                        Send
+                                                        {offerSending ? 'Sending…' : 'Send'}
                                                     </button>
                                                 </div>
                                             )}

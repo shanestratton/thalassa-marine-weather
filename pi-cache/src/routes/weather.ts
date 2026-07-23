@@ -2,7 +2,7 @@
  * Weather Routes — Proxies weather API calls through the Pi cache.
  *
  * Supports:
- *   - Open-Meteo Commercial API (customer-api.open-meteo.com)
+ *   - Open-Meteo Commercial API (via the Supabase key boundary)
  *   - StormGlass (via Supabase edge function — key stays server-side)
  *   - Marine-specific: wind, swell, sea state, pressure
  *
@@ -14,7 +14,7 @@
 
 import { Router, Request, Response } from 'express';
 import { Cache } from '../cache.js';
-import { ProxyConfig, cachedJsonFetch, supabaseEdgeUrl, supabaseHeaders, openMeteoUrl } from '../proxy.js';
+import { ProxyConfig, cachedJsonFetch, supabaseEdgeUrl, supabaseHeaders, openMeteoProxyRequest } from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
 export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
@@ -30,15 +30,15 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `weather:current:${lat}:${lon}`;
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'forecast',
                 `latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn`,
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.WEATHER_CURRENT,
                 source: 'open-meteo',
             });
@@ -60,15 +60,15 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `weather:forecast:${lat}:${lon}:${days}d`;
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'forecast',
                 `latitude=${lat}&longitude=${lon}&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&wind_speed_unit=kn&forecast_days=${days}`,
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.WEATHER_FORECAST,
                 source: 'open-meteo',
             });
@@ -83,9 +83,8 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
     /**
      * GET /api/weather/marine?lat=X&lon=Y
      * Marine-specific: waves, swell (primary + secondary), sea surface temp,
-     * ocean current. Upstream is Open-Meteo's marine grid via the customer key
-     * the Pi already holds — no new third party, and it is what lets StormGlass
-     * go once the client consumes this.
+     * ocean current. Upstream is Open-Meteo's marine grid via the Supabase
+     * commercial-key boundary — the Pi stores only public Supabase config.
      *
      * TWO TRAPS for anyone mapping this response:
      *   - ocean_current_velocity is km/h, NOT m/s. StormGlass reports m/s.
@@ -120,7 +119,7 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             // a point out in the bay, with no null and no warning. That is the
             // exact failure the sheltered-water damping exists to correct, so
             // the snap distance has to travel with the data.
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'marine',
                 `latitude=${rlat}&longitude=${rlon}` +
@@ -132,8 +131,8 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.WEATHER_CURRENT,
                 source: 'open-meteo-marine',
             });
@@ -161,7 +160,7 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             const rlon = parseFloat(parseFloat(lon as string).toFixed(2));
             const key = `weather:combined:${rlat}:${rlon}`;
 
-            const url = openMeteoUrl(
+            const upstream = openMeteoProxyRequest(
                 config,
                 'forecast',
                 `latitude=${lat}&longitude=${lon}` +
@@ -172,8 +171,8 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             );
 
             const result = await cachedJsonFetch(cache, {
+                ...upstream,
                 cacheKey: key,
-                url,
                 ttlMs: TTL.WEATHER_CURRENT,
                 source: 'open-meteo-combined',
             });
@@ -190,8 +189,8 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
      * Unified weather pipeline via get-weather Supabase edge function.
      *
      * Routes to Rainbow.ai+OpenMeteo (premium) or Apple WeatherKit (free)
-     * based on the user's subscription tier. Subscription check happens
-     * server-side in the edge function.
+     * The local user_id partitions Pi cache entries only. It is never forwarded
+     * as authorization; anonymous Pi fetches deliberately receive the free tier.
      *
      * This is the PRIMARY endpoint the Pi should pre-fetch — it gives the
      * frontend everything it needs in a single request.
@@ -222,8 +221,6 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
                 lon: String(rlon),
                 minified: mini,
             };
-            if (uid) params.user_id = uid;
-
             const url = supabaseEdgeUrl(config, 'get-weather', params);
 
             const result = await cachedJsonFetch(cache, {
