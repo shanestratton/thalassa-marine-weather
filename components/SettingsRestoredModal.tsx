@@ -95,7 +95,8 @@ function buildRows(summary: RestoredSummary): Row[] {
 
 export const SettingsRestoredModal: React.FC = () => {
     const [summary, setSummary] = useState<RestoredSummary | null>(null);
-    const focusTrapRef = useFocusTrap(summary !== null);
+    const onClose = useCallback(() => setSummary(null), []);
+    const focusTrapRef = useFocusTrap(summary !== null, { onEscape: onClose });
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -108,8 +109,6 @@ export const SettingsRestoredModal: React.FC = () => {
         window.addEventListener('thalassa:settings-restored-modal', handler);
         return () => window.removeEventListener('thalassa:settings-restored-modal', handler);
     }, []);
-
-    const onClose = useCallback(() => setSummary(null), []);
 
     if (!summary) return null;
 

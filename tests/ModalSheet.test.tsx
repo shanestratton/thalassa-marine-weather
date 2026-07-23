@@ -68,4 +68,46 @@ describe('ModalSheet', () => {
         fireEvent.click(screen.getByText('Content'));
         expect(onClose).not.toHaveBeenCalled();
     });
+
+    it('contains keyboard focus, closes on Escape, and restores the opener', () => {
+        const onClose = vi.fn();
+        const { rerender } = render(
+            <>
+                <button>Open modal</button>
+                <ModalSheet isOpen={false} onClose={onClose}>
+                    <button>Last action</button>
+                </ModalSheet>
+            </>,
+        );
+        const opener = screen.getByRole('button', { name: 'Open modal' });
+        opener.focus();
+
+        rerender(
+            <>
+                <button>Open modal</button>
+                <ModalSheet isOpen onClose={onClose}>
+                    <button>Last action</button>
+                </ModalSheet>
+            </>,
+        );
+        const close = screen.getByRole('button', { name: 'Close modal' });
+        const last = screen.getByRole('button', { name: 'Last action' });
+        expect(close).toHaveFocus();
+
+        close.focus();
+        fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+        expect(last).toHaveFocus();
+        fireEvent.keyDown(last, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledOnce();
+
+        rerender(
+            <>
+                <button>Open modal</button>
+                <ModalSheet isOpen={false} onClose={onClose}>
+                    <button>Last action</button>
+                </ModalSheet>
+            </>,
+        );
+        expect(opener).toHaveFocus();
+    });
 });

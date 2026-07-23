@@ -66,4 +66,41 @@ describe('ConfirmDialog', () => {
         const confirmBtn = screen.getByText('Confirm');
         expect(confirmBtn.className).toContain('red');
     });
+
+    it('keeps focus inside, closes on Escape, and restores the opener', () => {
+        const onCancel = vi.fn();
+        const { rerender } = render(
+            <>
+                <button>Delete task</button>
+                <ConfirmDialog {...baseProps} isOpen={false} onCancel={onCancel} />
+            </>,
+        );
+        const opener = screen.getByRole('button', { name: 'Delete task' });
+        opener.focus();
+
+        rerender(
+            <>
+                <button>Delete task</button>
+                <ConfirmDialog {...baseProps} onCancel={onCancel} />
+            </>,
+        );
+        const cancel = screen.getByRole('button', { name: 'Cancel action' });
+        const confirm = screen.getByRole('button', { name: 'Confirm action' });
+        expect(cancel).toHaveFocus();
+
+        fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true });
+        expect(confirm).toHaveFocus();
+        fireEvent.keyDown(confirm, { key: 'Tab' });
+        expect(cancel).toHaveFocus();
+        fireEvent.keyDown(cancel, { key: 'Escape' });
+        expect(onCancel).toHaveBeenCalledOnce();
+
+        rerender(
+            <>
+                <button>Delete task</button>
+                <ConfirmDialog {...baseProps} isOpen={false} onCancel={onCancel} />
+            </>,
+        );
+        expect(opener).toHaveFocus();
+    });
 });

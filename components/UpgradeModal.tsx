@@ -151,7 +151,7 @@ const PlanCard: React.FC<{
 };
 
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onUpgrade }) => {
-    const focusTrapRef = useFocusTrap(isOpen);
+    const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
     const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('owner');
 
     if (!isOpen) return null;

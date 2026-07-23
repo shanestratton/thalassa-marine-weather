@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface StormPickerProps {
     /** When true, modal is visible. */
@@ -71,53 +72,11 @@ export const StormPicker: React.FC<StormPickerProps> = ({
     onClose,
     onClearStorms,
 }) => {
-    const dialogRef = React.useRef<HTMLDivElement>(null);
     const closeButtonRef = React.useRef<HTMLButtonElement>(null);
-    const priorFocusRef = React.useRef<HTMLElement | null>(null);
-
-    React.useEffect(() => {
-        if (!visible || typeof document === 'undefined') return;
-        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        closeButtonRef.current?.focus();
-        return () => {
-            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
-            priorFocusRef.current = null;
-        };
-    }, [visible]);
-
-    React.useEffect(() => {
-        if (!visible || typeof window === 'undefined') return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [visible, onClose]);
-
-    const trapFocus = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-        if (event.key !== 'Tab') return;
-        const dialog = dialogRef.current;
-        if (!dialog) return;
-        const targets = Array.from(
-            dialog.querySelectorAll<HTMLElement>(
-                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ),
-        );
-        if (targets.length === 0) {
-            event.preventDefault();
-            dialog.focus();
-            return;
-        }
-        const first = targets[0];
-        const last = targets[targets.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-        }
-    }, []);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     if (typeof document === 'undefined') return null;
 
@@ -157,7 +116,6 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                         aria-modal="true"
                         aria-labelledby="storm-picker-title"
                         tabIndex={-1}
-                        onKeyDown={trapFocus}
                     >
                         <div className="h-[2px] bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
 

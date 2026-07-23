@@ -28,7 +28,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
     onDelete,
     voyageInfo,
 }) => {
-    const focusTrapRef = useFocusTrap(isOpen);
+    const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
 
     if (!isOpen) return null;
 

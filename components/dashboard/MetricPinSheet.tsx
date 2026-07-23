@@ -15,6 +15,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { WindIcon, WaveIcon, GaugeIcon, DropletIcon, SunIcon, EyeIcon, CompassIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // Canonical list of pinnable metrics. Order matches the 5×2 grid in
 // HeroWidgets.tsx (top row then bottom row). Each entry carries the
@@ -76,15 +77,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
     locationType,
 }) => {
     const visibleMetrics = filterForLocation(PINNABLE_METRICS, locationType);
-    // ESC closes the sheet
-    useEffect(() => {
-        if (!visible) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [visible, onClose]);
+    const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
 
     // Lock body scroll while open
     useEffect(() => {
@@ -105,6 +98,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
             role="dialog"
             aria-modal="true"
             aria-label="Pin a metric to the hero slot"
+            ref={dialogRef}
         >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" />
