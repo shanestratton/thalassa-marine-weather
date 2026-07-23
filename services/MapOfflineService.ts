@@ -68,7 +68,10 @@ const TILE_TEMPLATES = [
 function lonLatToTile(lon: number, lat: number, z: number): { x: number; y: number } {
     const n = Math.pow(2, z);
     const x = Math.floor(((lon + 180) / 360) * n);
-    const latRad = (lat * Math.PI) / 180;
+    // Web Mercator has a finite latitude domain. Clamp callers that supply
+    // pole-adjacent bounds so the logarithm below never produces NaN/Infinity.
+    const mercatorLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
+    const latRad = (mercatorLat * Math.PI) / 180;
     const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
     return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
 }
@@ -85,13 +88,24 @@ export function enumerateTiles(
     for (let z = minZoom; z <= maxZoom; z++) {
         const tl = lonLatToTile(bounds.west, bounds.north, z);
         const br = lonLatToTile(bounds.east, bounds.south, z);
-        const xMin = Math.min(tl.x, br.x);
-        const xMax = Math.max(tl.x, br.x);
         const yMin = Math.min(tl.y, br.y);
         const yMax = Math.max(tl.y, br.y);
-        for (let x = xMin; x <= xMax; x++) {
-            for (let y = yMin; y <= yMax; y++) {
-                tiles.push({ z, x, y });
+        const n = Math.pow(2, z);
+        // east < west is a deliberate antimeridian-crossing box. Walking the
+        // numeric min/max would cache nearly the whole planet instead of the
+        // narrow seam either side of ±180°.
+        const xRanges =
+            bounds.east < bounds.west
+                ? [
+                      [tl.x, n - 1],
+                      [0, br.x],
+                  ]
+                : [[Math.min(tl.x, br.x), Math.max(tl.x, br.x)]];
+        for (const [xMin, xMax] of xRanges) {
+            for (let x = xMin; x <= xMax; x++) {
+                for (let y = yMin; y <= yMax; y++) {
+                    tiles.push({ z, x, y });
+                }
             }
         }
     }
@@ -186,7 +200,10 @@ export async function downloadArea(
         }
     };
 
-    for (let i = 0; i < concurrency; i++) workers.push(worker());
+    // A persisted/user-supplied zero must not turn a non-empty download into a
+    // false "Done — 0 cached" result.
+    const workerCount = Math.max(1, Math.floor(concurrency));
+    for (let i = 0; i < workerCount; i++) workers.push(worker());
 
     try {
         await Promise.all(workers);

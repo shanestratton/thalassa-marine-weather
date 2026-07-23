@@ -55,6 +55,11 @@ async function sha256Hex(input: string): Promise<string> {
         .join('');
 }
 
+function nativeErrorCode(error: unknown): string {
+    if (!error || typeof error !== 'object' || !('code' in error)) return '';
+    return String((error as { code?: unknown }).code ?? '');
+}
+
 // ── Apple ──────────────────────────────────────────────────────
 /**
  * Open the native Sign in with Apple dialog, mint a Supabase
@@ -84,7 +89,8 @@ export async function signInWithApple(): Promise<Session> {
         // User cancelled the system sheet → friendly silent return.
         // Plugin throws a CapacitorException with code 1000/1001 on cancel.
         const msg = err instanceof Error ? err.message : String(err);
-        if (/cancel/i.test(msg) || /1000|1001/.test(msg)) {
+        const code = nativeErrorCode(err);
+        if (/cancel/i.test(msg) || /1000|1001/.test(msg) || /1000|1001/.test(code)) {
             throw new Error('CANCELLED');
         }
         log.warn('Apple authorize failed:', msg);
@@ -150,7 +156,8 @@ export async function signInWithGoogle(): Promise<Session> {
         googleResponse = await GoogleAuth.signIn();
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/cancel|popup_closed|user_cancel/i.test(msg)) {
+        const code = nativeErrorCode(err);
+        if (/cancel|popup_closed|user_cancel/i.test(msg) || /cancel|popup_closed|user_cancel/i.test(code)) {
             throw new Error('CANCELLED');
         }
         log.warn('Google signIn failed:', msg);
