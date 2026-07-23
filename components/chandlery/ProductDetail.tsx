@@ -12,12 +12,13 @@
  * whether to flip. Vertical scrolling is preserved by only treating
  * gestures as a swipe when |dx| > |dy| * 1.5.
  */
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { type StoreOneProduct } from '../../data/storeOne.products';
 import type { ChandleryCategory, ChandlerySubcategory } from '../../data/chandleryCategories';
 import { addToBasket } from '../../services/ChandleryBasketService';
 import { triggerHaptic } from '../../utils/system';
 import { useSettings } from '../../context/SettingsContext';
+import { SafeImage } from '../ui/SafeImage';
 
 interface ProductDetailProps {
     products: StoreOneProduct[];
@@ -55,21 +56,43 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
     const [adding, setAdding] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
     const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+    const addedFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const mountedRef = useRef(true);
 
-    const product = products[index];
+    const product = products[index] ?? null;
+    const currentProductIdRef = useRef<string | null>(product?.id ?? null);
+    currentProductIdRef.current = product?.id ?? null;
+
+    const clearAddedFeedback = useCallback(() => {
+        if (addedFeedbackTimerRef.current) {
+            clearTimeout(addedFeedbackTimerRef.current);
+            addedFeedbackTimerRef.current = null;
+        }
+        setJustAdded(false);
+    }, []);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            if (addedFeedbackTimerRef.current) clearTimeout(addedFeedbackTimerRef.current);
+        };
+    }, []);
 
     // ── Swipe handlers ────────────────────────────────────────────
     const goPrev = useCallback(() => {
         if (index === 0) return;
         triggerHaptic('light');
+        clearAddedFeedback();
         setIndex((i) => Math.max(0, i - 1));
-    }, [index]);
+    }, [clearAddedFeedback, index]);
 
     const goNext = useCallback(() => {
         if (index >= products.length - 1) return;
         triggerHaptic('light');
+        clearAddedFeedback();
         setIndex((i) => Math.min(products.length - 1, i + 1));
-    }, [index, products.length]);
+    }, [clearAddedFeedback, index, products.length]);
 
     const handleTouchStart = (e: React.TouchEvent) => {
         const t = e.touches[0];
@@ -93,17 +116,44 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
     // ── Add to basket ─────────────────────────────────────────────
     const handleAdd = useCallback(async () => {
-        if (adding) return;
+        if (adding || !product) return;
+        const productId = product.id;
         setAdding(true);
         triggerHaptic('medium');
         try {
-            await addToBasket(product.id, 1);
+            await addToBasket(productId, 1);
+            if (!mountedRef.current || currentProductIdRef.current !== productId) return;
+            if (addedFeedbackTimerRef.current) clearTimeout(addedFeedbackTimerRef.current);
             setJustAdded(true);
-            setTimeout(() => setJustAdded(false), 1500);
+            addedFeedbackTimerRef.current = setTimeout(() => {
+                setJustAdded(false);
+                addedFeedbackTimerRef.current = null;
+            }, 1500);
         } finally {
-            setAdding(false);
+            if (mountedRef.current) setAdding(false);
         }
-    }, [adding, product.id]);
+    }, [adding, product]);
+
+    if (!product) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center gap-4 px-6 text-center" role="status">
+                <span aria-hidden="true" className="text-4xl opacity-50">
+                    {category.icon}
+                </span>
+                <div>
+                    <h1 className="text-base font-bold text-white">No products available</h1>
+                    <p className="mt-1 text-xs text-slate-400">This collection does not have any listed stock yet.</p>
+                </div>
+                <button
+                    type="button"
+                    onClick={onBack}
+                    className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-bold text-sky-300"
+                >
+                    Back to {subcategory.label}
+                </button>
+            </div>
+        );
+    }
 
     // ── Vessel-aware compatibility note ──────────────────────────
     const vessel = settings.vessel;
@@ -158,7 +208,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
                     style={{ background: getProductGradient(product.id) }}
                 >
                     {product.imageUrl && !brokenImage.has(product.id) ? (
-                        <img
+                        <SafeImage
                             src={product.imageUrl}
                             alt={product.name}
                             className="w-full h-full object-contain"

@@ -5,6 +5,7 @@
  * Shows on first tracking start, with a "don't show again" checkbox.
  */
 import React from 'react';
+import { OverlayPortal } from '../../components/ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface GpsDisclaimerModalProps {
@@ -21,9 +22,9 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
     if (!isOpen) return null;
 
     return (
-        <div
+        <OverlayPortal
             role="presentation"
-            className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
         >
             <div
                 ref={dialogRef}
@@ -71,6 +72,6 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
                     Got it — Start Tracking
                 </button>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

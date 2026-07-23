@@ -2,6 +2,7 @@
  * VoyageChoiceDialog — Continue or start new voyage before tracking.
  */
 import React from 'react';
+import { OverlayPortal } from '../../components/ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface VoyageChoiceDialogProps {
@@ -19,9 +20,9 @@ export const VoyageChoiceDialog: React.FC<VoyageChoiceDialogProps> = React.memo(
         });
 
         return (
-            <div
+            <OverlayPortal
                 role="presentation"
-                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 modal-backdrop-enter"
+                className="bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 modal-backdrop-enter"
             >
                 <div
                     ref={dialogRef}
@@ -80,7 +81,7 @@ export const VoyageChoiceDialog: React.FC<VoyageChoiceDialogProps> = React.memo(
                         </button>
                     </div>
                 </div>
-            </div>
+            </OverlayPortal>
         );
     },
 );
@@ -103,9 +104,9 @@ export const StopVoyageDialog: React.FC<StopVoyageDialogProps> = React.memo(({ o
     });
 
     return (
-        <div
+        <OverlayPortal
             role="presentation"
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 modal-backdrop-enter"
+            className="bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 modal-backdrop-enter"
         >
             <div
                 ref={dialogRef}
@@ -137,7 +138,7 @@ export const StopVoyageDialog: React.FC<StopVoyageDialogProps> = React.memo(({ o
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 });
 

@@ -55,6 +55,7 @@ describe('blocking overlay focus lifecycle', () => {
         const dialog = screen.getByRole('alertdialog', { name: 'Drag Alarm' });
         const acknowledge = screen.getByRole('button', { name: 'Acknowledge Alarm' });
         expect(dialog).toContainElement(acknowledge);
+        expect(dialog.closest('[data-overlay-layer="critical"]')?.parentElement).toBe(document.body);
         expect(acknowledge).toHaveFocus();
 
         fireEvent.keyDown(acknowledge, { key: 'Escape' });
@@ -89,7 +90,10 @@ describe('blocking overlay focus lifecycle', () => {
 
         const dialog = screen.getByRole('alertdialog', { name: 'Acquiring GPS fix…' });
         const dismiss = screen.getByRole('button', { name: 'Keep waiting in background' });
+        const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="critical"]');
         expect(dialog).toContainElement(dismiss);
+        expect(overlay?.parentElement).toBe(document.body);
+        expect(overlay?.style.zIndex).toBe('2147483000');
         expect(dismiss).toHaveFocus();
 
         fireEvent.keyDown(dismiss, { key: 'Escape' });
@@ -124,7 +128,10 @@ describe('blocking overlay focus lifecycle', () => {
 
         const dialog = screen.getByRole('dialog', { name: 'Empty track tidied away' });
         const close = screen.getByRole('button', { name: /^Got it/ });
+        const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
         expect(dialog).toContainElement(close);
+        expect(overlay?.parentElement).toBe(document.body);
+        expect(overlay?.style.zIndex).toBe('1100');
         expect(close).toHaveFocus();
 
         fireEvent.keyDown(close, { key: 'Escape' });

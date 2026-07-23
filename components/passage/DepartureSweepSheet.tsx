@@ -32,6 +32,7 @@ import type { LonLat } from '../../services/routing/TideAwareAnnotator';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 const log = createLogger('DepartureSweepSheet');
 
@@ -210,7 +211,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     const haveCurrents = (sweep?.currentProvenance ?? 'NONE') !== 'NONE';
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <OverlayPortal className="flex items-end justify-center">
             <div
                 role="presentation"
                 onClick={onClose}
@@ -373,6 +374,6 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                     </ul>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

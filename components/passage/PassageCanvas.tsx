@@ -12,7 +12,7 @@
  *   - No side-by-side overlap on narrow viewports
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('PassageCanvas');
@@ -20,7 +20,6 @@ import SpatiotemporalMap from './SpatiotemporalMap';
 import TemporalScrubber from './TemporalScrubber';
 import { useGhostShip } from '../../hooks/passage/useGhostShip';
 import { WindStore } from '../../stores/WindStore';
-import { fetchWW3Grid } from '../../services/ww3CacheClient';
 import { fetchGlobalWindField } from '../../services/weather/windField';
 import { downloadRouteGPX } from '../../utils/gpxRouteExport';
 import { toast } from '../Toast';
@@ -31,6 +30,7 @@ import type { VoyagePlan } from '../../types';
 import type { PassageBriefData } from '../../services/PassageBriefService';
 import SharePassageButton from './SharePassageButton';
 import '../../styles/bioluminescent.css';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 // ── SVG Icons ───────────────────────────────────────────────────
 
@@ -265,12 +265,135 @@ interface PassageCanvasProps {
     onClose?: () => void;
 }
 
+type ActionState = 'idle' | 'saving' | 'saved' | 'error';
+type ResetTimer = ReturnType<typeof setTimeout>;
+
+function buildVoyagePlan(payload: SpatiotemporalPayload): VoyagePlan {
+    const track = payload.track;
+
+    return {
+        origin: track[0]?.name || 'Origin',
+        destination: track[track.length - 1]?.name || 'Destination',
+        originCoordinates: track[0] ? { lat: track[0].coordinates[1], lon: track[0].coordinates[0] } : undefined,
+        destinationCoordinates: track[track.length - 1]
+            ? { lat: track[track.length - 1].coordinates[1], lon: track[track.length - 1].coordinates[0] }
+            : undefined,
+        waypoints: track.slice(1, -1).map((point) => ({
+            name: point.name,
+            coordinates: { lat: point.coordinates[1], lon: point.coordinates[0] },
+            windSpeed: point.conditions.wind_spd_kts,
+            waveHeight: point.conditions.wave_ht_m * 3.28084,
+            depth_m: point.conditions.depth_m ?? undefined,
+        })),
+        distanceApprox: `${payload.summary.total_distance_nm} NM`,
+        durationApprox: `${payload.summary.total_duration_hours} hours`,
+        departureDate: payload.summary.departure_time || new Date().toISOString(),
+        overview: '',
+    };
+}
+
 const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
     const [currentTimeHours, setCurrentTimeHours] = useState(0);
     const [_deckCollapsed, _setDeckCollapsed] = useState(true);
     const [_hudCollapsed, _setHudCollapsed] = useState(false);
-    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-    const [logbookState, setLogbookState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const [saveState, setSaveState] = useState<ActionState>('idle');
+    const [logbookState, setLogbookState] = useState<ActionState>('idle');
+    const mountedRef = useRef(true);
+    const saveStateRef = useRef<ActionState>('idle');
+    const logbookStateRef = useRef<ActionState>('idle');
+    const saveRequestRef = useRef(0);
+    const logbookRequestRef = useRef(0);
+    const saveResetTimerRef = useRef<ResetTimer | null>(null);
+    const logbookResetTimerRef = useRef<ResetTimer | null>(null);
+
+    const voyagePlan = useMemo(() => buildVoyagePlan(payload), [payload]);
+    const hasUsableTrack = payload.track.length >= 2;
+    const routeRevision = useMemo(
+        () =>
+            JSON.stringify({
+                departureTime: payload.summary.departure_time,
+                distance: payload.summary.total_distance_nm,
+                duration: payload.summary.total_duration_hours,
+                track: payload.track,
+            }),
+        [
+            payload.summary.departure_time,
+            payload.summary.total_distance_nm,
+            payload.summary.total_duration_hours,
+            payload.track,
+        ],
+    );
+
+    const updateSaveState = useCallback((nextState: ActionState) => {
+        saveStateRef.current = nextState;
+        if (mountedRef.current) setSaveState(nextState);
+    }, []);
+
+    const updateLogbookState = useCallback((nextState: ActionState) => {
+        logbookStateRef.current = nextState;
+        if (mountedRef.current) setLogbookState(nextState);
+    }, []);
+
+    const clearSaveResetTimer = useCallback(() => {
+        if (saveResetTimerRef.current !== null) {
+            clearTimeout(saveResetTimerRef.current);
+            saveResetTimerRef.current = null;
+        }
+    }, []);
+
+    const clearLogbookResetTimer = useCallback(() => {
+        if (logbookResetTimerRef.current !== null) {
+            clearTimeout(logbookResetTimerRef.current);
+            logbookResetTimerRef.current = null;
+        }
+    }, []);
+
+    const scheduleSaveReset = useCallback(
+        (requestId: number, delayMs: number) => {
+            clearSaveResetTimer();
+            saveResetTimerRef.current = setTimeout(() => {
+                saveResetTimerRef.current = null;
+                if (!mountedRef.current || saveRequestRef.current !== requestId) return;
+                updateSaveState('idle');
+            }, delayMs);
+        },
+        [clearSaveResetTimer, updateSaveState],
+    );
+
+    const scheduleLogbookReset = useCallback(
+        (requestId: number, delayMs: number) => {
+            clearLogbookResetTimer();
+            logbookResetTimerRef.current = setTimeout(() => {
+                logbookResetTimerRef.current = null;
+                if (!mountedRef.current || logbookRequestRef.current !== requestId) return;
+                updateLogbookState('idle');
+            }, delayMs);
+        },
+        [clearLogbookResetTimer, updateLogbookState],
+    );
+
+    useEffect(() => {
+        mountedRef.current = true;
+
+        return () => {
+            mountedRef.current = false;
+            saveRequestRef.current += 1;
+            logbookRequestRef.current += 1;
+            clearSaveResetTimer();
+            clearLogbookResetTimer();
+        };
+    }, [clearLogbookResetTimer, clearSaveResetTimer]);
+
+    // A result for a previous route must never paint a success/error state over
+    // a newly displayed route. Invalidating the request also suppresses its toast.
+    useEffect(() => {
+        saveRequestRef.current += 1;
+        logbookRequestRef.current += 1;
+        clearSaveResetTimer();
+        clearLogbookResetTimer();
+        updateSaveState('idle');
+        updateLogbookState('idle');
+    }, [clearLogbookResetTimer, clearSaveResetTimer, routeRevision, updateLogbookState, updateSaveState]);
 
     const handleTimeChange = useCallback((hour: number) => {
         setCurrentTimeHours(hour);
@@ -281,91 +404,76 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
     // Export route as GPX file download
     const handleDownloadTrack = useCallback(() => {
-        if (saveState === 'saving' || saveState === 'saved') return;
-        setSaveState('saving');
+        if (saveStateRef.current === 'saving' || saveStateRef.current === 'saved') return;
+
+        clearSaveResetTimer();
+        const requestId = ++saveRequestRef.current;
+        updateSaveState('saving');
+
+        if (!hasUsableTrack) {
+            updateSaveState('error');
+            toast.error('Route needs a departure and destination before it can be exported');
+            scheduleSaveReset(requestId, 3000);
+            return;
+        }
 
         try {
-            const track = payload.track;
+            downloadRouteGPX(voyagePlan);
+            if (!mountedRef.current || saveRequestRef.current !== requestId) return;
 
-            // Build a VoyagePlan-compatible object from the spatiotemporal payload
-            const plan: VoyagePlan = {
-                origin: track[0]?.name || 'Origin',
-                destination: track[track.length - 1]?.name || 'Destination',
-                originCoordinates: track[0]
-                    ? { lat: track[0].coordinates[1], lon: track[0].coordinates[0] }
-                    : undefined,
-                destinationCoordinates: track[track.length - 1]
-                    ? { lat: track[track.length - 1].coordinates[1], lon: track[track.length - 1].coordinates[0] }
-                    : undefined,
-                waypoints: track.slice(1, -1).map((tp) => ({
-                    name: tp.name,
-                    coordinates: { lat: tp.coordinates[1], lon: tp.coordinates[0] },
-                    windSpeed: tp.conditions.wind_spd_kts,
-                    waveHeight: tp.conditions.wave_ht_m ? tp.conditions.wave_ht_m * 3.28084 : undefined,
-                    depth_m: tp.conditions.depth_m ?? undefined,
-                })),
-                distanceApprox: `${payload.summary.total_distance_nm} NM`,
-                durationApprox: `${payload.summary.total_duration_hours} hours`,
-                departureDate: payload.summary.departure_time || new Date().toISOString(),
-                overview: '',
-            };
-
-            downloadRouteGPX(plan);
-            setSaveState('saved');
-            toast.success('GPX route exported');
-            setTimeout(() => setSaveState('idle'), 3000);
+            updateSaveState('saved');
+            toast.success('GPX export prepared');
+            scheduleSaveReset(requestId, 3000);
         } catch (err) {
+            if (!mountedRef.current || saveRequestRef.current !== requestId) return;
+
             log.error('[4DMap] GPX export error:', err);
-            setSaveState('error');
+            updateSaveState('error');
             toast.error('Failed to export GPX');
-            setTimeout(() => setSaveState('idle'), 2000);
+            scheduleSaveReset(requestId, 2000);
         }
-    }, [payload, saveState]);
+    }, [clearSaveResetTimer, hasUsableTrack, scheduleSaveReset, updateSaveState, voyagePlan]);
 
     // Save route to logbook as planned_route
     const handleSaveToLogbook = useCallback(async () => {
-        if (logbookState === 'saving' || logbookState === 'saved') return;
-        setLogbookState('saving');
+        if (logbookStateRef.current === 'saving' || logbookStateRef.current === 'saved') return;
+
+        const operationScope = getAuthIdentityScope();
+        clearLogbookResetTimer();
+        const requestId = ++logbookRequestRef.current;
+        updateLogbookState('saving');
+        const requestIsCurrent = () =>
+            mountedRef.current && logbookRequestRef.current === requestId && isAuthIdentityScopeCurrent(operationScope);
+
+        if (!hasUsableTrack) {
+            updateLogbookState('error');
+            toast.error('Route needs a departure and destination before it can be saved');
+            scheduleLogbookReset(requestId, 3000);
+            return;
+        }
 
         try {
             const { ShipLogService } = await import('../../services/ShipLogService');
+            if (!requestIsCurrent()) return;
             const track = payload.track;
 
-            const plan: VoyagePlan = {
-                origin: track[0]?.name || 'Origin',
-                destination: track[track.length - 1]?.name || 'Destination',
-                originCoordinates: track[0]
-                    ? { lat: track[0].coordinates[1], lon: track[0].coordinates[0] }
-                    : undefined,
-                destinationCoordinates: track[track.length - 1]
-                    ? { lat: track[track.length - 1].coordinates[1], lon: track[track.length - 1].coordinates[0] }
-                    : undefined,
-                waypoints: track.slice(1, -1).map((tp) => ({
-                    name: tp.name,
-                    coordinates: { lat: tp.coordinates[1], lon: tp.coordinates[0] },
-                    windSpeed: tp.conditions.wind_spd_kts,
-                    waveHeight: tp.conditions.wave_ht_m ? tp.conditions.wave_ht_m * 3.28084 : undefined,
-                    depth_m: tp.conditions.depth_m ?? undefined,
-                })),
-                distanceApprox: `${payload.summary.total_distance_nm} NM`,
-                durationApprox: `${payload.summary.total_duration_hours} hours`,
-                departureDate: payload.summary.departure_time || new Date().toISOString(),
-                overview: '',
-            };
+            const voyageId = await ShipLogService.savePassagePlanToLogbook(voyagePlan);
+            if (!requestIsCurrent()) return;
 
-            const voyageId = await ShipLogService.savePassagePlanToLogbook(plan);
             if (voyageId) {
-                setLogbookState('saved');
+                updateLogbookState('saved');
                 const dest = track[track.length - 1]?.name || 'Destination';
                 toast.success(`Route to ${dest} saved to logbook`);
-                setTimeout(() => setLogbookState('idle'), 3000);
+                scheduleLogbookReset(requestId, 3000);
             } else {
-                setLogbookState('error');
+                updateLogbookState('error');
                 toast.error('Failed to save route');
-                setTimeout(() => setLogbookState('idle'), 2000);
+                scheduleLogbookReset(requestId, 2000);
             }
         } catch (err) {
-            setLogbookState('error');
+            if (!requestIsCurrent()) return;
+
+            updateLogbookState('error');
             // Specific copy when the same route exists for the same
             // calendar day — generic "Failed to save" doesn't tell the
             // user how to recover.
@@ -375,13 +483,14 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 log.error('[4DMap] Save to logbook error:', err);
                 toast.error('Failed to save route');
             }
-            setTimeout(() => setLogbookState('idle'), 3000);
+            scheduleLogbookReset(requestId, 3000);
         }
-    }, [payload, logbookState]);
+    }, [clearLogbookResetTimer, hasUsableTrack, payload.track, scheduleLogbookReset, updateLogbookState, voyagePlan]);
 
     // ── Auto-load wind data for particles ──
     useEffect(() => {
         let cancelled = false;
+        const abortController = new AbortController();
 
         async function loadWindData() {
             WindStore.setLoading(true);
@@ -407,13 +516,19 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         east: 180,
                         hours: Math.min(Math.ceil(maxTime) + 6, 120),
                     }),
+                    signal: abortController.signal,
                 });
 
-                if (!cancelled && res.ok) {
+                if (cancelled) return;
+                if (res.ok) {
                     const buffer = await res.arrayBuffer();
+                    if (cancelled) return;
+
                     const { decodeGrib2Wind } = await import('../../services/weather/decodeGrib2Wind');
+                    if (cancelled) return;
+
                     const grib = decodeGrib2Wind(buffer);
-                    if (!cancelled && grib) {
+                    if (grib) {
                         // Convert DecodedGrib2Wind → WindGrid
                         const size = grib.width * grib.height;
                         const speedArr = new Float32Array(size);
@@ -448,36 +563,33 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     }
                 }
             } catch (err) {
+                if (cancelled) return;
                 log.warn('[4DCanvas] GFS edge function failed, trying fallback:', err);
             }
 
-            // Fallback: try WW3 + global Open-Meteo
-            try {
-                const ww3Grid = await fetchWW3Grid(Math.ceil(maxTime));
-                if (!cancelled && ww3Grid) {
-                    WindStore.setGrid(ww3Grid);
-                    return;
-                }
-            } catch (_) {
-                log.warn(`[PassageCanvas]`, _);
-            }
-
+            // WW3 contains wave height/direction, not atmospheric wind. Never
+            // feed it into WindStore or the particle layer will show waves
+            // while labelling them as wind.
+            if (cancelled) return;
             try {
                 const windGrid = await fetchGlobalWindField();
-                if (!cancelled && windGrid) {
+                if (cancelled) return;
+                if (windGrid) {
                     WindStore.setGrid(windGrid);
                     return;
                 }
             } catch (_) {
+                if (cancelled) return;
                 log.warn(`[PassageCanvas]`, _);
             }
 
-            if (!cancelled) WindStore.setLoading(false);
+            WindStore.setLoading(false);
         }
 
         loadWindData();
         return () => {
             cancelled = true;
+            abortController.abort();
         };
     }, [maxTime]);
 
@@ -522,7 +634,10 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             departureTime: payload.summary.departure_time || new Date().toISOString(),
             totalDistanceNM: payload.summary.total_distance_nm,
             estimatedDuration: payload.summary.total_duration_hours,
-            speed: payload.summary.total_distance_nm / payload.summary.total_duration_hours,
+            speed:
+                payload.summary.total_duration_hours > 0
+                    ? payload.summary.total_distance_nm / payload.summary.total_duration_hours
+                    : 0,
             turnWaypoints: track.slice(1, -1).map((tp) => ({
                 name: tp.name,
                 lat: tp.coordinates[1],
@@ -532,6 +647,23 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             })),
         };
     }, [payload]);
+
+    const logbookActionLabel =
+        logbookState === 'saving'
+            ? 'Saving planned route to logbook'
+            : logbookState === 'saved'
+              ? 'Planned route saved to logbook'
+              : logbookState === 'error'
+                ? 'Retry saving planned route to logbook'
+                : 'Save planned route to logbook';
+    const downloadActionLabel =
+        saveState === 'saving'
+            ? 'Preparing GPX export'
+            : saveState === 'saved'
+              ? 'GPX export prepared'
+              : saveState === 'error'
+                ? 'Retry GPX export'
+                : 'Download track as GPX';
 
     return (
         <div
@@ -669,7 +801,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         {/* Save to Logbook (bookmark icon) */}
                         <button
                             onClick={handleSaveToLogbook}
-                            disabled={logbookState === 'saving'}
+                            disabled={logbookState === 'saving' || logbookState === 'saved'}
                             style={{
                                 pointerEvents: 'auto',
                                 width: 44,
@@ -692,12 +824,17 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                cursor: logbookState === 'saving' ? 'wait' : 'pointer',
+                                cursor:
+                                    logbookState === 'saving'
+                                        ? 'wait'
+                                        : logbookState === 'saved'
+                                          ? 'default'
+                                          : 'pointer',
                                 flexShrink: 0,
                                 transition: 'all 0.3s ease',
                             }}
-                            aria-label="Save planned route to logbook"
-                            title="Save planned route to logbook"
+                            aria-label={logbookActionLabel}
+                            title={logbookActionLabel}
                         >
                             {logbookState === 'saving' ? (
                                 <div
@@ -754,7 +891,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         {/* Download Track as GPX (download icon) */}
                         <button
                             onClick={handleDownloadTrack}
-                            disabled={saveState === 'saving'}
+                            disabled={saveState === 'saving' || saveState === 'saved'}
                             style={{
                                 pointerEvents: 'auto',
                                 width: 44,
@@ -773,12 +910,12 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                cursor: saveState === 'saving' ? 'wait' : 'pointer',
+                                cursor: saveState === 'saving' ? 'wait' : saveState === 'saved' ? 'default' : 'pointer',
                                 flexShrink: 0,
                                 transition: 'all 0.3s ease',
                             }}
-                            aria-label="Download track as GPX"
-                            title="Download track as GPX"
+                            aria-label={downloadActionLabel}
+                            title={downloadActionLabel}
                         >
                             {saveState === 'saving' ? (
                                 <div

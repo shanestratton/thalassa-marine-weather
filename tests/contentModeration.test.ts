@@ -116,6 +116,11 @@ describe('clientFilter — spam detection', () => {
         expect(result.warning).toBeNull();
     });
 
+    it('warns on repeated characters and ignores spaces when measuring uppercase ratio', () => {
+        expect(clientFilter('heyyyyy sailor').warning).toContain('keyboard');
+        expect(clientFilter('LOUD WORDS 1234 !!!').warning).toContain('caps');
+    });
+
     it('blocks link spam (3+ URLs)', () => {
         const result = clientFilter('Check https://spam1.com and https://spam2.com and https://spam3.com');
         expect(result.blocked).toBe(true);

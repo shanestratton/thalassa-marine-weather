@@ -9,7 +9,7 @@
  */
 
 import { createPortal } from 'react-dom';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
 import { triggerHaptic } from '../utils/system';
@@ -31,6 +31,7 @@ import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal'
 import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
+import { OverlayPortal } from '../components/ui/OverlayPortal';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { useFollowRouteStore } from '../stores/followRouteStore';
@@ -52,6 +53,12 @@ import { ShareSheet } from './log/ShareSheet';
 import { ShareFormSheet } from './log/ShareFormSheet';
 import { StatsSheet } from './log/StatsSheet';
 import { publishFollowedRoute } from '../services/shiplog/publishFollowedRoute';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -66,7 +73,16 @@ const _AnchorIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    const [pageStateScope, setPageStateScope] = useState(identityScope);
+    const pageBelongsToCurrentIdentity =
+        pageStateScope.key === identityScope.key &&
+        pageStateScope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(pageStateScope);
     // Navigation helper was used by the old Diary kebab item;
     // Diary now has its own tile in the Vessel-tab → Sharing section
     // (2026-05-17). The destructure stays as a `_` placeholder so
@@ -144,7 +160,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
     const followPromptedRef = React.useRef<string | null>(null);
     const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
-    const dismissFollowPrompt = React.useCallback(() => setFollowPromptVoyageId(null), []);
+    const dismissFollowPrompt = React.useCallback(() => {
+        if (isAuthIdentityScopeCurrent(identityScope)) setFollowPromptVoyageId(null);
+    }, [identityScope]);
     const followPromptDialogRef = useFocusTrap<HTMLDivElement>(followPromptVoyageId !== null, {
         initialFocusRef: followPromptDismissRef,
         onEscape: dismissFollowPrompt,
@@ -181,13 +199,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         [plannedSummaries, currentFix],
     );
     React.useEffect(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
         if (!state.isTracking || !vid) return;
         if (followPromptedRef.current === vid) return; // already asked this voyage
         if (plannedSummaries.length === 0) return; // nothing to follow
         followPromptedRef.current = vid;
         setFollowPromptVoyageId(vid);
-    }, [state.isTracking, state.currentVoyageId, plannedSummaries.length]);
+    }, [identityScope, state.isTracking, state.currentVoyageId, plannedSummaries.length]);
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(false);
 
@@ -291,12 +310,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     useEffect(() => {
         setEngineRunningState(state.isTracking ? ShipLogService.getEngineRunning() : undefined);
     }, [state.isTracking, state.currentVoyageId]);
-    const toggleEngine = useCallback(async (running: boolean) => {
-        await ShipLogService.setEngineRunning(running);
-        setEngineRunningState(running);
-        setNudgeDismiss(null); // resolving the toggle clears any nudge
-        triggerHaptic('light');
-    }, []);
+    const toggleEngine = useCallback(
+        async (running: boolean) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            await ShipLogService.setEngineRunning(running);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setEngineRunningState(running);
+            setNudgeDismiss(null); // resolving the toggle clears any nudge
+            triggerHaptic('light');
+        },
+        [identityScope],
+    );
 
     // ── Propulsion mismatch nudge ──
     // When the declared engine state and the live heuristic estimate
@@ -323,6 +348,23 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // Live mini-map expansion — tap the little map to blow it up to a
     // fullscreen live view (stats stay overlaid), tap again to shrink.
     const [liveMapExpanded, setLiveMapExpanded] = useState(false);
+    const liveMapTitleId = React.useId();
+    const expandLiveMapRef = useRef<HTMLButtonElement>(null);
+    const shrinkLiveMapRef = useRef<HTMLButtonElement>(null);
+    const closeLiveMap = useCallback(() => {
+        if (isAuthIdentityScopeCurrent(identityScope)) setLiveMapExpanded(false);
+    }, [identityScope]);
+    const liveMapDialogRef = useFocusTrap<HTMLDivElement>(liveMapExpanded, {
+        initialFocusRef: shrinkLiveMapRef,
+        onEscape: closeLiveMap,
+    });
+    const openLiveMap = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        // The explicit opener remains mounted underneath the portal, giving
+        // the focus trap a stable element to restore when the map closes.
+        expandLiveMapRef.current?.focus();
+        setLiveMapExpanded(true);
+    }, [identityScope]);
     useEffect(() => {
         if (!state.isTracking) setLiveMapExpanded(false);
     }, [state.isTracking]);
@@ -331,30 +373,41 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
     const pendingStartRef = useRef<(() => void) | null>(null);
 
-    const checkGpsDisclaimer = useCallback(async (onProceed: () => void) => {
-        try {
-            const { value } = await Preferences.get({ key: 'gps_disclaimer_dismissed' });
-            if (value === 'true') {
-                onProceed();
-            } else {
-                pendingStartRef.current = onProceed;
-                setShowGpsDisclaimer(true);
+    const checkGpsDisclaimer = useCallback(
+        async (onProceed: () => void) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            try {
+                const { value } = await Preferences.get({ key: 'gps_disclaimer_dismissed' });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                if (value === 'true') {
+                    onProceed();
+                } else {
+                    pendingStartRef.current = onProceed;
+                    setShowGpsDisclaimer(true);
+                }
+            } catch {
+                if (isAuthIdentityScopeCurrent(actionScope)) onProceed(); // fail-open
             }
-        } catch {
-            onProceed(); // fail-open
-        }
-    }, []);
+        },
+        [identityScope],
+    );
 
-    const dismissGpsDisclaimer = useCallback(async (dontShowAgain: boolean) => {
-        if (dontShowAgain) {
-            await Preferences.set({ key: 'gps_disclaimer_dismissed', value: 'true' });
-        }
-        setShowGpsDisclaimer(false);
-        if (pendingStartRef.current) {
-            pendingStartRef.current();
+    const dismissGpsDisclaimer = useCallback(
+        async (dontShowAgain: boolean) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (dontShowAgain) {
+                await Preferences.set({ key: 'gps_disclaimer_dismissed', value: 'true' });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            }
+            setShowGpsDisclaimer(false);
+            const pendingStart = pendingStartRef.current;
             pendingStartRef.current = null;
-        }
-    }, []);
+            if (pendingStart) pendingStart();
+        },
+        [identityScope],
+    );
 
     // Share form auto-fill state
     const [shareAutoTitle, setShareAutoTitle] = useState('');
@@ -363,6 +416,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
     // Share a self-contained summary-card PNG of the scoped voyage.
     const handleShareImage = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const scoped = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
             : state.entries;
@@ -373,69 +428,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
         try {
             const { shareVoyageCard } = await import('../services/shiplog/voyageShareCard');
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             await shareVoyageCard(scoped, { title: shareAutoTitle || undefined });
         } catch (err) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (err instanceof Error && err.name !== 'AbortError') {
                 log.warn('share image failed:', err);
                 toast.error('Could not create the image');
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [state.selectedVoyageId, state.entries, shareAutoTitle, toast]);
-
-    // ── Listen for planned route save from Passage Planner ──
-    useEffect(() => {
-        const handlePlannedRoute = async (e: Event) => {
-            const detail = (e as CustomEvent).detail;
-            if (!detail?.waypoints?.length || !detail?.departure || !detail?.arrival) return;
-
-            try {
-                const { waypoints, departure, arrival, departureTime, totalDistanceNM, totalDurationHours } = detail;
-                const voyageId = `planned_${Date.now()}`;
-                const depTime = new Date(departureTime).getTime();
-
-                // Create log entries for each waypoint
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const entries: Partial<ShipLogEntry>[] = waypoints.map((wp: any, idx: number) => ({
-                    voyageId,
-                    timestamp: wp.eta || new Date(depTime + wp.timeHours * 3600_000).toISOString(),
-                    latitude: wp.lat,
-                    longitude: wp.lon,
-                    entryType: idx === 0 ? 'manual' : 'waypoint',
-                    source: 'planned_route',
-                    waypointName: wp.id === 'DEP' ? departure.name : wp.id === 'ARR' ? arrival.name : wp.id,
-                    notes:
-                        wp.id === 'DEP'
-                            ? `Departure: ${departure.name}`
-                            : wp.id === 'ARR'
-                              ? `Arrival: ${arrival.name} — ${totalDistanceNM?.toFixed(0)} NM, ${totalDurationHours?.toFixed(0)}h`
-                              : `Course change: ${wp.bearingChange}° → ${wp.bearing}°`,
-                    speedKts: wp.speed,
-                    courseDeg: wp.bearing,
-                    windSpeed: wp.tws,
-                    distanceNM:
-                        idx > 0 ? Math.round((wp.distanceNM - (waypoints[idx - 1]?.distanceNM || 0)) * 10) / 10 : 0,
-                    cumulativeDistanceNM: wp.distanceNM,
-                }));
-
-                // Save to Supabase
-                const { supabase } = await import('../services/supabase');
-                if (!supabase) throw new Error('Supabase not initialised');
-                for (const entry of entries) {
-                    await supabase.from('ship_logs').insert(entry);
-                }
-
-                toast.success(`Planned route saved: ${departure.name} → ${arrival.name}`);
-                loadData(); // Refresh the log page
-            } catch (err) {
-                log.error('Failed to save planned route:', err);
-                toast.error('Failed to save planned route');
-            }
-        };
-
-        window.addEventListener('thalassa:save-planned-route', handlePlannedRoute);
-        return () => window.removeEventListener('thalassa:save-planned-route', handlePlannedRoute);
-    }, [loadData, toast]);
+    }, [identityScope, state.selectedVoyageId, state.entries, shareAutoTitle, toast]);
 
     // Destructure frequently used state for JSX readability.
     // `isRapidMode` and `isPrecisionMode` no longer destructured here
@@ -462,8 +465,39 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         filters: _filters,
     } = state;
 
+    const handleShareCurrentPosition = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
+        try {
+            const voyageEntries = entries
+                .filter((entry) => entry.voyageId === currentVoyageId)
+                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            const latestEntry = voyageEntries[0];
+            const pinLat = latestEntry?.latitude;
+            const pinLon = latestEntry?.longitude;
+            if (!Number.isFinite(pinLat) || !Number.isFinite(pinLon) || (pinLat === 0 && pinLon === 0)) {
+                toast.error('No GPS position available yet');
+                return;
+            }
+            const mapsUrl = `https://maps.google.com/?q=${pinLat!.toFixed(6)},${pinLon!.toFixed(6)}`;
+            const message = `\u{1F4CD} My Current Position\n\nLat: ${pinLat!.toFixed(4)}\u00B0  Lon: ${pinLon!.toFixed(4)}\u00B0\n\nView on map: ${mapsUrl}\n\nShared via Thalassa \u{26F5}`;
+            if (navigator.share) {
+                await navigator.share({ title: 'My Position', text: message });
+            } else {
+                await navigator.clipboard.writeText(message);
+                if (isAuthIdentityScopeCurrent(actionScope)) toast.success('Position copied to clipboard');
+            }
+        } catch (err: unknown) {
+            if (isAuthIdentityScopeCurrent(actionScope) && err instanceof Error && err.name !== 'AbortError') {
+                log.warn('Share failed:', err);
+            }
+        }
+    }, [currentVoyageId, entries, identityScope, toast]);
+
     // Auto-fill share form when panel opens
     useEffect(() => {
+        const effectScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(effectScope)) return;
         if (actionSheet !== 'share' && actionSheet !== 'share_form') {
             setShareAutoTitle('');
             setShareAutoRegion('');
@@ -498,12 +532,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             : reverseGeocode(last.latitude, last.longitude)
                         : Promise.resolve(null),
                 ]);
-                if (resetId !== shareFormResetRef.current) return; // stale
+                if (resetId !== shareFormResetRef.current || !isAuthIdentityScopeCurrent(effectScope)) return; // stale
                 const title =
                     endName && endName !== startName ? `${startName || 'Unknown'} → ${endName}` : startName || '';
                 setShareAutoTitle(title);
             } catch (e) {
-                log.warn('fallback to empty:', e);
+                if (isAuthIdentityScopeCurrent(effectScope)) log.warn('fallback to empty:', e);
             }
         })();
 
@@ -512,7 +546,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         (async () => {
             try {
                 const ctx = await reverseGeocodeContext(first.latitude, first.longitude);
-                if (resetId !== shareFormResetRef.current) return; // stale
+                if (resetId !== shareFormResetRef.current || !isAuthIdentityScopeCurrent(effectScope)) return; // stale
                 if (ctx && ctx.name) {
                     const parts = ctx.name.split(',').map((p) => p.trim());
                     // Drop the city (first part) to get "State, Country"
@@ -520,16 +554,37 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     setShareAutoRegion(region);
                 }
             } catch (e) {
-                log.warn('fallback to empty:', e);
+                if (isAuthIdentityScopeCurrent(effectScope)) log.warn('fallback to empty:', e);
             }
         })();
-    }, [actionSheet, selectedVoyageId, entries]);
+    }, [actionSheet, selectedVoyageId, entries, identityScope]);
+
+    useEffect(() => {
+        setPageStateScope(identityScope);
+        setFollowPromptVoyageId(null);
+        followPromptedRef.current = null;
+        setShowMenu(false);
+        setShowArchived(false);
+        setGpsOverlayDismissedFor(null);
+        setEngineRunningState(undefined);
+        setNudgeDismiss(null);
+        setLiveMapExpanded(false);
+        setShowGpsDisclaimer(false);
+        pendingStartRef.current = null;
+        setShareAutoTitle('');
+        setShareAutoRegion('');
+        shareFormResetRef.current += 1;
+    }, [identityScope]);
 
     // No full-page spinner: the page shell + the Start control render
     // immediately (starting a track is network-free), and only the
     // voyage LIST shows a skeleton while history loads. The old
     // early-return here held the entire page — Start button included —
     // hostage to auth rehydrate + the Supabase summaries fetch.
+
+    if (!pageBelongsToCurrentIdentity) {
+        return <div className="h-full bg-slate-950" aria-busy="true" aria-label="Switching ship log account" />;
+    }
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden">
@@ -1007,8 +1062,32 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         entries={activeEntries}
                                                         height="100%"
                                                         isLive={true}
-                                                        onTap={() => setLiveMapExpanded(true)}
+                                                        onTap={openLiveMap}
                                                     />
+                                                )}
+                                                {!showTrackMap && (
+                                                    <button
+                                                        ref={expandLiveMapRef}
+                                                        type="button"
+                                                        aria-label="Expand live map"
+                                                        onClick={openLiveMap}
+                                                        className="absolute bottom-2 right-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-slate-900/85 text-white/80 shadow-lg backdrop-blur-sm transition-transform active:scale-95"
+                                                    >
+                                                        <svg
+                                                            className="h-4 w-4"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                            aria-hidden="true"
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                strokeWidth={2}
+                                                                d="M4 9V4m0 0h5M4 4l6 6m10-1V4m0 0h-5m5 0l-6 6M4 15v5m0 0h5m-5 0l6-6m10 1v5m0 0h-5m5 0l-6-6"
+                                                            />
+                                                        </svg>
+                                                    </button>
                                                 )}
                                                 {!hasRecordedFix && (
                                                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
@@ -1027,13 +1106,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 transform-gpu promotes the overlay to its own composited
                                                 layer so iOS can't paint underlying map tiles above it. */}
                                             {liveMapExpanded && (
-                                                <div className="fixed inset-0 z-[9990] bg-slate-950 transform-gpu">
+                                                <OverlayPortal
+                                                    ref={liveMapDialogRef}
+                                                    className="bg-slate-950 transform-gpu"
+                                                    role="dialog"
+                                                    aria-modal="true"
+                                                    aria-labelledby={liveMapTitleId}
+                                                >
                                                     <LiveMiniMap
                                                         entries={activeEntries}
                                                         height="100%"
                                                         isLive={true}
                                                         freeZoom={true}
-                                                        onTap={() => setLiveMapExpanded(false)}
+                                                        onTap={closeLiveMap}
                                                         className="!rounded-none !border-0"
                                                     />
 
@@ -1044,7 +1129,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     >
                                                         <div className="flex items-center gap-2">
                                                             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                                            <span className="text-xs font-bold text-red-400 uppercase tracking-wider drop-shadow-lg">
+                                                            <span
+                                                                id={liveMapTitleId}
+                                                                className="text-xs font-bold text-red-400 uppercase tracking-wider drop-shadow-lg"
+                                                            >
                                                                 Live Recording
                                                             </span>
                                                         </div>
@@ -1063,8 +1151,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                                                     {/* Explicit collapse affordance */}
                                                     <button
+                                                        ref={shrinkLiveMapRef}
+                                                        type="button"
                                                         aria-label="Shrink map"
-                                                        onClick={() => setLiveMapExpanded(false)}
+                                                        onClick={closeLiveMap}
                                                         className="absolute right-4 z-[1001] w-10 h-10 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
                                                         style={{ top: 'max(16px, env(safe-area-inset-top))' }}
                                                     >
@@ -1094,7 +1184,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                             </span>
                                                         </div>
                                                     )}
-                                                </div>
+                                                </OverlayPortal>
                                             )}
                                         </div>
                                     );
@@ -1119,36 +1209,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </button>
                                     <button
                                         aria-label="Export voyage"
-                                        onClick={async () => {
-                                            try {
-                                                const voyageEntries = entries
-                                                    .filter((e: { voyageId: string }) => e.voyageId === currentVoyageId)
-                                                    .sort(
-                                                        (a: { timestamp: string }, b: { timestamp: string }) =>
-                                                            new Date(b.timestamp).getTime() -
-                                                            new Date(a.timestamp).getTime(),
-                                                    );
-                                                const latestEntry = voyageEntries[0];
-                                                const pinLat = latestEntry?.latitude;
-                                                const pinLon = latestEntry?.longitude;
-                                                if (!pinLat || !pinLon) {
-                                                    toast.error('No GPS position available yet');
-                                                    return;
-                                                }
-                                                const mapsUrl = `https://maps.google.com/?q=${pinLat.toFixed(6)},${pinLon.toFixed(6)}`;
-                                                const message = `\u{1F4CD} My Current Position\n\nLat: ${pinLat.toFixed(4)}\u00B0  Lon: ${pinLon.toFixed(4)}\u00B0\n\nView on map: ${mapsUrl}\n\nShared via Thalassa \u{26F5}`;
-                                                if (navigator.share) {
-                                                    await navigator.share({ title: 'My Position', text: message });
-                                                } else {
-                                                    await navigator.clipboard.writeText(message);
-                                                    toast.success('Position copied to clipboard');
-                                                }
-                                            } catch (err: unknown) {
-                                                if (err instanceof Error && err.name !== 'AbortError') {
-                                                    log.warn('Share failed:', err);
-                                                }
-                                            }
-                                        }}
+                                        onClick={handleShareCurrentPosition}
                                         className="w-14 h-14 shrink-0 rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 active:scale-[0.97]"
                                         title="Share your position"
                                     >
@@ -1658,14 +1719,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         summary={s}
                                         reversible={reversible}
                                         onPick={() => {
-                                            void publishFollowedRoute(s.voyageId).then((result) => {
-                                                if (result === 'linked')
-                                                    toast.success('Your public page now follows this route');
-                                                else
+                                            const actionScope = identityScope;
+                                            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                            void publishFollowedRoute(s.voyageId)
+                                                .then((result) => {
+                                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                    if (result === 'linked')
+                                                        toast.success('Your public page now follows this route');
+                                                    else
+                                                        toast.error(
+                                                            'Couldn’t publish — try the Follow button, or Settings',
+                                                        );
+                                                })
+                                                .catch((error) => {
+                                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                    log.warn('Could not publish followed route:', error);
                                                     toast.error(
                                                         'Couldn’t publish — try the Follow button, or Settings',
                                                     );
-                                            });
+                                                });
                                             dismissFollowPrompt();
                                         }}
                                     />

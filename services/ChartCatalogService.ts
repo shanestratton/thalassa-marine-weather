@@ -15,6 +15,13 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('ChartCatalog');
 
@@ -113,7 +120,7 @@ function buildCatalog(linzKey: string | null): ChartSource[] {
             description: linzKey ? 'New Zealand hydrographic charts' : 'NZ charts — requires free API key',
             region: 'New Zealand',
             flag: '🇳🇿',
-            tileUrl: linzKey ? LINZ_TILE_URL_TEMPLATE.replace('{LINZ_KEY}', linzKey) : null,
+            tileUrl: linzKey ? linzTileUrl(linzKey) : null,
             requiresKey: true,
             format: 'png',
             minZoom: 3,
@@ -133,19 +140,41 @@ interface StoredState {
     opacities: Partial<Record<ChartSourceId, number>>;
 }
 
-function loadState(): StoredState {
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+function loadState(scope: AuthIdentityScope): StoredState {
+    if (!isAuthIdentityScopeCurrent(scope)) return { enabledSources: [], opacities: {} };
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) return JSON.parse(raw);
+        const raw = localStorage.getItem(authScopedStorageKey(STORAGE_KEY, scope));
+        if (raw) {
+            const parsed = JSON.parse(raw) as Partial<StoredState>;
+            const validIds = new Set<ChartSourceId>(['noaa-ncds', 'noaa-ecdis', 'linz-charts', 'openseamap']);
+            const enabledSources = Array.isArray(parsed.enabledSources)
+                ? parsed.enabledSources.filter((id): id is ChartSourceId => validIds.has(id as ChartSourceId))
+                : [];
+            const opacities: StoredState['opacities'] = {};
+            if (parsed.opacities && typeof parsed.opacities === 'object') {
+                for (const id of validIds) {
+                    const opacity = parsed.opacities[id];
+                    if (typeof opacity === 'number' && Number.isFinite(opacity)) {
+                        opacities[id] = Math.max(0.1, Math.min(1, opacity));
+                    }
+                }
+            }
+            return { enabledSources, opacities };
+        }
     } catch {
         /* ignore */
     }
     return { enabledSources: [], opacities: {} };
 }
 
-function saveState(state: StoredState): void {
+function saveState(state: StoredState, scope: AuthIdentityScope): void {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(authScopedStorageKey(STORAGE_KEY, scope), JSON.stringify(state));
     } catch {
         /* ignore */
     }
@@ -156,11 +185,34 @@ function saveState(state: StoredState): void {
 // Not a paid secret — safe to ship as a default for zero-config NZ charts.
 const LINZ_DEFAULT_KEY = '2fe89f4752854178887ab9864765404d';
 
-export function getLinzApiKey(): string | null {
+function purgeUnownedLegacyKey(): void {
     try {
-        // User override → env var → built-in default
-        const stored = localStorage.getItem(LINZ_KEY_STORAGE);
-        if (stored) return stored;
+        // The historical key had no owner marker. Assigning it to whichever
+        // account happens to sign in next would disclose one user's override
+        // to another, so it is retired rather than guessed.
+        localStorage.removeItem(LINZ_KEY_STORAGE);
+    } catch {
+        /* ignore */
+    }
+}
+
+function normalizeLinzKey(key: string): string | null {
+    const normalized = key.trim();
+    return normalized.length >= 8 && normalized.length <= 256 ? normalized : null;
+}
+
+function linzTileUrl(key: string): string {
+    return LINZ_TILE_URL_TEMPLATE.replace('{LINZ_KEY}', encodeURIComponent(key));
+}
+
+export function getLinzApiKey(scope: AuthIdentityScope = getAuthIdentityScope()): string | null {
+    if (!isAuthIdentityScopeCurrent(scope)) return LINZ_DEFAULT_KEY;
+    try {
+        purgeUnownedLegacyKey();
+        // Current account's override → env var → built-in default.
+        const stored = localStorage.getItem(authScopedStorageKey(LINZ_KEY_STORAGE, scope));
+        const normalizedStored = stored ? normalizeLinzKey(stored) : null;
+        if (normalizedStored) return normalizedStored;
         if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_LINZ_API_KEY) {
             return import.meta.env.VITE_LINZ_API_KEY;
         }
@@ -170,12 +222,17 @@ export function getLinzApiKey(): string | null {
     }
 }
 
-export function setLinzApiKey(key: string): void {
+export function setLinzApiKey(key: string, scope: AuthIdentityScope = getAuthIdentityScope()): boolean {
+    if (!isAuthIdentityScopeCurrent(scope)) return false;
+    const normalized = normalizeLinzKey(key);
+    if (!normalized) return false;
     try {
-        localStorage.setItem(LINZ_KEY_STORAGE, key.trim());
-        log.info(`LINZ API key saved (${key.trim().slice(0, 8)}…)`);
+        purgeUnownedLegacyKey();
+        localStorage.setItem(authScopedStorageKey(LINZ_KEY_STORAGE, scope), normalized);
+        log.info('LINZ API key override saved for the active account');
+        return true;
     } catch {
-        /* ignore */
+        return false;
     }
 }
 
@@ -187,16 +244,33 @@ class ChartCatalogServiceClass {
     private sources: ChartSource[] = [];
     private listeners = new Set<CatalogChangeCallback>();
     private initialized = false;
+    private scope = getAuthIdentityScope();
 
-    initialize(): void {
-        if (this.initialized) return;
+    constructor() {
+        subscribeAuthIdentityScope((next) => {
+            const wasInitialized = this.initialized;
+            this.scope = next;
+            this.sources = [];
+            if (wasInitialized) this.hydrate(next);
+            this.emit();
+        });
+    }
+
+    initialize(scope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        if (this.initialized && sameScope(this.scope, scope)) return;
         this.initialized = true;
+        this.hydrate(scope);
+    }
 
-        const linzKey = getLinzApiKey();
+    private hydrate(scope: AuthIdentityScope): void {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        this.scope = scope;
+        const linzKey = getLinzApiKey(scope);
         this.sources = buildCatalog(linzKey);
 
         // Apply saved state
-        const state = loadState();
+        const state = loadState(scope);
         for (const src of this.sources) {
             src.enabled = state.enabledSources.includes(src.id);
             if (state.opacities[src.id] !== undefined) {
@@ -207,16 +281,22 @@ class ChartCatalogServiceClass {
         log.info(`Chart catalog initialized: ${this.sources.length} sources, ${state.enabledSources.length} enabled`);
     }
 
-    getSources(): ChartSource[] {
-        if (!this.initialized) this.initialize();
-        return [...this.sources];
+    private accepts(scope: AuthIdentityScope): boolean {
+        this.initialize(scope);
+        return isAuthIdentityScopeCurrent(scope) && sameScope(this.scope, scope);
     }
 
-    getEnabledSources(): ChartSource[] {
-        return this.getSources().filter((s) => s.enabled && s.tileUrl);
+    getSources(scope: AuthIdentityScope = getAuthIdentityScope()): ChartSource[] {
+        if (!this.accepts(scope)) return [];
+        return this.sources.map((source) => ({ ...source }));
     }
 
-    toggleSource(id: ChartSourceId): void {
+    getEnabledSources(scope: AuthIdentityScope = getAuthIdentityScope()): ChartSource[] {
+        return this.getSources(scope).filter((s) => s.enabled && s.tileUrl);
+    }
+
+    toggleSource(id: ChartSourceId, scope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!this.accepts(scope)) return;
         const src = this.sources.find((s) => s.id === id);
         if (!src) return;
 
@@ -234,12 +314,13 @@ class ChartCatalogServiceClass {
         }
 
         src.enabled = !src.enabled;
-        this.persist();
+        this.persist(scope);
         this.emit();
     }
 
     /** Disable every source in one pass. Used by the single-select chart picker. */
-    disableAll(): void {
+    disableAll(scope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!this.accepts(scope)) return;
         let changed = false;
         for (const s of this.sources) {
             if (s.enabled) {
@@ -248,28 +329,30 @@ class ChartCatalogServiceClass {
             }
         }
         if (changed) {
-            this.persist();
+            this.persist(scope);
             this.emit();
         }
     }
 
-    setOpacity(id: ChartSourceId, opacity: number): void {
+    setOpacity(id: ChartSourceId, opacity: number, scope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!this.accepts(scope)) return;
         const src = this.sources.find((s) => s.id === id);
         if (!src) return;
         src.opacity = Math.max(0.1, Math.min(1, opacity));
-        this.persist();
+        this.persist(scope);
         this.emit();
     }
 
     /** Update LINZ key and rebuild catalog */
-    updateLinzKey(key: string): void {
-        setLinzApiKey(key);
+    updateLinzKey(key: string, scope: AuthIdentityScope = getAuthIdentityScope()): boolean {
+        if (!this.accepts(scope) || !setLinzApiKey(key, scope)) return false;
         const linzSource = this.sources.find((s) => s.id === 'linz-charts');
         if (linzSource) {
-            linzSource.tileUrl = LINZ_TILE_URL_TEMPLATE.replace('{LINZ_KEY}', key.trim());
+            linzSource.tileUrl = linzTileUrl(key.trim());
             linzSource.description = 'New Zealand hydrographic charts';
         }
         this.emit();
+        return true;
     }
 
     onChange(cb: CatalogChangeCallback): () => void {
@@ -277,19 +360,26 @@ class ChartCatalogServiceClass {
         return () => this.listeners.delete(cb);
     }
 
-    private persist(): void {
+    private persist(scope: AuthIdentityScope): void {
+        if (!this.accepts(scope)) return;
         const state: StoredState = {
             enabledSources: this.sources.filter((s) => s.enabled).map((s) => s.id),
             opacities: Object.fromEntries(this.sources.map((s) => [s.id, s.opacity])) as Partial<
                 Record<ChartSourceId, number>
             >,
         };
-        saveState(state);
+        saveState(state, scope);
     }
 
     private emit(): void {
-        const snapshot = [...this.sources];
-        for (const cb of this.listeners) cb(snapshot);
+        const snapshot = this.sources.map((source) => ({ ...source }));
+        for (const cb of this.listeners) {
+            try {
+                cb(snapshot);
+            } catch (error) {
+                log.warn('Chart catalog listener failed:', error);
+            }
+        }
     }
 }
 

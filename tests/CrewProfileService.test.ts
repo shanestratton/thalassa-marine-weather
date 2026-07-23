@@ -6,9 +6,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { supabase } from '../services/supabase';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 // ── Mock LocalDatabase ──────────────────────────────────────────
 const mockProfiles: Record<string, any>[] = [];
+let mockLocalIdentity: string | null = 'account-a';
 
 vi.mock('../services/vessel/LocalDatabase', () => ({
     getAll: vi.fn(() => [...mockProfiles]),
@@ -24,6 +26,22 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
         }
         return null;
     }),
+    atomicLocalTransaction: vi.fn(async (operation: (transaction: any) => unknown) =>
+        operation({
+            getById: (_table: string, id: string) => mockProfiles.find((profile) => profile.id === id) || null,
+            insert: (_table: string, record: any) => {
+                mockProfiles.push(record);
+                return record;
+            },
+            update: (_table: string, id: string, updates: any) => {
+                const profile = mockProfiles.find((candidate) => candidate.id === id);
+                if (!profile) return null;
+                Object.assign(profile, updates);
+                return profile;
+            },
+        }),
+    ),
+    getLocalDatabaseIdentity: vi.fn(() => mockLocalIdentity),
     generateUUID: vi.fn(() => 'mock-uuid-' + Math.random().toString(36).slice(2, 8)),
 }));
 
@@ -33,6 +51,12 @@ describe('CrewProfileService', () => {
     beforeEach(() => {
         mockProfiles.length = 0;
         vi.clearAllMocks();
+        mockLocalIdentity = 'account-a';
+        setAuthIdentityScope('account-a');
+        (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
+            data: { user: { id: 'account-a' } },
+            error: null,
+        });
     });
 
     describe('getCrewDietarySummary', () => {

@@ -8,7 +8,7 @@
  * Returns a unified PointWeatherData object for the popup display.
  */
 
-import { getOpenMeteoKey } from './keys';
+import { fetchOpenMeteoProxy } from './openMeteoProxy';
 
 export interface PointWeatherData {
     lat: number;
@@ -35,16 +35,13 @@ export interface PointWeatherData {
  * Both API calls fire in parallel for speed.
  */
 export async function fetchPointWeather(lat: number, lon: number): Promise<PointWeatherData | null> {
-    const apiKey = getOpenMeteoKey();
-    if (!apiKey) return null;
-
     const latStr = lat.toFixed(4);
     const lonStr = lon.toFixed(4);
 
     // Fire both requests in parallel
     const [forecast, marine] = await Promise.allSettled([
-        fetchForecastPoint(latStr, lonStr, apiKey),
-        fetchMarinePoint(latStr, lonStr, apiKey),
+        fetchForecastPoint(latStr, lonStr),
+        fetchMarinePoint(latStr, lonStr),
     ]);
 
     const wx = forecast.status === 'fulfilled' ? forecast.value : null;
@@ -83,18 +80,15 @@ interface AtmoData {
     cloudCover: number;
 }
 
-async function fetchForecastPoint(lat: string, lon: string, apiKey: string): Promise<AtmoData | null> {
-    const params = [
-        `latitude=${lat}`,
-        `longitude=${lon}`,
-        'current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover',
-        `apikey=${apiKey}`,
-    ].join('&');
-
-    const resp = await fetch(`https://customer-api.open-meteo.com/v1/forecast?${params}`);
-    if (!resp.ok) return null;
-
-    const data = await resp.json();
+async function fetchForecastPoint(lat: string, lon: string): Promise<AtmoData | null> {
+    const data = await fetchOpenMeteoProxy<{
+        current?: Record<string, number | null>;
+    }>('forecast', {
+        latitude: lat,
+        longitude: lon,
+        current:
+            'temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover',
+    });
     const c = data?.current;
     if (!c) return null;
 
@@ -120,18 +114,14 @@ interface MarineData {
     swellDirectionDeg: number;
 }
 
-async function fetchMarinePoint(lat: string, lon: string, apiKey: string): Promise<MarineData | null> {
-    const params = [
-        `latitude=${lat}`,
-        `longitude=${lon}`,
-        'current=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction',
-        `apikey=${apiKey}`,
-    ].join('&');
-
-    const resp = await fetch(`https://customer-api.open-meteo.com/v1/marine?${params}`);
-    if (!resp.ok) return null;
-
-    const data = await resp.json();
+async function fetchMarinePoint(lat: string, lon: string): Promise<MarineData | null> {
+    const data = await fetchOpenMeteoProxy<{
+        current?: Record<string, number | null>;
+    }>('marine', {
+        latitude: lat,
+        longitude: lon,
+        current: 'wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction',
+    });
     const c = data?.current;
     if (!c) return null;
 

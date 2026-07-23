@@ -37,6 +37,7 @@ declare const Deno: {
 };
 
 import { SignJWT, importPKCS8 } from 'npm:jose@5';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 
 const CORS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
@@ -58,6 +59,15 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
+    if (req.method !== 'GET') {
+        return new Response(JSON.stringify({ error: 'GET required' }), {
+            status: 405,
+            headers: { ...CORS, 'Content-Type': 'application/json', Allow: 'GET' },
+        });
+    }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'musickit_token', 120, 30, 3600, true);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
     const now = Math.floor(Date.now() / 1000);
 
@@ -69,7 +79,13 @@ Deno.serve(async (req: Request) => {
                 expires_at: cachedToken.expiresAt,
                 cached: true,
             }),
-            { headers: { ...CORS, 'Content-Type': 'application/json' } },
+            {
+                headers: {
+                    ...CORS,
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=18000',
+                },
+            },
         );
     }
 
@@ -78,16 +94,10 @@ Deno.serve(async (req: Request) => {
     const teamId = Deno.env.get('MUSICKIT_TEAM_ID');
 
     if (!privateKeyPem || !keyId || !teamId) {
-        const missing: string[] = [];
-        if (!privateKeyPem) missing.push('MUSICKIT_PRIVATE_KEY');
-        if (!keyId) missing.push('MUSICKIT_KEY_ID');
-        if (!teamId) missing.push('MUSICKIT_TEAM_ID');
-        return new Response(
-            JSON.stringify({
-                error: `MusicKit credentials not configured. Missing: ${missing.join(', ')}`,
-            }),
-            { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ error: 'MusicKit is not configured' }), {
+            status: 500,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
     }
 
     try {
@@ -110,12 +120,18 @@ Deno.serve(async (req: Request) => {
                 expires_at: expiresAt,
                 cached: false,
             }),
-            { headers: { ...CORS, 'Content-Type': 'application/json' } },
+            {
+                headers: {
+                    ...CORS,
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=18000',
+                },
+            },
         );
     } catch (err) {
         const e = err as Error;
         console.error('[musickit-token] signing failed:', e);
-        return new Response(JSON.stringify({ error: `Token signing failed: ${e.message}` }), {
+        return new Response(JSON.stringify({ error: 'Token signing failed' }), {
             status: 500,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });

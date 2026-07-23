@@ -11,11 +11,13 @@ import { ShipLogService } from '../services/ShipLogService';
 import { importGPXToEntries } from '../services/gpxService';
 import { getErrorMessage } from '../utils/createLogger';
 import { EmptyState } from './ui/EmptyState';
+import { OverlayPortal } from './ui/OverlayPortal';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { AlertTriangleIcon, MapIcon, MapPinIcon } from './Icons';
 
 import { createLogger } from '../utils/createLogger';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
 const log = createLogger('CommunityTrackBrowser');
 
@@ -62,6 +64,8 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const [importStatus, setImportStatus] = useState<string | null>(null);
     const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+    const importCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+    const statusTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
     const [activeTab, setActiveTab] = useState<'browse' | 'mine'>('browse');
     const [myTracks, setMyTracks] = useState<SharedTrack[]>([]);
     const [myTracksLoading, setMyTracksLoading] = useState(false);
@@ -116,6 +120,22 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
         }
     }, [isOpen]);
 
+    useEffect(
+        () => () => {
+            if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+            if (importCompleteTimeoutRef.current) clearTimeout(importCompleteTimeoutRef.current);
+            if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+        },
+        [],
+    );
+
+    useEffect(() => {
+        if (isOpen) return;
+        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+        if (importCompleteTimeoutRef.current) clearTimeout(importCompleteTimeoutRef.current);
+        if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+    }, [isOpen]);
+
     // Debounced search
     const handleSearchChange = (value: string) => {
         setSearch(value);
@@ -126,15 +146,18 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
     };
 
     const handleDownload = async (track: SharedTrack) => {
+        const operationScope = getAuthIdentityScope();
+        const operationIsCurrent = () => isAuthIdentityScopeCurrent(operationScope);
         setDownloadingId(track.id);
         setImportStatus(null);
         try {
             // ── Duplicate-import guard ──
             // Check if we already have entries from this community track
             const existingEntries = await ShipLogService.getLogEntries();
+            if (!operationIsCurrent()) return;
             const alreadyImported = existingEntries.some(
                 (e: { source?: string; voyageId?: string }) =>
-                    e.source === 'community_download' && e.voyageId?.includes(track.id.slice(0, 8)),
+                    e.source === 'community_download' && e.voyageId === track.id,
             );
             if (alreadyImported) {
                 setImportStatus('⚠️ Already imported — delete the existing copy first to re-download');
@@ -143,6 +166,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
 
             // Download GPX data (Pro check happens server-side)
             const gpxData = await TrackSharingService.downloadTrack(track.id, true);
+            if (!operationIsCurrent()) return;
             if (!gpxData) {
                 setImportStatus('Download failed — no data returned');
                 return;
@@ -155,22 +179,27 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 return;
             }
 
-            // Stamp as community download for provenance tracking
-            importedEntries.forEach((e) => {
-                Object.assign(e, { source: 'community_download' });
+            if (!operationIsCurrent()) return;
+            const { savedCount } = await ShipLogService.importGPXVoyage(importedEntries, {
+                expectedScope: operationScope,
+                source: 'community_download',
+                voyageId: track.id,
             });
-
-            const { savedCount } = await ShipLogService.importGPXVoyage(importedEntries);
+            if (!operationIsCurrent()) return;
             setImportStatus(`✓ Imported "${track.title}" — ${savedCount} entries`);
 
             // Refresh parent data after short delay
-            setTimeout(() => {
+            if (importCompleteTimeoutRef.current) clearTimeout(importCompleteTimeoutRef.current);
+            importCompleteTimeoutRef.current = setTimeout(() => {
+                importCompleteTimeoutRef.current = undefined;
+                if (!operationIsCurrent()) return;
                 onImportComplete();
             }, 1500);
         } catch (err: unknown) {
+            if (!operationIsCurrent()) return;
             setImportStatus(getErrorMessage(err) || 'Download failed');
         } finally {
-            setDownloadingId(null);
+            if (operationIsCurrent()) setDownloadingId(null);
         }
     };
 
@@ -187,23 +216,30 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
     }, []);
 
     const handleDeleteMyTrack = async (trackId: string) => {
+        const operationScope = getAuthIdentityScope();
         setDeletingId(trackId);
         try {
             const success = await TrackSharingService.deleteSharedTrack(trackId);
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             if (success) {
                 setMyTracks((prev) => prev.filter((t) => t.id !== trackId));
                 // Also remove from browse list immediately
                 setTracks((prev) => prev.filter((t) => t.id !== trackId));
                 setTotal((prev) => Math.max(0, prev - 1));
                 setImportStatus('✓ Track removed from community');
-                setTimeout(() => setImportStatus(null), 3000);
+                if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+                statusTimeoutRef.current = setTimeout(() => {
+                    statusTimeoutRef.current = undefined;
+                    if (isAuthIdentityScopeCurrent(operationScope)) setImportStatus(null);
+                }, 3000);
             } else {
                 setImportStatus('Failed to delete track');
             }
         } catch (err: unknown) {
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             setImportStatus(getErrorMessage(err) || 'Delete failed');
         } finally {
-            setDeletingId(null);
+            if (isAuthIdentityScopeCurrent(operationScope)) setDeletingId(null);
         }
     };
 
@@ -217,9 +253,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
     if (!isOpen) return null;
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
-            className="fixed inset-0 z-50 flex flex-col bg-slate-950"
+            className="flex flex-col bg-slate-950"
             role="dialog"
             aria-modal="true"
             aria-label="Community track browser"
@@ -446,7 +482,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                     </div>
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

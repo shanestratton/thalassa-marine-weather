@@ -58,6 +58,9 @@ describe('ConfirmDialog', () => {
         const dialog = screen.getByRole('dialog');
         expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(dialog).toHaveAttribute('aria-labelledby', 'confirm-title');
+        expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
+        expect(dialog.parentElement).toBe(document.body);
+        expect(dialog.style.zIndex).toBe('1100');
     });
 
     it('shows destructive styling when destructive prop is set', () => {

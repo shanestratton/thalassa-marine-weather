@@ -21,6 +21,7 @@ import {
     CATEGORY_ICONS,
 } from '../services/MarketplaceService';
 import { ChatService } from '../services/ChatService';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
 import { SlideToAction } from './ui/SlideToAction';
 import { UndoToast } from './ui/UndoToast';
@@ -159,14 +160,36 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
         loadListings(cat);
     };
 
-    const handleMessageSeller = async (listing: MarketplaceListing) => {
-        // Auto-DM the seller with item context and open the DM thread
+    const handleMessageSeller = async (listing: MarketplaceListing, message?: string): Promise<boolean> => {
+        const scope = getAuthIdentityScope();
         const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
-        const text = `Hi ${sellerFirst}! I'm interested in your "${listing.title}" (${formatPrice(listing.price, listing.currency)}). Is it still available?`;
-        await ChatService.sendDM(listing.seller_id, text);
-        if (onOpenDM) {
-            onOpenDM(listing.seller_id, sellerFirst);
+        // A button labelled "Message" opens the conversation; it must not send
+        // an unsolicited template on the buyer's behalf. Explicit offer text is
+        // sent once before opening the same thread.
+        if (message) {
+            const result = await ChatService.sendDM(listing.seller_id, message).catch(() => null);
+            if (!isAuthIdentityScopeCurrent(scope)) return false;
+            if (result === 'blocked') {
+                toast.error('This seller cannot receive your direct messages.');
+                return false;
+            }
+            if (!result) {
+                toast.error("Your offer wasn't sent. Please check your connection and try again.");
+                return false;
+            }
+            if (result === 'queued') {
+                toast.info('Offer queued — it will send when the connection returns.');
+            }
         }
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        if (onOpenDM) {
+            onOpenDM(listing.seller_id, sellerFirst, {
+                title: listing.title,
+                price: formatPrice(listing.price, listing.currency),
+                image: listing.images[0],
+            });
+        }
+        return true;
     };
 
     const handleMarkSold = async (id: string) => {
@@ -224,12 +247,22 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
 
     const handleFlagLocation = async (listing: MarketplaceListing) => {
         // DM the seller with a polite heads-up
+        const scope = getAuthIdentityScope();
         const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
-        await ChatService.sendDM(
+        const result = await ChatService.sendDM(
             listing.seller_id,
             `Hi ${sellerFirst}, a buyer has flagged that the listed location for "${listing.title}" may not match your actual area. If this is intentional, no worries — just letting you know! 🙏`,
-        );
-        toast.success('Location flagged — seller has been notified');
+        ).catch(() => null);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        if (result === 'blocked') {
+            toast.error('This seller cannot receive your direct messages.');
+        } else if (result === 'queued') {
+            toast.info('Location flag queued — the seller will be notified when you reconnect.');
+        } else if (result) {
+            toast.success('Location flagged — seller has been notified');
+        } else {
+            toast.error("The seller couldn't be notified. Please try again.");
+        }
     };
 
     return (

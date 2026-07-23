@@ -32,9 +32,28 @@ import { AlarmAudioService } from './AlarmAudioService';
 import { type SpokenHandle, synthesise } from './voice/ttsClient';
 import { useVoiceHistoryStore } from '../stores/voiceHistoryStore';
 import type { AlertEvent } from '../types/alerts';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentityScope } from './authIdentityScope';
 
 /** Currently-speaking utterance. Cancelled when a new alert preempts. */
 let activeUtterance: SpokenHandle | null = null;
+let activeDispatchEpoch = 0;
+let activeChimeStopTimer: ReturnType<typeof setTimeout> | null = null;
+
+subscribeAuthIdentityScope(() => {
+    activeDispatchEpoch += 1;
+    const hadActiveChime = activeChimeStopTimer !== null;
+    if (activeChimeStopTimer) {
+        clearTimeout(activeChimeStopTimer);
+        activeChimeStopTimer = null;
+    }
+    if (hadActiveChime) void AlarmAudioService.stopAlarm().catch(() => undefined);
+    try {
+        activeUtterance?.cancel();
+    } catch {
+        /* best effort */
+    }
+    activeUtterance = null;
+});
 
 /**
  * Dispatch a fired alert to the user. Fire-and-forget — caller does
@@ -42,6 +61,14 @@ let activeUtterance: SpokenHandle | null = null;
  * playback timing.
  */
 export async function dispatchAlert(event: AlertEvent): Promise<void> {
+    const identity = getAuthIdentityScope();
+    const dispatchEpoch = ++activeDispatchEpoch;
+    // Capture the identity-bound action before the first await. The store
+    // replaces its action closures on account transitions, and the captured
+    // old closure then rejects this alert rather than writing it into B.
+    const addHistoryTurn = useVoiceHistoryStore.getState().addTurn;
+    const isCurrentDispatch = () => dispatchEpoch === activeDispatchEpoch && isAuthIdentityScopeCurrent(identity);
+
     // Preempt any in-flight utterance — the new alert is more recent
     // information than what's currently playing.
     if (activeUtterance) {
@@ -52,10 +79,14 @@ export async function dispatchAlert(event: AlertEvent): Promise<void> {
         }
         activeUtterance = null;
     }
+    if (activeChimeStopTimer) {
+        clearTimeout(activeChimeStopTimer);
+        activeChimeStopTimer = null;
+    }
 
     // 1. Page takeover for critical events. Less aggressive for warns
     // — warns don't yank the skipper out of whatever page they're on.
-    if (event.severity === 'critical') {
+    if (event.severity === 'critical' && isCurrentDispatch()) {
         try {
             window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'voice' } }));
         } catch {
@@ -69,9 +100,15 @@ export async function dispatchAlert(event: AlertEvent): Promise<void> {
     if (event.severity === 'critical') {
         try {
             await AlarmAudioService.startAlarm();
-            setTimeout(() => {
-                AlarmAudioService.stopAlarm().catch(() => undefined);
+            if (!isCurrentDispatch()) {
+                await AlarmAudioService.stopAlarm().catch(() => undefined);
+                return;
+            }
+            const stopTimer = setTimeout(() => {
+                if (activeChimeStopTimer === stopTimer) activeChimeStopTimer = null;
+                void AlarmAudioService.stopAlarm().catch(() => undefined);
             }, 500);
+            activeChimeStopTimer = stopTimer;
         } catch {
             /* ignore — chime is decoration, voice is the real signal */
         }
@@ -81,10 +118,11 @@ export async function dispatchAlert(event: AlertEvent): Promise<void> {
     // speak() in fire-and-forget mode) so we can persist the audio_b64
     // into the history turn — same shape as a normal Calypso reply.
     const audio_b64 = await synthesise(event.spokenMessage);
+    if (!isCurrentDispatch()) return;
 
     // 4. Voice-history turn — visible in BosunConsole's log.
     try {
-        useVoiceHistoryStore.getState().addTurn({
+        addHistoryTurn({
             id: `alert-${event.ruleId}-${event.firedAt}`,
             timestamp: event.firedAt,
             // Empty transcript — the user didn't ask anything; this is
@@ -114,12 +152,13 @@ export async function dispatchAlert(event: AlertEvent): Promise<void> {
     // playback parallel to the page navigation + history-turn write
     // above (the user sees the bubble appear at roughly the same
     // moment the audio starts).
-    if (audio_b64) {
-        activeUtterance = playFromBase64(audio_b64);
+    if (audio_b64 && isCurrentDispatch()) {
+        const utterance = playFromBase64(audio_b64);
+        activeUtterance = utterance;
         try {
-            await activeUtterance.done;
+            await utterance.done;
         } finally {
-            activeUtterance = null;
+            if (activeUtterance === utterance) activeUtterance = null;
         }
     }
 }

@@ -20,6 +20,7 @@
  */
 
 import { createLogger } from '../../utils/createLogger';
+import { fetchOpenMeteoPoints } from './openMeteoProxy';
 
 const log = createLogger('WaveField');
 
@@ -100,34 +101,21 @@ export async function fetchWaveField(
     }
 
     const points = buildGrid(bbox.north, bbox.south, bbox.east, bbox.west);
-    const lats = points.map((p) => p.lat.toFixed(3)).join(',');
-    const lons = points.map((p) => p.lon.toFixed(3)).join(',');
-
     try {
-        // Try the customer endpoint first if a key is available
-        const { getOpenMeteoKey } = await import('./keys');
-        const omKey = getOpenMeteoKey();
-        const keyParam = omKey ? `&apikey=${omKey}` : '';
-        const baseUrl = omKey
-            ? 'https://customer-marine-api.open-meteo.com/v1/marine'
-            : 'https://marine-api.open-meteo.com/v1/marine';
-
-        const url =
-            `${baseUrl}?` +
-            `latitude=${lats}&longitude=${lons}` +
-            `&hourly=wave_height,wave_direction,wave_period` +
-            `&forecast_days=7&timezone=UTC${keyParam}`;
-
-        const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) {
-            log.warn(`fetch failed: HTTP ${res.status}`);
-            return null;
-        }
-        const data = await res.json();
-
-        // Open-Meteo returns either a single object (one point) or an
-        // array (multiple points). Normalise to array.
-        const arr: unknown[] = Array.isArray(data) ? data : [data];
+        const arr = await fetchOpenMeteoPoints<{
+            latitude?: number;
+            longitude?: number;
+            hourly?: {
+                time?: string[];
+                wave_height?: (number | null)[];
+                wave_direction?: (number | null)[];
+                wave_period?: (number | null)[];
+            };
+        }>('marine', points, {
+            hourly: 'wave_height,wave_direction,wave_period',
+            forecast_days: 7,
+            timezone: 'UTC',
+        });
         if (arr.length !== points.length) {
             log.warn(`expected ${points.length} points, got ${arr.length}`);
         }
@@ -137,16 +125,7 @@ export async function fetchWaveField(
         let totalHours = 0;
 
         for (let i = 0; i < arr.length; i++) {
-            const row = arr[i] as {
-                latitude?: number;
-                longitude?: number;
-                hourly?: {
-                    time?: string[];
-                    wave_height?: (number | null)[];
-                    wave_direction?: (number | null)[];
-                    wave_period?: (number | null)[];
-                };
-            };
+            const row = arr[i];
             const hourly = row?.hourly;
             if (!hourly?.time || !hourly.wave_height || !hourly.wave_direction || !hourly.wave_period) continue;
 

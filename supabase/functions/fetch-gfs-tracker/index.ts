@@ -1,6 +1,9 @@
 // deno-lint-ignore-file
 declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Response) => void };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, readResponseTextLimited } from '../_shared/http-security.ts';
+
 /**
  * fetch-gfs-tracker — GFS ATCF Track File Proxy
  *
@@ -205,6 +208,12 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
+    if (req.method !== 'GET') {
+        return corsResponse(JSON.stringify({ error: 'GET required' }), 405, { Allow: 'GET' });
+    }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'gfs_tracker', 240, 120, 3600, true);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
     try {
         const { date, cycle } = getLatestGfsCycle();
@@ -228,11 +237,11 @@ Deno.serve(async (req: Request) => {
                 `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.atcfunix.all`;
 
             console.info(`[fetch-gfs-tracker] Trying atcfunix: ${atcfUrl}`);
-            const resp = await fetch(atcfUrl, { signal: AbortSignal.timeout(10_000) });
+            const resp = await fetchWithTimeout(atcfUrl, {}, 10_000);
 
             if (resp.ok) {
-                const text = await resp.text();
-                if (text.trim().length > 10 && !text.includes('<!DOCTYPE')) {
+                const text = await readResponseTextLimited(resp, 5_000_000);
+                if (text !== null && text.trim().length > 10 && !text.includes('<!DOCTYPE')) {
                     result.storms = parseAtcfunix(text, cycle);
                     const count = Object.keys(result.storms).length;
                     if (count > 0) {
@@ -260,11 +269,11 @@ Deno.serve(async (req: Request) => {
                     `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.syndata.tcvitals.tm00`;
 
                 console.info(`[fetch-gfs-tracker] Trying tcvitals: ${vitalsUrl}`);
-                const resp = await fetch(vitalsUrl, { signal: AbortSignal.timeout(10_000) });
+                const resp = await fetchWithTimeout(vitalsUrl, {}, 10_000);
 
                 if (resp.ok) {
-                    const text = await resp.text();
-                    if (text.trim().length > 10) {
+                    const text = await readResponseTextLimited(resp, 1_000_000);
+                    if (text !== null && text.trim().length > 10) {
                         result.storms = parseTcvitals(text);
                         const count = Object.keys(result.storms).length;
                         if (count > 0) {
@@ -284,10 +293,10 @@ Deno.serve(async (req: Request) => {
                 const vitalsUrl =
                     `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
                     `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.syndata.tcvitals.tm00`;
-                const resp = await fetch(vitalsUrl, { signal: AbortSignal.timeout(5_000) });
+                const resp = await fetchWithTimeout(vitalsUrl, {}, 5_000);
                 if (resp.ok) {
-                    const text = await resp.text();
-                    const vitals = parseTcvitals(text);
+                    const text = await readResponseTextLimited(resp, 1_000_000);
+                    const vitals = text === null ? {} : parseTcvitals(text);
                     for (const [sid, storm] of Object.entries(vitals)) {
                         if (result.storms[sid]) {
                             result.storms[sid].name = storm.name;
@@ -305,6 +314,6 @@ Deno.serve(async (req: Request) => {
         });
     } catch (err) {
         console.error('[fetch-gfs-tracker] Error:', err);
-        return corsResponse(JSON.stringify({ error: String(err) }), 500);
+        return corsResponse(JSON.stringify({ error: 'Cyclone tracker fetch failed' }), 502);
     }
 });

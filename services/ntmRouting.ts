@@ -18,9 +18,9 @@
  *      CKAN feed, verified within MAX_VERIFY_AGE_MS. Superseded, unverifiable
  *      or offline-stale packs are NEVER injected (a week-old bar corridor is
  *      worse than none — bars move).
- *   3. ACKNOWLEDGMENT, per-passage — an explicit "apply to routing" tap in
- *      the notice popup, stored per noticeKey with a 24 h TTL. Reading the
- *      PDF alone changes nothing; a superseding notice self-revokes the ack.
+ *   3. OWNER OVERRIDE, account-scoped — current packs apply by default. A
+ *      skipper can remove a pack from routing without silently changing the
+ *      next signed-in account's safety policy.
  *   4. HONEST DEPTH, never preference — zones override chart depth with the
  *      notice's surveyed least depth (services/engine/navGrid.ts NTM pass).
  *      Sub-floor zones stay CAUTION (red, tide-window-chipped); they are
@@ -32,6 +32,7 @@ import type { Feature, FeatureCollection, Position } from 'geojson';
 import { loadQldNotices, qldNoticesFetchedAt, type QldNotice } from './qldNotices';
 import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
+import { authScopedStorageKey, subscribeAuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('ntmRouting');
 
@@ -285,7 +286,7 @@ export const NTM_ACK_EVENT = 'thalassa:ntm-ack-changed';
 
 function loadOptOuts(): Record<string, boolean> {
     try {
-        const raw = localStorage.getItem(OPTOUT_KEY);
+        const raw = localStorage.getItem(authScopedStorageKey(OPTOUT_KEY));
         if (!raw) return {};
         const parsed = JSON.parse(raw) as unknown;
         // A corrupted store must degrade to "nothing opted out", never throw
@@ -307,7 +308,7 @@ export function setPackOptedOut(pack: NtmRoutingPack, out: boolean): void {
         const opts = loadOptOuts();
         if (out) opts[pack.id] = true;
         else delete opts[pack.id];
-        localStorage.setItem(OPTOUT_KEY, JSON.stringify(opts));
+        localStorage.setItem(authScopedStorageKey(OPTOUT_KEY), JSON.stringify(opts));
     } catch {
         /* quota — worst case the default (applied) persists */
     }
@@ -318,6 +319,16 @@ export function setPackOptedOut(pack: NtmRoutingPack, out: boolean): void {
         /* non-browser env */
     }
 }
+
+// A mounted planner must immediately recompute when auth changes because the
+// incoming skipper has an independent fail-safe opt-out policy.
+subscribeAuthIdentityScope(() => {
+    try {
+        window.dispatchEvent(new CustomEvent(NTM_ACK_EVENT));
+    } catch {
+        /* non-browser env */
+    }
+});
 
 // ── Injection + render support ───────────────────────────────────────
 

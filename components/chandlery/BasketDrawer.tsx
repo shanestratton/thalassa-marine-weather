@@ -1,10 +1,10 @@
 /**
  * BasketDrawer — modal sheet showing what the punter has lined up to
  * buy. Quantity +/- per line, swipe-or-tap to remove, line subtotal,
- * grand total, and a "Checkout" CTA (stubbed for now — Stripe lands
- * in the Q3-2026 sprint per the original ChandleryPage docstring).
+ * grand total, and an explicit catalogue-preview checkout state.
  */
 import React, { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { STORE_ONE_PRODUCTS, type StoreOneProduct } from '../../data/storeOne.products';
 import { removeFromBasket, setQuantity, type BasketLine } from '../../services/ChandleryBasketService';
 import { triggerHaptic } from '../../utils/system';
@@ -36,9 +36,11 @@ export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines
     }));
 
     const subtotal = resolved.reduce((sum, r) => sum + (r.product?.price ?? 0) * r.line.quantity, 0);
+    const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
+    const hasPurchasableLines = resolved.some((line) => line.product);
 
-    return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center">
+    const drawer = (
+        <div className="fixed inset-0 z-[1100] flex items-end justify-center">
             <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
             <div
                 ref={dialogRef}
@@ -56,7 +58,7 @@ export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines
                 <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-white/5">
                     <h2 id="basket-title" className="text-base font-bold text-white">
                         Your Basket
-                        <span className="ml-2 text-xs font-mono text-slate-400">({lines.length})</span>
+                        <span className="ml-2 text-xs font-mono text-slate-400">({itemCount})</span>
                     </h2>
                     <button
                         ref={closeButtonRef}
@@ -154,29 +156,30 @@ export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines
                     )}
                 </div>
 
-                {/* Footer — subtotal + checkout */}
-                {lines.length > 0 && (
+                {/* Footer — subtotal + truthful preview state */}
+                {hasPurchasableLines && (
                     <div className="border-t border-white/5 px-5 py-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
                         <div className="flex items-center justify-between mb-3">
                             <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">Subtotal</span>
                             <span className="text-xl font-black text-white">${subtotal.toLocaleString()}</span>
                         </div>
+                        <p id="chandlery-checkout-note" className="mb-3 text-xs leading-relaxed text-slate-400">
+                            Catalogue preview — online checkout is not live yet. Your basket stays saved on this device.
+                        </p>
                         <button
                             type="button"
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                // Stripe checkout wiring lands in Q3-2026 sprint
-                                // (per ChandleryPage docstring). For now, a
-                                // friendly stub keeps the UX coherent.
-                                alert('Checkout shipping with Stripe — Q3-2026. For now, screenshot your basket.');
-                            }}
-                            className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-[0.98] transition-all text-white font-bold"
+                            disabled
+                            aria-describedby="chandlery-checkout-note"
+                            aria-label="Checkout unavailable, coming soon"
+                            className="w-full h-12 rounded-xl border border-white/10 bg-white/[0.05] text-slate-400 font-bold cursor-not-allowed"
                         >
-                            Checkout · ${subtotal.toLocaleString()}
+                            Checkout coming soon
                         </button>
                     </div>
                 )}
             </div>
         </div>
     );
+
+    return typeof document === 'undefined' ? drawer : createPortal(drawer, document.body);
 };

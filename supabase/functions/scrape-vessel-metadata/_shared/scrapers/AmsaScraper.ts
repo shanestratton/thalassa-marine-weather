@@ -6,6 +6,7 @@
  * Maritime Safety Authority.
  */
 import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const AMSA_API_BASE = Deno.env.get('AMSA_API_URL') ?? 'https://services.amsa.gov.au/arcgis/rest/services';
 const AMSA_LAYER = '/ShipRegister/MapServer/0/query';
@@ -37,16 +38,22 @@ export async function scrapeAmsa(mmsis: number[]): Promise<number> {
             url.searchParams.set('f', 'json');
             url.searchParams.set('returnGeometry', 'false');
 
-            const resp = await fetch(url.toString(), {
-                headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
-            });
+            const resp = await fetchWithTimeout(
+                url.toString(),
+                {
+                    headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
+                },
+                6_000,
+            );
 
             if (!resp.ok) {
                 console.warn(`[AMSA] HTTP ${resp.status} for MMSI ${mmsi}`);
                 continue;
             }
 
-            const data = (await resp.json()) as { features?: AmsaVesselRecord[] };
+            const responseText = await readResponseTextLimited(resp, 1_000_000);
+            if (responseText === null) throw new Error('AMSA response exceeded the byte limit');
+            const data = JSON.parse(responseText) as { features?: AmsaVesselRecord[] };
             if (!data.features || data.features.length === 0) continue;
 
             const record = data.features[0].attributes;
@@ -64,10 +71,10 @@ export async function scrapeAmsa(mmsis: number[]): Promise<number> {
                 data_source: 'AMSA',
                 is_verified: true,
             });
-
-            await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
         } catch (e) {
             console.warn(`[AMSA] Error scraping MMSI ${mmsi}:`, e);
+        } finally {
+            await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
         }
     }
 

@@ -31,6 +31,7 @@
  * beyond SNAP_MAX_KM is refused as a local reading.
  */
 import { piCache } from '../../PiCacheService';
+import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 import { withTimeout } from '../../../utils/deadline';
 import { createLogger } from '../../../utils/createLogger';
 
@@ -175,9 +176,15 @@ export function isLocalReading(r: MarineReading | null, atLat?: number): boolean
     return r.snappedKm <= maxLegitimateSnapKm(atLat ?? r.gridLat);
 }
 
-async function hop(url: string, reqLat: number, reqLon: number, via: 'pi' | 'supabase'): Promise<MarineReading | null> {
+async function hop(
+    url: string,
+    reqLat: number,
+    reqLon: number,
+    via: 'pi' | 'supabase',
+    headers: Record<string, string> = {},
+): Promise<MarineReading | null> {
     const res = await withTimeout(
-        fetch(url).then(
+        fetch(url, { headers }).then(
             (r) => (r.ok ? r.json() : null),
             () => null,
         ),
@@ -216,8 +223,14 @@ export async function fetchMarine(lat: number, lon: number): Promise<MarineReadi
             (typeof import.meta !== 'undefined' &&
                 (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
             '';
-        const url = `${base}/functions/v1/get-marine?${params}${key ? `&apikey=${key}` : ''}`;
-        return await hop(url, lat, lon, 'supabase');
+        const url = `${base}/functions/v1/get-marine?${params}`;
+        let headers: Record<string, string>;
+        try {
+            headers = await getAuthenticatedFunctionHeaders();
+        } catch {
+            headers = key ? { Authorization: `Bearer ${key}`, apikey: key } : {};
+        }
+        return await hop(url, lat, lon, 'supabase', headers);
     } catch {
         return null;
     }

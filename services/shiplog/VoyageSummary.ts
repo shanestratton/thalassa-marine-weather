@@ -16,10 +16,17 @@
  */
 
 import { ShipLogEntry } from '../../types';
-import { supabase, getCurrentUser, getCurrentUserId } from '../supabase';
+import { supabase, getCurrentUserId } from '../supabase';
 import { getCachedSummaries, setCachedSummaries } from './VoyageSummaryCache';
 import { createLogger } from '../../utils/createLogger';
 import { SHIP_LOGS_TABLE, fromDbFormat } from './helpers';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
+import {
+    applyVoyageArchiveIntentOverlay,
+    filterVoyageTombstonedEntries,
+    getVoyageArchiveIntentSnapshot,
+    type VoyageArchiveIntentSnapshot,
+} from './OfflineQueue';
 
 const log = createLogger('VoyageSummary');
 
@@ -53,6 +60,17 @@ export interface VoyageSummary {
     landFraction: number | null;
 }
 
+const DEFAULT_VOYAGE_ID = 'default_voyage';
+
+/**
+ * NULL and the historical empty-string value both mean "ungrouped". Some
+ * clients also wrote the UI sentinel literally, so reads deliberately fold
+ * all three representations into one bucket.
+ */
+function normalizeVoyageId(value: unknown): string {
+    return typeof value === 'string' && value.length > 0 ? value : DEFAULT_VOYAGE_ID;
+}
+
 /**
  * Pure client-side aggregation — the fallback core, and the unit-tested
  * contract the RPC mirrors. Groups a flat entry list into one summary per
@@ -61,7 +79,7 @@ export interface VoyageSummary {
 export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
     const byVoyage = new Map<string, ShipLogEntry[]>();
     for (const e of entries) {
-        const vid = e.voyageId || 'default_voyage';
+        const vid = normalizeVoyageId(e.voyageId);
         const list = byVoyage.get(vid);
         if (list) list.push(e);
         else byVoyage.set(vid, [e]);
@@ -175,7 +193,7 @@ let rpcUnavailable = false;
 /** Map a raw RPC row (snake_case) to a VoyageSummary. */
 function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
     return {
-        voyageId: String(row.voyage_id ?? ''),
+        voyageId: normalizeVoyageId(row.voyage_id),
         entryCount: Number(row.entry_count ?? 0),
         startedAt: String(row.started_at ?? new Date(0).toISOString()),
         endedAt: String(row.ended_at ?? new Date(0).toISOString()),
@@ -401,10 +419,151 @@ export function selectEmptyVoyagesToPrune(
  * nothing it doesn't (no notes, weather blobs, formatted strings, …).
  */
 const SUMMARY_COLUMNS =
-    'voyage_id, timestamp, latitude, longitude, cumulative_distance_nm, speed_kts, entry_type, source, is_on_water, archived';
+    'id, user_id, voyage_id, timestamp, latitude, longitude, cumulative_distance_nm, speed_kts, entry_type, source, is_on_water, archived';
 
 const FALLBACK_PAGE_SIZE = 1000;
 const FALLBACK_MAX_ROWS = 200_000;
+const DETAIL_MAX_ROWS = 500_000;
+
+interface SummaryTruthEnvelope extends Partial<ShipLogEntry> {
+    summary: VoyageSummary;
+    voyageId: string;
+    timestamp: string;
+    archived: boolean;
+}
+
+/**
+ * Apply durable local delete/archive truth to aggregate rows. Using startedAt
+ * as the default-voyage boundary is intentionally conservative for cache/RPC
+ * payloads: an aggregate that may contain a pre-delete row is hidden until a
+ * row-level refresh can rebuild the post-delete bucket.
+ */
+async function applySummaryReadTruth(
+    summaries: VoyageSummary[],
+    includeArchived: boolean,
+    scope: AuthIdentityScope,
+): Promise<VoyageSummary[]> {
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    const envelopes: SummaryTruthEnvelope[] = summaries.map((summary) => ({
+        summary,
+        voyageId: normalizeVoyageId(summary.voyageId),
+        timestamp: summary.startedAt,
+        archived: false,
+    }));
+    const notDeleted = await filterVoyageTombstonedEntries(envelopes, scope);
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    const overlaid = await applyVoyageArchiveIntentOverlay(notDeleted, scope);
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    return overlaid
+        .filter((row) => includeArchived || row.archived !== true)
+        .map((row) => ({ ...row.summary, voyageId: normalizeVoyageId(row.summary.voyageId) }));
+}
+
+function targetMatchesRow(targetVoyageId: string, rowVoyageId: unknown): boolean {
+    return normalizeVoyageId(rowVoyageId) === targetVoyageId;
+}
+
+/**
+ * Fetch rows first, then apply owner-scoped local truth before aggregating.
+ * queryArchived controls the SQL projection; includeArchived controls what is
+ * returned after the durable archive overlay. They intentionally differ for
+ * a pending unarchive, whose cloud rows may still be archived.
+ */
+async function fetchVisibleProjectionEntries(
+    scope: AuthIdentityScope,
+    options: {
+        targetVoyageId?: string;
+        queryArchived: boolean;
+        includeArchived: boolean;
+        columns?: string;
+        maxRows?: number;
+    },
+): Promise<ShipLogEntry[]> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return [];
+    const targetVoyageId = options.targetVoyageId ? normalizeVoyageId(options.targetVoyageId.trim()) : undefined;
+    const maxRows = options.maxRows ?? FALLBACK_MAX_ROWS;
+    const rows: Record<string, unknown>[] = [];
+    let offset = 0;
+
+    while (rows.length < maxRows) {
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        let query = supabase
+            .from(SHIP_LOGS_TABLE)
+            .select(options.columns ?? SUMMARY_COLUMNS)
+            .eq('user_id', scope.userId);
+        if (targetVoyageId === DEFAULT_VOYAGE_ID) {
+            query = query.or('voyage_id.is.null,voyage_id.eq.,voyage_id.eq.default_voyage');
+        } else if (targetVoyageId) {
+            query = query.eq('voyage_id', targetVoyageId);
+        }
+        if (!options.queryArchived) query = query.or('archived.is.null,archived.eq.false');
+        query = query
+            .order('timestamp', { ascending: false })
+            .order('id', { ascending: false })
+            .range(offset, offset + FALLBACK_PAGE_SIZE - 1);
+
+        const { data, error } = await query;
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        if (error) {
+            log.warn('voyage projection page failed:', error.message);
+            break;
+        }
+        const page = (data || []) as unknown as Record<string, unknown>[];
+        if (
+            page.some(
+                (row) =>
+                    row.user_id !== scope.userId ||
+                    (targetVoyageId !== undefined && !targetMatchesRow(targetVoyageId, row.voyage_id)),
+            )
+        ) {
+            log.warn('voyage projection returned a row outside the requested owner/voyage');
+            return [];
+        }
+        rows.push(...page);
+        if (page.length < FALLBACK_PAGE_SIZE) break;
+        offset += FALLBACK_PAGE_SIZE;
+    }
+
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    let entries = rows.map((row) => {
+        const entry = fromDbFormat(row);
+        entry.voyageId = normalizeVoyageId(row.voyage_id);
+        return entry;
+    });
+    entries = await filterVoyageTombstonedEntries(entries, scope);
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    entries = await applyVoyageArchiveIntentOverlay(entries, scope);
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
+    return options.includeArchived ? entries : entries.filter((entry) => entry.archived !== true);
+}
+
+function replaceVoyageSummary(
+    summaries: VoyageSummary[],
+    voyageId: string,
+    replacement: VoyageSummary[],
+): VoyageSummary[] {
+    return [...summaries.filter((summary) => normalizeVoyageId(summary.voyageId) !== voyageId), ...replacement];
+}
+
+async function hydratePendingUnarchives(
+    summaries: VoyageSummary[],
+    intents: VoyageArchiveIntentSnapshot[],
+    scope: AuthIdentityScope,
+): Promise<VoyageSummary[]> {
+    let hydrated = summaries;
+    for (const intent of intents) {
+        if (intent.archived || !isAuthIdentityScopeCurrent(scope)) continue;
+        const voyageId = normalizeVoyageId(intent.voyageId);
+        const entries = await fetchVisibleProjectionEntries(scope, {
+            targetVoyageId: voyageId,
+            queryArchived: true,
+            includeArchived: false,
+        });
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        hydrated = replaceVoyageSummary(hydrated, voyageId, summarizeEntries(entries));
+    }
+    return hydrated;
+}
 
 /**
  * Fetch one summary per voyage. Tries the server-side RPC first; on
@@ -412,44 +571,94 @@ const FALLBACK_MAX_ROWS = 200_000;
  * projection fetch aggregated client-side.
  */
 export async function getVoyageSummaries(includeArchived = false): Promise<VoyageSummary[]> {
-    if (!supabase) return [];
+    const scope = getAuthIdentityScope();
+    if (!supabase || !scope.userId) return [];
 
-    let result: VoyageSummary[] | null = null;
+    const sessionUserId = await getCurrentUserId();
+    if (!isAuthIdentityScopeCurrent(scope) || sessionUserId !== scope.userId) return [];
 
-    if (!rpcUnavailable) {
-        try {
-            const { data, error } = await supabase.rpc('get_voyage_summaries', {
-                p_include_archived: includeArchived,
-            });
-            if (error) {
-                // PGRST202 = function not found in schema cache (not deployed yet).
-                if (error.code === 'PGRST202' || /function .* does not exist/i.test(error.message)) {
-                    log.warn('get_voyage_summaries RPC not deployed — using client-side fallback');
-                    rpcUnavailable = true;
-                } else {
-                    log.warn('get_voyage_summaries RPC error, falling back:', error.message);
+    try {
+        // Load the owner-scoped ledgers before painting any remote state. A
+        // corrupt/unreadable durable ledger fails closed instead of reviving
+        // a voyage whose delete/archive command has already been accepted.
+        await getVoyageArchiveIntentSnapshot(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+
+        let result: VoyageSummary[] | null = null;
+        let usedRpc = false;
+
+        if (!rpcUnavailable) {
+            try {
+                if (!isAuthIdentityScopeCurrent(scope)) return [];
+                const { data, error } = await supabase.rpc('get_voyage_summaries', {
+                    p_include_archived: includeArchived,
+                });
+                if (!isAuthIdentityScopeCurrent(scope)) return [];
+                if (error) {
+                    // PGRST202 = function not found in schema cache (not deployed yet).
+                    if (error.code === 'PGRST202' || /function .* does not exist/i.test(error.message)) {
+                        log.warn('get_voyage_summaries RPC not deployed — using client-side fallback');
+                        // Deployment availability is process-global, but a late
+                        // account-A result must not mutate any state in B.
+                        if (isAuthIdentityScopeCurrent(scope)) rpcUnavailable = true;
+                    } else {
+                        log.warn('get_voyage_summaries RPC error, falling back:', error.message);
+                    }
+                } else if (Array.isArray(data)) {
+                    result = data.map((row) => fromRpcRow(row as Record<string, unknown>));
+                    usedRpc = true;
                 }
-            } else if (Array.isArray(data)) {
-                result = data.map((r) => fromRpcRow(r as Record<string, unknown>));
+            } catch (error) {
+                log.warn('get_voyage_summaries RPC threw, falling back:', error);
             }
-        } catch (e) {
-            log.warn('get_voyage_summaries RPC threw, falling back:', e);
         }
-    }
 
-    if (result === null) {
-        result = await summariesFromProjection(includeArchived);
-    }
+        if (result === null) {
+            if (!isAuthIdentityScopeCurrent(scope)) return [];
+            result = await summariesFromProjection(includeArchived, scope);
+        } else if (usedRpc) {
+            // Rebuild the sentinel bucket from individual rows even when the
+            // server RPC exists. This supports older deployed RPCs that
+            // excluded NULL rows and lets the local deletion time boundary
+            // remove pre-delete default rows without swallowing new ones.
+            const defaultEntries = await fetchVisibleProjectionEntries(scope, {
+                targetVoyageId: DEFAULT_VOYAGE_ID,
+                queryArchived: includeArchived,
+                includeArchived,
+            });
+            if (!isAuthIdentityScopeCurrent(scope)) return [];
+            result = replaceVoyageSummary(result, DEFAULT_VOYAGE_ID, summarizeEntries(defaultEntries));
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-    // Write-through to the local cache so the NEXT Log open paints instantly
-    // from the phone before this network fetch returns. Only the default
-    // (non-archived) list is cached — that's the hot Log path.
-    if (!includeArchived) {
-        const userId = await getCurrentUserId();
-        void setCachedSummaries(userId, result);
-    }
+        // A pending unarchive may contradict the cloud predicate used by the
+        // base query, so fetch those voyage rows with archived rows included.
+        const latestIntents = await getVoyageArchiveIntentSnapshot(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        if (!includeArchived) {
+            result = await hydratePendingUnarchives(result, latestIntents, scope);
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-    return result;
+        // Re-apply at the last possible point: a delete/archive accepted while
+        // the network request was in flight must win over its late response.
+        result = await applySummaryReadTruth(result, includeArchived, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+
+        // Write-through to the local cache so the NEXT Log open paints
+        // instantly. The cache read applies these ledgers again, so even a
+        // later stale write can never repaint deleted/archived state.
+        if (!includeArchived) {
+            void setCachedSummaries(result, scope);
+        }
+
+        return isAuthIdentityScopeCurrent(scope) ? result : [];
+    } catch (error) {
+        if (isAuthIdentityScopeCurrent(scope)) {
+            log.warn('getVoyageSummaries failed closed while applying local truth:', error);
+        }
+        return [];
+    }
 }
 
 /**
@@ -458,43 +667,31 @@ export async function getVoyageSummaries(includeArchived = false): Promise<Voyag
  * calls getVoyageSummaries() to refresh from the cloud in the background.
  */
 export async function getCachedVoyageSummaries(): Promise<VoyageSummary[]> {
-    const userId = await getCurrentUserId();
-    return (await getCachedSummaries(userId)) ?? [];
+    const scope = getAuthIdentityScope();
+    if (!scope.userId) return [];
+    try {
+        const summaries = await getCachedSummaries(scope);
+        if (!isAuthIdentityScopeCurrent(scope) || !summaries) return [];
+        return await applySummaryReadTruth(summaries, false, scope);
+    } catch (error) {
+        if (isAuthIdentityScopeCurrent(scope)) {
+            log.warn('cached voyage summaries failed closed while applying local truth:', error);
+        }
+        return [];
+    }
 }
 
 /** Fallback path: paginate the lightweight projection, aggregate locally. */
-async function summariesFromProjection(includeArchived: boolean): Promise<VoyageSummary[]> {
-    if (!supabase) return [];
+async function summariesFromProjection(includeArchived: boolean, scope: AuthIdentityScope): Promise<VoyageSummary[]> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return [];
     try {
-        const user = await getCurrentUser();
-        if (!user) return [];
-
-        const rows: Record<string, unknown>[] = [];
-        let offset = 0;
-        while (rows.length < FALLBACK_MAX_ROWS) {
-            let q = supabase
-                .from(SHIP_LOGS_TABLE)
-                .select(SUMMARY_COLUMNS)
-                .eq('user_id', user.id)
-                .order('timestamp', { ascending: false })
-                .range(offset, offset + FALLBACK_PAGE_SIZE - 1);
-            if (!includeArchived) q = q.or('archived.is.null,archived.eq.false');
-
-            const { data, error } = await q;
-            if (error) {
-                log.warn('summary projection page failed:', error.message);
-                break;
-            }
-            const page = data || [];
-            rows.push(...(page as Record<string, unknown>[]));
-            if (page.length < FALLBACK_PAGE_SIZE) break;
-            offset += FALLBACK_PAGE_SIZE;
-        }
-
-        const entries = rows.map((r) => fromDbFormat(r));
-        return summarizeEntries(entries);
-    } catch (e) {
-        log.warn('summariesFromProjection failed:', e);
+        const entries = await fetchVisibleProjectionEntries(scope, {
+            queryArchived: includeArchived,
+            includeArchived,
+        });
+        return isAuthIdentityScopeCurrent(scope) ? summarizeEntries(entries) : [];
+    } catch (error) {
+        if (isAuthIdentityScopeCurrent(scope)) log.warn('summariesFromProjection failed:', error);
         return [];
     }
 }
@@ -504,38 +701,30 @@ async function summariesFromProjection(includeArchived: boolean): Promise<Voyage
  * expands a card or opens its track map. Bounded; newest-first.
  */
 export async function getVoyageEntries(voyageId: string, includeArchived = false): Promise<ShipLogEntry[]> {
-    if (!supabase || !voyageId) return [];
+    const scope = getAuthIdentityScope();
+    const targetVoyageId = normalizeVoyageId(voyageId.trim());
+    if (!supabase || !scope.userId || !voyageId.trim()) return [];
     try {
-        const user = await getCurrentUser();
-        if (!user) return [];
+        const sessionUserId = await getCurrentUserId();
+        if (!isAuthIdentityScopeCurrent(scope) || sessionUserId !== scope.userId) return [];
 
-        const all: ShipLogEntry[] = [];
-        let offset = 0;
-        const PAGE = 1000;
-        const MAX = 500_000;
-        while (all.length < MAX) {
-            let q = supabase
-                .from(SHIP_LOGS_TABLE)
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('voyage_id', voyageId)
-                .order('timestamp', { ascending: false })
-                .range(offset, offset + PAGE - 1);
-            if (!includeArchived) q = q.or('archived.is.null,archived.eq.false');
-
-            const { data, error } = await q;
-            if (error) {
-                log.warn('getVoyageEntries page failed:', error.message);
-                break;
-            }
-            const page = data || [];
-            all.push(...page.map((row) => fromDbFormat(row)));
-            if (page.length < PAGE) break;
-            offset += PAGE;
+        const intents = await getVoyageArchiveIntentSnapshot(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        const pendingUnarchive = intents.some(
+            (intent) => !intent.archived && normalizeVoyageId(intent.voyageId) === targetVoyageId,
+        );
+        const entries = await fetchVisibleProjectionEntries(scope, {
+            targetVoyageId,
+            queryArchived: includeArchived || pendingUnarchive,
+            includeArchived,
+            columns: '*',
+            maxRows: DETAIL_MAX_ROWS,
+        });
+        return isAuthIdentityScopeCurrent(scope) ? entries : [];
+    } catch (error) {
+        if (isAuthIdentityScopeCurrent(scope)) {
+            log.warn('getVoyageEntries failed closed while applying local truth:', error);
         }
-        return all;
-    } catch (e) {
-        log.warn('getVoyageEntries failed:', e);
         return [];
     }
 }

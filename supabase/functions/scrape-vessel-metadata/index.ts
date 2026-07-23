@@ -24,14 +24,13 @@ import { scrapeAmsa } from './_shared/scrapers/AmsaScraper.ts';
 import { scrapeUscg } from './_shared/scrapers/UscgScraper.ts';
 import { scrapeEquasis } from './_shared/scrapers/EquasisScraper.ts';
 import { scrapeItuMars } from './_shared/scrapers/ItuMarsScraper.ts';
+import { jsonResponse, requireServiceRolePost } from '../_shared/http-security.ts';
 
-const MAX_EXTERNAL_PER_RUN = 30;
+// Each source deliberately sleeps between requests and may retry a second
+// registry. Eight candidates keeps the worst case below the edge/pg_net
+// deadline while the 15-minute cron steadily drains the queue.
+const MAX_EXTERNAL_PER_RUN = 8;
 const SEED_BATCH_SIZE = 500;
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 interface RunSummary {
     durationSec: number;
@@ -115,21 +114,15 @@ async function run(): Promise<RunSummary> {
 }
 
 Deno.serve(async (req: Request) => {
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders });
-    }
+    const authorizationFailure = requireServiceRolePost(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+    if (authorizationFailure) return authorizationFailure;
 
     try {
         const summary = await run();
-        return new Response(JSON.stringify({ ok: true, ...summary, timestamp: new Date().toISOString() }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ ok: true, ...summary, timestamp: new Date().toISOString() });
     } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         console.error('[FATAL]', message);
-        return new Response(JSON.stringify({ ok: false, error: message }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ ok: false, error: 'Vessel metadata scrape failed' }, 500);
     }
 });

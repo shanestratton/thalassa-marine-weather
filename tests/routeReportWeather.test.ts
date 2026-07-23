@@ -1,11 +1,13 @@
 /**
  * routeReportWeather — the ETA schedule (cumulative great-circle ÷ speed) and
- * graceful degradation. Key mocked to null so no real network call: we still
+ * graceful degradation. Proxy mocked offline so no real network call: we still
  * get every waypoint's ETA, just with null weather.
  */
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../services/weather/keys', () => ({ getOpenMeteoKey: () => null }));
+vi.mock('../services/weather/openMeteoProxy', () => ({
+    fetchOpenMeteoPoints: vi.fn().mockRejectedValue(new Error('offline')),
+}));
 
 import { fetchRouteWaypointWeather, windCompass } from '../services/routeReportWeather';
 

@@ -13,6 +13,8 @@ import { createLogger } from '../utils/createLogger';
 import { Preferences } from '@capacitor/preferences';
 import { CapacitorHttp } from '@capacitor/core';
 import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
+import { redactSensitiveDiagnostic } from '../utils/redactSensitiveDiagnostic';
+import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 
 const log = createLogger('AvNav');
 
@@ -20,25 +22,31 @@ const log = createLogger('AvNav');
  *  Does set + get so the value appears in Xcode as '⚡️  TO JS {"value":"..."}'. */
 let _diagSeq = 0;
 function nativeLog(msg: string): void {
-    const key = `SK_LOG`;
-    const val = `[${++_diagSeq}] ${msg}`;
+    const scope = getAuthIdentityScope();
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    const key = authScopedStorageKey('SK_LOG', scope);
+    const safeMessage = redactSensitiveDiagnostic(msg);
+    const val = `[${++_diagSeq}] ${safeMessage}`;
     Preferences.set({ key, value: val })
-        .then(() => Preferences.get({ key }))
+        .then(() => (isAuthIdentityScopeCurrent(scope) ? Preferences.get({ key }) : undefined))
         .catch(() => {});
-    console.info(`[AvNav] ${msg}`);
+    console.info(`[AvNav] ${safeMessage}`);
 }
 
 /** Awaitable version — ensures logs appear sequentially in Xcode */
 export async function nativeLogAsync(msg: string): Promise<void> {
-    const key = `SK_LOG`;
-    const val = `[${++_diagSeq}] ${msg}`;
+    const scope = getAuthIdentityScope();
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    const key = authScopedStorageKey('SK_LOG', scope);
+    const safeMessage = redactSensitiveDiagnostic(msg);
+    const val = `[${++_diagSeq}] ${safeMessage}`;
     try {
         await Preferences.set({ key, value: val });
-        await Preferences.get({ key });
+        if (isAuthIdentityScopeCurrent(scope)) await Preferences.get({ key });
     } catch {
         /* ignore */
     }
-    console.info(`[AvNav] ${msg}`);
+    console.info(`[AvNav] ${safeMessage}`);
 }
 
 // ── Types ──
@@ -77,11 +85,94 @@ export interface AvNavChart {
 // In dev mode (browser), heartBeat can't initialize through the Vite proxy.
 
 let _ochartsBootstrapped = false;
+let _drmOriginalFetch: typeof window.fetch | null = null;
+let _drmHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 // Server-assigned DRM sessionId and client's original sessionId.
 // The server creates sessions with ITS OWN generated ID, but the client
 // embeds ITS OWN ID in encrypted URLs. We must rewrite one to match.
 let _drmServerSessionId: string | null = null;
 let _drmClientSessionId: string | null = null;
+
+function normalizeHost(host: string): string {
+    return host
+        .trim()
+        .replace(/^\[|\]$/g, '')
+        .replace(/\.$/, '')
+        .toLowerCase();
+}
+
+function hasControlCharacters(value: string): boolean {
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        if (code <= 31 || code === 127) return true;
+    }
+    return false;
+}
+
+function isPrivateBoatNetworkHost(host: string): boolean {
+    const normalized = normalizeHost(host);
+    if (!normalized) return false;
+    if (normalized === 'localhost' || normalized.endsWith('.local') || !normalized.includes('.')) return true;
+    if (normalized === '::1' || normalized.startsWith('fe80:') || normalized.startsWith('fc')) return true;
+    const match = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) return false;
+    const octets = match.slice(1).map(Number);
+    if (octets.some((part) => part > 255)) return false;
+    return (
+        octets[0] === 10 ||
+        octets[0] === 127 ||
+        (octets[0] === 169 && octets[1] === 254) ||
+        (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+        (octets[0] === 192 && octets[1] === 168) ||
+        (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127)
+    );
+}
+
+/** Reject token modules unless they come from the explicitly connected private boat host. */
+export function validateOchartsTokenUrl(rawUrl: string, trustedHosts: readonly string[]): URL | null {
+    if (!rawUrl || rawUrl.length > 2_048) return null;
+    try {
+        const url = new URL(rawUrl);
+        const host = normalizeHost(url.hostname);
+        const allowedHosts = new Set(trustedHosts.map(normalizeHost).filter(Boolean));
+        if (
+            (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+            url.username ||
+            url.password ||
+            url.hash ||
+            !allowedHosts.has(host) ||
+            !isPrivateBoatNetworkHost(host) ||
+            !url.pathname.startsWith('/tokens/') ||
+            url.pathname.length > 512 ||
+            url.search.length > 512
+        ) {
+            return null;
+        }
+        const decodedPath = decodeURIComponent(url.pathname);
+        if (
+            decodedPath.includes('..') ||
+            decodedPath.includes('\\') ||
+            hasControlCharacters(decodedPath) ||
+            [...url.searchParams].some(
+                ([name, value]) =>
+                    !/^[A-Za-z0-9_-]{1,64}$/.test(name) || value.length > 256 || hasControlCharacters(value),
+            )
+        ) {
+            return null;
+        }
+        return url;
+    } catch {
+        return null;
+    }
+}
+
+/** Provider output is data, not a destination: keep it to the documented encrypted path grammar. */
+export function isSafeOchartsEncryptedSegment(value: string): boolean {
+    return (
+        value.length <= 4_096 &&
+        /^encrypted\/[A-Za-z0-9._~-]{1,128}\/\d{1,12}\/[A-Fa-f0-9:]{16,96}\/[A-Fa-f0-9:]{2,3800}$/.test(value)
+    );
+}
 
 /**
  * One-time hostname→IPv4 cache for the DRM intercept. The o-charts
@@ -116,13 +207,35 @@ async function rewriteUrlHostToIpv4(url: string): Promise<string> {
 }
 let _heartbeatLoggedOnce = false;
 
+function resetOchartsDrmRuntime(): void {
+    if (_drmOriginalFetch && typeof window !== 'undefined') {
+        window.fetch = _drmOriginalFetch;
+        _drmOriginalFetch = null;
+    }
+    if (_drmHeartbeatTimer) {
+        clearInterval(_drmHeartbeatTimer);
+        _drmHeartbeatTimer = null;
+    }
+    _cachedOchartsProvider = null;
+    _drmServerSessionId = null;
+    _drmClientSessionId = null;
+    _heartbeatLoggedOnce = false;
+    _ochartsBootstrapped = false;
+}
+
 /**
  * Bootstrap the ocharts DRM provider (native/Capacitor only).
  * Loads the token script directly from the ocharts server via <script src>.
  * The script auto-initializes via heartBeat using document.currentScript.src.
  */
-function bootstrapOchartsDrm(tokenUrl: string): void {
+function bootstrapOchartsDrm(tokenUrl: string, trustedHosts: readonly string[]): void {
     if (_ochartsBootstrapped || IS_DEV) return;
+    const validatedTokenUrl = validateOchartsTokenUrl(tokenUrl, trustedHosts);
+    if (!validatedTokenUrl) {
+        void nativeLogAsync('DRM: rejected an untrusted token module URL');
+        return;
+    }
+    tokenUrl = validatedTokenUrl.toString();
     _ochartsBootstrapped = true;
 
     // Ensure window.avnav exists so the token script can register its provider
@@ -130,9 +243,9 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
         (window as unknown as Record<string, unknown>).avnav = {};
     }
 
-    // WKWebView blocks cross-origin <script src> from local IPs.
-    // Fetch the DRM script via CapacitorHttp (native networking, CORS-free)
-    // and eval() it directly.
+    // WKWebView blocks cross-origin <script src> from local IPs. Fetch the
+    // validated module through native networking, then execute it as a
+    // CSP-governed script element. Never pass downloaded code to eval.
     (async () => {
         try {
             await nativeLogAsync(`DRM: Fetching token script from ${tokenUrl}`);
@@ -141,6 +254,7 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
                 responseType: 'text',
                 connectTimeout: 10000,
                 readTimeout: 10000,
+                disableRedirects: true,
             });
 
             if (res.status < 200 || res.status >= 300) {
@@ -150,30 +264,59 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
             }
 
             const scriptText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-            await nativeLogAsync(`DRM: Script loaded (${scriptText.length} bytes). Evaluating...`);
+            const responseUrl = new URL(res.url || tokenUrl);
+            const contentTypeEntry = Object.entries(res.headers || {}).find(
+                ([name]) => name.toLowerCase() === 'content-type',
+            );
+            const contentType = String(contentTypeEntry?.[1] || '')
+                .split(';', 1)[0]
+                .trim()
+                .toLowerCase();
+            const scriptBytes = new TextEncoder().encode(scriptText).byteLength;
+            if (
+                responseUrl.toString() !== tokenUrl ||
+                scriptBytes < 1_024 ||
+                scriptBytes > 512_000 ||
+                (contentType &&
+                    !['application/javascript', 'text/javascript', 'application/x-javascript', 'text/plain'].includes(
+                        contentType,
+                    )) ||
+                /^\s*</.test(scriptText)
+            ) {
+                await nativeLogAsync('DRM: rejected an invalid token module response');
+                _ochartsBootstrapped = false;
+                return;
+            }
+            await nativeLogAsync(`DRM: Token module loaded (${scriptBytes} bytes)`);
 
-            // The ocharts script uses document.currentScript.src to derive the server
-            // base URL for heartBeat callbacks. With eval(), document.currentScript is
-            // null, so we override it before executing the script.
+            // The provider derives its server from document.currentScript.src.
+            // Expose only the already validated URL during synchronous bootstrap,
+            // then restore the browser-owned property immediately.
             const fakeScript = document.createElement('script');
             fakeScript.src = tokenUrl;
-            document.head.appendChild(fakeScript);
+            const runtimeScript = document.createElement('script');
+            runtimeScript.type = 'text/javascript';
+            runtimeScript.textContent = scriptText;
+            const previousCurrentScript = Object.getOwnPropertyDescriptor(document, 'currentScript');
             Object.defineProperty(document, 'currentScript', {
                 value: fakeScript,
-                writable: true,
                 configurable: true,
             });
 
             try {
-                (0, eval)(scriptText);
-            } catch (evalErr) {
-                await nativeLogAsync(`DRM: eval error: ${(evalErr as Error)?.message || evalErr}`);
+                document.head.appendChild(runtimeScript);
+            } catch (scriptError) {
+                await nativeLogAsync(`DRM: module error: ${(scriptError as Error)?.message || scriptError}`);
                 _ochartsBootstrapped = false;
                 return;
+            } finally {
+                runtimeScript.remove();
+                if (previousCurrentScript) {
+                    Object.defineProperty(document, 'currentScript', previousCurrentScript);
+                } else {
+                    Reflect.deleteProperty(document, 'currentScript');
+                }
             }
-            // NOTE: We intentionally leave document.currentScript pointing to fakeScript.
-            // The DRM provider's heartbeat callbacks use document.currentScript.src
-            // asynchronously, so restoring it to null would break the heartbeat.
 
             const avnav = (window as unknown as Record<string, unknown>).avnav as Record<string, unknown> | undefined;
             const provider = (avnav?.ochartsProvider || avnav?.ochartsProviderNG) as
@@ -209,10 +352,21 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
                 // B) Unwrap CapacitorHttp's response envelope so DRM script
                 //    gets raw server JSON (not double-wrapped {data:{data:{key:...}}})
                 if (_drmServerSessionId) {
-                    const _origFetch = window.fetch;
+                    _drmOriginalFetch ??= window.fetch;
+                    const tokenOrigin = validatedTokenUrl.origin;
                     window.fetch = (async (...args: Parameters<typeof fetch>) => {
                         const url = String(args[0]);
-                        if (url.includes('/tokens/') && url.includes('request=key')) {
+                        let heartbeatUrl: URL | null = null;
+                        try {
+                            heartbeatUrl = new URL(url);
+                        } catch {
+                            /* forward malformed requests */
+                        }
+                        if (
+                            heartbeatUrl?.origin === tokenOrigin &&
+                            heartbeatUrl.pathname.startsWith('/tokens/') &&
+                            heartbeatUrl.searchParams.get('request') === 'key'
+                        ) {
                             await nativeLogAsync(`DRM-INTERCEPT: raw url="${url.slice(0, 120)}"`);
                             // Capture client sessionId on first intercept
                             if (!_drmClientSessionId && url.includes('sessionId=')) {
@@ -281,7 +435,7 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
                                 return new Response('{"error":"fetch failed"}', { status: 500 });
                             }
                         }
-                        return _origFetch.apply(window, args);
+                        return (_drmOriginalFetch || window.fetch).apply(window, args);
                     }) as typeof fetch;
                 }
 
@@ -340,7 +494,8 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
                 }
 
                 // Set up periodic heartBeat to keep the DRM token alive (mirrors AvNav's main loop)
-                setInterval(() => {
+                if (_drmHeartbeatTimer) clearInterval(_drmHeartbeatTimer);
+                _drmHeartbeatTimer = setInterval(() => {
                     if (
                         _cachedOchartsProvider &&
                         typeof (_cachedOchartsProvider as Record<string, unknown>).heartBeat === 'function'
@@ -446,7 +601,7 @@ export function encryptOchartsUrl(url: string): string | null {
 
         // Pass ONLY the tile coordinates to encryptUrl
         const encrypted = provider.encryptUrl(tilePart);
-        if (typeof encrypted === 'string' && encrypted.length > 0) {
+        if (typeof encrypted === 'string' && isSafeOchartsEncryptedSegment(encrypted)) {
             // Reconstruct: origin + chartBase + "/" + encrypted
             let finalUrl = `${origin}${chartBase}/${encrypted}`;
             // Rewrite client sessionId → server sessionId in encrypted URL
@@ -621,6 +776,7 @@ class AvNavServiceClass {
         this.apiVersion = null;
         this.reconnectAttempts = 0;
         this.lastError = null;
+        resetOchartsDrmRuntime();
 
         localStorage.setItem('signalk_enabled', 'false');
 
@@ -1196,7 +1352,13 @@ class AvNavServiceClass {
 
                 // Native: bootstrap the DRM provider with the direct ocharts URL
                 const tokenUrl = rewriteLocal(String(item.tokenUrl));
-                bootstrapOchartsDrm(tokenUrl);
+                let chartHost = '';
+                try {
+                    chartHost = new URL(chartUrl).hostname;
+                } catch {
+                    /* invalid chart URL is rejected by the normal chart path */
+                }
+                bootstrapOchartsDrm(tokenUrl, [piHost, chartHost]);
                 tilesUrl = chartUrl;
             } else if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
                 // Absolute URL — extract host:port for proxy routing

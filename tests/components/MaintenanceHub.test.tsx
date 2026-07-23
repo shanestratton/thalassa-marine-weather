@@ -4,9 +4,14 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
 
 vi.mock('../../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+}));
+vi.mock('../../stores/settingsStore', () => ({
+    useSettingsStore: (selector: (state: { settings: { vessel: { name: string } } }) => unknown) =>
+        selector({ settings: { vessel: { name: 'Test Vessel' } } }),
 }));
 vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
 vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
@@ -25,6 +30,9 @@ vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
 }));
 vi.mock('../../services/MaintenanceService', () => ({
     calculateStatus: vi.fn().mockReturnValue({ light: 'green', dueLabel: 'OK', overdue: false }),
+}));
+vi.mock('../../services/vessel/LocalDatabase', () => ({
+    initLocalDatabase: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../../services/MaintenancePdfService', () => ({
     exportChecklist: vi.fn().mockResolvedValue(undefined),
@@ -46,7 +54,10 @@ import { MaintenanceHub } from '../../components/vessel/MaintenanceHub';
 describe('MaintenanceHub', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        localStorage.setItem('thalassa_maintenance_seeded', '1');
+        localStorage.clear();
+        setAuthIdentityScope(null);
+        const identity = setAuthIdentityScope('account-a');
+        localStorage.setItem(authScopedStorageKey('thalassa_maintenance_seeded', identity), '1');
     });
 
     it('renders without crashing', async () => {

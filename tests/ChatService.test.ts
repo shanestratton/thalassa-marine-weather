@@ -10,12 +10,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 // --- Mock fns (hoisted so vi.mock factories can reference them) ---
 const {
     mockSingle,
     mockFrom: _mockFrom,
     mockGetUser,
+    mockGetSession,
     mockRpc: _mockRpc,
     mockChannel,
     mockRemoveChannel,
@@ -24,6 +26,8 @@ const {
     mockSupabase,
     mockPreferencesGet,
     mockPreferencesSet,
+    mockOrderedQuery,
+    mockOrder,
 } = vi.hoisted(() => {
     const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
     const orderedQuery = {
@@ -66,6 +70,10 @@ const {
         data: { user: { id: 'user-123', email: 'test@example.com', user_metadata: { display_name: 'TestUser' } } },
         error: null,
     });
+    const mockGetSession = vi.fn().mockResolvedValue({
+        data: { session: { user: { id: 'user-123' } } },
+        error: null,
+    });
     const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const mockSubscribe = vi.fn();
     const mockOn = vi.fn();
@@ -80,7 +88,7 @@ const {
 
     const mockSupabase = {
         from: mockFrom,
-        auth: { getUser: mockGetUser },
+        auth: { getUser: mockGetUser, getSession: mockGetSession },
         rpc: mockRpc,
         channel: mockChannel,
         removeChannel: mockRemoveChannel,
@@ -90,6 +98,7 @@ const {
         mockSingle,
         mockFrom,
         mockGetUser,
+        mockGetSession,
         mockRpc,
         mockChannel,
         mockRemoveChannel,
@@ -98,6 +107,8 @@ const {
         mockSupabase,
         mockPreferencesGet,
         mockPreferencesSet,
+        mockOrderedQuery: orderedQuery,
+        mockOrder,
     };
 });
 
@@ -124,6 +135,7 @@ vi.mock('@capacitor/preferences', () => ({
 
 // Import AFTER mocks are set up
 import { ChatService } from '../services/ChatService';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
 // --- Test Helpers ---
 function resetChatService() {
@@ -137,10 +149,21 @@ function resetChatService() {
     (ChatService as any).cachedDisplayName = null;
 }
 
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
 describe('ChatService', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         localStorage.clear();
+        Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('user-123');
         resetChatService();
 
         // Default: role query returns member
@@ -149,6 +172,7 @@ describe('ChatService', () => {
 
     afterEach(() => {
         ChatService.destroy();
+        vi.useRealTimers();
     });
 
     // ═══════════════════════════════════════
@@ -179,6 +203,7 @@ describe('ChatService', () => {
         });
 
         it('detects platform owner by email', async () => {
+            setAuthIdentityScope('owner-1');
             mockGetUser.mockResolvedValueOnce({
                 data: { user: { id: 'owner-1', email: 'shane.stratton@gmail.com', user_metadata: {} } },
                 error: null,
@@ -196,6 +221,7 @@ describe('ChatService', () => {
                 data: { user: { id: 'user-456', email: 'retry@test.com', user_metadata: {} } },
                 error: null,
             });
+            setAuthIdentityScope('user-456');
             await ChatService.initialize();
             expect(ChatService.getCurrentUserId()).toBe('user-456');
         });
@@ -293,6 +319,38 @@ describe('ChatService', () => {
         });
     });
 
+    describe('channel cache identity isolation', () => {
+        it('never returns account A cached channels to account B', async () => {
+            localStorage.setItem(
+                authScopedStorageKey('thalassa_chat_channels_v1'),
+                JSON.stringify([{ id: 'private-a', name: 'Account A private channel' }]),
+            );
+
+            expect((await ChatService.getChannels()).map((channel) => channel.id)).toEqual(['private-a']);
+
+            setAuthIdentityScope('user-456');
+            expect(await ChatService.getChannels()).toEqual([]);
+
+            localStorage.setItem(
+                authScopedStorageKey('thalassa_chat_channels_v1'),
+                JSON.stringify([{ id: 'private-b', name: 'Account B private channel' }]),
+            );
+            expect((await ChatService.getChannels()).map((channel) => channel.id)).toEqual(['private-b']);
+
+            setAuthIdentityScope('user-123');
+            expect((await ChatService.getChannels()).map((channel) => channel.id)).toEqual(['private-a']);
+        });
+
+        it('does not adopt the unattributable legacy channel cache', async () => {
+            localStorage.setItem(
+                'thalassa_chat_channels_v1',
+                JSON.stringify([{ id: 'legacy-private', name: 'Unknown owner' }]),
+            );
+
+            expect(await ChatService.getChannels()).toEqual([]);
+        });
+    });
+
     // ═══════════════════════════════════════
     // CHANNELS
     // ═══════════════════════════════════════
@@ -300,10 +358,38 @@ describe('ChatService', () => {
     describe('getChannels()', () => {
         it('returns cached channels from localStorage when available', async () => {
             const cached = [{ id: 'ch-1', name: 'General', description: 'test', icon: '🌊' }];
-            localStorage.setItem('thalassa_chat_channels_v1', JSON.stringify(cached));
+            localStorage.setItem(authScopedStorageKey('thalassa_chat_channels_v1'), JSON.stringify(cached));
 
             const result = await ChatService.getChannels();
             expect(result).toEqual(cached);
+        });
+    });
+
+    describe('bounded message reads', () => {
+        it('clamps channel pagination before constructing the database range', async () => {
+            await ChatService.getMessages('ch-1', Number.POSITIVE_INFINITY, -50);
+
+            expect(mockOrderedQuery.range).toHaveBeenCalledWith(0, 49);
+
+            await ChatService.getMessages('ch-1', 5_000, 50_000);
+            expect(mockOrderedQuery.range).toHaveBeenLastCalledWith(10_000, 10_199);
+        });
+
+        it('bounds inbox aggregation and fetches the newest DM page', async () => {
+            (ChatService as any).currentUserId = 'user-123';
+
+            await ChatService.getDMConversations();
+            expect(mockOrderedQuery.limit).toHaveBeenCalledWith(2_000);
+
+            mockOrderedQuery.limit.mockClear();
+            await ChatService.getDMThread('friend-123', 10_000);
+            expect(mockOrder).toHaveBeenCalledWith('created_at', { ascending: false });
+            expect(mockOrderedQuery.limit).toHaveBeenCalledWith(200);
+        });
+
+        it('rejects unsafe raw-filter IDs before contacting the database', async () => {
+            await expect(ChatService.getDMThread('friend),recipient_id.neq.null')).resolves.toEqual([]);
+            expect(_mockFrom).not.toHaveBeenCalled();
         });
     });
 
@@ -429,13 +515,14 @@ describe('ChatService', () => {
         it('queues messages via Capacitor Preferences', async () => {
             mockPreferencesGet.mockResolvedValueOnce({ value: null });
 
-            await (ChatService as any).queueOffline({
+            const queued = await (ChatService as any).queueOffline({
                 type: 'channel',
                 channel_id: 'ch-1',
                 message: 'Hello from offline',
                 timestamp: new Date().toISOString(),
             });
 
+            expect(queued).toBe(true);
             expect(mockPreferencesSet).toHaveBeenCalledWith(
                 expect.objectContaining({
                     key: expect.any(String),
@@ -448,7 +535,9 @@ describe('ChatService', () => {
             const existing = JSON.stringify([
                 { type: 'channel', channel_id: 'ch-1', message: 'First', timestamp: new Date().toISOString() },
             ]);
-            mockPreferencesGet.mockResolvedValueOnce({ value: existing });
+            // No historical global queue; the existing value belongs to the
+            // current identity-scoped key.
+            mockPreferencesGet.mockResolvedValueOnce({ value: null }).mockResolvedValueOnce({ value: existing });
 
             await (ChatService as any).queueOffline({
                 type: 'channel',
@@ -457,11 +546,142 @@ describe('ChatService', () => {
                 timestamp: new Date().toISOString(),
             });
 
-            const setCallArg = mockPreferencesSet.mock.calls[0][0];
+            const setCallArg = mockPreferencesSet.mock.calls.at(-1)![0];
             const savedQueue = JSON.parse(setCallArg.value);
             expect(savedQueue).toHaveLength(2);
             expect(savedQueue[0].message).toBe('First');
             expect(savedQueue[1].message).toBe('Second');
+        });
+
+        it('reports when durable offline queue storage fails', async () => {
+            mockPreferencesSet.mockRejectedValueOnce(new Error('disk full'));
+
+            const queued = await (ChatService as any).queueOffline({
+                type: 'dm',
+                recipient_id: 'friend-1',
+                message: 'Do not lose this',
+                timestamp: new Date().toISOString(),
+            });
+
+            expect(queued).toBe(false);
+        });
+
+        it('retries a durably queued message after a short online backoff', async () => {
+            vi.useFakeTimers();
+            (ChatService as any).currentUserId = 'user-123';
+            const syncSpy = vi.spyOn(ChatService as any, 'syncOfflineQueue').mockResolvedValue(0);
+
+            const queued = await (ChatService as any).queueOffline({
+                type: 'channel',
+                channel_id: 'ch-1',
+                message: 'Retry me',
+                timestamp: new Date().toISOString(),
+            });
+            expect(queued).toBe(true);
+
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            expect(syncSpy).toHaveBeenCalled();
+            vi.useRealTimers();
+        });
+
+        it('flushes queued messages immediately when connectivity returns', async () => {
+            await ChatService.initialize();
+            const syncSpy = vi.spyOn(ChatService as any, 'syncOfflineQueue').mockResolvedValue(0);
+            vi.useFakeTimers();
+
+            window.dispatchEvent(new Event('online'));
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(syncSpy).toHaveBeenCalled();
+            vi.useRealTimers();
+        });
+    });
+
+    describe('offline send identity verification', () => {
+        beforeEach(() => {
+            (ChatService as any).currentUserId = 'user-123';
+        });
+
+        it('durably queues a channel message from a matching local session when explicitly offline', async () => {
+            Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+
+            const result = await ChatService.sendMessage('ch-1', 'Offline channel update');
+
+            expect(result).toBe('queued');
+            expect(mockGetUser).not.toHaveBeenCalled();
+            expect(mockGetSession).toHaveBeenCalledTimes(1);
+            expect(mockPreferencesSet).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    key: authScopedStorageKey('chat_offline_queue'),
+                    value: expect.stringContaining('Offline channel update'),
+                }),
+            );
+        });
+
+        it('durably queues a DM after a retryable auth-network failure and matching local session', async () => {
+            mockGetUser.mockResolvedValueOnce({
+                data: { user: null },
+                error: new AuthRetryableFetchError('network unavailable', 0),
+            } as any);
+
+            const result = await ChatService.sendDM('friend-1', 'Offline direct update');
+
+            expect(result).toBe('queued');
+            expect(mockGetSession).toHaveBeenCalledTimes(1);
+            expect(mockPreferencesSet).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    key: authScopedStorageKey('chat_offline_queue'),
+                    value: expect.stringContaining('Offline direct update'),
+                }),
+            );
+        });
+
+        it('does not queue channel messages or DMs when remote auth confirms sign-out', async () => {
+            mockGetUser.mockResolvedValue({
+                data: { user: null },
+                error: null,
+            } as any);
+
+            await expect(ChatService.sendMessage('ch-1', 'Do not queue channel')).resolves.toBeNull();
+            await expect(ChatService.sendDM('friend-1', 'Do not queue DM')).resolves.toBeNull();
+
+            expect(mockGetSession).not.toHaveBeenCalled();
+            expect(mockPreferencesSet).not.toHaveBeenCalled();
+        });
+
+        it('does not queue when the locally persisted session belongs to another user', async () => {
+            mockGetUser.mockRejectedValueOnce(new AuthRetryableFetchError('network unavailable', 0));
+            mockGetSession.mockResolvedValueOnce({
+                data: { session: { user: { id: 'user-456' } } },
+                error: null,
+            });
+
+            await expect(ChatService.sendMessage('ch-1', 'Wrong owner')).resolves.toBeNull();
+            expect(mockPreferencesSet).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ['channel', () => ChatService.sendMessage('ch-1', 'Race channel')],
+            ['DM', () => ChatService.sendDM('friend-1', 'Race DM')],
+        ])('does not queue a %s when identity changes during local-session verification', async (_label, send) => {
+            const localSession = deferred<{
+                data: { session: { user: { id: string } } };
+                error: null;
+            }>();
+            mockGetUser.mockRejectedValueOnce(new AuthRetryableFetchError('network unavailable', 0));
+            mockGetSession.mockReturnValueOnce(localSession.promise);
+
+            const pendingSend = send();
+            await vi.waitFor(() => expect(mockGetSession).toHaveBeenCalledTimes(1));
+            setAuthIdentityScope('user-456');
+            localSession.resolve({
+                data: { session: { user: { id: 'user-123' } } },
+                error: null,
+            });
+
+            await expect(pendingSend).resolves.toBeNull();
+            expect(mockPreferencesSet).not.toHaveBeenCalled();
         });
     });
 

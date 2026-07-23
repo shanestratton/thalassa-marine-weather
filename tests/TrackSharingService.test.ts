@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { supabase } from '../services/supabase';
 import type { ShipLogEntry } from '../types';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 // Must import after mocks
 import { TrackSharingService } from '../services/TrackSharingService';
@@ -16,6 +17,7 @@ import { TrackSharingService } from '../services/TrackSharingService';
 const makeEntry = (overrides: Partial<ShipLogEntry> = {}): ShipLogEntry =>
     ({
         id: 'entry-1',
+        userId: 'user-1',
         voyageId: 'voyage-1',
         latitude: -33.868,
         longitude: 151.209,
@@ -41,6 +43,8 @@ const mockMetadata = {
 describe('TrackSharingService', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('user-1');
     });
 
     describe('shareTrack — provenance guards', () => {
@@ -93,6 +97,18 @@ describe('TrackSharingService', () => {
             });
 
             await expect(TrackSharingService.shareTrack([], mockMetadata)).rejects.toThrow('No entries to share');
+        });
+
+        it('rejects entries that do not belong to the exact authenticated owner', async () => {
+            (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
+                data: { user: { id: 'user-1' } },
+                error: null,
+            });
+
+            await expect(
+                TrackSharingService.shareTrack([makeEntry({ userId: 'user-2' })], mockMetadata),
+            ).rejects.toThrow('owned by another account');
+            expect(supabase!.from).not.toHaveBeenCalled();
         });
     });
 
@@ -172,6 +188,40 @@ describe('TrackSharingService', () => {
         });
     });
 
+    describe('getTrackById', () => {
+        it('does not expose GPX through the metadata API even when legacy callers request it', async () => {
+            const query = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn().mockResolvedValue({
+                    data: {
+                        id: 'track-1',
+                        user_id: 'other-user',
+                        title: 'Public metadata',
+                        description: '',
+                        tags: [],
+                        category: 'coastal',
+                        region: '',
+                        center_lat: 0,
+                        center_lon: 0,
+                        distance_nm: 1,
+                        point_count: 2,
+                        download_count: 0,
+                        created_at: '2026-01-01T00:00:00.000Z',
+                        gpx_data: '<gpx>paid-content</gpx>',
+                    },
+                    error: null,
+                }),
+            };
+            (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(query);
+
+            const track = await TrackSharingService.getTrackById('track-1', true);
+
+            expect(query.select).not.toHaveBeenCalledWith('*');
+            expect(track).not.toHaveProperty('gpx_data');
+        });
+    });
+
     describe('deleteSharedTrack', () => {
         it('returns false when not authenticated', async () => {
             (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -180,6 +230,21 @@ describe('TrackSharingService', () => {
 
             const result = await TrackSharingService.deleteSharedTrack('track-1');
             expect(result).toBe(false);
+        });
+
+        it('does not start account-A deletion when auth resolves after switching to B', async () => {
+            let resolveAuth!: (value: { data: { user: { id: string } }; error: null }) => void;
+            const auth = new Promise<{ data: { user: { id: string } }; error: null }>((resolve) => {
+                resolveAuth = resolve;
+            });
+            (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockReturnValue(auth);
+
+            const pending = TrackSharingService.deleteSharedTrack('track-a');
+            setAuthIdentityScope('user-2');
+            resolveAuth({ data: { user: { id: 'user-1' } }, error: null });
+
+            await expect(pending).resolves.toBe(false);
+            expect(supabase!.from).not.toHaveBeenCalled();
         });
     });
 
@@ -192,5 +257,65 @@ describe('TrackSharingService', () => {
             const result = await TrackSharingService.getMySharedTracks();
             expect(result).toEqual([]);
         });
+
+        it('owner-binds the query and discards a deferred account-A result after switching to B', async () => {
+            let resolveQuery!: (value: { data: SharedTrackRow[]; error: null }) => void;
+            const queryResult = new Promise<{ data: SharedTrackRow[]; error: null }>((resolve) => {
+                resolveQuery = resolve;
+            });
+            const query = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                order: vi.fn().mockReturnThis(),
+                then: vi.fn((resolve, reject) => queryResult.then(resolve, reject)),
+            };
+            (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
+                data: { user: { id: 'user-1' } },
+                error: null,
+            });
+            (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(query);
+
+            const pending = TrackSharingService.getMySharedTracks();
+            await vi.waitFor(() => expect(query.eq).toHaveBeenCalledWith('user_id', 'user-1'));
+            setAuthIdentityScope('user-2');
+            resolveQuery({
+                data: [
+                    {
+                        id: 'private-a',
+                        user_id: 'user-1',
+                        title: 'A private track',
+                        description: '',
+                        tags: [],
+                        category: 'coastal',
+                        region: '',
+                        center_lat: 0,
+                        center_lon: 0,
+                        distance_nm: 1,
+                        point_count: 2,
+                        download_count: 0,
+                        created_at: '2026-01-01T00:00:00.000Z',
+                    },
+                ],
+                error: null,
+            });
+
+            await expect(pending).resolves.toEqual([]);
+        });
     });
 });
+
+type SharedTrackRow = {
+    id: string;
+    user_id: string;
+    title: string;
+    description: string;
+    tags: string[];
+    category: 'coastal';
+    region: string;
+    center_lat: number;
+    center_lon: number;
+    distance_nm: number;
+    point_count: number;
+    download_count: number;
+    created_at: string;
+};

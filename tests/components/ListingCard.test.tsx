@@ -2,7 +2,7 @@
  * ListingCard — smoke tests (604 LOC marketplace component)
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../utils/createLogger', () => ({
@@ -74,5 +74,30 @@ describe('ListingCard', () => {
     it('renders listing price', () => {
         const { container } = render(<ListingCard {...defaultProps} />);
         expect(container.textContent).toContain('250');
+    });
+
+    it('opens a conversation without silently sending a template message', async () => {
+        const onMessageSeller = vi.fn().mockResolvedValue(true);
+        render(<ListingCard {...defaultProps} onMessageSeller={onMessageSeller} />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Message Seller' }));
+
+        await waitFor(() => expect(onMessageSeller).toHaveBeenCalledWith(mockListing));
+        expect(onMessageSeller).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends an explicit offer exactly once through the parent workflow', async () => {
+        const onMessageSeller = vi.fn().mockResolvedValue(true);
+        render(<ListingCard {...defaultProps} onMessageSeller={onMessageSeller} />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show Offer Input' }));
+        fireEvent.change(screen.getByPlaceholderText('Your offer'), { target: { value: '200' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Send offer to seller' }));
+
+        await waitFor(() =>
+            expect(onMessageSeller).toHaveBeenCalledWith(mockListing, expect.stringMatching(/I'd like to offer .*200/)),
+        );
+        expect(onMessageSeller).toHaveBeenCalledTimes(1);
+        expect(screen.queryByPlaceholderText('Your offer')).not.toBeInTheDocument();
     });
 });

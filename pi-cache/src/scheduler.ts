@@ -16,7 +16,7 @@ import {
     cachedTileFetch,
     supabaseEdgeUrl,
     supabaseHeaders,
-    openMeteoUrl,
+    openMeteoProxyRequest,
 } from './proxy.js';
 
 // ── TTL Constants (milliseconds) ──
@@ -125,7 +125,7 @@ async function prefetchWeatherCombined(cache: Cache, config: ProxyConfig, pf: Pr
 
     if (cache.hasFresh(key)) return;
 
-    const url = openMeteoUrl(
+    const upstream = openMeteoProxyRequest(
         config,
         'forecast',
         `latitude=${pf.lat}&longitude=${pf.lon}` +
@@ -135,7 +135,12 @@ async function prefetchWeatherCombined(cache: Cache, config: ProxyConfig, pf: Pr
             `&timezone=auto&forecast_days=16&models=best_match`,
     );
 
-    await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.WEATHER_CURRENT, source: 'open-meteo-combined' });
+    await cachedJsonFetch(cache, {
+        ...upstream,
+        cacheKey: key,
+        ttlMs: TTL.WEATHER_CURRENT,
+        source: 'open-meteo-combined',
+    });
 }
 
 /**
@@ -143,8 +148,8 @@ async function prefetchWeatherCombined(cache: Cache, config: ProxyConfig, pf: Pr
  * This is the new single-endpoint pipeline that returns standardized weather
  * regardless of subscription tier. Pre-fetches both full and minified versions.
  *
- * The user_id comes from PREFETCH_USER_ID in .env — pushed by the app during
- * configuration so the edge function can check the user's subscription tier.
+ * PREFETCH_USER_ID partitions local cache entries only. It is never sent as
+ * authorization; the Pi's anon credential deliberately receives the free tier.
  */
 async function prefetchWeatherUnified(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
     const rlat = parseFloat(pf.lat.toFixed(2));
@@ -155,8 +160,6 @@ async function prefetchWeatherUnified(cache: Cache, config: ProxyConfig, pf: Pre
     const fullKey = `weather:unified:${rlat}:${rlon}:${userId}:0`;
     if (!cache.hasFresh(fullKey)) {
         const params: Record<string, string> = { lat: String(pf.lat), lon: String(pf.lon), minified: '0' };
-        if (userId) params.user_id = userId;
-
         const url = supabaseEdgeUrl(config, 'get-weather', params);
         await cachedJsonFetch(cache, {
             cacheKey: fullKey,
@@ -171,8 +174,6 @@ async function prefetchWeatherUnified(cache: Cache, config: ProxyConfig, pf: Pre
     const miniKey = `weather:unified:${rlat}:${rlon}:${userId}:1`;
     if (!cache.hasFresh(miniKey)) {
         const params: Record<string, string> = { lat: String(pf.lat), lon: String(pf.lon), minified: '1' };
-        if (userId) params.user_id = userId;
-
         const url = supabaseEdgeUrl(config, 'get-weather', params);
         await cachedJsonFetch(cache, {
             cacheKey: miniKey,
@@ -195,15 +196,14 @@ async function prefetchWeather(
 
     if (cache.hasFresh(key)) return; // Already fresh, skip
 
-    // Open-Meteo Commercial API — key injected by openMeteoUrl helper
+    // Commercial Open-Meteo request through the Supabase key boundary.
     const params =
         type === 'current'
             ? `latitude=${pf.lat}&longitude=${pf.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn`
             : `latitude=${pf.lat}&longitude=${pf.lon}&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=7`;
 
-    const url = openMeteoUrl(config, 'forecast', params);
-
-    await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: ttl, source: 'open-meteo' });
+    const upstream = openMeteoProxyRequest(config, 'forecast', params);
+    await cachedJsonFetch(cache, { ...upstream, cacheKey: key, ttlMs: ttl, source: 'open-meteo' });
 }
 
 async function prefetchTides(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
@@ -267,15 +267,20 @@ async function prefetchGrib(
         params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=5`;
     } else if (type === 'waves') {
         params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=5`;
-        const url = openMeteoUrl(config, 'marine', params);
-        await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-marine' });
+        const upstream = openMeteoProxyRequest(config, 'marine', params);
+        await cachedJsonFetch(cache, {
+            ...upstream,
+            cacheKey: key,
+            ttlMs: TTL.GRIB,
+            source: 'open-meteo-marine',
+        });
         return;
     } else {
         params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=pressure_msl,surface_pressure&forecast_days=5`;
     }
 
-    const url = openMeteoUrl(config, 'forecast', params);
-    await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-grib' });
+    const upstream = openMeteoProxyRequest(config, 'forecast', params);
+    await cachedJsonFetch(cache, { ...upstream, cacheKey: key, ttlMs: TTL.GRIB, source: 'open-meteo-grib' });
 }
 
 /**

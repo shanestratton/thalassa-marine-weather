@@ -4,6 +4,16 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    hasPngSignature,
+    parseBoundedInteger,
+    parseBoundedNumber,
+    parseCoordinate,
+    readResponseArrayBufferLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * satellite-tile — Satellite IR Tile Proxy
  *
@@ -48,10 +58,19 @@ Deno.serve(async (req: Request) => {
         });
     }
 
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'satellite_tile', 6000, 3000, 3600, true);
+    if (caller instanceof Response) return withCors(caller, CORS);
+
     try {
         const url = new URL(req.url);
         const satParam = url.searchParams.get('sat') || 'gmgsi';
-        const config = SATELLITE_LAYERS[satParam] || SATELLITE_LAYERS['gmgsi'];
+        const config = SATELLITE_LAYERS[satParam];
+        if (!config) {
+            return new Response(JSON.stringify({ error: 'Invalid satellite source' }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
 
         const xParam = url.searchParams.get('x');
         const yParam = url.searchParams.get('y');
@@ -59,18 +78,39 @@ Deno.serve(async (req: Request) => {
 
         // GIBS max zoom is 6, SSEC max 7, nowcoast max 8
         const maxZoom = config.type === 'gibs' ? 6 : config.type === 'ssec' ? 7 : 8;
-        const zoom = Math.min(parseInt(zParam), maxZoom);
+        const zoom = parseBoundedInteger(zParam, 0, maxZoom);
+        if (zoom === null) {
+            return new Response(JSON.stringify({ error: 'Invalid zoom' }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
 
         let xTile: number;
         let yTile: number;
 
         if (xParam !== null && yParam !== null) {
-            xTile = parseInt(xParam);
-            yTile = parseInt(yParam);
+            const maxTile = 2 ** zoom - 1;
+            const parsedX = parseBoundedInteger(xParam, 0, maxTile);
+            const parsedY = parseBoundedInteger(yParam, 0, maxTile);
+            if (parsedX === null || parsedY === null) {
+                return new Response(JSON.stringify({ error: 'Invalid tile coordinates' }), {
+                    status: 400,
+                    headers: { ...CORS, 'Content-Type': 'application/json' },
+                });
+            }
+            xTile = parsedX;
+            yTile = parsedY;
         } else {
             // Fallback: convert lat/lon to tile coords
-            const lat = parseFloat(url.searchParams.get('lat') || '-27.20');
-            const lon = parseFloat(url.searchParams.get('lon') || '153.10');
+            const lat = parseBoundedNumber(url.searchParams.get('lat') ?? '-27.20', -85.0511, 85.0511);
+            const lon = parseCoordinate(url.searchParams.get('lon') ?? '153.10', 'lon');
+            if (lat === null || lon === null) {
+                return new Response(JSON.stringify({ error: 'Invalid coordinates' }), {
+                    status: 400,
+                    headers: { ...CORS, 'Content-Type': 'application/json' },
+                });
+            }
             const n = Math.pow(2, zoom);
             xTile = Math.floor(((lon + 180) / 360) * n);
             yTile = Math.floor(
@@ -85,11 +125,15 @@ Deno.serve(async (req: Request) => {
         if (config.type === 'ssec') {
             // ── SSEC RealEarth (pre-enhanced Dvorak IR) ──
             const tileUrl = `https://realearth.ssec.wisc.edu/tiles/${config.layer}/${zoom}/${xTile}/${yTile}.png`;
-            const res = await fetch(tileUrl, {
-                headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' },
-            });
+            const res = await fetchWithTimeout(
+                tileUrl,
+                { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } },
+                10_000,
+            );
             if (!res.ok) throw new Error(`SSEC: ${res.status}`);
-            imageBody = await res.arrayBuffer();
+            const body = await readResponseArrayBufferLimited(res, 2_000_000);
+            if (!body) throw new Error('SSEC tile exceeded byte limit');
+            imageBody = body;
             usedDate = new Date().toISOString().split('T')[0];
         } else if (config.type === 'nowcoast') {
             // ── NOAA nowCOAST ArcGIS export (GMGSI global composite) ──
@@ -120,11 +164,15 @@ Deno.serve(async (req: Request) => {
                 `&layers=show:${config.sublayer}` +
                 `&f=image`;
 
-            const res = await fetch(exportUrl, {
-                headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' },
-            });
+            const res = await fetchWithTimeout(
+                exportUrl,
+                { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } },
+                10_000,
+            );
             if (!res.ok) throw new Error(`nowCOAST: ${res.status}`);
-            imageBody = await res.arrayBuffer();
+            const body = await readResponseArrayBufferLimited(res, 2_000_000);
+            if (!body) throw new Error('nowCOAST tile exceeded byte limit');
+            imageBody = body;
             usedDate = new Date().toISOString().split('T')[0];
         } else {
             // ── NASA GIBS (individual satellites) ──
@@ -150,16 +198,20 @@ Deno.serve(async (req: Request) => {
 
             for (const dateStr of dates) {
                 try {
-                    const res = await fetch(`${base}?${params}&Time=${dateStr}`, {
-                        headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' },
-                    });
+                    const res = await fetchWithTimeout(
+                        `${base}?${params}&Time=${dateStr}`,
+                        { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } },
+                        10_000,
+                    );
                     if (res.ok) {
-                        imageBody = await res.arrayBuffer();
+                        const body = await readResponseArrayBufferLimited(res, 2_000_000);
+                        if (!body) throw new Error('GIBS tile exceeded byte limit');
+                        imageBody = body;
                         usedDate = dateStr;
                         break;
                     }
                     // Consume body to avoid connection leak
-                    await res.arrayBuffer().catch(() => {});
+                    await res.body?.cancel().catch(() => {});
                     if (res.status !== 404) {
                         console.error(`[satellite-tile] GIBS ${dateStr}: ${res.status}`);
                     }
@@ -173,6 +225,8 @@ Deno.serve(async (req: Request) => {
             }
         }
 
+        if (!hasPngSignature(imageBody)) throw new Error('Upstream returned a non-PNG tile');
+
         return new Response(imageBody, {
             status: 200,
             headers: {
@@ -181,11 +235,12 @@ Deno.serve(async (req: Request) => {
                 'Cache-Control': 'public, max-age=600',
                 'X-Satellite-Date': usedDate,
                 'X-Satellite-Source': satParam,
+                'X-Content-Type-Options': 'nosniff',
             },
         });
     } catch (error) {
         console.error('[satellite-tile] Error:', (error as Error).message);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        return new Response(JSON.stringify({ error: 'Satellite tile fetch failed' }), {
             status: 502,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });

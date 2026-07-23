@@ -10,14 +10,13 @@
  */
 
 import { createLogger } from '../../utils/createLogger';
-import { getOpenMeteoKey } from './keys';
+import { fetchOpenMeteoPoints } from './openMeteoProxy';
 import type { WindGrid } from './windField';
 import type { ModelSource } from './WindFieldAdapter';
 import { AVAILABLE_MODELS, type WeatherModelId, recommendModels } from './MultiModelWeatherService';
 const log = createLogger('OMWind');
 
 const FORECAST_HOURS = 168; // 7 days for passage planning
-const BATCH_SIZE = 50; // Open-Meteo max per request
 const CONCURRENCY = 4; // Parallel API calls
 
 /**
@@ -32,12 +31,6 @@ export async function fetchModelWindGrid(
     forecastHours: number = FORECAST_HOURS,
     resolutionDeg: number = 2.0,
 ): Promise<WindGrid | null> {
-    const omKey = getOpenMeteoKey();
-    if (!omKey) {
-        log.warn('No API key available');
-        return null;
-    }
-
     const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
     if (!model) {
         log.warn(`Unknown model: ${modelId}`);
@@ -82,46 +75,18 @@ export async function fetchModelWindGrid(
 
     log.info(`[OpenMeteoFetcher] ${model.name}: ${rows}×${cols} grid (${allPoints.length} points), ${forecastHours}h`);
 
-    // Batch requests
-    const allResults: unknown[] = new Array(allPoints.length).fill(null);
-    const batches: { start: number; end: number }[] = [];
-    for (let i = 0; i < allPoints.length; i += BATCH_SIZE) {
-        batches.push({ start: i, end: Math.min(i + BATCH_SIZE, allPoints.length) });
-    }
-
-    const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
-
     try {
-        for (let b = 0; b < batches.length; b += CONCURRENCY) {
-            const chunk = batches.slice(b, b + CONCURRENCY);
-            await Promise.all(
-                chunk.map(async ({ start, end }) => {
-                    const batchPoints = allPoints.slice(start, end);
-                    const latParam = batchPoints.map((p) => p.lat).join(',');
-                    const lonParam = batchPoints.map((p) => p.lon).join(',');
-
-                    const url =
-                        `${baseUrl}?latitude=${latParam}&longitude=${lonParam}` +
-                        `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-                        `&forecast_hours=${forecastHours}` +
-                        `&models=${model.openMeteoModel}` +
-                        `&timezone=UTC` +
-                        `&apikey=${omKey}`;
-
-                    const resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-                    if (!resp.ok) {
-                        log.warn(`${model.name} batch ${start}-${end} failed: ${resp.status}`);
-                        return;
-                    }
-
-                    const data = await resp.json();
-                    const results = Array.isArray(data) ? data : [data];
-                    for (let i = 0; i < results.length; i++) {
-                        allResults[start + i] = results[i];
-                    }
-                }),
-            );
-        }
+        const allResults = await fetchOpenMeteoPoints<Record<string, unknown>>(
+            'forecast',
+            allPoints,
+            {
+                hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+                forecast_hours: forecastHours,
+                models: model.openMeteoModel,
+                timezone: 'UTC',
+            },
+            CONCURRENCY,
+        );
 
         // Check we got enough data
         const validCount = allResults.filter((r) => (r as Record<string, unknown>)?.hourly).length;

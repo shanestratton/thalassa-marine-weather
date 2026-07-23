@@ -1,6 +1,10 @@
 import React, { useCallback } from 'react';
-import { DMConversation, DirectMessage, parsePinDrop } from '../../services/ChatService';
+import { parsePinDrop } from '../../services/ChatService';
+import type { DMConversation, DirectMessage } from '../../services/ChatService';
+import { parseRecipeShareMessage } from '../../services/GalleyRecipeService';
 import { getAvatarGradient, timeAgo } from './chatUtils';
+import { RecipeCard } from './RecipeCard';
+import { MAX_CHAT_MESSAGE_CHARS } from '../../services/chat/messagePolicy';
 
 // Pin drop card component
 const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ lat, lon, label }) => {
@@ -34,13 +38,24 @@ const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ la
     );
 };
 
-// Render message content — detects pin drops
-function renderMessageContent(message: string): React.ReactNode {
+// Render message content — detects structured pin and recipe shares.
+function renderMessageContent(message: string, isMine: boolean): React.ReactNode {
     const pin = parsePinDrop(message);
     if (pin) {
         return <PinDropCard lat={pin.lat} lon={pin.lon} label={pin.label} />;
     }
+    if (parseRecipeShareMessage(message)) {
+        return <RecipeCard message={message} isMine={isMine} />;
+    }
     return <p className="text-xs text-white/70 leading-relaxed">{message}</p>;
+}
+
+function getConversationPreview(message: string): string {
+    const pin = parsePinDrop(message);
+    if (pin) return `📍 ${pin.label}`;
+    const recipe = parseRecipeShareMessage(message);
+    if (recipe) return `🍳 ${recipe.recipe.title}`;
+    return message;
 }
 
 // --- DM Inbox ---
@@ -83,11 +98,7 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                         <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
                         <span className="text-[11px] text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
                     </div>
-                    <p className="text-[11px] text-white/60 truncate">
-                        {parsePinDrop(conv.last_message)
-                            ? `📍 ${parsePinDrop(conv.last_message)!.label}`
-                            : conv.last_message}
-                    </p>
+                    <p className="text-[11px] text-white/60 truncate">{getConversationPreview(conv.last_message)}</p>
                 </div>
                 {conv.unread_count > 0 && (
                     <span className="min-w-[20px] h-5 rounded-full bg-gradient-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 flex-shrink-0 shadow-lg shadow-sky-500/20">
@@ -137,8 +148,20 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(({ thread, p
                                     : 'bg-white/[0.04] border border-white/[0.04] rounded-bl-lg'
                             }`}
                         >
-                            {renderMessageContent(dm.message)}
-                            <p className="text-[11px] text-white/40 mt-1 tabular-nums">{timeAgo(dm.created_at)}</p>
+                            {renderMessageContent(dm.message, isSelf)}
+                            <p className="text-[11px] text-white/40 mt-1 tabular-nums">
+                                {timeAgo(dm.created_at)}
+                                {dm.delivery_status === 'sending' && (
+                                    <span className="ml-1 text-sky-300/70" role="status">
+                                        · Sending…
+                                    </span>
+                                )}
+                                {dm.delivery_status === 'queued' && (
+                                    <span className="ml-1 text-amber-300/70" role="status">
+                                        · Queued — sends when online
+                                    </span>
+                                )}
+                            </p>
                         </div>
                     </div>
                 );
@@ -233,6 +256,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                                 onKeyDown={(e) => e.key === 'Enter' && onSendDM()}
                                 placeholder={`Message ${partnerName || ''}...`}
                                 aria-label={`Message ${partnerName || 'user'}`}
+                                maxLength={MAX_CHAT_MESSAGE_CHARS}
                                 className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
                             />
                             <button

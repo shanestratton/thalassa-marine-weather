@@ -5,6 +5,7 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, readJsonObject, readResponseTextLimited } from '../_shared/http-security.ts';
 
 /**
  * proxy-gemini — Google Gemini API Proxy
@@ -55,20 +56,21 @@ Deno.serve(async (req: Request) => {
 
     const key = Deno.env.get('GEMINI_API_KEY');
     if (!key) {
-        return corsResponse(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }), 500);
+        console.error('[proxy-gemini] GEMINI_API_KEY is not configured');
+        return corsResponse(JSON.stringify({ error: 'AI service is not configured' }), 503);
     }
 
     try {
-        const {
-            model = 'gemini-2.5-flash',
-            prompt,
-            systemInstruction,
-            temperature = 0.7,
-            maxTokens = 4096,
-            responseMimeType,
-            imageBase64,
-            imageMimeType,
-        } = await req.json();
+        const body = await readJsonObject(req, 3_000_000);
+        if (!body) return corsResponse(JSON.stringify({ error: 'Invalid request body' }), 400);
+        const model = typeof body.model === 'string' ? body.model : 'gemini-2.5-flash';
+        const prompt = body.prompt;
+        const systemInstruction = body.systemInstruction;
+        const temperature = body.temperature ?? 0.7;
+        const maxTokens = body.maxTokens ?? 4096;
+        const responseMimeType = body.responseMimeType;
+        const imageBase64 = body.imageBase64;
+        const imageMimeType = body.imageMimeType;
 
         if (!prompt || typeof prompt !== 'string' || prompt.length > 40_000) {
             return corsResponse(JSON.stringify({ error: 'prompt is required' }), 400);
@@ -88,7 +90,10 @@ Deno.serve(async (req: Request) => {
         const safeMaxTokens = Number.isFinite(numericMaxTokens)
             ? Math.min(4096, Math.max(1, Math.floor(numericMaxTokens)))
             : 1024;
-        if (responseMimeType && !['application/json', 'text/plain'].includes(responseMimeType)) {
+        if (
+            responseMimeType !== undefined &&
+            (typeof responseMimeType !== 'string' || !['application/json', 'text/plain'].includes(responseMimeType))
+        ) {
             return corsResponse(JSON.stringify({ error: 'Unsupported response type' }), 400);
         }
         const hasImage = imageBase64 !== undefined || imageMimeType !== undefined;
@@ -133,17 +138,27 @@ Deno.serve(async (req: Request) => {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
+        const res = await fetchWithTimeout(
+            url,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            },
+            45_000,
+        );
 
-        const data = await res.json();
+        const responseText = await readResponseTextLimited(res, 2_000_000);
+        if (responseText === null) throw new Error('Gemini response exceeded the safety limit');
+        const data = JSON.parse(responseText);
 
         if (res.status !== 200) {
             console.error(`[proxy-gemini] Gemini error: ${res.status}`, JSON.stringify(data).slice(0, 500));
-            return corsResponse(JSON.stringify({ error: data.error?.message || `HTTP ${res.status}` }), res.status);
+            const safeStatus = res.status === 429 ? 429 : 502;
+            return corsResponse(
+                JSON.stringify({ error: res.status === 429 ? 'AI request quota exceeded' : 'AI request failed' }),
+                safeStatus,
+            );
         }
 
         // Extract the generated text from Gemini's response

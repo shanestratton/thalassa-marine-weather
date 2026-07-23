@@ -40,6 +40,7 @@ import { tideFieldFromCurve } from './routing/env/EnvFields';
 import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
+import { authScopedStorageKey, getAuthIdentityScope, type AuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('routeTracer');
 
@@ -1221,6 +1222,10 @@ export interface SavedTrace {
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
 
+function tracesStorageKey(scope: AuthIdentityScope = getAuthIdentityScope()): string {
+    return authScopedStorageKey(TRACES_KEY, scope);
+}
+
 // ── Leg-verdict persistence (Shane 2026-07-17: "sometimes the app wants to
 // check the entire route again, even though nothing changed") ─────────────
 // The in-memory verdict cache dies with the MapHub instance — every reload,
@@ -1252,7 +1257,7 @@ export function persistLegVerdicts(
     try {
         const entries = Array.from(cache.entries()).slice(-LEG_VERDICTS_CAP);
         const payload: PersistedLegVerdicts = { draftM, draftAssumed, encVersion, entries };
-        localStorage.setItem(LEG_VERDICTS_KEY, JSON.stringify(payload));
+        localStorage.setItem(authScopedStorageKey(LEG_VERDICTS_KEY), JSON.stringify(payload));
     } catch {
         /* quota/private mode — worst case is the old behaviour (re-grade) */
     }
@@ -1266,7 +1271,7 @@ export function hydrateLegVerdicts(
     encVersion: number,
 ): Map<string, TraceLegVerdict> | null {
     try {
-        const raw = localStorage.getItem(LEG_VERDICTS_KEY);
+        const raw = localStorage.getItem(authScopedStorageKey(LEG_VERDICTS_KEY));
         if (!raw) return null;
         const p = JSON.parse(raw) as PersistedLegVerdicts;
         if (!p || p.draftM !== draftM || p.draftAssumed !== draftAssumed || p.encVersion !== encVersion) return null;
@@ -1419,9 +1424,12 @@ export function healTripChain(saved: SavedTrace): string | null {
     return `"${next.name}" start moved to match`;
 }
 
-export function loadSavedTraces(): SavedTrace[] {
+export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope()): SavedTrace[] {
     try {
-        const raw = localStorage.getItem(TRACES_KEY);
+        // Deliberately do not read the former unscoped key. Its rows carry no
+        // trustworthy owner, so adopting them into whichever account happens
+        // to sign in next would turn an offline cache into a privacy leak.
+        const raw = localStorage.getItem(tracesStorageKey(scope));
         if (!raw) return [];
         const arr = JSON.parse(raw) as SavedTrace[];
         return Array.isArray(arr) ? arr.filter((t) => t && Array.isArray(t.points) && t.points.length >= 2) : [];
@@ -1439,10 +1447,11 @@ export function saveTrace(
     points: readonly TracePoint[],
     opts: { overwriteId?: string; tripId?: string; legOrdinal?: number; destName?: string } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
+    const identity = getAuthIdentityScope();
     // Overwrite KEEPS the id: the local replace and the cloud upsert (also
     // keyed on id) then update the SAME route instead of minting a twin
     // (Shane 2026-07-15: "if I save it as the same name, it overwrites").
-    const existing = opts.overwriteId ? loadSavedTraces().find((t) => t.id === opts.overwriteId) : undefined;
+    const existing = opts.overwriteId ? loadSavedTraces(identity).find((t) => t.id === opts.overwriteId) : undefined;
     // Trip-chain fields: opts win, then the existing copy's — a plain
     // re-save of a chained leg must never shed its trip membership.
     const tripId = opts.tripId ?? existing?.tripId;
@@ -1461,13 +1470,13 @@ export function saveTrace(
         ...(legOrdinal ? { legOrdinal } : {}),
         ...(destName ? { destName } : {}),
     };
-    const all = [trace, ...loadSavedTraces().filter((t) => t.id !== trace.id)].slice(0, 50);
+    const all = [trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)].slice(0, 50);
     let persisted = false;
     try {
-        localStorage.setItem(TRACES_KEY, JSON.stringify(all));
+        localStorage.setItem(tracesStorageKey(identity), JSON.stringify(all));
         // Same-id overwrite: the OLD copy would satisfy a bare id check even
         // after quota refused the write — match the freshness stamp too.
-        persisted = loadSavedTraces().some(
+        persisted = loadSavedTraces(identity).some(
             (t) => t.id === trace.id && (t.updatedAt ?? t.createdAt) === (trace.updatedAt ?? trace.createdAt),
         );
     } catch {
@@ -1476,19 +1485,25 @@ export function saveTrace(
     // Account sync (Phase 5.3): best-effort push so the route follows the
     // punter across devices — build on the desktop, sail on the phone.
     const cloud = import('./savedRoutesSync')
-        .then(({ pushSavedRoute }) => pushSavedRoute(trace))
+        .then(({ pushSavedRoute }) => pushSavedRoute(trace, identity))
         .catch(() => 'error' as const);
     return { trace, persisted, cloud };
 }
 
 export function deleteTrace(id: string): void {
+    const identity = getAuthIdentityScope();
     try {
-        localStorage.setItem(TRACES_KEY, JSON.stringify(loadSavedTraces().filter((t) => t.id !== id)));
+        localStorage.setItem(
+            tracesStorageKey(identity),
+            JSON.stringify(loadSavedTraces(identity).filter((t) => t.id !== id)),
+        );
     } catch {
         /* ignore */
     }
     // Tombstone on the account so the delete syncs across devices too.
-    void import('./savedRoutesSync').then(({ pushSavedRouteDelete }) => pushSavedRouteDelete(id)).catch(() => {});
+    void import('./savedRoutesSync')
+        .then(({ pushSavedRouteDelete }) => pushSavedRouteDelete(id, identity))
+        .catch(() => {});
 }
 
 /**

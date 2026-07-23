@@ -5,6 +5,12 @@ declare const Deno: {
 };
 
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    readJsonObject,
+    readResponseArrayBufferLimited,
+    readResponseTextLimited,
+} from '../_shared/http-security.ts';
 
 /**
  * proxy-bosun-fallback — cloud Haiku 4.5 + tools for Thalassa's voice console.
@@ -193,30 +199,35 @@ async function callAnthropic(
         systemBlocks.push({ type: 'text', text: stateBlock });
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
+    const response = await fetchWithTimeout(
+        'https://api.anthropic.com/v1/messages',
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: HAIKU_MODEL,
+                // Cap output tightly. Voice answers should be 1-3 sentences;
+                // 200 tokens is plenty and prevents Haiku from drifting long
+                // (which directly translates to extra TTS time on the wire).
+                max_tokens: 200,
+                system: systemBlocks,
+                tools: TOOLS,
+                messages,
+            }),
         },
-        body: JSON.stringify({
-            model: HAIKU_MODEL,
-            // Cap output tightly. Voice answers should be 1-3 sentences;
-            // 200 tokens is plenty and prevents Haiku from drifting long
-            // (which directly translates to extra TTS time on the wire).
-            max_tokens: 200,
-            system: systemBlocks,
-            tools: TOOLS,
-            messages,
-        }),
-    });
+        60_000,
+    );
 
+    const responseText = await readResponseTextLimited(response, 2_000_000);
+    if (responseText === null) throw new Error('Anthropic response exceeded the safety limit');
     if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Anthropic ${response.status}: ${body.slice(0, 300)}`);
+        throw new Error(`Anthropic request failed (${response.status})`);
     }
-    return await response.json();
+    return JSON.parse(responseText) as AnthropicResponse;
 }
 
 // ── Tool-use loop ──────────────────────────────────────────────────────
@@ -337,9 +348,11 @@ async function geocode(query: string): Promise<GeocodeResult | null> {
         query,
     )}&count=1&language=en&format=json`;
     try {
-        const r = await fetch(url);
+        const r = await fetchWithTimeout(url, {}, 10_000);
         if (!r.ok) return null;
-        const data = await r.json();
+        const responseText = await readResponseTextLimited(r, 1_000_000);
+        if (responseText === null) return null;
+        const data = JSON.parse(responseText);
         const hit = data.results?.[0];
         if (!hit) return null;
         return {
@@ -361,9 +374,11 @@ async function fetchOpenMeteo(lat: number, lng: number): Promise<unknown> {
         `&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code` +
         `&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,precipitation_sum` +
         `&forecast_days=2&timezone=auto&wind_speed_unit=kn`;
-    const r = await fetch(url);
+    const r = await fetchWithTimeout(url, {}, 12_000);
     if (!r.ok) throw new Error(`Open-Meteo HTTP ${r.status}`);
-    return await r.json();
+    const responseText = await readResponseTextLimited(r, 2_000_000);
+    if (responseText === null) throw new Error('Open-Meteo response exceeded the safety limit');
+    return JSON.parse(responseText);
 }
 
 async function fetchOpenMeteoMarine(lat: number, lng: number): Promise<unknown | null> {
@@ -372,9 +387,10 @@ async function fetchOpenMeteoMarine(lat: number, lng: number): Promise<unknown |
         `&current=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period` +
         `&daily=wave_height_max,wind_wave_height_max,swell_wave_height_max&forecast_days=2&timezone=auto`;
     try {
-        const r = await fetch(url);
+        const r = await fetchWithTimeout(url, {}, 12_000);
         if (!r.ok) return null;
-        return await r.json();
+        const responseText = await readResponseTextLimited(r, 2_000_000);
+        return responseText === null ? null : JSON.parse(responseText);
     } catch {
         return null;
     }
@@ -395,6 +411,9 @@ async function runThalassaWeather(args: Record<string, unknown>): Promise<string
         displayName = `${geo.name}${geo.admin1 ? ', ' + geo.admin1 : ''}, ${geo.country}`;
     } else {
         displayName = typeof args.location === 'string' ? args.location : `${lat.toFixed(2)}, ${lng.toFixed(2)}`;
+    }
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || displayName.length > 200) {
+        return 'ERROR: invalid weather location';
     }
 
     try {
@@ -493,38 +512,46 @@ async function callElevenLabs(text: string): Promise<{ audio_b64: string | null;
     const voiceId = Deno.env.get('ELEVENLABS_VOICE_ID') || DEFAULT_VOICE_ID;
 
     const t0 = Date.now();
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': apiKey,
-            Accept: 'audio/mpeg',
-        },
-        body: JSON.stringify({
-            text: prepareForTTS(text),
-            // Flash v2.5 is ElevenLabs' lowest-latency model — built for
-            // real-time conversational use. Trades a sliver of voice
-            // fidelity for materially faster generation than turbo.
-            model_id: 'eleven_flash_v2_5',
-            voice_settings: {
-                stability: 0.5,
-                similarity_boost: 0.75,
-                style: 0.0,
-                // Speed multiplier: 1.0 = natural, 1.1 = a touch quicker.
-                // Range 0.7-1.2 per ElevenLabs API.
-                speed: 1.1,
+    const response = await fetchWithTimeout(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'xi-api-key': apiKey,
+                Accept: 'audio/mpeg',
             },
-        }),
-    });
+            body: JSON.stringify({
+                text: prepareForTTS(text),
+                // Flash v2.5 is ElevenLabs' lowest-latency model — built for
+                // real-time conversational use. Trades a sliver of voice
+                // fidelity for materially faster generation than turbo.
+                model_id: 'eleven_flash_v2_5',
+                voice_settings: {
+                    stability: 0.5,
+                    similarity_boost: 0.75,
+                    style: 0.0,
+                    // Speed multiplier: 1.0 = natural, 1.1 = a touch quicker.
+                    // Range 0.7-1.2 per ElevenLabs API.
+                    speed: 1.1,
+                },
+            }),
+        },
+        30_000,
+    );
     if (!response.ok) {
-        console.error(`ElevenLabs ${response.status}:`, await response.text());
+        const errorText = await readResponseTextLimited(response, 32_000);
+        console.error(`ElevenLabs ${response.status}:`, (errorText ?? '').slice(0, 300));
         return { audio_b64: null, ms: Date.now() - t0 };
     }
-    const arrayBuffer = await response.arrayBuffer();
+    const arrayBuffer = await readResponseArrayBufferLimited(response, 10_000_000);
+    if (!arrayBuffer) return { audio_b64: null, ms: Date.now() - t0 };
     const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    return { audio_b64: btoa(binary), ms: Date.now() - t0 };
+    const chunks: string[] = [];
+    for (let i = 0; i < bytes.byteLength; i += 32_768) {
+        chunks.push(String.fromCharCode(...bytes.subarray(i, i + 32_768)));
+    }
+    return { audio_b64: btoa(chunks.join('')), ms: Date.now() - t0 };
 }
 
 // ── ElevenLabs Scribe (server-side STT for the voice path) ─────────────
@@ -578,10 +605,12 @@ async function elevenlabsScribe(audioB64: string, mimeType: string): Promise<{ t
     }
 
     if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Scribe ${response.status}: ${body.slice(0, 300)}`);
+        const responseText = await readResponseTextLimited(response, 32_000);
+        throw new Error(`Scribe request failed (${response.status}): ${(responseText ?? '').slice(0, 100)}`);
     }
-    const data = (await response.json()) as { text?: string };
+    const responseText = await readResponseTextLimited(response, 1_000_000);
+    if (responseText === null) throw new Error('Scribe response exceeded the safety limit');
+    const data = JSON.parse(responseText) as { text?: string };
     return { text: (data.text || '').trim(), ms: Date.now() - t0 };
 }
 
@@ -670,7 +699,7 @@ function sanitizeHistory(history: VoiceHistoryTurn[] | undefined): AnthropicMess
     for (const turn of history) {
         if (!turn || (turn.role !== 'user' && turn.role !== 'assistant')) continue;
         if (typeof turn.text !== 'string') continue;
-        const text = turn.text.trim();
+        const text = turn.text.trim().slice(0, 4_000);
         if (!text) continue;
         out.push({ role: turn.role, content: text });
     }
@@ -780,18 +809,22 @@ Deno.serve(async (req: Request) => {
     }
 
     const totalStart = Date.now();
-    let body: AskRequest;
-    try {
-        const rawBody = await req.text();
-        if (rawBody.length > 20_000_000) {
-            return new Response(JSON.stringify({ error: 'request too large' }), {
-                status: 413,
-                headers: { ...CORS, 'Content-Type': 'application/json' },
-            });
-        }
-        body = JSON.parse(rawBody) as AskRequest;
-    } catch {
+    const parsedBody = await readJsonObject(req, 10_100_000);
+    if (!parsedBody) {
         return new Response(JSON.stringify({ error: 'invalid JSON' }), {
+            status: 400,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+        });
+    }
+    const body = parsedBody as AskRequest;
+    if (
+        (body.text !== undefined && typeof body.text !== 'string') ||
+        (body.audio_b64 !== undefined && typeof body.audio_b64 !== 'string') ||
+        (body.mime_type !== undefined && typeof body.mime_type !== 'string') ||
+        (body.knowledge !== undefined && typeof body.knowledge !== 'string') ||
+        (body.history !== undefined && !Array.isArray(body.history))
+    ) {
+        return new Response(JSON.stringify({ error: 'invalid request fields' }), {
             status: 400,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });
@@ -799,7 +832,12 @@ Deno.serve(async (req: Request) => {
 
     // Resolve transcript: typed text directly, OR Scribe STT on the audio blob.
     let transcript = (body.text || '').trim();
-    if (transcript.length > 10_000 || (body.knowledge?.length ?? 0) > 50_000 || (body.history?.length ?? 0) > 50) {
+    if (
+        transcript.length > 10_000 ||
+        (body.knowledge?.length ?? 0) > 50_000 ||
+        (body.history?.length ?? 0) > 50 ||
+        JSON.stringify(body.context ?? null).length > 20_000
+    ) {
         return new Response(JSON.stringify({ error: 'request content exceeds limits' }), {
             status: 400,
             headers: { ...CORS, 'Content-Type': 'application/json' },
@@ -814,15 +852,27 @@ Deno.serve(async (req: Request) => {
                 headers: { ...CORS, 'Content-Type': 'application/json' },
             });
         }
+        const mimeType = body.mime_type || 'audio/mp4';
+        if (
+            body.audio_b64.length > 10_000_000 ||
+            body.audio_b64.length % 4 !== 0 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio_b64) ||
+            !['audio/mp4', 'audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/wav'].includes(mimeType)
+        ) {
+            return new Response(JSON.stringify({ error: 'invalid audio payload' }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
         try {
-            const stt = await elevenlabsScribe(body.audio_b64, body.mime_type || 'audio/mp4');
+            const stt = await elevenlabsScribe(body.audio_b64, mimeType);
             transcript = stt.text;
             sttMs = stt.ms;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             console.error('Scribe STT failed:', message);
-            return new Response(JSON.stringify({ error: `Speech recognition failed: ${message}` }), {
-                status: 500,
+            return new Response(JSON.stringify({ error: 'Speech recognition failed' }), {
+                status: 502,
                 headers: { ...CORS, 'Content-Type': 'application/json' },
             });
         }
@@ -863,8 +913,8 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error('proxy-bosun-fallback failed:', message);
-        return new Response(JSON.stringify({ error: message }), {
-            status: 500,
+        return new Response(JSON.stringify({ error: 'Cloud assistant is temporarily unavailable' }), {
+            status: 502,
             headers: { ...CORS, 'Content-Type': 'application/json' },
         });
     }

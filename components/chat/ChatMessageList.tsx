@@ -2,8 +2,8 @@
  * ChatMessageList — Channel message rendering with pins, tracks, mod actions.
  * Extracted from ChatPage to reduce monolith complexity.
  */
-import React, { useState, useCallback } from 'react';
-import { ChatMessage } from '../../services/ChatService';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import type { ChatMessage } from '../../services/ChatService';
 import {
     getAvatarGradient,
     timeAgo,
@@ -15,9 +15,35 @@ import {
 } from './chatUtils';
 import { useUI } from '../../context/UIContext';
 import { LocationStore } from '../../stores/LocationStore';
+import { parseRecipeShareMessage } from '../../services/GalleyRecipeService';
+import { isRecipeShareMessage, RecipeCard } from './RecipeCard';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { SafeImage } from '../ui/SafeImage';
 
 /** Messages shown per page — keeps the DOM lean while preserving scroll feel */
 const PAGE_SIZE = 50;
+
+function sameIdentity(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+// The chat surface normally unmounts before the lazy map chunk is ready, so
+// this window handoff outlives the component that created it. Keep its auth
+// fence module-owned: an account transition must still clear A's coordinates
+// synchronously while ChatMessageList is unmounted.
+subscribeAuthIdentityScope(() => {
+    if (typeof window === 'undefined') return;
+    const pinView = window.__thalassaPinView;
+    if (pinView && !isAuthIdentityScopeCurrent(pinView.identity)) {
+        delete window.__thalassaPinView;
+    }
+});
 
 // --- Types ---
 export interface ChatMessageListProps {
@@ -85,6 +111,32 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
             setVisiblePages((p) => p + 1);
         }, []);
 
+        const pinRecenterTimerRef = useRef<number | null>(null);
+        const cancelPinRecenter = useCallback(() => {
+            if (pinRecenterTimerRef.current === null) return;
+            window.clearTimeout(pinRecenterTimerRef.current);
+            pinRecenterTimerRef.current = null;
+        }, []);
+
+        useEffect(() => {
+            const unsubscribe = subscribeAuthIdentityScope(() => {
+                // AuthStore changes the fence synchronously before exposing B.
+                // Physically remove A's timer in that same transition. The
+                // module-level subscriber above owns the longer-lived payload.
+                cancelPinRecenter();
+            });
+            return unsubscribe;
+        }, [cancelPinRecenter]);
+
+        useEffect(
+            () => () => {
+                // The map's own tagged pin handoff survives the source surface
+                // unmount; only the source-owned delayed callback is cancelled.
+                cancelPinRecenter();
+            },
+            [cancelPinRecenter],
+        );
+
         // Real online status — users who posted in the last 15 minutes
         const recentlyActiveUsers = React.useMemo(() => {
             const cutoff = Date.now() - 15 * 60 * 1000;
@@ -120,19 +172,48 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
         };
 
         const navigateToPin = (lat: number, lng: number) => {
+            const actionScope = getAuthIdentityScope();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            cancelPinRecenter();
+
             // Save current channel so ChatPage can restore on return
-            const lastChannel = localStorage.getItem('chat_last_channel');
-            if (lastChannel) sessionStorage.setItem('chat_return_to_channel', lastChannel);
+            const lastChannel = localStorage.getItem(authScopedStorageKey('chat_last_channel', actionScope));
+            if (lastChannel) {
+                sessionStorage.setItem(authScopedStorageKey('chat_return_to_channel', actionScope), lastChannel);
+            }
             // Set pin-view flag so MapHub opens in clean mode (no weather FABs)
 
-            window.__thalassaPinView = { lat, lng };
+            window.__thalassaPinView = { lat, lng, identity: actionScope };
             // Set the pin in the LocationStore so MapHub picks it up
             LocationStore.setFromMapPin(lat, lng);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             // Navigate to the Map tab
             setPage('map');
+            if (
+                !isAuthIdentityScopeCurrent(actionScope) ||
+                !window.__thalassaPinView ||
+                !sameIdentity(window.__thalassaPinView.identity, actionScope)
+            ) {
+                return;
+            }
             // After a brief delay (let MapHub mount/render), center the map on the pin
-            setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('map-recenter', { detail: { lat, lon: lng, zoom: 7 } }));
+            pinRecenterTimerRef.current = window.setTimeout(() => {
+                pinRecenterTimerRef.current = null;
+                const pinView = window.__thalassaPinView;
+                if (
+                    !isAuthIdentityScopeCurrent(actionScope) ||
+                    !pinView ||
+                    !sameIdentity(pinView.identity, actionScope) ||
+                    pinView.lat !== lat ||
+                    pinView.lng !== lng
+                ) {
+                    return;
+                }
+                window.dispatchEvent(
+                    new CustomEvent('map-recenter', {
+                        detail: { lat, lon: lng, zoom: 7, identity: actionScope },
+                    }),
+                );
             }, 500);
         };
 
@@ -148,7 +229,12 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                             {pinnedMessages.map((pm) => (
                                 <div key={pm.id} className="flex items-center gap-2 py-0.5">
                                     <span className="text-base font-medium text-amber-300/70">{pm.display_name}:</span>
-                                    <span className="text-base text-white/60 truncate">{pm.message}</span>
+                                    <span className="text-base text-white/60 truncate">
+                                        {(() => {
+                                            const recipe = parseRecipeShareMessage(pm.message);
+                                            return recipe ? `🍳 ${recipe.recipe.title}` : pm.message;
+                                        })()}
+                                    </span>
                                 </div>
                             ))}
                         </div>
@@ -272,7 +358,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         title={isSelf ? undefined : `DM ${msg.display_name}`}
                                                     >
                                                         {getAvatarProp(msg.user_id) ? (
-                                                            <img
+                                                            <SafeImage
                                                                 src={getAvatarProp(msg.user_id)!}
                                                                 alt=""
                                                                 className="w-full h-full object-cover"
@@ -338,6 +424,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                     </p>
                                                 ) : (
                                                     (() => {
+                                                        if (isRecipeShareMessage(msg.message)) {
+                                                            return <RecipeCard message={msg.message} isMine={isSelf} />;
+                                                        }
                                                         const pin = parsePinMessage(msg.message);
                                                         const track = parseTrackMessage(msg.message);
                                                         if (pin) {
@@ -356,7 +445,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                         onClick={() => navigateToPin(pin.lat, pin.lng)}
                                                                         className="w-full cursor-pointer hover:opacity-90 transition-opacity relative"
                                                                     >
-                                                                        <img
+                                                                        <SafeImage
                                                                             src={getStaticMapUrl(
                                                                                 pin.lat,
                                                                                 pin.lng,
@@ -465,14 +554,31 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 {isSelf && (
                                                                     <span
                                                                         className="text-[11px] text-sky-400/40 flex-shrink-0 mb-0.5"
-                                                                        aria-label="Message delivery status"
+                                                                        aria-label={
+                                                                            msg.delivery_status === 'sending'
+                                                                                ? 'Message sending'
+                                                                                : msg.delivery_status === 'queued'
+                                                                                  ? 'Message queued for reconnect'
+                                                                                  : 'Message delivered'
+                                                                        }
                                                                     >
-                                                                        ✓✓
+                                                                        {msg.delivery_status === 'sending'
+                                                                            ? '…'
+                                                                            : msg.delivery_status === 'queued'
+                                                                              ? '◷'
+                                                                              : '✓✓'}
                                                                     </span>
                                                                 )}
                                                             </div>
                                                         );
                                                     })()
+                                                )}
+                                                {isSelf && msg.delivery_status && (
+                                                    <p className="mt-1 text-[11px] text-amber-300/70" role="status">
+                                                        {msg.delivery_status === 'sending'
+                                                            ? 'Sending…'
+                                                            : 'Queued — sends when online'}
+                                                    </p>
                                                 )}
 
                                                 {/* Action row */}

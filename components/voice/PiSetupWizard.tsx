@@ -18,7 +18,16 @@
  * Spec for the Pi-side endpoints: docs/BOSUN_NETWORK_SETUP_API.md.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+    useSyncExternalStore,
+    type Dispatch,
+    type SetStateAction,
+} from 'react';
 import {
     configureNetwork,
     isProvisioningReachable,
@@ -31,6 +40,13 @@ import {
 } from '../../services/voice/piProvisioning';
 import { BoatNetworkService } from '../../services/BoatNetworkService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 interface Props {
     isOpen: boolean;
@@ -71,6 +87,17 @@ const initialState: WizardState = {
 
 const AP_PASSWORD_DISPLAY = 'calypso-setup';
 
+const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+interface ScopedWizardState {
+    scope: AuthIdentityScope;
+    state: WizardState;
+}
+
 function signalBars(dbm: number): number {
     if (dbm >= -55) return 4;
     if (dbm >= -65) return 3;
@@ -85,15 +112,41 @@ function securityLabel(s: WifiSecurity): string {
 }
 
 export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
-    const [state, setState] = useState<WizardState>(initialState);
+    const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
+    const [storedState, setStoredState] = useState<ScopedWizardState>(() => ({
+        scope: identityScope,
+        state: initialState,
+    }));
+    const state = sameScope(storedState.scope, identityScope) ? storedState.state : initialState;
+    const setState = useCallback<Dispatch<SetStateAction<WizardState>>>(
+        (action) => {
+            const scope = identityScope;
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            setStoredState((current) => {
+                if (!isAuthIdentityScopeCurrent(scope)) return current;
+                const base = sameScope(current.scope, scope) ? current.state : initialState;
+                const next = typeof action === 'function' ? action(base) : action;
+                return { scope, state: next };
+            });
+        },
+        [identityScope],
+    );
     const stepPanelRef = useRef<HTMLDivElement>(null);
     const previousStepRef = useRef<WizardStep>('intro');
     const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });
 
-    // Reset to intro every time the wizard re-opens.
-    useEffect(() => {
-        if (isOpen) setState(initialState);
-    }, [isOpen]);
+    // The derived state above hides the previous account synchronously; this
+    // layout pass then drops its Wi-Fi identifiers and password from memory.
+    useLayoutEffect(() => {
+        setStoredState((current) =>
+            sameScope(current.scope, identityScope) ? current : { scope: identityScope, state: initialState },
+        );
+    }, [identityScope]);
+
+    // Clear credentials whenever the sheet opens or closes.
+    useLayoutEffect(() => {
+        setState(initialState);
+    }, [isOpen, setState]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -105,14 +158,17 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
         stepPanelRef.current?.focus();
     }, [isOpen, state.step]);
 
-    const advance = useCallback((step: WizardStep) => setState((s) => ({ ...s, step, error: null })), []);
-    const fail = useCallback((error: string) => setState((s) => ({ ...s, step: 'error', error })), []);
+    const advance = useCallback((step: WizardStep) => setState((s) => ({ ...s, step, error: null })), [setState]);
+    const fail = useCallback((error: string) => setState((s) => ({ ...s, step: 'error', error })), [setState]);
 
     // ── Step actions ─────────────────────────────────────────
 
     const verifyApReachable = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         advance('verify-ap');
         const reachable = await isProvisioningReachable(setupApContext());
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (!reachable) {
             // Hard to distinguish "not on AP" from "Pi not responding"
             // without iOS network APIs. Surface a single message that
@@ -127,53 +183,41 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
         // We're on the AP. Move straight into scanning.
         try {
             const networks = await scanNetworks(setupApContext());
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             setState((s) => ({ ...s, step: 'pick-network', networks, error: null }));
         } catch (err) {
-            fail(`The Pi couldn't list nearby WiFi networks: ${(err as Error).message}`);
+            if (isAuthIdentityScopeCurrent(actionScope)) {
+                fail(`The Pi couldn't list nearby WiFi networks: ${(err as Error).message}`);
+            }
         }
-    }, [advance, fail]);
+    }, [advance, fail, identityScope, setState]);
 
     const refreshScan = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         try {
             const networks = await scanNetworks(setupApContext());
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             setState((s) => ({ ...s, networks }));
         } catch (err) {
-            fail(`Scan failed: ${(err as Error).message}`);
+            if (isAuthIdentityScopeCurrent(actionScope)) fail(`Scan failed: ${(err as Error).message}`);
         }
-    }, [fail]);
-
-    const onPickNetwork = useCallback(
-        (network: NearbyNetwork) => {
-            if (network.security === 'enterprise') return; // disabled in UI but defend anyway
-            setState((s) => ({
-                ...s,
-                selectedSsid: network.ssid,
-                selectedSecurity: network.security,
-                password: '',
-                // Open networks skip the password step entirely.
-                step: network.security === 'open' ? 'configuring' : 'enter-password',
-                error: null,
-            }));
-            if (network.security === 'open') {
-                void runConfigure(network.ssid, network.security, '');
-            }
-        },
-        // runConfigure depends on state and is defined below; we use a
-        // ref-style pattern by binding it in useCallback after definition.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [],
-    );
+    }, [fail, identityScope, setState]);
 
     const runConfigure = useCallback(
         async (ssid: string, security: WifiSecurity, password: string) => {
-            advance('configuring');
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setState((current) => ({ ...current, step: 'configuring', error: null, password: '' }));
             try {
                 await configureNetwork(setupApContext(), { ssid, password, security });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 // Poll until the Pi tells us auth_failed / success / timeout.
                 const finalStatus = await waitForJoinResolution(setupApContext(), {
                     targetSsid: ssid,
                     timeoutMs: 30_000,
                 });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 const attempt = finalStatus.last_join_attempt;
                 if (
                     finalStatus.mode === 'station' &&
@@ -197,10 +241,31 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
                 }
                 fail(`The Pi never confirmed it joined ${ssid}. Try again.`);
             } catch (err) {
-                fail(`Configure failed: ${(err as Error).message}`);
+                if (isAuthIdentityScopeCurrent(actionScope)) {
+                    fail(`Configure failed: ${(err as Error).message}`);
+                }
             }
         },
-        [advance, fail],
+        [fail, identityScope, setState],
+    );
+
+    const onPickNetwork = useCallback(
+        (network: NearbyNetwork) => {
+            if (!isAuthIdentityScopeCurrent(identityScope) || network.security === 'enterprise') return;
+            setState((s) => ({
+                ...s,
+                selectedSsid: network.ssid,
+                selectedSecurity: network.security,
+                password: '',
+                // Open networks skip the password step entirely.
+                step: network.security === 'open' ? 'configuring' : 'enter-password',
+                error: null,
+            }));
+            if (network.security === 'open') {
+                void runConfigure(network.ssid, network.security, '');
+            }
+        },
+        [identityScope, runConfigure, setState],
     );
 
     const submitPassword = useCallback(() => {
@@ -209,6 +274,8 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
     }, [runConfigure, state.password, state.selectedSecurity, state.selectedSsid]);
 
     const onPhoneSwitchedBack = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         advance('discovering');
         try {
             // Force a fresh scan rather than rely on cached piHost — the
@@ -217,6 +284,7 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
             // found, but we also read the state for consistency with
             // the rest of the codebase.
             const found = await BoatNetworkService.scan();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (found || BoatNetworkService.getState().piHost) {
                 advance('success');
             } else {
@@ -225,20 +293,20 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
                 );
             }
         } catch (err) {
-            fail(`Discovery failed: ${(err as Error).message}`);
+            if (isAuthIdentityScopeCurrent(actionScope)) fail(`Discovery failed: ${(err as Error).message}`);
         }
-    }, [advance, fail]);
+    }, [advance, fail, identityScope]);
 
-    const restart = useCallback(() => setState(initialState), []);
+    const restart = useCallback(() => setState(initialState), [setState]);
 
     // ── Step renderers ───────────────────────────────────────
 
     if (!isOpen) return null;
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
-            className="fixed inset-0 z-[300] flex flex-col bg-gradient-to-b from-slate-900 via-slate-950 to-black"
+            className="flex flex-col bg-gradient-to-b from-slate-900 via-slate-950 to-black"
             role="dialog"
             aria-modal="true"
             aria-labelledby="pi-setup-title"
@@ -290,7 +358,7 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
                     <ErrorPanel message={state.error ?? 'Something went wrong.'} onRetry={restart} />
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

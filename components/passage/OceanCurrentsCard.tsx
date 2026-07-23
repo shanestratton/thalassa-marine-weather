@@ -7,12 +7,17 @@
  * Red → Green when skipper acknowledges the briefing.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { OceanCurrentService, type CurrentBriefing } from '../../services/OceanCurrentService';
 import { useSettings } from '../../context/SettingsContext';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
-import { useSingleCheckSync } from '../../hooks/useReadinessSync';
+import {
+    useReadinessIdentityScope,
+    useScopedReadinessStorageState,
+    useSingleCheckSync,
+} from '../../hooks/useReadinessSync';
+import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 interface OceanCurrentsCardProps {
     voyageId?: string;
@@ -32,39 +37,13 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     distanceNM,
     onReviewedChange,
 }) => {
+    const identityScope = useReadinessIdentityScope();
     const [briefing, setBriefing] = useState<CurrentBriefing | null>(null);
     const [loading, setLoading] = useState(false);
     const [enhancing, setEnhancing] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    // Acknowledgment is voyage-scoped (different routes have different
-    // current conditions, so the skipper acknowledges each one). But
-    // the original storage was a single { voyageId, time } object —
-    // acknowledging voyage B silently un-acknowledged voyage A. After
-    // the orphan auto-heal in fdefa517 started switching voyages
-    // automatically, this manifested as the card flipping back to red.
-    //
-    // Store as a Record<voyageId, timestamp> so each voyage keeps its
-    // own ack state. Re-hydrate by checking if the current voyageId
-    // is present.
-    const [acknowledged, setAcknowledged] = useState(() => {
-        if (!voyageId) return false;
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const data = JSON.parse(stored);
-                // New format: { [voyageId]: timestamp }
-                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
-                    return Boolean(data[voyageId]);
-                }
-                // Legacy format: { voyageId, time } — only one voyage
-                // remembered. Honour it for back-compat.
-                if (data.voyageId === voyageId) return true;
-            }
-        } catch {
-            /* ignore */
-        }
-        return false;
-    });
+    const requestGenerationRef = useRef(0);
+    const [acknowledged, setAcknowledged] = useScopedReadinessStorageState<boolean>(STORAGE_KEY, voyageId, false);
 
     // Coordinates
     const depLat = departure?.lat ?? null;
@@ -94,33 +73,20 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     const { settings } = useSettings();
     const speed = settings.vessel?.cruisingSpeed || 6;
 
-    // Re-read acknowledgment when voyageId changes (e.g. orphan
-    // auto-heal switches the active voyage out from under us).
-    // useState initializer only runs once on mount; without this,
-    // switching to a voyage that's already been ack'd shows red.
-    useEffect(() => {
-        if (!voyageId) {
-            setAcknowledged(false);
-            return;
-        }
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const data = JSON.parse(stored);
-                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
-                    setAcknowledged(Boolean(data[voyageId]));
-                    return;
-                }
-                if (data.voyageId === voyageId) {
-                    setAcknowledged(true);
-                    return;
-                }
-            }
-        } catch {
-            /* ignore */
-        }
-        setAcknowledged(false);
-    }, [voyageId]);
+    useLayoutEffect(() => {
+        requestGenerationRef.current += 1;
+        setBriefing(null);
+        setLoading(false);
+        setEnhancing(false);
+        setError(null);
+    }, [identityScope, voyageId]);
+
+    useEffect(
+        () => () => {
+            requestGenerationRef.current += 1;
+        },
+        [],
+    );
 
     // Supabase sync — the ack is per-voyage so this is a single-check
     // sync (one row per voyage). On voyageId change, load from server
@@ -131,30 +97,18 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     const { syncSingleCheck, loadSingleCheck } = useSingleCheckSync(voyageId, 'ocean_currents', 'acknowledged');
     useEffect(() => {
         if (!voyageId) return;
+        const operationScope = identityScope;
         let cancelled = false;
         void loadSingleCheck().then((serverChecked) => {
-            if (cancelled) return;
+            if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
             if (serverChecked) {
                 setAcknowledged(true);
-                // Mirror into localStorage so a future offline session
-                // sees the server-confirmed state without a round-trip.
-                try {
-                    const stored = localStorage.getItem(STORAGE_KEY);
-                    const map: Record<string, number> =
-                        stored && typeof JSON.parse(stored) === 'object' && !('voyageId' in JSON.parse(stored))
-                            ? JSON.parse(stored)
-                            : {};
-                    map[voyageId] = Date.now();
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-                } catch {
-                    /* ignore */
-                }
             }
         });
         return () => {
             cancelled = true;
         };
-    }, [voyageId, loadSingleCheck]);
+    }, [identityScope, voyageId, loadSingleCheck, setAcknowledged]);
 
     useEffect(() => {
         onReviewedChange?.(acknowledged);
@@ -163,6 +117,10 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     const fetchCurrents = useCallback(
         async (enhance = false) => {
             if (!hasCoords) return;
+            const operationScope = identityScope;
+            const operationGeneration = ++requestGenerationRef.current;
+            const isOperationCurrent = () =>
+                isAuthIdentityScopeCurrent(operationScope) && requestGenerationRef.current === operationGeneration;
             enhance ? setEnhancing(true) : setLoading(true);
             setError(null);
 
@@ -174,50 +132,36 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     east: Math.max(depLon!, destLon!),
                 };
                 const data = await OceanCurrentService.fetchCurrents(bbox, courseBearing, dist, speed, enhance);
+                if (!isOperationCurrent()) return;
                 setBriefing(data);
             } catch {
-                setError('Failed to fetch current data');
+                if (isOperationCurrent()) setError('Failed to fetch current data');
+            } finally {
+                if (isOperationCurrent()) {
+                    setLoading(false);
+                    setEnhancing(false);
+                }
             }
-            setLoading(false);
-            setEnhancing(false);
         },
-        [hasCoords, depLat, depLon, destLat, destLon, courseBearing, dist, speed],
+        [identityScope, hasCoords, depLat, depLon, destLat, destLon, courseBearing, dist, speed],
     );
 
     // Auto-fetch on mount
     useEffect(() => {
-        if (hasCoords) fetchCurrents(false);
-    }, [hasCoords]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (hasCoords) void fetchCurrents(false);
+    }, [hasCoords, fetchCurrents]);
 
     const handleAcknowledge = useCallback(() => {
         if (!voyageId) return;
         setAcknowledged(true);
         triggerHaptic('medium');
         const ackedAt = Date.now();
-        try {
-            // Read existing map (or migrate from legacy single-voyage
-            // shape), set this voyage's timestamp, write back.
-            const stored = localStorage.getItem(STORAGE_KEY);
-            let map: Record<string, number> = {};
-            if (stored) {
-                const data = JSON.parse(stored);
-                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
-                    map = data;
-                } else if (data.voyageId) {
-                    map = { [data.voyageId]: data.time || Date.now() };
-                }
-            }
-            map[voyageId] = ackedAt;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-        } catch {
-            /* ignore */
-        }
         // Mirror to Supabase so the ack follows the skipper to other
         // devices. Fire-and-forget — the UI has already advanced; if
         // the server write fails the next session re-syncs from
         // localStorage on this device.
         syncSingleCheck(true, { acked_at: ackedAt });
-    }, [voyageId, syncSingleCheck]);
+    }, [voyageId, setAcknowledged, syncSingleCheck]);
 
     const segmentIcon = (type: string) => {
         switch (type) {

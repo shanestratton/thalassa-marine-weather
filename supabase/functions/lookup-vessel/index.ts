@@ -17,6 +17,8 @@
  * Returns: VesselMetadata JSON or { found: false }
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, readResponseTextLimited } from '../_shared/http-security.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -142,16 +144,20 @@ function decodeMmsiFlag(mmsi: number): [string, string] {
 async function lookupVesselFinder(mmsi: number): Promise<Partial<VesselResult> | null> {
     try {
         const url = `https://www.vesselfinder.com/vessels/details/${mmsi}`;
-        const resp = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; ThalassaBot/1.0)',
-                Accept: 'text/html',
+        const resp = await fetchWithTimeout(
+            url,
+            {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; ThalassaBot/1.0)',
+                    Accept: 'text/html',
+                },
             },
-            signal: AbortSignal.timeout(8000),
-        });
+            8000,
+        );
 
         if (!resp.ok) return null;
-        const html = await resp.text();
+        const html = await readResponseTextLimited(resp, 750_000);
+        if (html === null) return null;
 
         // Parse vessel details from HTML
         const getName = (h: string) => {
@@ -215,16 +221,20 @@ async function lookupVesselFinder(mmsi: number): Promise<Partial<VesselResult> |
 async function lookupItuMars(mmsi: number): Promise<Partial<VesselResult> | null> {
     try {
         const url = `https://www.itu.int/mmsapp/ShipStation/list?is498498498=true&ShipMmsi=${mmsi}`;
-        const resp = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; ThalassaBot/1.0)',
-                Accept: 'text/html',
+        const resp = await fetchWithTimeout(
+            url,
+            {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; ThalassaBot/1.0)',
+                    Accept: 'text/html',
+                },
             },
-            signal: AbortSignal.timeout(8000),
-        });
+            8000,
+        );
 
         if (!resp.ok) return null;
-        const html = await resp.text();
+        const html = await readResponseTextLimited(resp, 750_000);
+        if (html === null) return null;
 
         // ITU MARS returns a table with: Name, Call Sign, MMSI, ...
         const nameMatch = html.match(/ShipStation\/Ships\/Detail[^>]+>([^<]+)/i);
@@ -261,6 +271,15 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
+    if (req.method !== 'GET') {
+        return new Response(JSON.stringify({ error: 'GET required' }), {
+            status: 405,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json', Allow: 'GET' },
+        });
+    }
+
+    const caller = await requireAuthenticatedQuota(req, 'vessel_lookup', 30, 3600);
+    if (caller instanceof Response) return withCors(caller, corsHeaders);
 
     try {
         const url = new URL(req.url);
@@ -275,10 +294,17 @@ Deno.serve(async (req: Request) => {
 
         const mmsi = parseInt(mmsiStr, 10);
 
-        const supabase = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-        );
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceRoleKey) {
+            return new Response(JSON.stringify({ error: 'Server database is not configured' }), {
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+        const supabase = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+        });
 
         // ── 1. Check vessel_metadata cache ──
         const { data: cached } = await supabase.from('vessel_metadata').select('*').eq('mmsi', mmsi).maybeSingle();

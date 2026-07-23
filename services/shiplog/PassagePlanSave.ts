@@ -8,9 +8,10 @@
 import { supabase, getCurrentUser } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { calculateDistanceNM, calculateBearing, formatPositionDMS, toDbFormat, SHIP_LOGS_TABLE } from './helpers';
-import { queueOfflineEntry } from './OfflineQueue';
+import { addVoyageTombstone, queueOfflineEntry } from './OfflineQueue';
 import { fetchRoutesAndTracks, invalidateRoutesAndTracks } from './RoutesAndTracks';
 import { createLogger } from '../../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 
 const log = createLogger('PassagePlanSave');
 
@@ -128,12 +129,90 @@ function dayKey(iso: string | number | Date): string {
  */
 export const ROUTE_GEOMETRY_NOTES_PREFIX = '__route_geometry__::';
 
+/** Short, deterministic namespace component; uniqueness comes from the UUID. */
+function scopeFingerprint(scope: AuthIdentityScope): string {
+    let hash = 2166136261;
+    for (let index = 0; index < scope.key.length; index++) {
+        hash ^= scope.key.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+}
+
+/**
+ * Allocate every immutable identifier for one logical passage save together.
+ * These IDs are created before the first remote write and survive an ambiguous
+ * online result unchanged when the same rows move to the offline queue.
+ */
+function allocatePassageIdentifiers(
+    scope: AuthIdentityScope,
+    entryCount: number,
+): {
+    voyageId: string;
+    operationIds: string[];
+} {
+    const createdAt = Date.now();
+    const batchId = crypto.randomUUID().replace(/-/g, '');
+    const operationPrefix = `passage_${scopeFingerprint(scope)}_${batchId}`;
+    return {
+        voyageId: `planned_${createdAt}_${batchId.slice(0, 12)}`,
+        operationIds: Array.from({ length: entryCount }, (_, index) => `${operationPrefix}_${index}`),
+    };
+}
+
+/**
+ * Queue a planned route as one logical batch. Individual appends are durable,
+ * so a later failure is compensated with a voyage tombstone before failure is
+ * reported. The tombstone is owner-scoped and prevents both partial replay and
+ * resurrection by an online request whose outcome was ambiguous.
+ */
+async function queuePassageBatch(
+    entries: Partial<ShipLogEntry>[],
+    operationIds: string[],
+    voyageId: string,
+    scope: AuthIdentityScope,
+): Promise<void> {
+    try {
+        for (let index = 0; index < entries.length; index++) {
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                throw new Error('Account changed before the passage batch could be queued');
+            }
+            await queueOfflineEntry(entries[index], {
+                operationId: operationIds[index],
+                expectedScope: scope,
+            });
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                throw new Error('Account changed while the passage batch was being queued');
+            }
+        }
+    } catch (error) {
+        try {
+            await addVoyageTombstone(voyageId, scope);
+        } catch (rollbackError) {
+            // A changed identity is expected to reject this call rather than
+            // touch the new owner's queue. Same-owner storage failures remain
+            // visible in diagnostics and the save is never acknowledged.
+            log.error('savePassagePlan: passage batch rollback could not be persisted', rollbackError);
+        }
+        throw error;
+    }
+}
+
 /**
  * Save a passage plan's route to the logbook as a "planned_route" voyage.
  * These entries show as suggested/uncharted tracks with restricted actions.
  */
-export async function savePassagePlanToLogbook(plan: import('../../types').VoyagePlan): Promise<string | null> {
+export async function savePassagePlanToLogbook(inputPlan: import('../../types').VoyagePlan): Promise<string | null> {
+    const operationScope = getAuthIdentityScope();
+    // Callers retain and edit VoyagePlan objects. Snapshot every field before
+    // the first await so a later UI edit cannot change what this operation
+    // authenticates, de-duplicates, inserts, or queues.
+    const plan =
+        typeof structuredClone === 'function'
+            ? structuredClone(inputPlan)
+            : (JSON.parse(JSON.stringify(inputPlan)) as import('../../types').VoyagePlan);
     try {
+        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
         // Diagnostic: log exactly what origin/destination are at save
         // time. If the saved logbook entry comes out as "Queensland →
         // South Province" instead of "Newport QLD → Port Moselle NC",
@@ -160,6 +239,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
 
         try {
             const { routes } = await fetchRoutesAndTracks();
+            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
             const isDuplicate = routes.some((r) => {
                 if (normaliseName(r.label) !== proposedLabel) return false;
                 return dayKey(r.timestamp) === proposedDay;
@@ -171,15 +251,13 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
                 throw new Error(DUPLICATE_PASSAGE_PLAN_ERROR);
             }
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
             // Re-throw the sentinel; swallow other errors (RoutesAndTracks
             // fetch failures shouldn't block save — duplicate check is a
             // helpful guard, not a hard requirement).
             if (e instanceof Error && e.message === DUPLICATE_PASSAGE_PLAN_ERROR) throw e;
             log.warn('savePassagePlan: duplicate check failed (non-fatal)', e);
         }
-
-        const voyageId = `planned_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        const now = new Date().toISOString();
 
         // Build waypoint chain: origin → waypoints → destination
         const allPoints: { lat: number; lon: number; name: string; isWP: boolean }[] = [];
@@ -217,6 +295,9 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             log.error('Passage plan has insufficient waypoints');
             return null;
         }
+
+        const { voyageId, operationIds } = allocatePassageIdentifiers(operationScope, allPoints.length);
+        const now = new Date().toISOString();
 
         // Create entries with distance calculations
         let cumulativeNM = 0;
@@ -301,16 +382,88 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             });
         }
 
-        // Try Supabase first, fall back to offline queue
+        // Authenticate once before either remote write. The draft is created
+        // first so its exact ID can be stamped into the initial ship-log
+        // upsert as well as every possible offline replay.
         let savedOnline = false;
-        if (supabase) {
+        let draftVoyageId: string | null = null;
+        let draftVoyageName: string | null = null;
+        if (supabase && operationScope.userId) {
             try {
                 const user = await getCurrentUser();
+                if (!isAuthIdentityScopeCurrent(operationScope)) return null;
                 if (user) {
-                    const dbEntries = entries.map((e) => toDbFormat({ ...e, userId: user.id }));
-                    const { error } = await supabase.from(SHIP_LOGS_TABLE).insert(dbEntries);
+                    if (user.id !== operationScope.userId) return null;
+                    const ownerId = operationScope.userId;
+                    const departureName =
+                        typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
+                    const destinationName =
+                        typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
+                    draftVoyageName = `${departureName} → ${destinationName}`;
+
+                    try {
+                        const { createVoyage } = await import('../VoyageService');
+                        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+                        const departureTimeIso = entries[0]?.timestamp ?? null;
+                        const lastTs = entries[entries.length - 1]?.timestamp ?? null;
+                        const etaIso =
+                            departureTimeIso && lastTs && Date.parse(lastTs) > Date.parse(departureTimeIso)
+                                ? lastTs
+                                : null;
+                        const { voyage: draft, error: draftError } = await createVoyage({
+                            voyage_name: draftVoyageName,
+                            departure_port: departureName,
+                            destination_port: destinationName,
+                            crew_count: 1,
+                            departure_time: departureTimeIso,
+                            eta: etaIso,
+                        });
+                        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+                        if (draft) {
+                            draftVoyageId = draft.id;
+                            for (const entry of entries) entry.linkedPlanId = draft.id;
+                        } else {
+                            log.warn(`Auto-create voyage skipped: ${draftError}`);
+                        }
+                    } catch (draftError) {
+                        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+                        log.warn('Auto-create voyage from passage plan failed (non-critical):', draftError);
+                    }
+
+                    const dbEntries = entries.map((entry, index) => {
+                        const row = toDbFormat({ ...entry, userId: ownerId });
+                        row.client_operation_id = operationIds[index];
+                        return row;
+                    });
+                    const { error } = await supabase.from(SHIP_LOGS_TABLE).upsert(dbEntries, {
+                        onConflict: 'user_id,client_operation_id',
+                    });
+                    if (!isAuthIdentityScopeCurrent(operationScope)) return null;
                     if (error) {
-                        log.warn('savePassagePlan: Supabase insert failed, queuing offline:', error.message);
+                        log.warn('savePassagePlan: Supabase upsert failed, queuing offline:', error.message);
+                    } else if (draftVoyageId) {
+                        try {
+                            const linkResult = await supabase
+                                .from(SHIP_LOGS_TABLE)
+                                .update({ linked_plan_id: draftVoyageId }, { count: 'exact' })
+                                .eq('user_id', ownerId)
+                                .eq('voyage_id', voyageId)
+                                .in('client_operation_id', operationIds);
+                            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+                            if (linkResult.error || linkResult.count !== entries.length) {
+                                log.warn(
+                                    'savePassagePlan: exact linked-plan backfill was not confirmed, queuing idempotent replay',
+                                );
+                            } else {
+                                savedOnline = true;
+                            }
+                        } catch (linkError) {
+                            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+                            log.warn(
+                                'savePassagePlan: linked-plan backfill failed, queuing idempotent replay',
+                                linkError,
+                            );
+                        }
                     } else {
                         savedOnline = true;
                     }
@@ -318,16 +471,35 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
                     log.warn('savePassagePlan: No authenticated user, queuing offline');
                 }
             } catch (_networkError) {
+                if (!isAuthIdentityScopeCurrent(operationScope)) return null;
                 log.warn('savePassagePlan: Network error, queuing offline');
             }
         }
 
-        // Fallback: queue all entries to offline queue
         if (!savedOnline) {
-            for (const entry of entries) {
-                await queueOfflineEntry(entry);
+            try {
+                await queuePassageBatch(entries, operationIds, voyageId, operationScope);
+            } catch (queueError) {
+                // If the draft was created before an offline/storage failure,
+                // remove that exact owned row so the compensated route leaves
+                // no orphan in Passage Planning.
+                if (draftVoyageId && isAuthIdentityScopeCurrent(operationScope)) {
+                    try {
+                        const { deleteVoyageById } = await import('../VoyageService');
+                        if (isAuthIdentityScopeCurrent(operationScope)) {
+                            await deleteVoyageById(draftVoyageId);
+                        }
+                    } catch (rollbackError) {
+                        if (isAuthIdentityScopeCurrent(operationScope)) {
+                            log.error('savePassagePlan: draft rollback failed', rollbackError);
+                        }
+                    }
+                }
+                throw queueError;
             }
         }
+
+        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
 
         log.info(
             `✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM) [${savedOnline ? 'online' : 'offline'}]`,
@@ -337,50 +509,21 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         // this route immediately on next open. Without this the user
         // could save → swap to charts within 60s → not see their new
         // route → think the save failed.
-        invalidateRoutesAndTracks();
+        invalidateRoutesAndTracks(operationScope);
 
-        // Fire-and-forget: auto-create a draft voyage from this passage plan
-        // and activate it so the Passage Planning card appears.
-        //
-        // Seed departure_time + eta from the plan so reopening the
-        // route in Passage Planning shows the date the user typed at
-        // route-planning time. Previously we left both null and only
-        // the dropdown's date picker filled them in, which meant a
-        // saved route lost its date on restart and made the meal
-        // planner / weather windows wait on a manual re-pick. The
-        // entries[0] timestamp == plan.departureDate (PassagePlanSave
-        // spreads entries linearly across plan.durationApprox), so
-        // round-tripping is exact.
+        // The draft was created before persistence so its immutable ID could
+        // travel with the route. Activate it only after the complete route has
+        // reached either Supabase or the durable queue.
         try {
-            const { createVoyage } = await import('../VoyageService');
-            const departureName = typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
-            const destinationName =
-                typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
-            const voyageName = `${departureName} → ${destinationName}`;
-
-            const departureTimeIso = entries[0]?.timestamp ?? null;
-            const lastTs = entries[entries.length - 1]?.timestamp ?? null;
-            const etaIso =
-                departureTimeIso && lastTs && Date.parse(lastTs) > Date.parse(departureTimeIso) ? lastTs : null;
-
-            const { voyage: v, error: vErr } = await createVoyage({
-                voyage_name: voyageName,
-                departure_port: departureName,
-                destination_port: destinationName,
-                crew_count: 1,
-                departure_time: departureTimeIso,
-                eta: etaIso,
-            });
-            if (v) {
-                log.info(`✓ Auto-created draft voyage "${voyageName}" from passage plan`);
-                // Activate using the Supabase voyage ID (not the logbook entry ID)
+            if (draftVoyageId) {
                 const { setActivePassage } = await import('../PassagePlanService');
-                setActivePassage(v.id);
-            } else {
-                log.warn(`Auto-create voyage skipped: ${vErr}`);
+                if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+                setActivePassage(draftVoyageId);
+                log.info(`✓ Auto-created draft voyage "${draftVoyageName}" from passage plan`);
             }
         } catch (e) {
-            log.warn('Auto-create voyage from passage plan failed (non-critical):', e);
+            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+            log.warn('Activate voyage from passage plan failed (non-critical):', e);
         }
 
         // Notify any open Passage Planning surfaces to refresh their
@@ -389,6 +532,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         // active-passage dropdown until they navigate away and back —
         // because the dropdown's load runs once on mount.
         try {
+            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(
                     new CustomEvent('thalassa:passage-plan-saved', {

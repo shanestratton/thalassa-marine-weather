@@ -9,7 +9,7 @@
  * saving an entry — this tab is the account-level control surface.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Browser } from '@capacitor/browser';
 import {
     VoyageLogService,
@@ -24,6 +24,13 @@ import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitive
 import { ShipLogService } from '../../services/ShipLogService';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { safeExternalHttpUrl } from '../../utils/safeUrl';
 
 // Crew-on-someone-else's-boat surface: each entry represents a boat the
 // current user is crew on (NOT the owner), plus their personal voyage-log
@@ -44,7 +51,16 @@ const slugify = (s: string) =>
 
 const publicUrlForHandle = (handle: string) => `https://${handle}.thalassawx.app`;
 
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+
 export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
+    /**
+     * Data is rendered only when it was reset/loaded for this exact generation.
+     * The render immediately following A → B therefore shows a blank skeleton,
+     * before effects have a chance to run, rather than flashing A's API key.
+     */
+    const [dataGeneration, setDataGeneration] = useState(identityScope.generation);
     const [config, setConfig] = useState<VoyageLogConfig | null>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
@@ -67,44 +83,75 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     // to grow/shrink the font so the whole link fits on one line. Must
     // live above the early-returns so hooks order is stable.
     const urlRef = useRef<HTMLDivElement>(null);
+    const mountedRef = useRef(true);
+    const copyTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+    const operationEpochRef = useRef(0);
+    const planLinksRef = useRef<Map<string, string>>(new Map());
 
-    const loadCrewBoats = useCallback(async () => {
-        if (!supabase) return;
-        const { data: authData } = await supabase.auth.getUser();
-        const myId = authData.user?.id;
-        if (!myId) return;
+    const clearCopyTimers = useCallback(() => {
+        for (const timer of copyTimersRef.current) clearTimeout(timer);
+        copyTimersRef.current.clear();
+    }, []);
 
-        // Boats I'm a member of where I'm not the owner.
-        const { data: memberships } = await supabase
-            .from('boat_members')
-            .select('boat_id, first_name, boats!inner(id, name, owner_id)')
-            .eq('user_id', myId);
+    const operationIsCurrent = useCallback(
+        (scope: AuthIdentityScope): boolean => mountedRef.current && isAuthIdentityScopeCurrent(scope),
+        [],
+    );
 
-        const crewRows = (memberships ?? []).filter(
-            (m: unknown) => (m as { boats: { owner_id: string } }).boats.owner_id !== myId,
-        );
-        if (crewRows.length === 0) {
-            setCrewBoats([]);
-            return;
-        }
+    const loadCrewBoats = useCallback(async (scope: AuthIdentityScope): Promise<CrewBoatLog[] | null> => {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope) || !scope.userId) return [];
+        try {
+            const { data: authData } = await supabase.auth.getUser();
+            const myId = authData.user?.id;
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            if (!myId || myId !== scope.userId) return [];
 
-        // My personal voyage-log configs across those boats.
-        const boatIds = crewRows.map((r: unknown) => (r as { boat_id: string }).boat_id);
-        const { data: configs } = await supabase
-            .from('voyage_log_configs')
-            .select('boat_id, handle, enabled')
-            .eq('owner_id', myId)
-            .eq('scope', 'personal')
-            .in('boat_id', boatIds);
-        const byBoat = new Map(
-            (configs ?? []).map((c: unknown) => [
-                (c as { boat_id: string }).boat_id,
-                c as { handle: string; enabled: boolean },
-            ]),
-        );
+            // Boats I'm a member of where I'm not the owner.
+            const { data: memberships, error: membershipError } = await supabase
+                .from('boat_members')
+                .select('boat_id, first_name, boats!inner(id, name, owner_id)')
+                .eq('user_id', myId);
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            if (membershipError) return [];
 
-        setCrewBoats(
-            crewRows.map((m: unknown) => {
+            const crewRows = (memberships ?? []).filter((m: unknown) => {
+                const row = m as { boat_id?: unknown; boats?: { owner_id?: unknown; name?: unknown } };
+                return (
+                    typeof row.boat_id === 'string' &&
+                    typeof row.boats?.name === 'string' &&
+                    row.boats.owner_id !== myId
+                );
+            });
+            if (crewRows.length === 0) return [];
+
+            // My personal voyage-log configs across those boats.
+            const boatIds = crewRows.map((r: unknown) => (r as { boat_id: string }).boat_id);
+            const { data: configs, error: configError } = await supabase
+                .from('voyage_log_configs')
+                .select('boat_id, handle, enabled')
+                .eq('owner_id', myId)
+                .eq('scope', 'personal')
+                .in('boat_id', boatIds);
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            if (configError) return [];
+            const byBoat = new Map(
+                (configs ?? [])
+                    .filter((c: unknown) => {
+                        const row = c as { boat_id?: unknown; handle?: unknown; enabled?: unknown };
+                        return (
+                            typeof row.boat_id === 'string' &&
+                            boatIds.includes(row.boat_id) &&
+                            typeof row.handle === 'string' &&
+                            typeof row.enabled === 'boolean'
+                        );
+                    })
+                    .map((c: unknown) => [
+                        (c as { boat_id: string }).boat_id,
+                        c as { handle: string; enabled: boolean },
+                    ]),
+            );
+
+            return crewRows.map((m: unknown) => {
                 const row = m as { boat_id: string; first_name: string | null; boats: { name: string } };
                 return {
                     boatId: row.boat_id,
@@ -112,101 +159,183 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     firstName: row.first_name,
                     config: byBoat.get(row.boat_id) ?? null,
                 };
-            }),
-        );
+            });
+        } catch {
+            return isAuthIdentityScopeCurrent(scope) ? [] : null;
+        }
     }, []);
 
     useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            clearCopyTimers();
+        };
+    }, [clearCopyTimers]);
+
+    useEffect(() => {
+        const scope = identityScope;
         let cancelled = false;
-        void VoyageLogService.getConfig().then((c) => {
-            if (!cancelled) {
-                setConfig(c);
-                setLoading(false);
-            }
-        });
-        void loadCrewBoats();
+        operationEpochRef.current += 1;
+        clearCopyTimers();
+
+        // Clear every private/transient field for the new identity.
+        setDataGeneration(scope.generation);
+        setConfig(null);
+        setLoading(true);
+        setBusy(false);
+        setKeyRevealed(false);
+        setCopiedField(null);
+        setCrewBoats([]);
+        setCrewBusyBoatId(null);
+        setSetupError(null);
+        setPublicTracks([]);
+        setHiddenVoyageIds(new Set());
+        setTrackBusyId(null);
+        setPlanRoutes([]);
+        setPlanLinks(new Map());
+        setLinkPickerFor(null);
+        planLinksRef.current = new Map();
+
+        void Promise.all([VoyageLogService.getConfig(), loadCrewBoats(scope)])
+            .then(([nextConfig, nextCrewBoats]) => {
+                if (cancelled || !operationIsCurrent(scope) || nextCrewBoats === null) return;
+                setConfig(nextConfig);
+                setCrewBoats(nextCrewBoats);
+            })
+            .catch(() => {
+                // A blank current-account surface is safer than retaining data
+                // from an earlier identity after an unexpected loader throw.
+            })
+            .finally(() => {
+                if (!cancelled && operationIsCurrent(scope)) {
+                    setLoading(false);
+                }
+            });
+
         return () => {
             cancelled = true;
         };
-    }, [loadCrewBoats]);
+    }, [clearCopyTimers, identityScope, loadCrewBoats, operationIsCurrent]);
 
     // Load the public-tracks list once the log is confirmed enabled. Server
     // summaries only — those are exactly the voyages the public page can draw.
     useEffect(() => {
-        if (!config?.enabled) return;
+        const scope = identityScope;
+        if (dataGeneration !== scope.generation) return;
+        if (!config?.enabled) {
+            setPublicTracks([]);
+            setHiddenVoyageIds(new Set());
+            setPlanLinks(new Map());
+            setPlanRoutes([]);
+            setLinkPickerFor(null);
+            return;
+        }
+
         let cancelled = false;
         void Promise.all([
             ShipLogService.getVoyageSummaries(),
             VoyageLogService.getHiddenVoyageIds(),
             VoyageLogService.getPlanLinks(),
-            fetchRoutesAndTracks().catch(() => ({ routes: [] as RouteOrTrack[], tracks: [] as RouteOrTrack[] })),
-        ]).then(([summaries, hidden, links, routesAndTracks]) => {
-            if (cancelled) return;
-            const sorted = [...summaries].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, 50);
-            setPublicTracks(sorted);
-            setHiddenVoyageIds(hidden);
-            setPlanLinks(links);
-            // Local-only plans can't drive the public page (not on the server
-            // yet) — keep them out of the link picker.
-            setPlanRoutes(
-                routesAndTracks.routes
-                    .filter((r) => !r.isLocal)
-                    .sort((a, b) => b.timestamp - a.timestamp)
-                    .slice(0, 10),
-            );
-        });
+            fetchRoutesAndTracks(true).catch(() => ({
+                routes: [] as RouteOrTrack[],
+                tracks: [] as RouteOrTrack[],
+            })),
+        ])
+            .then(([summaries, hidden, links, routesAndTracks]) => {
+                if (cancelled || !operationIsCurrent(scope)) return;
+                const sorted = [...summaries].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, 50);
+                const ownedVoyageIds = new Set(summaries.map((summary) => summary.voyageId));
+                setPublicTracks(sorted);
+                setHiddenVoyageIds(hidden);
+                setPlanLinks(links);
+                // RoutesAndTracks has a process cache. Filter against this
+                // identity's server summaries so an A cache cannot enter B.
+                setPlanRoutes(
+                    routesAndTracks.routes
+                        .filter((route) => !route.isLocal && ownedVoyageIds.has(route.id))
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10),
+                );
+            })
+            .catch(() => {
+                if (!cancelled && operationIsCurrent(scope)) {
+                    setPublicTracks([]);
+                    setHiddenVoyageIds(new Set());
+                    setPlanLinks(new Map());
+                    setPlanRoutes([]);
+                }
+            });
         return () => {
             cancelled = true;
         };
-    }, [config?.enabled]);
+    }, [config?.enabled, config?.id, dataGeneration, identityScope, operationIsCurrent]);
 
-    const handleTrackVisibility = useCallback(async (voyageId: string, hidden: boolean) => {
-        setTrackBusyId(voyageId);
-        triggerHaptic('light');
-        // Optimistic — revert on failure.
-        setHiddenVoyageIds((prev) => {
-            const next = new Set(prev);
-            if (hidden) next.add(voyageId);
-            else next.delete(voyageId);
-            return next;
-        });
-        const ok = await VoyageLogService.setVoyageHidden(voyageId, hidden);
-        if (!ok) {
+    const handleTrackVisibility = useCallback(
+        async (voyageId: string, hidden: boolean) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            const immutableVoyageId = String(voyageId);
+            if (!operationIsCurrent(scope)) return;
+
+            setTrackBusyId(immutableVoyageId);
+            triggerHaptic('light');
+            // Optimistic — revert only while the same identity still owns it.
             setHiddenVoyageIds((prev) => {
                 const next = new Set(prev);
-                if (hidden) next.delete(voyageId);
-                else next.add(voyageId);
+                if (hidden) next.add(immutableVoyageId);
+                else next.delete(immutableVoyageId);
                 return next;
             });
-            toast.error(VoyageLogService.lastError ?? 'Could not update — check signal');
-        }
-        setTrackBusyId(null);
-    }, []);
+            const ok = await VoyageLogService.setVoyageHidden(immutableVoyageId, hidden);
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+            if (!ok) {
+                setHiddenVoyageIds((prev) => {
+                    const next = new Set(prev);
+                    if (hidden) next.delete(immutableVoyageId);
+                    else next.add(immutableVoyageId);
+                    return next;
+                });
+                toast.error(VoyageLogService.lastError ?? 'Could not update — check signal');
+            }
+            setTrackBusyId(null);
+        },
+        [identityScope, operationIsCurrent],
+    );
 
-    const handlePlanLink = useCallback(async (voyageId: string, planId: string | null) => {
-        setLinkPickerFor(null);
-        triggerHaptic('light');
-        const prev = planLinksRef.current.get(voyageId) ?? null;
-        setPlanLinks((m) => {
-            const next = new Map(m);
-            if (planId) next.set(voyageId, planId);
-            else next.delete(voyageId);
-            return next;
-        });
-        const ok = await VoyageLogService.setVoyagePlanLink(voyageId, planId);
-        if (!ok) {
-            setPlanLinks((m) => {
-                const next = new Map(m);
-                if (prev) next.set(voyageId, prev);
-                else next.delete(voyageId);
+    const handlePlanLink = useCallback(
+        async (voyageId: string, planId: string | null) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            const immutableVoyageId = String(voyageId);
+            const immutablePlanId = planId === null ? null : String(planId);
+            if (!operationIsCurrent(scope)) return;
+
+            setLinkPickerFor(null);
+            triggerHaptic('light');
+            const prev = planLinksRef.current.get(immutableVoyageId) ?? null;
+            setPlanLinks((current) => {
+                const next = new Map(current);
+                if (immutablePlanId) next.set(immutableVoyageId, immutablePlanId);
+                else next.delete(immutableVoyageId);
                 return next;
             });
-            toast.error(VoyageLogService.lastError ?? 'Could not update the link — check signal');
-        }
-    }, []);
+            const ok = await VoyageLogService.setVoyagePlanLink(immutableVoyageId, immutablePlanId);
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+            if (!ok) {
+                setPlanLinks((current) => {
+                    const next = new Map(current);
+                    if (prev) next.set(immutableVoyageId, prev);
+                    else next.delete(immutableVoyageId);
+                    return next;
+                });
+                toast.error(VoyageLogService.lastError ?? 'Could not update the link — check signal');
+            }
+        },
+        [identityScope, operationIsCurrent],
+    );
     // Ref mirror so handlePlanLink's revert reads the latest map without
     // re-creating the callback per change.
-    const planLinksRef = useRef<Map<string, string>>(new Map());
     planLinksRef.current = planLinks;
 
     // Auto-fit the public URL hero text to its container — start at
@@ -233,23 +362,43 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         return () => ro.disconnect();
     }, [config?.handle]);
 
-    const copy = useCallback(async (field: string, value: string) => {
-        try {
-            await navigator.clipboard.writeText(value);
-            setCopiedField(field);
-            triggerHaptic('light');
-            setTimeout(() => setCopiedField((f) => (f === field ? null : f)), 2000);
-        } catch {
-            /* clipboard unavailable — value is still visible to copy by hand */
-        }
-    }, []);
+    const copy = useCallback(
+        async (field: string, value: string) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            const immutableField = String(field);
+            const immutableValue = String(value);
+            if (!operationIsCurrent(scope)) return;
+            try {
+                await navigator.clipboard.writeText(immutableValue);
+                if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+                clearCopyTimers();
+                setCopiedField(immutableField);
+                triggerHaptic('light');
+                const timer = setTimeout(() => {
+                    copyTimersRef.current.delete(timer);
+                    if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+                    setCopiedField((current) => (current === immutableField ? null : current));
+                }, 2000);
+                copyTimersRef.current.add(timer);
+            } catch {
+                /* clipboard unavailable — value is still visible to copy by hand */
+            }
+        },
+        [clearCopyTimers, identityScope, operationIsCurrent],
+    );
 
     const handleSetUp = useCallback(async () => {
+        const scope = identityScope;
+        const epoch = operationEpochRef.current;
+        if (!operationIsCurrent(scope)) return;
+
         setBusy(true);
         setSetupError(null);
-        const c = await VoyageLogService.ensureEnabled();
-        setConfig(c);
-        if (!c) {
+        const nextConfig = await VoyageLogService.ensureEnabled();
+        if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+        setConfig(nextConfig);
+        if (!nextConfig) {
             // Surface the actual reason — RLS, missing table, no auth, etc.
             // Without this the button just flashes and the punter has no
             // idea what went wrong.
@@ -257,43 +406,70 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         }
         setBusy(false);
         triggerHaptic('medium');
-    }, []);
+    }, [identityScope, operationIsCurrent]);
 
-    const handleToggle = useCallback(async (next: boolean) => {
-        setBusy(true);
-        const c = await VoyageLogService.setEnabled(next);
-        if (c) setConfig(c);
-        setBusy(false);
-        triggerHaptic('light');
-    }, []);
+    const handleToggle = useCallback(
+        async (next: boolean) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            if (!operationIsCurrent(scope)) return;
+
+            setBusy(true);
+            const nextConfig = await VoyageLogService.setEnabled(next);
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+            if (nextConfig) setConfig(nextConfig);
+            setBusy(false);
+            triggerHaptic('light');
+        },
+        [identityScope, operationIsCurrent],
+    );
 
     // Create a personal voyage-log for a boat I'm crew on. Picks a sensible
     // default handle (<first>-on-<boat-slug>) and auto-suffixes on collision.
     const handleCreateCrewLog = useCallback(
         async (boat: CrewBoatLog) => {
-            if (!supabase) return;
-            setCrewBusyBoatId(boat.boatId);
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            if (!supabase || !scope.userId || !operationIsCurrent(scope)) return;
+
+            const immutableBoat = {
+                boatId: String(boat.boatId),
+                boatName: String(boat.boatName),
+                firstName: boat.firstName === null ? null : String(boat.firstName),
+            };
+            setCrewBusyBoatId(immutableBoat.boatId);
             const { data: authData } = await supabase.auth.getUser();
             const myId = authData.user?.id;
-            if (!myId) {
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch || !myId || myId !== scope.userId) {
+                if (operationIsCurrent(scope)) setCrewBusyBoatId(null);
+                return;
+            }
+            const base = slugify(`${immutableBoat.firstName ?? 'crew'}-on-${immutableBoat.boatName}`);
+            if (!base) {
+                toast.error('Could not make a handle from this crew and boat name.');
                 setCrewBusyBoatId(null);
                 return;
             }
-            const base = slugify(`${boat.firstName ?? 'crew'}-on-${boat.boatName}`);
             let candidate = base;
             let attempt = 1;
             while (attempt < 20) {
+                if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
                 const { error } = await supabase.from('voyage_log_configs').insert({
                     owner_id: myId,
-                    boat_id: boat.boatId,
+                    boat_id: immutableBoat.boatId,
                     handle: candidate,
                     scope: 'personal',
                     enabled: true,
                 });
+                if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
                 if (!error) {
                     triggerHaptic('medium');
                     toast.success(`Live at ${candidate}.thalassawx.app`);
-                    await loadCrewBoats();
+                    const nextCrewBoats = await loadCrewBoats(scope);
+                    if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch || nextCrewBoats === null) {
+                        return;
+                    }
+                    setCrewBoats(nextCrewBoats);
                     setCrewBusyBoatId(null);
                     return;
                 }
@@ -308,37 +484,105 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
             toast.error('Could not pick a unique handle — edit your name in Crew Management and retry.');
             setCrewBusyBoatId(null);
         },
-        [loadCrewBoats],
+        [identityScope, loadCrewBoats, operationIsCurrent],
     );
 
     const handleToggleCrewLog = useCallback(
         async (boat: CrewBoatLog, next: boolean) => {
-            if (!supabase || !boat.config) return;
-            setCrewBusyBoatId(boat.boatId);
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            if (!supabase || !boat.config || !scope.userId || !operationIsCurrent(scope)) return;
+            const immutableBoatId = String(boat.boatId);
+
+            setCrewBusyBoatId(immutableBoatId);
             const { data: authData } = await supabase.auth.getUser();
             const myId = authData.user?.id;
-            if (!myId) {
-                setCrewBusyBoatId(null);
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch || !myId || myId !== scope.userId) {
+                if (operationIsCurrent(scope)) setCrewBusyBoatId(null);
                 return;
             }
             const { error } = await supabase
                 .from('voyage_log_configs')
                 .update({ enabled: next })
                 .eq('owner_id', myId)
-                .eq('boat_id', boat.boatId)
+                .eq('boat_id', immutableBoatId)
                 .eq('scope', 'personal');
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
             if (error) {
                 toast.error('Could not toggle.');
             } else {
-                await loadCrewBoats();
+                const nextCrewBoats = await loadCrewBoats(scope);
+                if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch || nextCrewBoats === null) {
+                    return;
+                }
+                setCrewBoats(nextCrewBoats);
                 triggerHaptic('light');
             }
             setCrewBusyBoatId(null);
         },
-        [loadCrewBoats],
+        [identityScope, loadCrewBoats, operationIsCurrent],
     );
 
-    if (loading) {
+    const handleLiveTrackShare = useCallback(
+        (next: boolean) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            if (!operationIsCurrent(scope)) return;
+
+            triggerHaptic('light');
+            onSave({ liveTrackShare: next });
+            void import('../../services/shiplog/LiveTrickle')
+                .then(async ({ purgeLiveTrack, markLiveTrickleFreshStart }) => {
+                    if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+                    if (next) {
+                        // Forward-only consent: never publish the pre-toggle
+                        // backlog in the queue.
+                        await markLiveTrickleFreshStart();
+                    } else {
+                        // Opt-out is immediate for the captured account only.
+                        const ok = await purgeLiveTrack();
+                        if (operationIsCurrent(scope) && operationEpochRef.current === epoch && !ok) {
+                            toast.error('Could not clear shared positions — check signal');
+                        }
+                    }
+                })
+                .catch(() => {
+                    if (operationIsCurrent(scope) && operationEpochRef.current === epoch) {
+                        toast.error('Could not update live-track sharing — check signal');
+                    }
+                });
+        },
+        [identityScope, onSave, operationIsCurrent],
+    );
+
+    const openPrivateUrl = useCallback(
+        (url: string) => {
+            if (!operationIsCurrent(identityScope)) return;
+            const safeUrl = safeExternalHttpUrl(url, true);
+            if (!safeUrl) {
+                toast.error('Could not open an invalid voyage-log URL');
+                return;
+            }
+            void Browser.open({ url: safeUrl });
+        },
+        [identityScope, operationIsCurrent],
+    );
+
+    const toggleKeyReveal = useCallback(() => {
+        if (!operationIsCurrent(identityScope)) return;
+        setKeyRevealed((revealed) => !revealed);
+    }, [identityScope, operationIsCurrent]);
+
+    const toggleLinkPicker = useCallback(
+        (voyageId: string) => {
+            if (!operationIsCurrent(identityScope)) return;
+            const immutableVoyageId = String(voyageId);
+            setLinkPickerFor((current) => (current === immutableVoyageId ? null : immutableVoyageId));
+        },
+        [identityScope, operationIsCurrent],
+    );
+
+    if (loading || dataGeneration !== identityScope.generation) {
         return (
             <div className="px-4 pb-8">
                 <div className="h-24 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse" />
@@ -476,7 +720,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 </div>
                 <div className="flex gap-2 mt-3">
                     <button
-                        onClick={() => void Browser.open({ url: publicUrl })}
+                        onClick={() => openPrivateUrl(publicUrl)}
                         aria-label="Open your voyage log in browser"
                         className="flex-1 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
                     >
@@ -562,25 +806,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         </div>
                         <Toggle
                             checked={settings.liveTrackShare === true}
-                            onChange={(v) => {
-                                triggerHaptic('light');
-                                onSave({ liveTrackShare: v });
-                                void import('../../services/shiplog/LiveTrickle').then(
-                                    ({ purgeLiveTrack, markLiveTrickleFreshStart }) => {
-                                        if (v) {
-                                            // Forward-only consent: never publish
-                                            // the pre-toggle backlog in the queue.
-                                            void markLiveTrickleFreshStart();
-                                        } else {
-                                            // Opt-out is immediate: pull every
-                                            // already-shared position off the page.
-                                            void purgeLiveTrack().then((ok) => {
-                                                if (!ok) toast.error('Could not clear shared positions — check signal');
-                                            });
-                                        }
-                                    },
-                                );
-                            }}
+                            onChange={handleLiveTrackShare}
                             label="Show my current track on/off"
                         />
                     </Row>
@@ -635,9 +861,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                         </div>
                                         {canLink && (
                                             <button
-                                                onClick={() =>
-                                                    setLinkPickerFor(linkPickerFor === v.voyageId ? null : v.voyageId)
-                                                }
+                                                onClick={() => toggleLinkPicker(v.voyageId)}
                                                 className="text-xs text-sky-400 mt-1 text-left"
                                             >
                                                 Passage: {linkedPlan?.label ?? (linkedPlanId ? 'linked plan' : 'none')}{' '}
@@ -705,7 +929,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
                         <button
-                            onClick={() => setKeyRevealed((r) => !r)}
+                            onClick={toggleKeyReveal}
                             aria-label={keyRevealed ? 'Hide API key' : 'Reveal API key'}
                             className="text-xs font-bold text-gray-400 hover:text-gray-200 px-2.5 py-1 rounded border border-white/10 hover:border-white/20 transition-colors uppercase tracking-wider"
                         >

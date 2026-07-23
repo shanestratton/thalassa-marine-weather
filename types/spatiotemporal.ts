@@ -20,8 +20,10 @@ export interface TrackPoint {
 export interface TrackConditions {
     depth_m: number | null; // Depth in meters (negative = below sea level)
     wind_spd_kts: number; // True wind speed in knots
+    wind_gust_kts?: number; // Forecast gust speed in knots
     wind_dir_deg: number; // True wind direction (degrees FROM)
     wave_ht_m: number; // Significant wave height in meters
+    wave_dir_deg?: number; // Primary wave direction (degrees FROM)
     swell_period_s: number | null; // Peak swell period in seconds
 }
 
@@ -63,6 +65,26 @@ export interface PilotageInfo {
     arrival: ChannelGateInfo | null;
 }
 
+/** Auditable model provenance for a verified weather-corridor route */
+export interface WeatherRouteSources {
+    wind: {
+        model: 'Apple WeatherKit forecastHourly';
+        aligned_from: string;
+        horizon_hours: number;
+    };
+    waves: {
+        model: 'NOAA WaveWatch III';
+        cycle: string;
+        valid_from: string;
+        valid_to: string;
+    };
+    land_mask: {
+        model: 'GEBCO';
+        max_cell_nm: number;
+        minimum_safe_depth_m: number;
+    };
+}
+
 /** The complete spatiotemporal payload from route-weather */
 export interface SpatiotemporalPayload {
     summary: RouteSummary;
@@ -70,6 +92,8 @@ export interface SpatiotemporalPayload {
     track: TrackPoint[];
     mesh_stats: MeshStats;
     pilotage?: PilotageInfo;
+    /** Present on verified route-weather output; absent on local isochrone payloads. */
+    weather_sources?: WeatherRouteSources;
     error?: string;
 }
 

@@ -19,7 +19,7 @@
 import type { WindGrid } from '../services/weather/windField';
 import type { ComfortParams } from '../types/settings';
 import type { IsochroneResult } from '../services/IsochroneRouter';
-import { getOpenMeteoKey } from '../services/weather/keys';
+import { fetchOpenMeteoPoints } from '../services/weather/openMeteoProxy';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ConsensusMatrix');
@@ -91,35 +91,16 @@ async function fetchMultiModelWind(
     points: RoutePoint[],
     departureTime: Date,
 ): Promise<Map<number, ModelPoint[]> | null> {
-    const omKey = getOpenMeteoKey();
-    if (!omKey) {
-        log.warn('[ConsensusMatrix] No Open-Meteo API key — falling back to grid');
-        return null;
-    }
-
     try {
         const modelIds = MODELS.map((m) => m.id).join(',');
-        const lats = points.map((p) => p.lat.toFixed(4)).join(',');
-        const lons = points.map((p) => p.lon.toFixed(4)).join(',');
-
-        const url =
-            `https://customer-api.open-meteo.com/v1/forecast?` +
-            `latitude=${lats}&longitude=${lons}` +
-            `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-            `&models=${modelIds}` +
-            `&forecast_days=7` +
-            `&timezone=auto` +
-            `&apikey=${omKey}`;
 
         log.info(`[ConsensusMatrix] Fetching ${points.length} points × ${MODELS.length} models`);
-        const resp = await fetch(url);
-        if (!resp.ok) {
-            log.warn(`[ConsensusMatrix] API returned ${resp.status}`);
-            return null;
-        }
-
-        const data = await resp.json();
-        const results: Record<string, unknown>[] = Array.isArray(data) ? data : [data];
+        const results = await fetchOpenMeteoPoints<Record<string, unknown>>('forecast', points, {
+            hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+            models: modelIds,
+            forecast_days: 7,
+            timezone: 'auto',
+        });
 
         const pointModels = new Map<number, ModelPoint[]>();
 

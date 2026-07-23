@@ -21,7 +21,7 @@
  *   - error:    inline error banner under the import button
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { triggerHaptic } from '../../utils/system';
 import {
@@ -39,6 +39,7 @@ import type { EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { useUI } from '../../context/UIContext';
+import { ModalSheet } from '../ui/ModalSheet';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -232,6 +233,10 @@ export const EncCellManager: React.FC = () => {
     const [importing, setImporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastSkipped, setLastSkipped] = useState<{ filename: string; error: string }[]>([]);
+    const [urlDialogOpen, setUrlDialogOpen] = useState(false);
+    const [urlInput, setUrlInput] = useState('');
+    const [urlError, setUrlError] = useState<string | null>(null);
+    const urlInstallInFlight = useRef(false);
 
     const refreshCells = useCallback(() => {
         setCells(getEncCoverage());
@@ -321,49 +326,59 @@ export const EncCellManager: React.FC = () => {
      * no iOS file-picker, and the resulting cells are available to
      * any device on the boat without re-uploading.
      */
-    const handleInstallFromUrl = useCallback(async () => {
+    const openUrlInstallDialog = useCallback(() => {
+        if (importing || urlInstallInFlight.current) return;
         setError(null);
         setProgress(null);
+        setUrlInput('');
+        setUrlError(null);
+        setUrlDialogOpen(true);
+    }, [importing]);
 
-        const piErr = await checkPiHasGdal();
-        if (piErr) {
-            setError(piErr);
+    const handleInstallFromUrl = useCallback(async () => {
+        if (importing || urlInstallInFlight.current) return;
+        const url = urlInput.trim();
+        if (!url) {
+            setUrlError('Paste an ENC ZIP or .000 URL to continue.');
             return;
         }
-
-        const url = window.prompt(
-            'Paste the URL of an ENC ZIP or .000 file.\n\n' +
-                'Free NOAA charts: https://charts.noaa.gov/ENCs/ENCs.shtml — pick a cell, copy the ZIP link.\n\n' +
-                'AHO requires a commercial license; their public site has metadata but not direct downloads.',
-            '',
-        );
-        if (!url) return;
 
         let parsed: URL;
         try {
             parsed = new URL(url);
         } catch {
-            setError('That doesn’t look like a valid URL.');
+            setUrlError('That doesn’t look like a valid URL.');
             return;
         }
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            setError('Only http/https URLs are supported.');
+            setUrlError('Only http/https URLs are supported.');
             return;
         }
 
+        urlInstallInFlight.current = true;
         setImporting(true);
         setLastSkipped([]);
+        setUrlError(null);
+        setProgress(null);
         try {
+            const piErr = await checkPiHasGdal();
+            if (piErr) {
+                setUrlError(piErr);
+                return;
+            }
             const summary = await installEncFromUrl(url, undefined, (p) => setProgress(p));
             refreshCells();
             if (summary.skipped.length > 0) setLastSkipped(summary.skipped);
+            setUrlDialogOpen(false);
+            setUrlInput('');
         } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
+            setUrlError(err instanceof Error ? err.message : String(err));
         } finally {
+            urlInstallInFlight.current = false;
             setImporting(false);
             setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
         }
-    }, [refreshCells]);
+    }, [importing, refreshCells, urlInput]);
 
     /**
      * "Sync from Pi" — pulls every chart the Pi has installed but
@@ -448,186 +463,283 @@ export const EncCellManager: React.FC = () => {
     }, [piHasMoreThanLocal]);
 
     return (
-        <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-            <button
-                onClick={() => {
-                    triggerHaptic('light');
-                    setExpanded(!expanded);
-                }}
-                className="w-full flex items-center gap-3"
-            >
-                <span className="text-lg">{'\u{1F5FA}'}</span>
-                <div className="flex-1 text-left">
-                    <p className="text-sm font-bold text-white">
-                        ENC Charts <span className="text-[11px] text-sky-300 font-normal">(routing-grade vector)</span>
-                    </p>
-                    <p className="text-[11px] text-gray-400">
-                        {cells.length === 0
-                            ? 'Import S-57 .000 cells from your hydrographic office'
-                            : `${cells.length} cell${cells.length === 1 ? '' : 's'} imported · used by routing engine`}
-                    </p>
-                </div>
-                <svg
-                    className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
+        <>
+            <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setExpanded(!expanded);
+                    }}
+                    className="w-full flex items-center gap-3"
                 >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                </svg>
-            </button>
-
-            {expanded && (
-                <div className="mt-4 space-y-4">
-                    {/* ── Import section ── */}
-                    <div className="space-y-2">
-                        <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">Import Cells</p>
-                        <p className="text-[11px] text-gray-500 leading-relaxed">
-                            Pick a raw S-57 cell (<span className="font-mono text-sky-300">.000</span>) or a full ENC{' '}
-                            <span className="font-mono text-sky-300">.zip</span> archive from your device. The file is
-                            sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), then the converted
-                            vector data is stored on your phone and used by the routing validator instead of GEBCO
-                            bathymetry — surveyed depths, coastlines, obstructions and wrecks rather than 460&nbsp;m
-                            interpolated tiles.
+                    <span className="text-lg">{'\u{1F5FA}'}</span>
+                    <div className="flex-1 text-left">
+                        <p className="text-sm font-bold text-white">
+                            ENC Charts{' '}
+                            <span className="text-[11px] text-sky-300 font-normal">(routing-grade vector)</span>
                         </p>
+                        <p className="text-[11px] text-gray-400">
+                            {cells.length === 0
+                                ? 'Import S-57 .000 cells from your hydrographic office'
+                                : `${cells.length} cell${cells.length === 1 ? '' : 's'} imported · used by routing engine`}
+                        </p>
+                    </div>
+                    <svg
+                        className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </button>
 
-                        {progress && (
-                            <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                <ImportProgressBar progress={progress} />
-                            </div>
-                        )}
+                {expanded && (
+                    <div className="mt-4 space-y-4">
+                        {/* ── Import section ── */}
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
+                                Import Cells
+                            </p>
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                Pick a raw S-57 cell (<span className="font-mono text-sky-300">.000</span>) or a full
+                                ENC <span className="font-mono text-sky-300">.zip</span> archive from your device. The
+                                file is sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), then
+                                the converted vector data is stored on your phone and used by the routing validator
+                                instead of GEBCO bathymetry — surveyed depths, coastlines, obstructions and wrecks
+                                rather than 460&nbsp;m interpolated tiles.
+                            </p>
 
-                        {/* Primary action: Pi-direct URL install — the
+                            {progress && (
+                                <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <ImportProgressBar progress={progress} />
+                                </div>
+                            )}
+
+                            {/* Primary action: Pi-direct URL install — the
                             "best of the best" path. Pi downloads, Pi
                             converts, all devices on the boat share. */}
-                        <button
-                            onClick={handleInstallFromUrl}
-                            disabled={importing}
-                            className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                importing
-                                    ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-not-allowed'
-                                    : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25'
-                            }`}
-                        >
-                            {importing && progress?.phase !== 'storing' && progress?.phase !== 'fetching' ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                    {progress?.cellCount && progress.cellCount > 1
-                                        ? `Pi: ${progress.cellsDone ?? 0}/${progress.cellCount}...`
-                                        : 'Pi installing...'}
-                                </span>
-                            ) : (
-                                <span className="flex items-center justify-center gap-2">
-                                    <span>{'\u{1F4E5}'}</span>
-                                    <span>Install on Pi from URL</span>
-                                </span>
-                            )}
-                        </button>
+                            <button
+                                onClick={openUrlInstallDialog}
+                                disabled={importing}
+                                className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                    importing
+                                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-not-allowed'
+                                        : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25'
+                                }`}
+                            >
+                                {importing && progress?.phase !== 'storing' && progress?.phase !== 'fetching' ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                        {progress?.cellCount && progress.cellCount > 1
+                                            ? `Pi: ${progress.cellsDone ?? 0}/${progress.cellCount}...`
+                                            : 'Pi installing...'}
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <span>{'\u{1F4E5}'}</span>
+                                        <span>Install on Pi from URL</span>
+                                    </span>
+                                )}
+                            </button>
 
-                        {/* Secondary: phone-side upload, kept for cells
+                            {/* Secondary: phone-side upload, kept for cells
                             that aren't online (e.g. you have the .000
                             on your phone already from email/AirDrop). */}
-                        <button
-                            onClick={handleImport}
-                            disabled={importing}
-                            className={`w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
-                                importing
-                                    ? 'bg-white/[0.04] border border-white/[0.06] text-gray-500 cursor-not-allowed'
-                                    : 'bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20'
-                            }`}
-                        >
-                            <span className="flex items-center justify-center gap-2">
-                                <span>{'\u{1F4F1}'}</span>
-                                <span>Upload from this device</span>
-                            </span>
-                        </button>
+                            <button
+                                onClick={handleImport}
+                                disabled={importing}
+                                className={`w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                                    importing
+                                        ? 'bg-white/[0.04] border border-white/[0.06] text-gray-500 cursor-not-allowed'
+                                        : 'bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20'
+                                }`}
+                            >
+                                <span className="flex items-center justify-center gap-2">
+                                    <span>{'\u{1F4F1}'}</span>
+                                    <span>Upload from this device</span>
+                                </span>
+                            </button>
 
-                        {/* Sync — surfaced when Pi has cellIds the device
+                            {/* Sync — surfaced when Pi has cellIds the device
                             doesn't (compared by ID, not by count, so stale
                             duplicate records on the device don't suppress
                             this button when there's actually new data to
                             pull). */}
-                        {piHasMoreThanLocal && (
-                            <button
-                                onClick={handleSyncFromPi}
-                                disabled={importing}
-                                className="w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 active:scale-95 transition-all"
-                            >
-                                <span className="flex items-center justify-center gap-2">
-                                    <span>{'\u{1F504}'}</span>
-                                    <span>
-                                        Sync {missingOnDevice.length} chart
-                                        {missingOnDevice.length === 1 ? '' : 's'} from Pi
+                            {piHasMoreThanLocal && (
+                                <button
+                                    onClick={handleSyncFromPi}
+                                    disabled={importing}
+                                    className="w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 active:scale-95 transition-all"
+                                >
+                                    <span className="flex items-center justify-center gap-2">
+                                        <span>{'\u{1F504}'}</span>
+                                        <span>
+                                            Sync {missingOnDevice.length} chart
+                                            {missingOnDevice.length === 1 ? '' : 's'} from Pi
+                                        </span>
                                     </span>
-                                </span>
-                            </button>
-                        )}
+                                </button>
+                            )}
 
-                        {error && (
-                            <div className="px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/20">
-                                <p className="text-[11px] text-red-400 leading-relaxed">{error}</p>
-                            </div>
-                        )}
+                            {error && (
+                                <div className="px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/20">
+                                    <p className="text-[11px] text-red-400 leading-relaxed">{error}</p>
+                                </div>
+                            )}
 
-                        {lastSkipped.length > 0 && (
-                            <div className="px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
-                                <p className="text-[11px] font-bold text-amber-300 mb-1">
-                                    {lastSkipped.length} cell{lastSkipped.length === 1 ? '' : 's'} skipped during last
-                                    import
-                                </p>
-                                <ul className="space-y-0.5">
-                                    {lastSkipped.slice(0, 5).map((s) => (
-                                        <li key={s.filename} className="text-[10px] text-amber-300/80">
-                                            <span className="font-mono">{s.filename}</span>: {s.error}
-                                        </li>
-                                    ))}
-                                    {lastSkipped.length > 5 && (
-                                        <li className="text-[10px] text-amber-300/60 italic">
-                                            …and {lastSkipped.length - 5} more
-                                        </li>
-                                    )}
-                                </ul>
-                            </div>
-                        )}
-                    </div>
+                            {lastSkipped.length > 0 && (
+                                <div className="px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
+                                    <p className="text-[11px] font-bold text-amber-300 mb-1">
+                                        {lastSkipped.length} cell{lastSkipped.length === 1 ? '' : 's'} skipped during
+                                        last import
+                                    </p>
+                                    <ul className="space-y-0.5">
+                                        {lastSkipped.slice(0, 5).map((s) => (
+                                            <li key={s.filename} className="text-[10px] text-amber-300/80">
+                                                <span className="font-mono">{s.filename}</span>: {s.error}
+                                            </li>
+                                        ))}
+                                        {lastSkipped.length > 5 && (
+                                            <li className="text-[10px] text-amber-300/60 italic">
+                                                …and {lastSkipped.length - 5} more
+                                            </li>
+                                        )}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
 
-                    {/* ── Imported cells list ── */}
-                    <div className="space-y-2">
-                        <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">Imported Cells</p>
-                        {cells.length === 0 ? (
-                            <p className="text-[11px] text-gray-500 italic">
-                                No cells imported yet. Routing falls back to GEBCO bathymetry.
+                        {/* ── Imported cells list ── */}
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
+                                Imported Cells
                             </p>
-                        ) : (
-                            <div className="space-y-2">
-                                {cells.map((cell) => (
-                                    <CellRow
-                                        key={cell.id}
-                                        cell={cell}
-                                        onDelete={handleDelete}
-                                        onShowOnMap={handleShowOnMap}
-                                        busy={importing}
-                                    />
-                                ))}
-                            </div>
+                            {cells.length === 0 ? (
+                                <p className="text-[11px] text-gray-500 italic">
+                                    No cells imported yet. Routing falls back to GEBCO bathymetry.
+                                </p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {cells.map((cell) => (
+                                        <CellRow
+                                            key={cell.id}
+                                            cell={cell}
+                                            onDelete={handleDelete}
+                                            onShowOnMap={handleShowOnMap}
+                                            busy={importing}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── Source attribution / honesty note ── */}
+                        <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                            <p className="text-[10px] text-gray-500 leading-relaxed">
+                                <span className="text-amber-300 font-bold">Important:</span> ENCs improve accuracy where
+                                you have them, but they aren&apos;t infallible. Pacific atolls have known position
+                                errors of 100&ndash;500&nbsp;m in many cells. Always verify visually and cross-reference
+                                paper/cruising-guide info before committing to a route. Source acknowledgement: cells
+                                you import are the property of their issuing hydrographic office (AHO, NOAA, UKHO, etc.)
+                                — Thalassa never uploads or redistributes them.
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <ModalSheet
+                isOpen={urlDialogOpen}
+                onClose={() => {
+                    if (urlInstallInFlight.current) return;
+                    setUrlDialogOpen(false);
+                    setUrlInput('');
+                    setUrlError(null);
+                }}
+                title="Install ENC from URL"
+                maxWidth="max-w-lg"
+            >
+                <form
+                    className="space-y-4"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleInstallFromUrl();
+                    }}
+                >
+                    <p className="text-xs leading-relaxed text-gray-300">
+                        Paste the direct URL of an ENC ZIP or <span className="font-mono text-sky-300">.000</span> file.
+                        For free NOAA charts, choose a cell at charts.noaa.gov and copy its ZIP link. AHO chart files
+                        require a commercial licence.
+                    </p>
+                    <div>
+                        <label
+                            htmlFor="enc-install-url"
+                            className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-gray-400"
+                        >
+                            Chart URL
+                        </label>
+                        <input
+                            id="enc-install-url"
+                            type="url"
+                            inputMode="url"
+                            autoComplete="url"
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            autoFocus
+                            maxLength={2048}
+                            value={urlInput}
+                            onChange={(event) => {
+                                setUrlInput(event.target.value);
+                                if (urlError) setUrlError(null);
+                            }}
+                            disabled={importing}
+                            aria-invalid={urlError ? 'true' : 'false'}
+                            aria-describedby={urlError ? 'enc-install-url-error' : 'enc-install-url-help'}
+                            placeholder="https://example.gov/charts/cell.zip"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-sky-400 disabled:opacity-60"
+                        />
+                        <p id="enc-install-url-help" className="mt-2 text-[11px] text-gray-500">
+                            Only direct HTTP or HTTPS downloads are supported.
+                        </p>
+                        {urlError && (
+                            <p
+                                id="enc-install-url-error"
+                                role="alert"
+                                aria-live="assertive"
+                                className="mt-2 rounded-lg border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300"
+                            >
+                                {urlError}
+                            </p>
                         )}
                     </div>
-
-                    {/* ── Source attribution / honesty note ── */}
-                    <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                        <p className="text-[10px] text-gray-500 leading-relaxed">
-                            <span className="text-amber-300 font-bold">Important:</span> ENCs improve accuracy where you
-                            have them, but they aren&apos;t infallible. Pacific atolls have known position errors of
-                            100&ndash;500&nbsp;m in many cells. Always verify visually and cross-reference
-                            paper/cruising-guide info before committing to a route. Source acknowledgement: cells you
-                            import are the property of their issuing hydrographic office (AHO, NOAA, UKHO, etc.) —
-                            Thalassa never uploads or redistributes them.
-                        </p>
+                    <div className="flex gap-3">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (urlInstallInFlight.current) return;
+                                setUrlDialogOpen(false);
+                                setUrlInput('');
+                                setUrlError(null);
+                            }}
+                            disabled={importing}
+                            className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-gray-300 disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={importing || !urlInput.trim()}
+                            className="min-h-11 flex-1 rounded-xl border border-emerald-400/30 bg-emerald-500/20 px-4 py-3 text-sm font-black uppercase tracking-wider text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {importing ? 'Installing…' : 'Install on Pi'}
+                        </button>
                     </div>
-                </div>
-            )}
-        </div>
+                </form>
+            </ModalSheet>
+        </>
     );
 };
 

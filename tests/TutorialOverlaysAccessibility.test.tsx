@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlassTutorial } from '../components/dashboard/GlassTutorial';
 import { GestureTutorial } from '../components/ui/GestureTutorial';
 import { OnboardingOverlay } from '../components/ui/OnboardingOverlay';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
 function GlassTutorialHarness() {
     return (
@@ -58,14 +59,17 @@ function GestureTutorialHarness({ onNeverShow = vi.fn() }: { onNeverShow?: () =>
 describe('tutorial overlay accessibility', () => {
     beforeEach(() => {
         localStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('tutorial-user');
     });
 
     afterEach(() => {
         vi.useRealTimers();
+        setAuthIdentityScope(null);
     });
 
     it('labels the Glass tutorial, contains focus, and restores its launcher on Escape', () => {
-        localStorage.setItem('thalassa_onboarding_complete', 'true');
+        localStorage.setItem(authScopedStorageKey('thalassa_onboarding_complete'), 'true');
         render(<GlassTutorialHarness />);
 
         const opener = screen.getByRole('button', { name: 'Show Glass tips' });
@@ -93,7 +97,7 @@ describe('tutorial overlay accessibility', () => {
         fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
-        expect(localStorage.getItem('thalassa_glass_tutorial_seen')).toBe('true');
+        expect(localStorage.getItem(authScopedStorageKey('thalassa_glass_tutorial_seen'))).toBe('true');
     });
 
     it('queues the Glass tutorial until onboarding has closed instead of stacking two modals', () => {
@@ -134,7 +138,7 @@ describe('tutorial overlay accessibility', () => {
         fireEvent.keyDown(next, { key: 'Escape' });
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
-        expect(localStorage.getItem('thalassa_onboarding_complete')).toBe('true');
+        expect(localStorage.getItem(authScopedStorageKey('thalassa_onboarding_complete'))).toBe('true');
     });
 
     it('gives every onboarding action an accurate name through completion', () => {
@@ -193,5 +197,34 @@ describe('tutorial overlay accessibility', () => {
         act(() => {
             vi.advanceTimersByTime(300);
         });
+    });
+
+    it('synchronously hides an open tutorial when the active account changes', () => {
+        render(<OnboardingOverlayHarness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Show onboarding' }));
+        expect(screen.getByRole('dialog', { name: 'Your Weather' })).toBeInTheDocument();
+
+        act(() => {
+            setAuthIdentityScope('tutorial-user-b');
+        });
+
+        expect(screen.queryByRole('dialog', { name: 'Your Weather' })).not.toBeInTheDocument();
+    });
+
+    it('keeps completion flags independent between accounts', () => {
+        render(<OnboardingOverlayHarness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Show onboarding' }));
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Next: Your Charts' }), { key: 'Escape' });
+
+        const accountAKey = authScopedStorageKey('thalassa_onboarding_complete');
+        expect(localStorage.getItem(accountAKey)).toBe('true');
+
+        act(() => {
+            setAuthIdentityScope('tutorial-user-b');
+        });
+        expect(localStorage.getItem(authScopedStorageKey('thalassa_onboarding_complete'))).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show onboarding' }));
+        expect(screen.getByRole('dialog', { name: 'Your Weather' })).toBeInTheDocument();
     });
 });

@@ -82,6 +82,7 @@ import { getLastPosition, saveLastPosition } from '../services/shiplog/TrackingS
 import { getBestPosition } from '../services/shiplog/PositionResolver';
 import type { TrackingState } from '../services/shiplog/TrackingStateStore';
 import type { CachedPosition } from '../services/BgGeoManager';
+import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const saveEntry = saveEntryOnlineOrOffline as ReturnType<typeof vi.fn>;
 const demoteWaypoint = demotePreviousAutoWaypoint as ReturnType<typeof vi.fn>;
@@ -112,6 +113,8 @@ function makeCtx(overrides: Partial<CaptureContext> = {}): CaptureContext {
     let cachedFix: CachedPosition | null = makeFix();
     let waterStatus: boolean | undefined = true;
     return {
+        identityScope: getAuthIdentityScope(),
+        isSessionCurrent: () => true,
         trackingState,
         saveTrackingState: vi.fn(async () => undefined),
         isNative: false,
@@ -130,6 +133,7 @@ function makeCtx(overrides: Partial<CaptureContext> = {}): CaptureContext {
 }
 
 beforeEach(() => {
+    setAuthIdentityScope('capture-owner');
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-02T06:00:00Z'));
     saveEntry.mockClear();
@@ -164,6 +168,20 @@ describe('captureImmediate', () => {
         expect(entry).not.toBeNull();
         expect(entry!.latitude).toBeCloseTo(-27.5);
         expect(entry!.longitude).toBeCloseTo(153.0);
+    });
+
+    it('preserves north as a valid 0° heading', async () => {
+        const ctx = makeCtx({ getCachedFix: () => makeFix(-27.5, 153, 5, 0) });
+        const entry = await captureImmediate(ctx, undefined, 'Voyage End');
+        expect(entry?.courseDeg).toBe(0);
+    });
+
+    it('does not advance last-position when the entry cannot be persisted', async () => {
+        const ctx = makeCtx();
+        saveEntry.mockRejectedValueOnce(new Error('disk full'));
+
+        await expect(captureImmediate(ctx, undefined, 'Voyage End')).rejects.toThrow('disk full');
+        expect(saveLastPos).not.toHaveBeenCalled();
     });
 
     it('persists with placeholder coords when no fix is available', async () => {
@@ -232,6 +250,29 @@ describe('captureLog — DEDUP threshold (~5m / 0.005nm)', () => {
         const ctx = makeCtx();
         const result = await captureLog(ctx, { entryType: 'auto', skipDedup: true });
         expect(result).not.toBeNull();
+    });
+});
+
+describe('capture session fence', () => {
+    it('drops a delayed fix after the same account replaces the voyage session', async () => {
+        let sessionCurrent = true;
+        let release!: (position: CachedPosition) => void;
+        bestPosition.mockImplementationOnce(
+            () =>
+                new Promise<CachedPosition>((resolve) => {
+                    release = resolve;
+                }),
+        );
+        const ctx = makeCtx({ isSessionCurrent: () => sessionCurrent });
+
+        const pending = captureLog(ctx);
+        await Promise.resolve();
+        sessionCurrent = false;
+        release(makeFix());
+
+        await expect(pending).resolves.toBeNull();
+        expect(saveEntry).not.toHaveBeenCalled();
+        expect(saveLastPos).not.toHaveBeenCalled();
     });
 });
 
@@ -356,6 +397,12 @@ describe('addManual', () => {
         expect(result!.entryType).toBe('waypoint');
         expect(result!.waypointName).toBe('Anchor');
     });
+
+    it('preserves north as a valid 0° heading', async () => {
+        bestPosition.mockResolvedValueOnce(makeFix(-27.5, 153, 5, 0));
+        const result = await addManual(makeCtx(), { notes: 'northbound' });
+        expect(result?.courseDeg).toBe(0);
+    });
 });
 
 describe('flushBufferedTrack', () => {
@@ -385,5 +432,43 @@ describe('flushBufferedTrack', () => {
         // synthetic data has no heading/speed deltas → just endpoints.)
         expect(saveEntry).toHaveBeenCalled();
         expect(saveEntry.mock.calls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('requeues the failed point and untouched suffix, then retries them in order', async () => {
+        const ctx = makeCtx();
+        const first = makeFix(-27.5, 153);
+        const second = makeFix(-27.499, 153);
+        ctx.trackBuffer.push(first);
+        ctx.trackBuffer.push(second);
+        saveEntry.mockRejectedValueOnce(new Error('preferences write failed'));
+
+        await expect(flushBufferedTrack(ctx)).resolves.toBe('retry-pending');
+        expect(ctx.trackBuffer.length).toBe(2);
+
+        await expect(flushBufferedTrack(ctx)).resolves.toBe('complete');
+        expect(ctx.trackBuffer.length).toBe(0);
+        expect(saveEntry.mock.calls.slice(-2).map(([entry]) => entry.latitude)).toEqual([
+            first.latitude,
+            second.latitude,
+        ]);
+    });
+
+    it('consumes a deliberately filtered spike and still persists the valid suffix', async () => {
+        const ctx = makeCtx();
+        ctx.trackBuffer.push(makeFix(-27.5, 153));
+        ctx.trackBuffer.push(makeFix(-27.49, 153));
+        lastPosition
+            .mockResolvedValueOnce({
+                latitude: -29,
+                longitude: 153,
+                timestamp: new Date(Date.now() - 60_000).toISOString(),
+                cumulativeDistanceNM: 0,
+            })
+            .mockResolvedValueOnce(null);
+
+        await expect(flushBufferedTrack(ctx)).resolves.toBe('complete');
+        expect(saveEntry).toHaveBeenCalledTimes(1);
+        expect(saveEntry.mock.calls[0][0].latitude).toBeCloseTo(-27.49);
+        expect(ctx.trackBuffer.length).toBe(0);
     });
 });

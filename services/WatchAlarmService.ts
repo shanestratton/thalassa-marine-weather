@@ -32,8 +32,16 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase } from './supabase';
 import { WatchAssignmentService } from './WatchAssignmentService';
 import { createLogger } from '../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('WatchAlarm');
+const WATCH_ALARM_MARKER = 'thalassa-watch-alarm';
+let identityCleanupEpoch = 0;
 
 /**
  * Notification ID encoding: voyage hash × 1000 + watch_index.
@@ -83,6 +91,75 @@ function computeWatchStartUtc(timeRange: string, departureIso: string): Date | n
     return watchStart;
 }
 
+function belongsToScope(notification: { extra?: unknown; title?: string }, scope: AuthIdentityScope): boolean {
+    const extra = notification.extra as
+        | {
+              watchAlarmService?: string;
+              ownerScopeKey?: string;
+          }
+        | undefined;
+    return extra?.watchAlarmService === WATCH_ALARM_MARKER && extra.ownerScopeKey === scope.key;
+}
+
+function isLegacyWatchAlarm(notification: { extra?: unknown; title?: string }): boolean {
+    const extra = notification.extra as
+        | {
+              voyageId?: unknown;
+              watchIndex?: unknown;
+              ownerScopeKey?: unknown;
+          }
+        | undefined;
+    return (
+        !extra?.ownerScopeKey &&
+        typeof extra?.voyageId === 'string' &&
+        typeof extra?.watchIndex === 'number' &&
+        notification.title?.includes('Watch starts') === true
+    );
+}
+
+async function cancelForScope(voyageId: string, scope: AuthIdentityScope): Promise<void> {
+    if (!Capacitor.isNativePlatform() || !voyageId || !isAuthIdentityScopeCurrent(scope)) return;
+    try {
+        const pending = await LocalNotifications.getPending();
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        const ours = pending.notifications.filter((notification) => {
+            const extra = notification.extra as { voyageId?: string } | undefined;
+            return extra?.voyageId === voyageId && belongsToScope(notification, scope);
+        });
+        if (ours.length === 0) return;
+        await LocalNotifications.cancel({ notifications: ours.map((notification) => ({ id: notification.id })) });
+        if (isAuthIdentityScopeCurrent(scope)) {
+            log.info(`cancelled ${ours.length} pre-watch alarm(s) for voyage ${voyageId}`);
+        }
+    } catch (error) {
+        if (isAuthIdentityScopeCurrent(scope)) log.warn('cancelForVoyage failed:', error);
+    }
+}
+
+subscribeAuthIdentityScope((nextScope) => {
+    const cleanupEpoch = ++identityCleanupEpoch;
+    if (!Capacitor.isNativePlatform()) return;
+    void LocalNotifications.getPending()
+        .then(async ({ notifications }) => {
+            if (cleanupEpoch !== identityCleanupEpoch || !isAuthIdentityScopeCurrent(nextScope)) return;
+            const stale = notifications.filter(
+                (notification) =>
+                    isLegacyWatchAlarm(notification) ||
+                    ((notification.extra as { watchAlarmService?: string; ownerScopeKey?: string } | undefined)
+                        ?.watchAlarmService === WATCH_ALARM_MARKER &&
+                        !belongsToScope(notification, nextScope)),
+            );
+            if (stale.length > 0) {
+                await LocalNotifications.cancel({
+                    notifications: stale.map((notification) => ({ id: notification.id })),
+                });
+            }
+        })
+        .catch(() => {
+            /* best-effort identity cleanup */
+        });
+});
+
 export const WatchAlarmService = {
     /**
      * Request iOS notification permissions. Idempotent — iOS only
@@ -92,11 +169,12 @@ export const WatchAlarmService = {
      */
     async requestPermissions(): Promise<boolean> {
         if (!Capacitor.isNativePlatform()) return false;
+        const scope = getAuthIdentityScope();
         try {
             const result = await LocalNotifications.requestPermissions();
-            return result.display === 'granted';
+            return isAuthIdentityScopeCurrent(scope) && result.display === 'granted';
         } catch (e) {
-            log.warn('requestPermissions failed:', e);
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('requestPermissions failed:', e);
             return false;
         }
     },
@@ -112,7 +190,14 @@ export const WatchAlarmService = {
      */
     async scheduleForVoyage(voyageId: string, departureIso: string, minutesBefore: number = 15): Promise<number> {
         if (!Capacitor.isNativePlatform()) return 0;
-        if (!voyageId || !departureIso) return 0;
+        const scope = getAuthIdentityScope();
+        const voyageIdSnapshot = voyageId.trim();
+        const departureSnapshot = departureIso.trim();
+        const leadMinutes = Number.isFinite(minutesBefore)
+            ? Math.min(24 * 60, Math.max(0, Math.round(minutesBefore)))
+            : 15;
+        if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return 0;
+        if (!voyageIdSnapshot || !departureSnapshot) return 0;
 
         // Identify the current user
         let userEmail: string | undefined;
@@ -121,6 +206,7 @@ export const WatchAlarmService = {
                 const {
                     data: { user },
                 } = await supabase.auth.getUser();
+                if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return 0;
                 userEmail = user?.email;
             } catch {
                 /* unauthenticated */
@@ -133,30 +219,40 @@ export const WatchAlarmService = {
 
         // Cancel previously-scheduled alarms for THIS voyage so we
         // don't double-fire after an edit
-        await this.cancelForVoyage(voyageId);
+        await cancelForScope(voyageIdSnapshot, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return 0;
 
         // Load all assignments for the voyage and filter to current user
-        const all = await WatchAssignmentService.list(voyageId);
-        const mine = all.filter((a) => a.assigned_crew_email === userEmail);
+        const all = await WatchAssignmentService.list(voyageIdSnapshot);
+        if (!isAuthIdentityScopeCurrent(scope)) return 0;
+        const normalizedEmail = userEmail.trim().toLowerCase();
+        const mine = all.filter(
+            (assignment) =>
+                typeof assignment.assigned_crew_email === 'string' &&
+                assignment.assigned_crew_email.trim().toLowerCase() === normalizedEmail,
+        );
         if (mine.length === 0) return 0;
 
         // Build LocalNotifications payload
         const now = Date.now();
         const notifications = mine
             .map((a) => {
-                const start = computeWatchStartUtc(a.watch_time_label, departureIso);
+                const start = computeWatchStartUtc(a.watch_time_label, departureSnapshot);
                 if (!start) return null;
-                const fireAt = new Date(start.getTime() - minutesBefore * 60_000);
+                const fireAt = new Date(start.getTime() - leadMinutes * 60_000);
                 // Don't schedule alarms in the past
                 if (fireAt.getTime() <= now) return null;
                 return {
-                    id: notificationIdFor(voyageId, a.watch_index),
-                    title: `⏰ Watch starts in ${minutesBefore} min`,
-                    body: `${a.watch_label} — bridge in ${minutesBefore} min (${a.watch_time_label} UTC)`,
+                    id: notificationIdFor(voyageIdSnapshot, a.watch_index),
+                    title: `⏰ Watch starts in ${leadMinutes} min`,
+                    body: `${a.watch_label} — bridge in ${leadMinutes} min (${a.watch_time_label} UTC)`,
                     schedule: { at: fireAt },
                     sound: 'beep.aiff',
                     extra: {
-                        voyageId,
+                        watchAlarmService: WATCH_ALARM_MARKER,
+                        ownerScopeKey: scope.key,
+                        ownerUserId: scope.userId,
+                        voyageId: voyageIdSnapshot,
                         watchIndex: a.watch_index,
                         watchLabel: a.watch_label,
                         watchStart: start.toISOString(),
@@ -171,11 +267,18 @@ export const WatchAlarmService = {
         }
 
         try {
+            if (!isAuthIdentityScopeCurrent(scope)) return 0;
             await LocalNotifications.schedule({ notifications });
-            log.info(`scheduled ${notifications.length} pre-watch alarm(s) (${minutesBefore} min before)`);
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                await LocalNotifications.cancel({
+                    notifications: notifications.map((notification) => ({ id: notification.id })),
+                }).catch(() => undefined);
+                return 0;
+            }
+            log.info(`scheduled ${notifications.length} pre-watch alarm(s) (${leadMinutes} min before)`);
             return notifications.length;
         } catch (e) {
-            log.warn('schedule failed:', e);
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('schedule failed:', e);
             return 0;
         }
     },
@@ -187,20 +290,7 @@ export const WatchAlarmService = {
      *   - When the voyage ends / is deleted
      */
     async cancelForVoyage(voyageId: string): Promise<void> {
-        if (!Capacitor.isNativePlatform()) return;
-        if (!voyageId) return;
-        try {
-            const pending = await LocalNotifications.getPending();
-            // Cancel any pending notification whose extra.voyageId matches
-            const ours = pending.notifications.filter((n) => {
-                const extra = n.extra as { voyageId?: string } | undefined;
-                return extra?.voyageId === voyageId;
-            });
-            if (ours.length === 0) return;
-            await LocalNotifications.cancel({ notifications: ours.map((n) => ({ id: n.id })) });
-            log.info(`cancelled ${ours.length} pre-watch alarm(s) for voyage ${voyageId}`);
-        } catch (e) {
-            log.warn('cancelForVoyage failed:', e);
-        }
+        const scope = getAuthIdentityScope();
+        await cancelForScope(voyageId.trim(), scope);
     },
 };

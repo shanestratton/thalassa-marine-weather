@@ -20,6 +20,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { withDeadline } from '../utils/deadline';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 
 const log = createLogger('GebcoDepthService');
 export interface DepthPoint {
@@ -251,6 +252,15 @@ class GebcoDepthServiceClass {
         const url = `${supabaseUrl}/functions/v1/gebco-depth`;
 
         try {
+            const authHeaders = await getAuthenticatedFunctionHeaders().catch(() => ({
+                'Content-Type': 'application/json',
+                ...(supabaseKey
+                    ? {
+                          Authorization: `Bearer ${supabaseKey}`,
+                          apikey: supabaseKey,
+                      }
+                    : {}),
+            }));
             // withDeadline, not AbortSignal: the CapacitorHttp fetch patch
             // ignores options.signal on device (native default 600 s), so
             // an AbortSignal.timeout here is a no-op exactly where it
@@ -258,10 +268,7 @@ class GebcoDepthServiceClass {
             const resp = await withDeadline(
                 fetch(url, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                    },
+                    headers: authHeaders,
                     body: JSON.stringify({ points }),
                 }),
                 30_000,

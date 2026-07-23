@@ -31,6 +31,43 @@ export type DiscoveryStatus = 'idle' | 'scanning' | 'done';
 type StatusListener = (status: DiscoveryStatus) => void;
 type ServersListener = (servers: DiscoveredServer[]) => void;
 
+interface ZeroconfDiscovery {
+    service?: {
+        resolved?: boolean;
+        ipv4Addresses?: string[];
+        ipv6Addresses?: string[];
+        hostname?: string;
+        name?: string;
+        port?: number;
+    };
+}
+
+interface ZeroconfPlugin {
+    addListener(event: 'discover', listener: (result: ZeroconfDiscovery) => void): unknown;
+    watch(options: { type: string; domain: string }): Promise<unknown>;
+    close(): Promise<unknown>;
+}
+
+function isZeroconfPlugin(value: unknown): value is ZeroconfPlugin {
+    if (!value || typeof value !== 'object') return false;
+    const candidate = value as Partial<ZeroconfPlugin>;
+    return (
+        typeof candidate.addListener === 'function' &&
+        typeof candidate.watch === 'function' &&
+        typeof candidate.close === 'function'
+    );
+}
+
+async function loadZeroconfPlugin(): Promise<ZeroconfPlugin | null> {
+    // Keep this optional native dependency out of Vite's static module graph
+    // without relying on eval/new Function, which breaks strict CSP.
+    const moduleSpecifier = 'capacitor-zeroconf';
+    const loaded: unknown = await import(/* @vite-ignore */ moduleSpecifier);
+    if (!loaded || typeof loaded !== 'object') return null;
+    const plugin = (loaded as { Zeroconf?: unknown }).Zeroconf;
+    return isZeroconfPlugin(plugin) ? plugin : null;
+}
+
 // ── Service ──────────────────────────────────────────────────────────────────
 
 class AvNavDiscoveryServiceClass {
@@ -39,6 +76,7 @@ class AvNavDiscoveryServiceClass {
     private statusListeners = new Set<StatusListener>();
     private serversListeners = new Set<ServersListener>();
     private scanTimeout: ReturnType<typeof setTimeout> | null = null;
+    private scanGeneration = 0;
 
     // ── Public API ───────────────────────────────────────────────────────
 
@@ -63,6 +101,7 @@ class AvNavDiscoveryServiceClass {
     /** Start scanning. Auto-stops after ~60 seconds (full /24 scan). */
     async scan(): Promise<void> {
         if (this.status === 'scanning') return;
+        const generation = ++this.scanGeneration;
 
         this.servers = [];
         this.setStatus('scanning');
@@ -74,14 +113,16 @@ class AvNavDiscoveryServiceClass {
         const isNative = Capacitor.isNativePlatform();
 
         if (isNative) {
-            await this.scanNative();
+            await this.scanNative(generation);
         }
 
+        if (!this.isScanActive(generation)) return;
+
         // Always run network probes (delegates to AvNavService.scanNetwork — WebRTC + full /24)
-        await this.scanWeb();
+        await this.scanWeb(generation);
 
         // Mark complete only if we weren't stopped externally — stop() clears scanTimeout.
-        if (this.scanTimeout) {
+        if (this.isScanActive(generation) && this.scanTimeout) {
             clearTimeout(this.scanTimeout);
             this.scanTimeout = null;
             this.setStatus('done');
@@ -90,6 +131,7 @@ class AvNavDiscoveryServiceClass {
 
     /** Stop scanning immediately. In-flight network probes will be ignored. */
     stop(): void {
+        this.scanGeneration += 1;
         if (this.scanTimeout) {
             clearTimeout(this.scanTimeout);
             this.scanTimeout = null;
@@ -102,18 +144,18 @@ class AvNavDiscoveryServiceClass {
 
     // ── Native mDNS (capacitor-zeroconf) ─────────────────────────────────
 
-    private async scanNative(): Promise<void> {
+    private async scanNative(generation: number): Promise<void> {
         try {
-            // Opaque import — hides from Vite's static analysis so it doesn't
-            // fail to resolve when the package isn't installed (web dev mode).
-
-            const dynamicImport = new Function('specifier', 'return import(specifier)');
-            const { Zeroconf } = await dynamicImport('capacitor-zeroconf');
+            const Zeroconf = await loadZeroconfPlugin();
+            if (!Zeroconf) {
+                log.warn('mDNS plugin returned an invalid interface');
+                return;
+            }
 
             log.info('Starting mDNS browse for _http._tcp.');
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            Zeroconf.addListener('discover', (result: any) => {
+            Zeroconf.addListener('discover', (result) => {
+                if (!this.isScanActive(generation)) return;
                 if (result?.service?.resolved) {
                     const svc = result.service;
                     const host = svc.ipv4Addresses?.[0] || svc.ipv6Addresses?.[0] || svc.hostname || '';
@@ -146,9 +188,7 @@ class AvNavDiscoveryServiceClass {
 
     private async stopNative(): Promise<void> {
         try {
-            const dynamicImport = new Function('specifier', 'return import(specifier)');
-            const { Zeroconf } = await dynamicImport('capacitor-zeroconf');
-            await Zeroconf.close();
+            await (await loadZeroconfPlugin())?.close();
         } catch {
             // Plugin not available — fine
         }
@@ -164,14 +204,14 @@ class AvNavDiscoveryServiceClass {
      *
      * Uses CapacitorHttp under the hood to bypass CORS restrictions.
      */
-    private async scanWeb(): Promise<void> {
+    private async scanWeb(generation: number): Promise<void> {
         // Dynamic import to avoid circular dependency at module load time
         const { AvNavService } = await import('./AvNavService');
 
         try {
             await AvNavService.scanNetwork(undefined, (server) => {
                 // Bail if scanning was cancelled while a probe was in flight
-                if (this.status !== 'scanning') return;
+                if (!this.isScanActive(generation)) return;
 
                 const adapted: DiscoveredServer = {
                     name: server.label,
@@ -192,6 +232,10 @@ class AvNavDiscoveryServiceClass {
     }
 
     // ── Internal ─────────────────────────────────────────────────────────
+
+    private isScanActive(generation: number): boolean {
+        return generation === this.scanGeneration && this.status === 'scanning';
+    }
 
     private setStatus(status: DiscoveryStatus): void {
         this.status = status;

@@ -215,6 +215,9 @@ class EnvironmentServiceClass {
 
         // Only switch after enough confirmations (or if it matches current)
         if (this.confirmationCount >= DEBOUNCE_CONFIRMATIONS || newDetected === this.state.detected) {
+            const previousConfidence = this.state.confidence;
+            const previousSource = this.state.source;
+            const previousCurrent = this.state.current;
             const changed = this.state.detected !== newDetected;
             this.state.detected = newDetected;
             this.state.confidence = confidence;
@@ -225,7 +228,12 @@ class EnvironmentServiceClass {
                 this.state.current = newDetected;
             }
 
-            if (changed || confidence !== this.state.confidence) {
+            if (
+                changed ||
+                confidence !== previousConfidence ||
+                source !== previousSource ||
+                this.state.current !== previousCurrent
+            ) {
                 this.persist();
                 this.notifyListeners();
             }

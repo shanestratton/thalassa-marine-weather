@@ -2,7 +2,7 @@
  * ntmRouting guard logic — currency (fail-closed) and acknowledgment TTL.
  * Pure functions only: the live loaders are exercised on-device.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     resolvePackStatus,
     isPackOptedOut,
@@ -13,6 +13,7 @@ import {
     type NtmRoutingPack,
 } from '../services/ntmRouting';
 import type { QldNotice } from '../services/qldNotices';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const pack: NtmRoutingPack = {
     id: 'test-bar',
@@ -59,6 +60,12 @@ const notice = (
 // A week after the pack notice's own date (02/07/2026) — inside the 28-day
 // pack lifetime ceiling, so 'current' verdicts are reachable.
 const NOW = Date.UTC(2026, 6, 10);
+
+beforeEach(() => {
+    localStorage.clear();
+    setAuthIdentityScope(null);
+    setAuthIdentityScope('account-a');
+});
 
 describe('resolvePackStatus (fail-closed currency)', () => {
     it('current: the exact pack notice is on the feed with nothing newer for the waterway', () => {
@@ -116,18 +123,37 @@ describe('resolvePackStatus (fail-closed currency)', () => {
 
 describe('opt-out store (current packs apply by DEFAULT)', () => {
     it('defaults to applied (not opted out), toggles both ways, survives corruption', () => {
-        localStorage.removeItem('thalassa_ntm_optout_v1');
+        const storageKey = authScopedStorageKey('thalassa_ntm_optout_v1');
+        localStorage.removeItem(storageKey);
         expect(isPackOptedOut(pack)).toBe(false); // owner default: applied
         setPackOptedOut(pack, true);
         expect(isPackOptedOut(pack)).toBe(true);
         setPackOptedOut(pack, false);
         expect(isPackOptedOut(pack)).toBe(false);
         // Corrupted store degrades to the default, never throws.
-        localStorage.setItem('thalassa_ntm_optout_v1', 'null');
+        localStorage.setItem(storageKey, 'null');
         expect(isPackOptedOut(pack)).toBe(false);
-        localStorage.setItem('thalassa_ntm_optout_v1', '"garbage"');
+        localStorage.setItem(storageKey, '"garbage"');
         expect(isPackOptedOut(pack)).toBe(false);
-        localStorage.removeItem('thalassa_ntm_optout_v1');
+        localStorage.removeItem(storageKey);
+    });
+
+    it('keeps safety overrides isolated by account and recomputes on identity change', () => {
+        const changed = vi.fn();
+        window.addEventListener('thalassa:ntm-ack-changed', changed);
+        localStorage.setItem('thalassa_ntm_optout_v1', JSON.stringify({ [pack.id]: true }));
+
+        setPackOptedOut(pack, true);
+        expect(isPackOptedOut(pack)).toBe(true);
+
+        setAuthIdentityScope('account-b');
+        expect(isPackOptedOut(pack)).toBe(false);
+        expect(changed).toHaveBeenCalled();
+        setPackOptedOut(pack, true);
+
+        setAuthIdentityScope('account-a');
+        expect(isPackOptedOut(pack)).toBe(true);
+        window.removeEventListener('thalassa:ntm-ack-changed', changed);
     });
 });
 

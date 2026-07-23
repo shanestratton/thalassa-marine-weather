@@ -2,7 +2,7 @@
  * useChatProfile — Extracted from ChatPage.
  * Manages profile photos, display name, vessel name, avatar resolution.
  */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { ChatService } from '../../services/ChatService';
 import {
     uploadProfilePhoto,
@@ -11,6 +11,11 @@ import {
     getProfile,
     updateProfile,
 } from '../../services/ProfilePhotoService';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 export interface UseChatProfileOptions {
     avatarMap: Map<string, string>;
@@ -33,16 +38,37 @@ export function useChatProfile(options: UseChatProfileOptions) {
     const [profileSaved, setProfileSaved] = useState(false);
     const [profileLookingForLove, setProfileLookingForLove] = useState(false);
 
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                setMyAvatarUrl(null);
+                setShowPhotoUpload(false);
+                setUploadProgress(null);
+                setUploadError(null);
+                setProfileDisplayName('');
+                setProfileVesselName('');
+                setProfileLookingForLove(false);
+                setProfileLoaded(false);
+                setProfileSaving(false);
+                setProfileSaved(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }),
+        [],
+    );
+
     // --- Actions ---
 
     /** Load profile data from Supabase (called during init) */
     const loadProfile = useCallback(async () => {
+        const identity = getAuthIdentityScope();
         const user = await ChatService.getCurrentUser();
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         if (!user) {
             setProfileLoaded(true);
             return;
         }
         const profile = await getProfile(user.id);
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         if (profile) {
             setProfileDisplayName(profile.display_name || '');
             setProfileVesselName(profile.vessel_name || '');
@@ -55,11 +81,15 @@ export function useChatProfile(options: UseChatProfileOptions) {
     const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const identity = getAuthIdentityScope();
 
         setUploadError(null);
         setUploadProgress('Starting...');
 
-        const result = await uploadProfilePhoto(file, (step) => setUploadProgress(step));
+        const result = await uploadProfilePhoto(file, (step) => {
+            if (isAuthIdentityScopeCurrent(identity)) setUploadProgress(step);
+        });
+        if (!isAuthIdentityScopeCurrent(identity)) return;
 
         if (result.success && result.url) {
             setMyAvatarUrl(result.url);
@@ -74,22 +104,36 @@ export function useChatProfile(options: UseChatProfileOptions) {
     }, []);
 
     const handleRemovePhoto = useCallback(async () => {
-        await removeProfilePhoto();
+        const identity = getAuthIdentityScope();
+        const removed = await removeProfilePhoto();
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        if (!removed) {
+            setUploadError('Unable to remove photo. Please try again.');
+            return;
+        }
         setMyAvatarUrl(null);
         setShowPhotoUpload(false);
     }, []);
 
     const handleSaveProfile = useCallback(async () => {
+        const identity = getAuthIdentityScope();
         setProfileSaving(true);
-        await updateProfile({
+        const saved = await updateProfile({
             display_name: profileDisplayName.trim() || undefined,
             vessel_name: profileVesselName.trim() || undefined,
             looking_for_love: profileLookingForLove,
         });
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        if (!saved) {
+            setProfileSaving(false);
+            setUploadError('Unable to save profile. Please try again.');
+            return;
+        }
         ChatService.clearDisplayNameCache();
         setProfileSaving(false);
         setProfileSaved(true);
         setTimeout(() => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             setProfileSaved(false);
             setView('channels');
         }, 1200);

@@ -66,14 +66,16 @@ const OFFLINE_STYLE: StyleSpecification = {
             type: 'raster',
             tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
             tileSize: 256,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            attribution:
+                '&copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenStreetMap</a>',
         },
         openseamap: {
             type: 'raster',
             tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
             tileSize: 256,
             maxzoom: 18,
-            attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
+            attribution:
+                '&copy; <a href="https://www.openseamap.org" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenSeaMap</a>',
         },
     },
     layers: [

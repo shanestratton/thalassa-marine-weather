@@ -49,7 +49,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
             <div
                 style={{
                     position: 'absolute',
-                    bottom: 28,
+                    bottom: 'calc(28px + env(safe-area-inset-bottom, 0px))',
                     left: '50%',
                     transform: 'translateX(-50%)',
                     zIndex: 400,
@@ -64,12 +64,18 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     borderRadius: 20,
                     boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)',
                     whiteSpace: 'nowrap',
+                    maxWidth: 'calc(100vw - 24px)',
+                    overflowX: 'auto',
+                    overscrollBehaviorX: 'contain',
+                    WebkitOverflowScrolling: 'touch',
+                    scrollbarWidth: 'none',
                     animation: 'aisLegendIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
                 }}
             >
                 {/* Guard Zone Shield Toggle */}
                 <button
-                    aria-label="Enable guardian mode"
+                    aria-label={`${guardState.enabled ? 'Disable' : 'Enable'} AIS guard zone`}
+                    aria-pressed={guardState.enabled}
                     onClick={toggleGuard}
                     onContextMenu={(e) => {
                         e.preventDefault();
@@ -101,6 +107,24 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     >
                         {guardState.radiusNm} NM
                     </span>
+                </button>
+                <button
+                    type="button"
+                    aria-label="Choose AIS guard zone radius"
+                    aria-expanded={showRadiusPicker}
+                    onClick={() => setShowRadiusPicker((open) => !open)}
+                    style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 12,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: showRadiusPicker ? 'rgba(56,189,248,0.15)' : 'transparent',
+                        color: showRadiusPicker ? '#7dd3fc' : '#64748b',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                    }}
+                >
+                    ▾
                 </button>
 
                 {/* Divider */}
@@ -139,7 +163,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                 <div
                     style={{
                         position: 'absolute',
-                        bottom: 62,
+                        bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
                         left: '50%',
                         transform: 'translateX(-50%)',
                         zIndex: 401,
@@ -154,10 +178,14 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
                         animation: 'aisLegendIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
                     }}
+                    role="group"
+                    aria-label="AIS guard zone radius"
                 >
                     {RADIUS_OPTIONS.map((r) => (
                         <button
-                            aria-label="Set anchor swing radius"
+                            type="button"
+                            aria-label={`Set AIS guard zone radius to ${r} nautical miles`}
+                            aria-pressed={r === guardState.radiusNm}
                             key={r}
                             onClick={() => selectRadius(r)}
                             style={{

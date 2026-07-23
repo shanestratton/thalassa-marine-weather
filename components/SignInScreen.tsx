@@ -29,13 +29,15 @@
  * On a sailing app, identity reliability beats minor UI clutter.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { signInWithApple, signInWithGoogle } from '../services/auth/SocialAuthService';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
 import { XIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { OverlayPortal } from './ui/OverlayPortal';
 // Ornate compass MARK only — NOT the full lockup. The traced lockup baked
 // "THALASSA" in as raster-vectorised paths that rendered blocky/jagged at
 // display size (Shane 2026-07-17: "the logo has blockey text… amateur
@@ -78,6 +80,8 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     const [error, setError] = useState<string | null>(null);
     const [emailMode, setEmailMode] = useState(false);
     const authedUser = useAuthStore((s) => s.user);
+    const primaryActionRef = useRef<HTMLButtonElement>(null);
+    const emailModeWasOpenRef = useRef(false);
     // The Apple/Google buttons wrap NATIVE Capacitor plugins (Apple is
     // invoked with redirectURI:'' and the Google clientId is the iOS
     // OAuth client) — in a desktop browser they dead-end. Email OTP is
@@ -94,6 +98,22 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
             onClose();
         }
     }, [authedUser, isOpen, onClose]);
+
+    // A nested portal can cause some WebViews to report <body> as the
+    // previously focused element once the parent becomes aria-hidden.
+    // Explicitly return to the action that opened email mode as a reliable
+    // fallback to the nested dialog's normal focus restoration.
+    useEffect(() => {
+        if (emailModeWasOpenRef.current && !emailMode && isOpen !== false) {
+            primaryActionRef.current?.focus();
+        }
+        emailModeWasOpenRef.current = emailMode;
+    }, [emailMode, isOpen]);
+
+    const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen !== false, {
+        initialFocusRef: primaryActionRef,
+        onEscape: onClose,
+    });
 
     const handleApple = useCallback(async () => {
         setError(null);
@@ -127,65 +147,54 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     // Controlled mode: respect isOpen.
     if (isOpen === false) return null;
 
-    // Email fallback — opens the AuthModal flow (magic link / OTP).
-    // Rendered inline rather than via the legacy `thalassa:navigate`
-    // event so it works cleanly without the rest of the app mounted.
-    // In controlled mode, completing email auth flows back through
-    // the auth-store effect → onClose, same as Apple/Google.
-    if (emailMode) {
-        return (
-            <AuthModal
-                isOpen={true}
-                onClose={() => {
-                    setEmailMode(false);
-                    // If the outer SignInScreen is controlled, also
-                    // close it — the user backed out of email mode and
-                    // we don't want to strand them on the sign-in
-                    // screen if they explicitly cancelled.
-                    // (When auth SUCCEEDS via email, the authedUser
-                    // effect above will close the outer screen too.)
-                }}
-            />
-        );
-    }
-
     return (
-        <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center px-6 overflow-hidden">
-            {/* Atmospheric backdrop — deeper ocean gradient with a
+        <>
+            <OverlayPortal
+                ref={focusTrapRef}
+                role="dialog"
+                aria-modal={emailMode ? undefined : 'true'}
+                aria-labelledby="sign-in-title"
+                aria-hidden={emailMode || undefined}
+                className="bg-slate-950 flex flex-col items-center justify-center px-6 overflow-hidden"
+            >
+                <h2 id="sign-in-title" className="sr-only">
+                    Sign in to Thalassa
+                </h2>
+                {/* Atmospheric backdrop — deeper ocean gradient with a
                 soft aurora-like sky glow up top. Makes the screen feel
                 like a marine destination instead of a generic auth
                 form. All decorative, all behind pointer-events:none. */}
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-sky-950/40 pointer-events-none" />
-            <div className="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-sky-500/15 via-sky-500/5 to-transparent pointer-events-none" />
-            {/* Subtle horizon line — sits at ~40% down, the eye-line
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-sky-950/40 pointer-events-none" />
+                <div className="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-sky-500/15 via-sky-500/5 to-transparent pointer-events-none" />
+                {/* Subtle horizon line — sits at ~40% down, the eye-line
                 of a sailor looking out from the cockpit. Pure
                 atmospherics, 1px of cyan glow. */}
-            <div
-                className="absolute left-0 right-0 pointer-events-none"
-                style={{
-                    top: '42%',
-                    height: '1px',
-                    background:
-                        'linear-gradient(to right, transparent, rgba(103,232,249,0.35), rgba(103,232,249,0.55), rgba(103,232,249,0.35), transparent)',
-                    filter: 'blur(0.5px)',
-                }}
-            />
+                <div
+                    className="absolute left-0 right-0 pointer-events-none"
+                    style={{
+                        top: '42%',
+                        height: '1px',
+                        background:
+                            'linear-gradient(to right, transparent, rgba(103,232,249,0.35), rgba(103,232,249,0.55), rgba(103,232,249,0.35), transparent)',
+                        filter: 'blur(0.5px)',
+                    }}
+                />
 
-            {/* Close button — only shown in controlled mode. Tap-
+                {/* Close button — only shown in controlled mode. Tap-
                 target 44x44 per Apple HIG. */}
-            {onClose && (
-                <button
-                    type="button"
-                    onClick={onClose}
-                    aria-label="Close sign-in"
-                    className="absolute top-6 right-6 z-20 w-11 h-11 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 flex items-center justify-center text-white/70 transition-colors backdrop-blur-md"
-                    style={{ top: 'max(1.5rem, env(safe-area-inset-top))' }}
-                >
-                    <XIcon className="w-5 h-5" />
-                </button>
-            )}
+                {onClose && (
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close sign-in"
+                        className="absolute top-6 right-6 z-20 w-11 h-11 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 flex items-center justify-center text-white/70 transition-colors backdrop-blur-md"
+                        style={{ top: 'max(1.5rem, env(safe-area-inset-top))' }}
+                    >
+                        <XIcon className="w-5 h-5" />
+                    </button>
+                )}
 
-            {/* ─── Brand lockup ─────────────────────────────────
+                {/* ─── Brand lockup ─────────────────────────────────
                 The cleaned production logo: compass rose with wind
                 /wave swirls (white + cyan accents), "THALASSA"
                 wordmark, and "MARINE DATA & NAVIGATION" descriptor —
@@ -193,180 +202,182 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 stay exactly as designed. The pulse keyframe (below)
                 animates a teal drop-shadow around it so the mark
                 breathes like a beacon. */}
-            <div className="relative z-10 mb-8 flex flex-col items-center text-center">
-                <div
-                    className="w-40 sm:w-44 flex items-center justify-center"
-                    style={{
-                        animation: 'signInPulse 4s ease-in-out infinite',
-                    }}
-                >
-                    <img src={markDark} alt="" className="w-full object-contain" draggable={false} />
-                </div>
-                {/* CRISP live wordmark (was the blocky baked-in SVG text).
+                <div className="relative z-10 mb-8 flex flex-col items-center text-center">
+                    <div
+                        className="w-40 sm:w-44 flex items-center justify-center"
+                        style={{
+                            animation: 'signInPulse 4s ease-in-out infinite',
+                        }}
+                    >
+                        <img src={markDark} alt="" className="w-full object-contain" draggable={false} />
+                    </div>
+                    {/* CRISP live wordmark (was the blocky baked-in SVG text).
                     Wide tracking reads as a premium marine wordmark; the
                     equal paddingLeft cancels the trailing letter-space so
                     the caps stay optically centred. */}
-                <h1
-                    className="mt-5 text-[2.75rem] sm:text-6xl font-black uppercase leading-none text-white"
-                    style={{ letterSpacing: '0.18em', paddingLeft: '0.18em' }}
-                >
-                    Thalassa
-                </h1>
-                <p
-                    className="mt-2.5 text-[10px] sm:text-[11px] font-bold uppercase text-white/60"
-                    style={{ letterSpacing: '0.34em', paddingLeft: '0.34em' }}
-                >
-                    Marine Data &amp; Navigation
-                </p>
-                {/* Positioning tagline — the conversion promise. Middot
+                    <h1
+                        className="mt-5 text-[2.75rem] sm:text-6xl font-black uppercase leading-none text-white"
+                        style={{ letterSpacing: '0.18em', paddingLeft: '0.18em' }}
+                    >
+                        Thalassa
+                    </h1>
+                    <p
+                        className="mt-2.5 text-[10px] sm:text-[11px] font-bold uppercase text-white/60"
+                        style={{ letterSpacing: '0.34em', paddingLeft: '0.34em' }}
+                    >
+                        Marine Data &amp; Navigation
+                    </p>
+                    {/* Positioning tagline — the conversion promise. Middot
                     accents tinted to the brand palette against the sky line. */}
-                <p className="mt-4 text-[13px] font-semibold tracking-wider text-sky-300/90">
-                    <span>Plan it</span>
-                    <span className="mx-1.5" style={{ color: BRAND.accent }}>
-                        ·
-                    </span>
-                    <span>Sail it</span>
-                    <span className="mx-1.5" style={{ color: BRAND.accent }}>
-                        ·
-                    </span>
-                    <span>Share it</span>
-                </p>
-            </div>
+                    <p className="mt-4 text-[13px] font-semibold tracking-wider text-sky-300/90">
+                        <span>Plan it</span>
+                        <span className="mx-1.5" style={{ color: BRAND.accent }}>
+                            ·
+                        </span>
+                        <span>Sail it</span>
+                        <span className="mx-1.5" style={{ color: BRAND.accent }}>
+                            ·
+                        </span>
+                        <span>Share it</span>
+                    </p>
+                </div>
 
-            {/* Buttons — controlled by Apple HIG. The CONTAINER gets
+                {/* Buttons — controlled by Apple HIG. The CONTAINER gets
                 a soft sky frame so the area reads as a deliberate
                 conversion moment, not just two stock buttons floating
                 on a dark page. */}
-            <div className="relative z-10 w-full max-w-sm">
-                {/* Optional contextual prompt — when a caller says
+                <div className="relative z-10 w-full max-w-sm">
+                    {/* Optional contextual prompt — when a caller says
                     "Sign in to restore your vessel" we render it
                     here in a quiet italic sky line above the buttons.
                     Makes the moment feel specific to what the user
                     was just doing. */}
-                {prompt && (
-                    <div className="mb-5 text-center">
-                        <p className="text-[13px] italic text-sky-200/90 leading-snug">{prompt}</p>
-                    </div>
-                )}
+                    {prompt && (
+                        <div className="mb-5 text-center">
+                            <p className="text-[13px] italic text-sky-200/90 leading-snug">{prompt}</p>
+                        </div>
+                    )}
 
-                <div className="space-y-3">
-                    {/* Web/desktop primary: email OTP — the only lane
+                    <div className="space-y-3">
+                        {/* Web/desktop primary: email OTP — the only lane
                         that works in a plain browser (see isNative note
                         above). Apple/Google render on native only. */}
-                    {!isNative && (
-                        <button
-                            type="button"
-                            onClick={() => setEmailMode(true)}
-                            aria-label="Sign in with email"
-                            className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-black/40"
-                        >
-                            Sign in with email
-                        </button>
-                    )}
-                    {isNative && (
-                        <>
-                            {/* Apple — official styling: white background, black
+                        {!isNative && (
+                            <button
+                                ref={primaryActionRef}
+                                type="button"
+                                onClick={() => setEmailMode(true)}
+                                aria-label="Sign in with email"
+                                className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-black/40"
+                            >
+                                Sign in with email
+                            </button>
+                        )}
+                        {isNative && (
+                            <>
+                                {/* Apple — official styling: white background, black
                         text, with the Apple logo. Per Apple HIG. */}
-                            <button
-                                type="button"
-                                onClick={() => void handleApple()}
-                                disabled={busy !== null}
-                                aria-label="Sign in with Apple"
-                                className="w-full h-12 rounded-xl bg-white text-black font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
-                            >
-                                {busy === 'apple' ? (
-                                    <span className="text-sm">Signing in…</span>
-                                ) : (
-                                    <>
-                                        <svg
-                                            className="w-5 h-5"
-                                            viewBox="0 0 24 24"
-                                            fill="currentColor"
-                                            aria-hidden="true"
-                                        >
-                                            <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-                                        </svg>
-                                        <span>Sign in with Apple</span>
-                                    </>
-                                )}
-                            </button>
+                                <button
+                                    ref={primaryActionRef}
+                                    type="button"
+                                    onClick={() => void handleApple()}
+                                    disabled={busy !== null}
+                                    aria-label="Sign in with Apple"
+                                    className="w-full h-12 rounded-xl bg-white text-black font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                                >
+                                    {busy === 'apple' ? (
+                                        <span className="text-sm">Signing in…</span>
+                                    ) : (
+                                        <>
+                                            <svg
+                                                className="w-5 h-5"
+                                                viewBox="0 0 24 24"
+                                                fill="currentColor"
+                                                aria-hidden="true"
+                                            >
+                                                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+                                            </svg>
+                                            <span>Sign in with Apple</span>
+                                        </>
+                                    )}
+                                </button>
 
-                            {/* Google — white background, dark text, multi-color G */}
+                                {/* Google — white background, dark text, multi-color G */}
+                                <button
+                                    type="button"
+                                    onClick={() => void handleGoogle()}
+                                    disabled={busy !== null}
+                                    aria-label="Sign in with Google"
+                                    className="w-full h-12 rounded-xl bg-white text-slate-900 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                                >
+                                    {busy === 'google' ? (
+                                        <span className="text-sm">Signing in…</span>
+                                    ) : (
+                                        <>
+                                            <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path
+                                                    fill="#4285F4"
+                                                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                                                />
+                                                <path
+                                                    fill="#34A853"
+                                                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                                                />
+                                                <path
+                                                    fill="#FBBC05"
+                                                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                                                />
+                                                <path
+                                                    fill="#EA4335"
+                                                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                                                />
+                                            </svg>
+                                            <span>Sign in with Google</span>
+                                        </>
+                                    )}
+                                </button>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Error banner — covers RLS, network, unknown provider failure */}
+                    {error && (
+                        <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 leading-relaxed">
+                            {error}
+                        </div>
+                    )}
+
+                    {/* Email fallback link — native only; on web email is
+                    already the primary button above. */}
+                    {isNative && (
+                        <div className="pt-5 text-center">
                             <button
                                 type="button"
-                                onClick={() => void handleGoogle()}
+                                onClick={() => setEmailMode(true)}
                                 disabled={busy !== null}
-                                aria-label="Sign in with Google"
-                                className="w-full h-12 rounded-xl bg-white text-slate-900 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                                className="text-sm text-slate-400 hover:text-slate-200 active:text-white transition-colors disabled:opacity-50 underline-offset-4 hover:underline"
                             >
-                                {busy === 'google' ? (
-                                    <span className="text-sm">Signing in…</span>
-                                ) : (
-                                    <>
-                                        <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
-                                            <path
-                                                fill="#4285F4"
-                                                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                                            />
-                                            <path
-                                                fill="#34A853"
-                                                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                                            />
-                                            <path
-                                                fill="#FBBC05"
-                                                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                                            />
-                                            <path
-                                                fill="#EA4335"
-                                                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                                            />
-                                        </svg>
-                                        <span>Sign in with Google</span>
-                                    </>
-                                )}
+                                Use email instead
                             </button>
-                        </>
+                        </div>
                     )}
                 </div>
 
-                {/* Error banner — covers RLS, network, unknown provider failure */}
-                {error && (
-                    <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 leading-relaxed">
-                        {error}
-                    </div>
-                )}
-
-                {/* Email fallback link — native only; on web email is
-                    already the primary button above. */}
-                {isNative && (
-                    <div className="pt-5 text-center">
-                        <button
-                            type="button"
-                            onClick={() => setEmailMode(true)}
-                            disabled={busy !== null}
-                            className="text-sm text-slate-400 hover:text-slate-200 active:text-white transition-colors disabled:opacity-50 underline-offset-4 hover:underline"
-                        >
-                            Use email instead
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            {/* Footer — the gentle trust aside (legal copy lives in the
+                {/* Footer — the gentle trust aside (legal copy lives in the
                 Disclaimer modal). PINNED to the viewport bottom: it had BOTH
                 `relative` and `absolute` classes, and when `relative` won the
                 cascade it fell into normal flow right under the button and
                 overlapped it (Shane 2026-07-17: "words under the CTA button").
                 Pure absolute now, clear of the centred content. */}
-            <div className="absolute bottom-6 left-6 right-6 z-10 text-center">
-                <p className="text-[10px] text-slate-500 leading-relaxed max-w-xs mx-auto">
-                    Signing in unlocks crew sharing, cloud sync, and your public Voyage Log.
-                    <br />
-                    Your data never leaves your boat without you publishing it.
-                </p>
-            </div>
+                <div className="absolute bottom-6 left-6 right-6 z-10 text-center">
+                    <p className="text-[10px] text-slate-500 leading-relaxed max-w-xs mx-auto">
+                        Signing in unlocks crew sharing, cloud sync, and your public Voyage Log.
+                        <br />
+                        Your data never leaves your boat without you publishing it.
+                    </p>
+                </div>
 
-            {/* Pulse keyframe — drop-shadow filter rather than the
+                {/* Pulse keyframe — drop-shadow filter rather than the
                 old disc-based box-shadow, because the lockup is now a
                 free-standing image (no surrounding container disc).
                 Two stacked drop-shadows: a tight inner glow that
@@ -375,7 +386,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 brand palette + the cyan accents in the lockup itself.
                 Scoped to this screen via inline <style>; no global
                 CSS pollution. */}
-            <style>{`
+                <style>{`
                 @keyframes signInPulse {
                     0%, 100% {
                         filter:
@@ -389,6 +400,12 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     }
                 }
             `}</style>
-        </div>
+            </OverlayPortal>
+
+            {/* Keep the outer dialog mounted while the OTP flow is open.
+                This preserves its focus trap and lets the nested dialog
+                restore focus to the email action when it closes. */}
+            <AuthModal isOpen={emailMode} onClose={() => setEmailMode(false)} layer="nested" />
+        </>
     );
 };

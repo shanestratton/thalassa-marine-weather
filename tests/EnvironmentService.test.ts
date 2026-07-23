@@ -64,6 +64,24 @@ describe('EnvironmentService', () => {
             // Should only have the initial call
             expect(cb).toHaveBeenCalledTimes(1);
         });
+
+        it('notifies when confidence or source improves without changing environment', () => {
+            const cb = vi.fn();
+            EnvironmentService.onStateChange(cb);
+
+            // Offshore matches the default, but the authoritative water API
+            // upgrades confidence/source and consumers still need that update.
+            EnvironmentService.updateWaterStatus(true);
+
+            expect(cb).toHaveBeenCalledTimes(2);
+            expect(cb).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    detected: 'offshore',
+                    confidence: 0.95,
+                    source: 'water_api',
+                }),
+            );
+        });
     });
 
     describe('updateWaterStatus', () => {

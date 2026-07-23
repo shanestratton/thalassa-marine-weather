@@ -7,7 +7,7 @@
  * re-fetches and folds these into Calypso's system prompt on the next
  * conversation, so what you add here is what Calypso then knows.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Section, type SettingsTabProps } from './SettingsPrimitives';
 import { toast } from '../Toast';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -20,6 +20,12 @@ import {
     type VesselKnowledge,
     type KnowledgeCategory,
 } from '../../services/CalypsoKnowledgeService';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 interface DraftState {
     id: string | null; // null = new entry
@@ -29,72 +35,117 @@ interface DraftState {
 }
 
 const EMPTY_DRAFT: DraftState = { id: null, category: 'vessel_spec', title: '', body: '' };
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
 export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) => {
     // Top-tier (Skipper / 'owner') feature. Non-owners see an upsell
     // wall rather than a hidden tab — keeps it discoverable.
     const isTopTier = settings?.subscriptionTier === 'owner';
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const [items, setItems] = useState<VesselKnowledge[]>([]);
+    const [itemsScope, setItemsScope] = useState(identityScope);
     const [loading, setLoading] = useState(true);
     const [draft, setDraft] = useState<DraftState | null>(null);
     const [saving, setSaving] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<VesselKnowledge | null>(null);
+    const itemsBelongToCurrentIdentity =
+        itemsScope.key === identityScope.key &&
+        itemsScope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(itemsScope);
 
     const load = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isTopTier || !isAuthIdentityScopeCurrent(actionScope)) {
+            setItems([]);
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
-            setItems(await getKnowledge());
+            const loaded = await getKnowledge();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setItems(loaded);
+            setItemsScope(actionScope);
         } catch {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setItems([]);
+            setItemsScope(actionScope);
             toast.error('Could not load Calypso knowledge.');
         } finally {
-            setLoading(false);
+            if (isAuthIdentityScopeCurrent(actionScope)) setLoading(false);
         }
-    }, []);
+    }, [identityScope, isTopTier]);
 
     useEffect(() => {
-        void load();
-    }, [load]);
+        setItems([]);
+        setDraft(null);
+        setPendingDelete(null);
+        setSaving(false);
+        setLoading(isTopTier);
+        if (isTopTier) void load();
+    }, [identityScope, isTopTier, load]);
 
     const handleSave = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (!draft || !draft.title.trim()) {
             toast.error('Give the note a title.');
             return;
         }
+        const submittedDraft = { ...draft };
         setSaving(true);
         try {
-            const ok = draft.id
-                ? await updateKnowledge(draft.id, { category: draft.category, title: draft.title, body: draft.body })
-                : !!(await addKnowledge(draft.category, draft.title, draft.body));
+            const ok = submittedDraft.id
+                ? await updateKnowledge(submittedDraft.id, {
+                      category: submittedDraft.category,
+                      title: submittedDraft.title,
+                      body: submittedDraft.body,
+                  })
+                : !!(await addKnowledge(submittedDraft.category, submittedDraft.title, submittedDraft.body));
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (!ok) {
                 toast.error('Save failed — try again.');
                 return;
             }
-            toast.success(draft.id ? 'Updated' : 'Added — Calypso will know this next chat');
+            toast.success(submittedDraft.id ? 'Updated' : 'Added — Calypso will know this next chat');
             setDraft(null);
             await load();
+        } catch {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            toast.error('Save failed — try again.');
         } finally {
-            setSaving(false);
+            if (isAuthIdentityScopeCurrent(actionScope)) setSaving(false);
         }
-    }, [draft, load]);
+    }, [draft, identityScope, load]);
 
     const confirmDelete = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (!pendingDelete) return;
         const target = pendingDelete;
         setPendingDelete(null);
         // Optimistic remove + restore on failure.
         setItems((prev) => prev.filter((i) => i.id !== target.id));
-        const ok = await deleteKnowledge(target.id);
-        if (!ok) {
+        try {
+            const ok = await deleteKnowledge(target.id);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (ok) {
+                toast.success('Removed');
+                return;
+            }
             toast.error('Delete failed — restoring.');
             void load();
-        } else {
-            toast.success('Removed');
+        } catch {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            toast.error('Delete failed — restoring.');
+            void load();
         }
-    }, [pendingDelete, load]);
+    }, [identityScope, pendingDelete, load]);
 
     const grouped = KNOWLEDGE_CATEGORIES.map((c) => ({
         cat: c,
-        rows: items.filter((i) => i.category === c.id),
+        rows: (itemsBelongToCurrentIdentity ? items : []).filter((i) => i.category === c.id),
     })).filter((g) => g.rows.length > 0);
 
     // ── Upsell wall for non-top-tier ──
@@ -109,6 +160,19 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                     </p>
                     <p className="text-[12px] text-cyan-300/80 font-semibold mt-3">A Skipper-tier feature.</p>
                 </div>
+            </div>
+        );
+    }
+
+    if (!itemsBelongToCurrentIdentity) {
+        return (
+            <div className="max-w-2xl mx-auto w-full space-y-3" aria-busy="true" aria-label="Loading Calypso knowledge">
+                {[0, 1, 2].map((i) => (
+                    <div
+                        key={i}
+                        className="h-24 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse"
+                    />
+                ))}
             </div>
         );
     }
@@ -133,7 +197,9 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
             {/* Add button */}
             {!draft && (
                 <button
-                    onClick={() => setDraft({ ...EMPTY_DRAFT })}
+                    onClick={() => {
+                        if (isAuthIdentityScopeCurrent(identityScope)) setDraft({ ...EMPTY_DRAFT });
+                    }}
                     className="w-full mb-6 py-3 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 font-bold text-sm hover:bg-sky-500/25 transition-colors active:scale-[0.98]"
                 >
                     + Add something Calypso should know
@@ -227,21 +293,24 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                                 <div className="flex gap-1 shrink-0">
                                     <button
                                         aria-label={`Edit ${row.title}`}
-                                        onClick={() =>
+                                        onClick={() => {
+                                            if (!isAuthIdentityScopeCurrent(identityScope)) return;
                                             setDraft({
                                                 id: row.id,
                                                 category: row.category,
                                                 title: row.title,
                                                 body: row.body,
-                                            })
-                                        }
+                                            });
+                                        }}
                                         className="w-9 h-9 rounded-lg bg-white/5 text-slate-400 hover:text-sky-300 hover:bg-white/10 transition-colors flex items-center justify-center text-xs font-bold"
                                     >
                                         Edit
                                     </button>
                                     <button
                                         aria-label={`Delete ${row.title}`}
-                                        onClick={() => setPendingDelete(row)}
+                                        onClick={() => {
+                                            if (isAuthIdentityScopeCurrent(identityScope)) setPendingDelete(row);
+                                        }}
                                         className="w-9 h-9 rounded-lg bg-white/5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-center"
                                     >
                                         <svg

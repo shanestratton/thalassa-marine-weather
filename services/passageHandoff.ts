@@ -19,6 +19,8 @@
  * can always re-consume it and recompute the route.
  */
 
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+
 export interface PassagePoint {
     lat: number;
     lon: number;
@@ -32,15 +34,19 @@ export interface PassageHandoffDetail {
     via?: PassagePoint[];
 }
 
-let pending: PassageHandoffDetail | null = null;
+const pendingByIdentity = new Map<string, PassageHandoffDetail>();
 
 /**
  * Record a passage request and broadcast it. Already-mounted MapHubs
  * react to the event immediately; not-yet-mounted ones pick the
  * request up via peekPassageRequest() in their mount effect.
  */
-export function requestPassageMode(detail: PassageHandoffDetail): void {
-    pending = detail;
+export function requestPassageMode(
+    detail: PassageHandoffDetail,
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
+): void {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+    pendingByIdentity.set(expectedScope.key, detail);
     try {
         window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
     } catch {
@@ -50,10 +56,11 @@ export function requestPassageMode(detail: PassageHandoffDetail): void {
 
 /** The undismissed passage request, if any. Does NOT clear it. */
 export function peekPassageRequest(): PassageHandoffDetail | null {
-    return pending;
+    return pendingByIdentity.get(getAuthIdentityScope().key) ?? null;
 }
 
 /** Skipper dismissed the passage (X on the chart) — stop resurrecting it. */
-export function clearPassageRequest(): void {
-    pending = null;
+export function clearPassageRequest(expectedScope: AuthIdentityScope = getAuthIdentityScope()): void {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+    pendingByIdentity.delete(expectedScope.key);
 }

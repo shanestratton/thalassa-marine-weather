@@ -6,9 +6,9 @@
  * Australian Maritime Safety standards for kit categories.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -159,31 +159,17 @@ const CHECKLIST_ITEMS = [
 ];
 
 export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyageId, onReviewedChange }) => {
-    const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
-    });
-
-    const [selectedKit, setSelectedKit] = useState<string>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY + '_kit');
-            return stored || '';
-        } catch {
-            return '';
-        }
-    });
-
-    const [telemedNumber, setTelemedNumber] = useState<string>(() => {
-        try {
-            return localStorage.getItem(STORAGE_KEY + '_telemed') || '';
-        } catch {
-            return '';
-        }
-    });
+    const [checkedItems, setCheckedItems] = useScopedReadinessStorageState<Record<string, boolean>>(
+        STORAGE_KEY,
+        voyageId,
+        {},
+    );
+    const [selectedKit, setSelectedKit] = useScopedReadinessStorageState<string>(`${STORAGE_KEY}_kit`, voyageId, '');
+    const [telemedNumber, setTelemedNumber] = useScopedReadinessStorageState<string>(
+        `${STORAGE_KEY}_telemed`,
+        voyageId,
+        '',
+    );
 
     const { syncCheck } = useReadinessSync(voyageId, 'medical', checkedItems, setCheckedItems, STORAGE_KEY);
 
@@ -195,37 +181,28 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
         (key: string) => {
             setCheckedItems((prev) => {
                 const next = { ...prev, [key]: !prev[key] };
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-                } catch {
-                    /* ignore */
-                }
                 syncCheck(key, next[key]);
                 return next;
             });
             triggerHaptic('light');
         },
-        [syncCheck],
+        [setCheckedItems, syncCheck],
     );
 
-    const selectKit = useCallback((key: string) => {
-        setSelectedKit(key);
-        try {
-            localStorage.setItem(STORAGE_KEY + '_kit', key);
-        } catch {
-            /* ignore */
-        }
-        triggerHaptic('light');
-    }, []);
+    const selectKit = useCallback(
+        (key: string) => {
+            setSelectedKit(key);
+            triggerHaptic('light');
+        },
+        [setSelectedKit],
+    );
 
-    const updateTelemedNumber = useCallback((value: string) => {
-        setTelemedNumber(value);
-        try {
-            localStorage.setItem(STORAGE_KEY + '_telemed', value);
-        } catch {
-            /* ignore */
-        }
-    }, []);
+    const updateTelemedNumber = useCallback(
+        (value: string) => {
+            setTelemedNumber(value);
+        },
+        [setTelemedNumber],
+    );
 
     useEffect(() => {
         onReviewedChange?.(allCriticalDone);

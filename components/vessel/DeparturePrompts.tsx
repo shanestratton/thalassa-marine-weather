@@ -7,6 +7,7 @@ import { getLastPosition } from '../../services/shiplog/TrackingStateStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useToast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 /**
  * DeparturePrompts — the two "at departure" nudges:
@@ -57,25 +58,33 @@ export const DeparturePrompts: React.FC = () => {
         sharePromptCheckedFor.current = voyageId;
         if (liveTrackShare === true) return; // already sharing — don't ask
         const vid = voyageId;
+        const operationScope = getAuthIdentityScope();
+        let alive = true;
         void (async () => {
             try {
                 const cfg = await VoyageLogService.getConfig();
-                if (cfg?.enabled) setSharePrompt(vid);
+                if (alive && isAuthIdentityScopeCurrent(operationScope) && cfg?.enabled) setSharePrompt(vid);
             } catch {
                 /* offline / no public log — the Settings toggle still works */
             }
         })();
+        return () => {
+            alive = false;
+        };
     }, [isTracking, voyageId, liveTrackShare]);
 
     const enableLiveShare = useCallback(async () => {
+        const operationScope = getAuthIdentityScope();
         setSharePrompt(null);
         void updateSettings({ liveTrackShare: true });
         try {
             const { markLiveTrickleFreshStart } = await import('../../services/shiplog/LiveTrickle');
-            await markLiveTrickleFreshStart();
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
+            await markLiveTrickleFreshStart(operationScope);
         } catch {
             /* trickle module lazy-load failed — the toggle still took effect */
         }
+        if (!isAuthIdentityScopeCurrent(operationScope)) return;
         toast.success('Sharing live — your track will build on your public page');
     }, [updateSettings, toast]);
 
@@ -91,20 +100,22 @@ export const DeparturePrompts: React.FC = () => {
         if (!isTracking || !voyageId) return;
         if (planPromptCheckedFor.current === voyageId) return;
         const vid = voyageId;
+        const operationScope = getAuthIdentityScope();
         let alive = true;
+        const operationIsCurrent = () => alive && isAuthIdentityScopeCurrent(operationScope);
         void (async () => {
             // Wait for a departure fix — local-first capture writes to the
             // offline queue, and the persisted last GPS is the dock. A short
             // retry covers the seconds between cast-off and first fix.
-            const fix = await resolveDepartureFix(vid, () => alive);
-            if (!alive || !fix) return;
+            const fix = await resolveDepartureFix(vid, operationIsCurrent);
+            if (!operationIsCurrent() || !fix) return;
             planPromptCheckedFor.current = vid; // only mark checked once we truly ran
             try {
                 const [{ routes }, links] = await Promise.all([
                     fetchRoutesAndTracks(),
                     VoyageLogService.getPlanLinks(),
                 ]);
-                if (!alive || links.has(vid)) return; // already linked
+                if (!operationIsCurrent() || links.has(vid)) return; // already linked
                 // Local-only plans can't drive the public page (their entries
                 // aren't on the server yet) — never suggest them.
                 const plan = suggestPlanForDeparture(
@@ -112,7 +123,7 @@ export const DeparturePrompts: React.FC = () => {
                     Date.now(),
                     fix,
                 );
-                if (alive && plan) setPlanPrompt({ voyageId: vid, plan });
+                if (operationIsCurrent() && plan) setPlanPrompt({ voyageId: vid, plan });
             } catch {
                 /* offline at the dock — retro-link from settings instead */
             }
@@ -124,9 +135,11 @@ export const DeparturePrompts: React.FC = () => {
 
     const linkPromptedPlan = useCallback(async () => {
         if (!planPrompt) return;
+        const operationScope = getAuthIdentityScope();
         const { voyageId: vid, plan } = planPrompt;
         setPlanPrompt(null);
         const ok = await VoyageLogService.setVoyagePlanLink(vid, plan.id);
+        if (!isAuthIdentityScopeCurrent(operationScope)) return;
         if (ok) toast.success(`Linked — your page now tracks ${plan.label}`);
         else toast.error(VoyageLogService.lastError ?? 'Link failed — try from Settings later');
     }, [planPrompt, toast]);

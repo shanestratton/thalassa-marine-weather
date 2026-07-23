@@ -10,6 +10,7 @@
  */
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { startCooking, completeMeal, saveLeftovers, skipMeal, type MealPlan } from '../../services/MealPlanService';
+import { getRecipeInstructions } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
@@ -19,8 +20,7 @@ interface GalleyCookingModeProps {
     onComplete: () => void;
 }
 
-// Simulated recipe steps (in production, fetch from Spoonacular)
-function generateSteps(meal: MealPlan): string[] {
+function generateFallbackChecklist(meal: MealPlan): string[] {
     const steps: string[] = [];
     if (meal.ingredients.length > 0) {
         steps.push(
@@ -32,15 +32,16 @@ function generateSteps(meal: MealPlan): string[] {
     }
     steps.push('Prepare your workspace and galley equipment');
     steps.push(`Prepare ingredients for ${meal.servings_planned} servings`);
-    steps.push('Follow the recipe method');
+    steps.push('Cook using your saved recipe directions');
     steps.push('Plate and serve');
     return steps;
 }
 
 export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onClose, onComplete }) => {
-    const [steps] = useState(() => generateSteps(meal));
+    const [steps, setSteps] = useState(() => generateFallbackChecklist(meal));
     const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
     const [isCooking, setIsCooking] = useState(meal.status === 'cooking');
+    const [directionsSource, setDirectionsSource] = useState<'loading' | 'recipe' | 'checklist'>('loading');
     const [showComplete, setShowComplete] = useState(false);
     const [servingsConsumed, setServingsConsumed] = useState(meal.servings_planned);
     const [showLeftovers, setShowLeftovers] = useState(false);
@@ -53,19 +54,46 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const firstStepRef = useRef<HTMLButtonElement>(null);
     const wasCookingRef = useRef(isCooking);
+    const stepsTouchedRef = useRef(false);
     const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const mountedRef = useRef(true);
+    const actionLockRef = useRef<'start' | 'skip' | 'finish' | null>(null);
     const workflowBusy = starting || skipping || finishing;
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
         onEscape: workflowBusy ? undefined : onClose,
     });
 
-    useEffect(
-        () => () => {
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
             if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
-        },
-        [],
-    );
+        };
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+
+        void getRecipeInstructions(meal.spoonacular_id)
+            .then((recipeSteps) => {
+                if (!active) return;
+                const loadedSteps = recipeSteps.map((step) => step.step.trim()).filter(Boolean);
+                if (loadedSteps.length > 0 && !stepsTouchedRef.current) {
+                    setSteps(loadedSteps);
+                    setDirectionsSource('recipe');
+                    return;
+                }
+                setDirectionsSource('checklist');
+            })
+            .catch(() => {
+                if (active) setDirectionsSource('checklist');
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [meal.spoonacular_id]);
 
     useEffect(() => {
         if (!wasCookingRef.current && isCooking) firstStepRef.current?.focus();
@@ -73,26 +101,29 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
     }, [isCooking]);
 
     const handleStartCooking = useCallback(async () => {
-        if (starting) return;
+        if (actionLockRef.current) return;
+        actionLockRef.current = 'start';
         setStarting(true);
         setActionError(null);
         try {
             const started = await startCooking(meal.id);
+            if (!mountedRef.current) return;
             if (!started) {
                 setActionError('Cooking mode could not be started. Please try again.');
                 return;
             }
             setIsCooking(true);
-            triggerHaptic('medium');
         } catch {
-            setActionError('Cooking mode could not be started. Please try again.');
+            if (mountedRef.current) setActionError('Cooking mode could not be started. Please try again.');
         } finally {
-            setStarting(false);
+            if (actionLockRef.current === 'start') actionLockRef.current = null;
+            if (mountedRef.current) setStarting(false);
         }
-    }, [meal.id, starting]);
+    }, [meal.id]);
 
     const handleToggleStep = useCallback(
         (idx: number) => {
+            stepsTouchedRef.current = true;
             const next = new Set(checkedSteps);
             if (next.has(idx)) {
                 next.delete(idx);
@@ -120,11 +151,13 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
     );
 
     const handleComplete = useCallback(async () => {
-        if (finishing) return;
+        if (actionLockRef.current) return;
+        actionLockRef.current = 'finish';
         setFinishing(true);
         setActionError(null);
         try {
             const completed = await completeMeal(meal.id, servingsConsumed);
+            if (!mountedRef.current) return;
             if (!completed) {
                 setActionError("The meal could not be completed, so Ship's Stores were not updated.");
                 return;
@@ -140,21 +173,25 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                 }
             }
 
-            triggerHaptic('heavy');
-            onComplete();
+            if (mountedRef.current) onComplete();
         } catch {
-            setActionError("The meal could not be completed, so Ship's Stores were not updated.");
+            if (mountedRef.current) {
+                setActionError("The meal could not be completed, so Ship's Stores were not updated.");
+            }
         } finally {
-            setFinishing(false);
+            if (actionLockRef.current === 'finish') actionLockRef.current = null;
+            if (mountedRef.current) setFinishing(false);
         }
-    }, [finishing, meal.id, meal.servings_planned, servingsConsumed, showLeftovers, onComplete]);
+    }, [meal.id, meal.servings_planned, servingsConsumed, showLeftovers, onComplete]);
 
     const handleSkip = useCallback(async () => {
-        if (skipping) return;
+        if (actionLockRef.current) return;
+        actionLockRef.current = 'skip';
         setSkipping(true);
         setActionError(null);
         try {
             const skipped = await skipMeal(meal.id);
+            if (!mountedRef.current) return;
             if (!skipped) {
                 setActionError('The meal could not be skipped. Please try again.');
                 return;
@@ -162,11 +199,12 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             triggerHaptic('light');
             onClose();
         } catch {
-            setActionError('The meal could not be skipped. Please try again.');
+            if (mountedRef.current) setActionError('The meal could not be skipped. Please try again.');
         } finally {
-            setSkipping(false);
+            if (actionLockRef.current === 'skip') actionLockRef.current = null;
+            if (mountedRef.current) setSkipping(false);
         }
-    }, [meal.id, onClose, skipping]);
+    }, [meal.id, onClose]);
 
     const progress = steps.length > 0 ? checkedSteps.size / steps.length : 0;
 
@@ -177,7 +215,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             aria-modal="true"
             aria-labelledby={titleId}
             aria-busy={workflowBusy}
-            className="fixed inset-0 z-50 bg-[#0a0e14] text-white flex flex-col"
+            className="fixed inset-0 z-[1100] bg-[#0a0e14] text-white flex flex-col"
         >
             {/* ── Header ── */}
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/10">
@@ -262,7 +300,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         <div className="text-6xl">🔥</div>
                         <h3 className="text-xl font-bold text-amber-300">Ready to Cook?</h3>
                         <p className="text-sm text-gray-400 text-center max-w-[280px]">
-                            Starting will reserve your ingredients and begin the timer.
+                            Starting keeps your ingredients reserved and records the cooking start time.
                         </p>
                         <button
                             onClick={handleStartCooking}
@@ -280,37 +318,46 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         </button>
                     </div>
                 ) : (
-                    steps.map((step, i) => (
-                        <button
-                            key={i}
-                            ref={i === 0 ? firstStepRef : undefined}
-                            aria-label={`${checkedSteps.has(i) ? 'Mark incomplete' : 'Mark complete'}: Step ${i + 1}, ${step}`}
-                            aria-pressed={checkedSteps.has(i)}
-                            onClick={() => handleToggleStep(i)}
-                            className={`w-full flex items-start gap-4 p-4 rounded-xl border transition-all active:scale-[0.98] text-left ${
-                                checkedSteps.has(i)
-                                    ? 'bg-emerald-500/10 border-emerald-500/20'
-                                    : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.06]'
-                            }`}
-                        >
-                            <div
-                                className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                    <>
+                        <p aria-live="polite" className="text-xs text-gray-400">
+                            {directionsSource === 'loading'
+                                ? 'Loading saved recipe directions…'
+                                : directionsSource === 'recipe'
+                                  ? 'Recipe directions'
+                                  : 'Detailed recipe directions are unavailable. Use this galley checklist with your saved recipe source.'}
+                        </p>
+                        {steps.map((step, i) => (
+                            <button
+                                key={i}
+                                ref={i === 0 ? firstStepRef : undefined}
+                                aria-label={`${checkedSteps.has(i) ? 'Mark incomplete' : 'Mark complete'}: Step ${i + 1}, ${step}`}
+                                aria-pressed={checkedSteps.has(i)}
+                                onClick={() => handleToggleStep(i)}
+                                className={`w-full flex items-start gap-4 p-4 rounded-xl border transition-all active:scale-[0.98] text-left ${
                                     checkedSteps.has(i)
-                                        ? 'bg-emerald-500/30 text-emerald-300'
-                                        : 'bg-white/10 text-gray-400'
+                                        ? 'bg-emerald-500/10 border-emerald-500/20'
+                                        : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.06]'
                                 }`}
                             >
-                                {checkedSteps.has(i) ? '✓' : i + 1}
-                            </div>
-                            <p
-                                className={`text-sm leading-relaxed pt-1 ${
-                                    checkedSteps.has(i) ? 'text-emerald-300/70 line-through' : 'text-white'
-                                }`}
-                            >
-                                {step}
-                            </p>
-                        </button>
-                    ))
+                                <div
+                                    className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                                        checkedSteps.has(i)
+                                            ? 'bg-emerald-500/30 text-emerald-300'
+                                            : 'bg-white/10 text-gray-400'
+                                    }`}
+                                >
+                                    {checkedSteps.has(i) ? '✓' : i + 1}
+                                </div>
+                                <p
+                                    className={`text-sm leading-relaxed pt-1 ${
+                                        checkedSteps.has(i) ? 'text-emerald-300/70 line-through' : 'text-white'
+                                    }`}
+                                >
+                                    {step}
+                                </p>
+                            </button>
+                        ))}
+                    </>
                 )}
             </div>
 

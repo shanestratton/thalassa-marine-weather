@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, {
+    createContext,
+    useContext,
+    useState,
+    useEffect,
+    useCallback,
+    useRef,
+    useSyncExternalStore,
+} from 'react';
 import { MarineWeatherReport, VoyagePlan } from '../types';
 import { useSettings } from './SettingsContext';
 import { toast } from '../components/Toast';
@@ -9,22 +17,27 @@ import {
     saveLargeData,
     saveLargeDataImmediate,
     deleteLargeData,
-    loadLargeDataSync,
-    DATA_CACHE_KEY,
+    loadLargeData,
     VOYAGE_CACHE_KEY,
-    HISTORY_CACHE_KEY,
 } from '../services/nativeStorage';
 import { getUpdateInterval, alignToNextInterval, LIVE_OVERLAY_INTERVAL } from '../services/WeatherScheduler';
 import {
     WeatherOrchestrator,
     STALE_THRESHOLD_MS,
+    loadWeatherCacheSyncForScope,
+    weatherCacheKeysForScope,
     type OrchestratorCallbacks,
-    type FetchWeatherOptions as _FetchWeatherOptions,
 } from '../services/WeatherOrchestrator';
 
 import { createLogger } from '../utils/createLogger';
 import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
 import { useWeatherStore } from '../stores/weatherStore';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 const log = createLogger('WeatherContext');
 
@@ -108,8 +121,30 @@ export function locationPersistPatch(
 
 // ── Provider (thin React wrapper around WeatherOrchestrator) ─
 
+function subscribeIdentitySnapshot(onStoreChange: () => void): () => void {
+    return subscribeAuthIdentityScope(() => onStoreChange());
+}
+
 export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
+
+    // A generation change deliberately remounts every hook/effect below.
+    // The auth scope itself changes synchronously first, so old promises are
+    // fenced even before React reaches their cleanup functions.
+    return (
+        <ScopedWeatherProvider key={`${identityScope.key}:${identityScope.generation}`} identityScope={identityScope}>
+            {children}
+        </ScopedWeatherProvider>
+    );
+};
+
+const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope: AuthIdentityScope }> = ({
+    children,
+    identityScope,
+}) => {
     const { settings, updateSettings, loading: settingsLoading } = useSettings();
+    const cacheKeys = React.useMemo(() => weatherCacheKeysForScope(identityScope), [identityScope]);
+    const isCurrentScope = useCallback(() => isAuthIdentityScopeCurrent(identityScope), [identityScope]);
 
     // Synchronous cache pre-read at initial render. Running this as the
     // useState initializer (instead of inside a useEffect) means the
@@ -118,11 +153,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // there's literally nothing to show yet.
     const initialWeather = React.useMemo(() => {
         try {
-            return loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
+            return loadWeatherCacheSyncForScope(identityScope);
         } catch {
             return null;
         }
-    }, []);
+    }, [identityScope]);
 
     // ── React State ─────────────────────────────────────────
     const [loading, setLoading] = useState(initialWeather === null);
@@ -152,7 +187,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // ── Refs ─────────────────────────────────────────────────
     const historyCacheRef = useRef<Record<string, MarineWeatherReport>>({});
-    const weatherDataRef = useRef<MarineWeatherReport | null>(null);
+    const weatherDataRef = useRef<MarineWeatherReport | null>(initialWeather);
     const settingsRef = useRef(settings);
     const isTrackingCurrentLocation = useRef(settings.defaultLocation === 'Current Location');
     const isFetchingRef = useRef(false);
@@ -160,10 +195,39 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const locationModeRef = useRef(locationMode);
 
     // Wrapper: every weather update also feeds the environment detection service
-    const setWeatherData = useCallback((data: MarineWeatherReport | null) => {
-        _setWeatherData(data);
-        if (data) WeatherOrchestrator.updateEnvironment(data);
-    }, []);
+    const setWeatherData = useCallback(
+        (data: MarineWeatherReport | null) => {
+            if (!isCurrentScope()) return;
+            weatherDataRef.current = data;
+            _setWeatherData(data);
+            if (data) WeatherOrchestrator.updateEnvironment(data);
+        },
+        [isCurrentScope],
+    );
+
+    const setHistoryCacheForScope = useCallback<
+        React.Dispatch<React.SetStateAction<Record<string, MarineWeatherReport>>>
+    >(
+        (updater) => {
+            if (!isCurrentScope()) return;
+            setHistoryCache((previous) => {
+                if (!isCurrentScope()) return previous;
+                const next = typeof updater === 'function' ? updater(previous) : updater;
+                historyCacheRef.current = next;
+                return next;
+            });
+        },
+        [isCurrentScope],
+    );
+
+    const setNextUpdateForScope = useCallback(
+        (value: number | null) => {
+            if (!isCurrentScope()) return;
+            nextUpdateRef.current = value;
+            setNextUpdate(value);
+        },
+        [isCurrentScope],
+    );
 
     // Keep locationMode in sync with settings.defaultLocation. The
     // useState init above handles the cold-boot case where settings
@@ -173,14 +237,14 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // can fire fetchWeather('Current Location', …) for users who
     // actually have a saved port, clobbering their location name.
     useEffect(() => {
+        if (!isCurrentScope()) return;
         if (!settings.defaultLocation) return;
         const expected: 'gps' | 'selected' = settings.defaultLocation === 'Current Location' ? 'gps' : 'selected';
         if (locationMode !== expected) {
             setLocationMode(expected);
             isTrackingCurrentLocation.current = expected === 'gps';
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settings.defaultLocation]);
+    }, [isCurrentScope, locationMode, settings.defaultLocation]);
 
     // Sync Refs
     useEffect(() => {
@@ -199,27 +263,23 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         locationModeRef.current = locationMode;
     }, [locationMode]);
 
-    const incrementQuota = useCallback(() => setQuotaUsed((p) => p + 1), []);
+    const incrementQuota = useCallback(() => {
+        if (isCurrentScope()) setQuotaUsed((p) => p + 1);
+    }, [isCurrentScope]);
 
     // ── Orchestrator Instance ───────────────────────────────
-    const orchestratorRef = useRef<WeatherOrchestrator | null>(null);
-
-    // Create orchestrator with stable callback refs
-    if (!orchestratorRef.current) {
+    const [orchestrator] = useState(() => {
         const callbacks: OrchestratorCallbacks = {
-            setWeatherData: (data) => {
-                _setWeatherData(data);
-                if (data) WeatherOrchestrator.updateEnvironment(data);
-            },
+            setWeatherData,
             setLoading,
             setLoadingMessage,
             setBackgroundUpdating,
             setStaleRefresh,
             setError,
-            setNextUpdate,
-            setHistoryCache: (updater) => setHistoryCache(updater),
+            setNextUpdate: setNextUpdateForScope,
+            setHistoryCache: setHistoryCacheForScope,
             setVersionChecked,
-            incrementQuota: () => setQuotaUsed((p) => p + 1),
+            incrementQuota,
             getWeatherData: () => weatherDataRef.current,
             getSettings: () => settingsRef.current,
             getHistoryCache: () => historyCacheRef.current,
@@ -229,12 +289,14 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 isFetchingRef.current = v;
             },
         };
-        orchestratorRef.current = new WeatherOrchestrator(callbacks);
-    }
-    const orchestrator = orchestratorRef.current;
+        return new WeatherOrchestrator(callbacks, identityScope);
+    });
+
+    useEffect(() => () => orchestrator.dispose(), [orchestrator]);
 
     // ── INSTANT DISPLAY: Synchronous pre-read from localStorage ─
     useEffect(() => {
+        if (!isCurrentScope()) return;
         const syncCached = orchestrator.loadInstantCache();
         if (syncCached) {
             setWeatherData(syncCached);
@@ -253,23 +315,20 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
             }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isCurrentScope, orchestrator, setWeatherData]);
 
     // ── CACHE VERSION CHECK ─────────────────────────────────
     useEffect(() => {
-        orchestrator.checkCacheVersion();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        void orchestrator.checkCacheVersion();
+    }, [orchestrator]);
 
     // ── INITIALIZATION ──────────────────────────────────────
     useEffect(() => {
         if (settingsLoading) return;
         if (!versionChecked) return;
         log.info('[WeatherContext] Init starting (settingsLoading=false, versionChecked=true)');
-        orchestrator.loadCacheAndInit();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settingsLoading, versionChecked]);
+        void orchestrator.loadCacheAndInit();
+    }, [orchestrator, settingsLoading, versionChecked]);
 
     // ── CLOUD-RESTORE TRIGGER ───────────────────────────────
     // settingsStore.pullFromCloud dispatches this event after it
@@ -282,6 +341,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // loading state until the next cold boot. Boot-time race.
     useEffect(() => {
         const handler = (e: Event) => {
+            if (!isCurrentScope()) return;
             const detail = (
                 e as CustomEvent<{
                     defaultLocation?: string;
@@ -295,7 +355,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!loc) return;
             if (weatherDataRef.current) return; // already have data, nothing to do
             log.warn(`[WeatherContext] dispatching fetchWeather for ${loc}`);
-            orchestrator.fetchWeather(loc, {
+            void orchestrator.fetchWeather(loc, {
                 force: false,
                 coords: detail?.defaultLocationCoords,
                 showOverlay: false,
@@ -304,27 +364,57 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
         window.addEventListener('thalassa:settings-restored', handler);
         return () => window.removeEventListener('thalassa:settings-restored', handler);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isCurrentScope, orchestrator]);
 
     // ── PERSISTENCE ─────────────────────────────────────────
     useEffect(() => {
-        if (weatherData) saveLargeDataImmediate(DATA_CACHE_KEY, weatherData);
-    }, [weatherData]);
+        if (versionChecked && weatherData && isCurrentScope()) {
+            void saveLargeDataImmediate(cacheKeys.data, weatherData);
+        }
+    }, [cacheKeys.data, isCurrentScope, versionChecked, weatherData]);
 
     useEffect(() => {
-        if (Object.keys(historyCache).length > 0) saveLargeData(HISTORY_CACHE_KEY, historyCache);
-    }, [historyCache]);
+        if (versionChecked && Object.keys(historyCache).length > 0 && isCurrentScope()) {
+            void saveLargeData(cacheKeys.history, historyCache);
+        }
+    }, [cacheKeys.history, historyCache, isCurrentScope, versionChecked]);
 
     // ── Voyage Plan ─────────────────────────────────────────
-    const handleSaveVoyagePlan = useCallback((plan: VoyagePlan) => {
-        setVoyagePlan(plan);
-    }, []);
+    useEffect(() => {
+        if (!versionChecked || !isCurrentScope()) return;
+        let cancelled = false;
+        const loadVoyage = async () => {
+            let cached = (await loadLargeData(cacheKeys.voyage)) as VoyagePlan | null;
+            if (cancelled || !isCurrentScope()) return;
+            if (!cached && identityScope.userId === null) {
+                // Unscoped legacy voyage data has no authenticated owner.
+                // Only the public anonymous namespace may adopt it.
+                cached = (await loadLargeData(VOYAGE_CACHE_KEY)) as VoyagePlan | null;
+                if (cancelled || !isCurrentScope()) return;
+                if (cached) await saveLargeDataImmediate(cacheKeys.voyage, cached);
+            }
+            if (!cancelled && isCurrentScope() && cached) setVoyagePlan(cached);
+        };
+        void loadVoyage();
+        return () => {
+            cancelled = true;
+        };
+    }, [cacheKeys.voyage, identityScope.userId, isCurrentScope, versionChecked]);
+
+    const handleSaveVoyagePlan = useCallback(
+        (plan: VoyagePlan) => {
+            if (!isCurrentScope()) return;
+            setVoyagePlan(plan);
+            void saveLargeDataImmediate(cacheKeys.voyage, plan);
+        },
+        [cacheKeys.voyage, isCurrentScope],
+    );
 
     const clearVoyagePlan = useCallback(() => {
+        if (!isCurrentScope()) return;
         setVoyagePlan(null);
-        deleteLargeData(VOYAGE_CACHE_KEY);
-    }, []);
+        void deleteLargeData(cacheKeys.voyage);
+    }, [cacheKeys.voyage, isCurrentScope]);
 
     // ── FETCH WEATHER (delegates to orchestrator) ───────────
     const fetchWeather = useCallback(
@@ -335,15 +425,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             showOverlay = false,
             silent = false,
         ) => {
+            if (!isCurrentScope()) return;
             await orchestrator.fetchWeather(location, { force, coords, showOverlay, silent });
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [],
+        [isCurrentScope, orchestrator],
     );
 
     // ── REFRESH / SELECT ────────────────────────────────────
     const refreshData = useCallback(
         (silent = false) => {
+            if (!isCurrentScope()) return;
             const data = weatherDataRef.current;
             const loc = data?.locationName || settingsRef.current.defaultLocation || '';
             if (!navigator.onLine) {
@@ -352,11 +443,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
             fetchWeather(loc, true, data?.coordinates, false, silent);
         },
-        [fetchWeather],
+        [fetchWeather, isCurrentScope],
     );
 
     const selectLocation = useCallback(
         async (location: string, coords?: { lat: number; lon: number }) => {
+            if (!isCurrentScope()) return;
             const isCurrent = location === 'Current Location';
             setLocationMode(isCurrent ? 'gps' : 'selected');
             isTrackingCurrentLocation.current = isCurrent;
@@ -503,28 +595,38 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 await fetchWeather(location, true, coords, !weatherDataRef.current);
             }
         },
-        [fetchWeather, updateSettings, setWeatherData],
+        [fetchWeather, isCurrentScope, setWeatherData, updateSettings],
     );
 
     // ── WATCHDOG: Ensure nextUpdate is set if data exists ───
     useEffect(() => {
-        if (weatherData && !nextUpdate) {
+        if (isCurrentScope() && weatherData && !nextUpdate) {
             const lt = weatherData.locationType || 'coastal';
             const isCurrentLoc = locationMode === 'gps';
             const interval = getUpdateInterval(lt, weatherData, isCurrentLoc, settingsRef.current.satelliteMode);
             const gen = new Date(weatherData.generatedAt).getTime();
             const target = gen + interval;
             if (target > Date.now()) {
-                setNextUpdate(target);
+                setNextUpdateForScope(target);
             } else {
-                setNextUpdate(alignToNextInterval(interval));
+                setNextUpdateForScope(alignToNextInterval(interval));
             }
         }
-    }, [weatherData, nextUpdate, locationMode]);
+    }, [isCurrentScope, locationMode, nextUpdate, setNextUpdateForScope, weatherData]);
 
     // ── SMART REFRESH TIMER ─────────────────────────────────
     useEffect(() => {
+        const deferredTimers = new Set<ReturnType<typeof setTimeout>>();
+        const scheduleDeferred = (callback: () => void, delayMs: number) => {
+            const timer = setTimeout(() => {
+                deferredTimers.delete(timer);
+                if (isCurrentScope()) callback();
+            }, delayMs);
+            deferredTimers.add(timer);
+        };
+
         const checkInterval = setInterval(() => {
+            if (!isCurrentScope()) return;
             if (document.hidden) return;
             if (!navigator.onLine) return;
             if (isFetchingRef.current) return;
@@ -533,7 +635,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (data) {
                 const age = Date.now() - (data.generatedAt ? new Date(data.generatedAt).getTime() : 0);
                 if (age > 7200000 && !nextUpdateRef.current) {
-                    setNextUpdate(Date.now() + 5000);
+                    setNextUpdateForScope(Date.now() + 5000);
                     return;
                 }
             }
@@ -541,11 +643,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!nextUpdateRef.current) return;
             if (Date.now() >= nextUpdateRef.current) {
                 const tempNext = Date.now() + 90000;
-                nextUpdateRef.current = tempNext;
-                setNextUpdate(tempNext);
+                setNextUpdateForScope(tempNext);
 
                 if (locationMode === 'gps') {
                     GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then((pos) => {
+                        if (!isCurrentScope()) return;
                         if (pos) {
                             // Refresh AT the boat's position, labelled with
                             // the current friendly name. Passing the literal
@@ -557,18 +659,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                             const currentName = weatherDataRef.current?.locationName;
                             const label =
                                 currentName && currentName !== 'Current Location' ? currentName : 'Current Location';
-                            fetchWeather(label, true, { lat: pos.latitude, lon: pos.longitude }, false, true);
+                            void fetchWeather(label, true, { lat: pos.latitude, lon: pos.longitude }, false, true);
                         } else {
                             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                             const coords = weatherDataRef.current?.coordinates;
-                            if (loc) fetchWeather(loc, false, coords, false, true);
+                            if (loc) void fetchWeather(loc, false, coords, false, true);
                         }
                     });
                 } else {
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                     const storedCoords = weatherDataRef.current?.coordinates;
-                    if (loc && storedCoords) fetchWeather(loc, false, storedCoords, false, true);
-                    else if (loc) fetchWeather(loc, false, undefined, false, true);
+                    if (loc && storedCoords) void fetchWeather(loc, false, storedCoords, false, true);
+                    else if (loc) void fetchWeather(loc, false, undefined, false, true);
                 }
             }
         }, 30_000);
@@ -580,6 +682,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // disruptive blur overlay.
         const STALE_ON_WAKE_MS = 2 * 60 * 60 * 1000;
         const handleVisibilityChange = () => {
+            if (!isCurrentScope()) return;
             if (document.visibilityState !== 'visible') return;
             if (isFetchingRef.current) return;
 
@@ -589,15 +692,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (dataAge > STALE_ON_WAKE_MS) {
                 log.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
                 setStaleRefresh(true);
-                setTimeout(() => {
+                scheduleDeferred(() => {
                     if (isFetchingRef.current) return;
                     const loc = data?.locationName || settingsRef.current.defaultLocation;
                     if (!loc) return;
 
                     if (locationMode === 'gps') {
                         GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                            if (!isCurrentScope()) return;
                             if (pos) {
-                                fetchWeather(
+                                void fetchWeather(
                                     'Current Location',
                                     true,
                                     { lat: pos.latitude, lon: pos.longitude },
@@ -605,11 +709,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                                     true,
                                 );
                             } else {
-                                fetchWeather(loc, true, data?.coordinates, false, true);
+                                void fetchWeather(loc, true, data?.coordinates, false, true);
                             }
                         });
                     } else {
-                        fetchWeather(loc, true, data?.coordinates, false, true);
+                        void fetchWeather(loc, true, data?.coordinates, false, true);
                     }
                 }, 2000);
             } else {
@@ -617,8 +721,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 const target = nextUpdateRef.current;
                 if (target && now >= target) {
                     const wakeNext = now + 5000;
-                    nextUpdateRef.current = wakeNext;
-                    setNextUpdate(wakeNext);
+                    setNextUpdateForScope(wakeNext);
                 }
             }
         };
@@ -631,6 +734,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // manually; now a fresh fetch kicks off within ~1s of the
         // connection returning. Mirrors the wake-from-sleep logic.
         const handleOnline = () => {
+            if (!isCurrentScope()) return;
             if (isFetchingRef.current) return;
             const data = weatherDataRef.current;
             const dataAge = data?.generatedAt ? Date.now() - new Date(data.generatedAt).getTime() : Infinity;
@@ -647,15 +751,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (dataAge >= 2 * 60 * 60 * 1000) setStaleRefresh(true);
             // Small delay gives the device a chance to fully settle the
             // connection (especially noticeable on cellular hand-offs).
-            setTimeout(() => {
+            scheduleDeferred(() => {
                 if (isFetchingRef.current) return;
                 const loc = data?.locationName || settingsRef.current.defaultLocation;
                 if (!loc) return;
 
                 if (locationMode === 'gps') {
                     GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                        if (!isCurrentScope()) return;
                         if (pos) {
-                            fetchWeather(
+                            void fetchWeather(
                                 'Current Location',
                                 true,
                                 { lat: pos.latitude, lon: pos.longitude },
@@ -663,11 +768,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                                 true,
                             );
                         } else {
-                            fetchWeather(loc, true, data?.coordinates, false, true);
+                            void fetchWeather(loc, true, data?.coordinates, false, true);
                         }
                     });
                 } else {
-                    fetchWeather(loc, true, data?.coordinates, false, true);
+                    void fetchWeather(loc, true, data?.coordinates, false, true);
                 }
             }, 1500);
         };
@@ -675,10 +780,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         return () => {
             clearInterval(checkInterval);
+            for (const timer of deferredTimers) clearTimeout(timer);
+            deferredTimers.clear();
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('online', handleOnline);
         };
-    }, [fetchWeather, locationMode]);
+    }, [fetchWeather, isCurrentScope, locationMode, setNextUpdateForScope]);
 
     // ── BLUR WATCHDOG ──────────────────────────────────────────
     // The blur is only ever cleared by the orchestrator's `finally`, which
@@ -706,13 +813,14 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Late is the safe direction to err here: a stuck blur self-heals,
     // whereas lifting early re-exposes stale numbers as if they were good.
     useEffect(() => {
-        if (!staleRefresh) return;
+        if (!staleRefresh || !isCurrentScope()) return;
         const t = setTimeout(() => {
+            if (!isCurrentScope()) return;
             log.warn('[WeatherContext] Blur watchdog fired — clearing after 25s with no fetch completion');
             setStaleRefresh(false);
         }, 25_000);
         return () => clearTimeout(t);
-    }, [staleRefresh]);
+    }, [isCurrentScope, staleRefresh]);
 
     // ── GPS FOLLOW — live position every 5 s, weather every 30 NM ──
     // While defaultLocation is 'Current Location' the Glass page FOLLOWS
@@ -737,28 +845,34 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // ocean in small hops without ever tripping a forecast refresh.
     const weatherPointRef = useRef<{ lat: number; lon: number; generatedAt: string } | null>(null);
     useEffect(() => {
+        if (!isCurrentScope()) return;
         const d = weatherData;
         if (!d?.coordinates || !d.generatedAt) return;
         if (weatherPointRef.current?.generatedAt !== d.generatedAt) {
             weatherPointRef.current = { lat: d.coordinates.lat, lon: d.coordinates.lon, generatedAt: d.generatedAt };
         }
-    }, [weatherData]);
+    }, [isCurrentScope, weatherData]);
 
     useEffect(() => {
-        if (locationMode !== 'gps') return;
+        if (locationMode !== 'gps' || !isCurrentScope()) return;
+        let cancelled = false;
+        let tickGeneration = 0;
 
         const cardinalName = (lat: number, lon: number) =>
             `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
 
         const tick = () => {
+            if (!isCurrentScope() || cancelled) return;
             if (document.hidden) return;
             if (isFetchingRef.current) return;
 
             const displayed = weatherDataRef.current?.coordinates;
             const weatherPoint = weatherPointRef.current;
             if (!displayed || !weatherPoint) return;
+            const generation = ++tickGeneration;
 
             GpsService.getCurrentPosition({ staleLimitMs: 10_000 }).then(async (pos) => {
+                if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
                 if (!pos) return;
                 const { latitude, longitude } = pos;
 
@@ -775,10 +889,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 let name = cardinalName(latitude, longitude);
                 try {
                     const geo = await reverseGeocode(latitude, longitude);
+                    if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
                     if (geo) name = geo;
                 } catch {
                     /* offshore — cardinal coords are an honest label */
                 }
+                if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
+                if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
 
                 if (action === 'refetch') {
                     if (!navigator.onLine) return; // retry next tick when the link returns
@@ -786,7 +903,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     log.warn(
                         `[WeatherContext] GPS follow: ${dist.toFixed(1)} NM from forecast point — refetching for ${name}`,
                     );
-                    fetchWeather(name, true, { lat: latitude, lon: longitude }, false, true);
+                    void fetchWeather(name, true, { lat: latitude, lon: longitude }, false, true);
                 } else {
                     // Inside the 30 NM bubble: keep the DISPLAYED position
                     // live. No settings write, no refetch — just the label.
@@ -807,21 +924,25 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         tick();
         const followTimer = setInterval(tick, GPS_FOLLOW_POLL_MS);
 
-        return () => clearInterval(followTimer);
-    }, [locationMode, fetchWeather, setWeatherData]);
+        return () => {
+            cancelled = true;
+            tickGeneration += 1;
+            clearInterval(followTimer);
+        };
+    }, [fetchWeather, isCurrentScope, locationMode, setWeatherData]);
 
     // ── LIVE OVERLAY (delegates to orchestrator) ────────────
     useEffect(() => {
         const liveTimer = setInterval(() => {
+            if (!isCurrentScope()) return;
             if (document.hidden) return;
             if (!navigator.onLine) return;
             if (isFetchingRef.current) return;
-            orchestrator.patchLiveMetrics();
+            void orchestrator.patchLiveMetrics();
         }, LIVE_OVERLAY_INTERVAL);
 
         return () => clearInterval(liveTimer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isCurrentScope, orchestrator]);
 
     // ── Model Change Effect ─────────────────────────────────
     // Watches the Glass forecast-model picker (settings.forecastModel).
@@ -829,32 +950,37 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // this has to do is force a refetch when the choice changes.
     const prevModelRef = useRef(settings.forecastModel);
     useEffect(() => {
+        if (!isCurrentScope()) return;
         if (prevModelRef.current !== settings.forecastModel) {
             prevModelRef.current = settings.forecastModel;
             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
-            if (loc) fetchWeather(loc, true);
+            if (loc) void fetchWeather(loc, true);
         }
-    }, [settings.forecastModel, fetchWeather]);
+    }, [fetchWeather, isCurrentScope, settings.forecastModel]);
 
     // ── ZUSTAND SYNC BRIDGE ──────────────────────────────────
     // Syncs context state → Zustand store so components can use
     // fine-grained selectors via useWeatherStore() while we
     // incrementally migrate away from the context provider.
     useEffect(() => {
-        useWeatherStore.getState()._sync({
-            weatherData,
-            voyagePlan,
-            loading,
-            loadingMessage,
-            error,
-            debugInfo,
-            quotaUsed,
-            backgroundUpdating,
-            staleRefresh,
-            nextUpdate,
-            historyCache,
-        });
+        useWeatherStore.getState()._sync(
+            {
+                weatherData,
+                voyagePlan,
+                loading,
+                loadingMessage,
+                error,
+                debugInfo,
+                quotaUsed,
+                backgroundUpdating,
+                staleRefresh,
+                nextUpdate,
+                historyCache,
+            },
+            identityScope,
+        );
     }, [
+        identityScope,
         weatherData,
         voyagePlan,
         loading,
@@ -889,7 +1015,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             clearVoyagePlan,
             incrementQuota,
             historyCache,
-            setHistoryCache,
+            setHistoryCache: setHistoryCacheForScope,
         }),
         [
             weatherData,
@@ -909,7 +1035,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             clearVoyagePlan,
             incrementQuota,
             historyCache,
-            setHistoryCache,
+            setHistoryCacheForScope,
         ],
     );
 

@@ -62,6 +62,7 @@ import {
     purgeLiveTrack,
     markLiveTrickleFreshStart,
 } from '../services/shiplog/LiveTrickle';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 const T0 = Date.parse('2026-07-04T00:00:00.000Z');
@@ -76,8 +77,16 @@ const point = (offsetSec: number, extra: Record<string, unknown> = {}) => ({
     speedKts: 6.2,
     courseDeg: 180,
     entryType: 'auto',
+    owner_user_id: 'user-1',
     ...extra,
 });
+
+const scopedMarkKey = () => authScopedStorageKey('live_trickle_mark_v2');
+const readMarkTimestamp = (): string | undefined => {
+    const raw = mockState.prefs.get(scopedMarkKey());
+    if (!raw) return undefined;
+    return (JSON.parse(raw) as { timestamp?: string }).timestamp;
+};
 
 /** supabase impl capturing upserted rows; failNext makes one upsert fail. */
 function installSupabase() {
@@ -126,6 +135,7 @@ const flush = async (pred?: () => boolean): Promise<void> => {
 };
 
 beforeEach(() => {
+    setAuthIdentityScope('user-1');
     mockState.user = { id: 'user-1' };
     mockState.settings = { liveTrackShare: true };
     mockState.queue = [];
@@ -152,7 +162,7 @@ describe('LiveTrickle', () => {
         mockState.queue = [point(0), point(10), point(20), point(40), point(70)];
         startLiveTrickle('voyage-1');
         noteLiveTrickleHeartbeat();
-        await flush(() => calls.length >= 1 && mockState.prefs.has('live_trickle_mark_v1'));
+        await flush(() => calls.length >= 1 && mockState.prefs.has(scopedMarkKey()));
 
         expect(calls).toHaveLength(1);
         // First successful tick of the session also fires the 7-day prune —
@@ -173,7 +183,7 @@ describe('LiveTrickle', () => {
             source: 'device',
         });
         expect(calls[0].opts).toMatchObject({ onConflict: 'user_id,timestamp', ignoreDuplicates: true });
-        expect(mockState.prefs.get('live_trickle_mark_v1')).toBe(iso(70));
+        expect(readMarkTimestamp()).toBe(iso(70));
     });
 
     it('throttles repeat heartbeats inside the interval', async () => {
@@ -211,7 +221,7 @@ describe('LiveTrickle', () => {
         await flush(() => !ctl.failNext); // mock consumes the flag on the attempt
         await new Promise((r) => setTimeout(r, 20));
         expect(calls).toHaveLength(0);
-        expect(mockState.prefs.get('live_trickle_mark_v1')).toBeUndefined();
+        expect(readMarkTimestamp()).toBeUndefined();
 
         await stopLiveTrickle(true); // retry — same points go up
         expect(calls).toHaveLength(1);
@@ -243,13 +253,13 @@ describe('LiveTrickle', () => {
         expect(calls[0].rows[199].timestamp).toBe(iso(199 * 30));
         expect(calls[0].rows[200].timestamp).toBe(iso(204 * 30));
         // Mark sits at the end of the CONTIGUOUS chunk, not the newest.
-        expect(mockState.prefs.get('live_trickle_mark_v1')).toBe(iso(199 * 30));
+        expect(readMarkTimestamp()).toBe(iso(199 * 30));
 
         // Final flush drains the remainder — no point permanently orphaned.
         await stopLiveTrickle(true);
         expect(calls).toHaveLength(2);
         expect(calls[1].rows.map((r) => r.timestamp)).toEqual([200, 201, 202, 203, 204].map((i) => iso(i * 30)));
-        expect(mockState.prefs.get('live_trickle_mark_v1')).toBe(iso(204 * 30));
+        expect(readMarkTimestamp()).toBe(iso(204 * 30));
     });
 
     it('purgeLiveTrack deletes every own row (immediate opt-out)', async () => {
@@ -292,5 +302,64 @@ describe('LiveTrickle', () => {
         noteLiveTrickleHeartbeat();
         await flush(() => calls.length >= 1);
         expect(calls[0].rows.map((r) => r.timestamp)).toEqual([iso(0), iso(160)]);
+    });
+
+    it('cancels an in-flight A tick on A→B without advancing A mark or publishing A queue as B', async () => {
+        const scopeA = getAuthIdentityScope();
+        const aMarkKey = authScopedStorageKey('live_trickle_mark_v2', scopeA);
+        let releaseFirst!: (value: { error: null }) => void;
+        let firstStarted = false;
+        const published: Record<string, unknown>[][] = [];
+
+        mockState.impl = {
+            from: () => ({
+                upsert: (rows: Record<string, unknown>[]) => {
+                    published.push(rows);
+                    if (!firstStarted) {
+                        firstStarted = true;
+                        return new Promise<{ error: null }>((resolve) => {
+                            releaseFirst = resolve;
+                        });
+                    }
+                    return Promise.resolve({ error: null });
+                },
+                delete: () => ({
+                    eq: () => ({
+                        lt: async () => ({ error: null }),
+                        then: (resolve: (value: { error: null }) => unknown) =>
+                            Promise.resolve({ error: null }).then(resolve),
+                    }),
+                }),
+            }),
+        };
+
+        mockState.queue = [point(0)];
+        startLiveTrickle('voyage-1', scopeA);
+        noteLiveTrickleHeartbeat(scopeA);
+        await flush(() => firstStarted);
+
+        setAuthIdentityScope('user-2');
+        mockState.user = { id: 'user-2' };
+        mockState.queue = [
+            point(40), // deliberately leaked A row in the returned snapshot
+            point(80, { owner_user_id: 'user-2', voyageId: 'voyage-b' }),
+        ];
+        releaseFirst({ error: null });
+        await flush();
+
+        expect(mockState.prefs.has(aMarkKey)).toBe(false);
+        await stopLiveTrickle(true); // B cannot flush/disarm the old A session
+        expect(published).toHaveLength(1);
+
+        const scopeB = getAuthIdentityScope();
+        startLiveTrickle('voyage-b', scopeB);
+        noteLiveTrickleHeartbeat(scopeB);
+        await flush(() => published.length === 2);
+        expect(published[1]).toHaveLength(1);
+        expect(published[1][0]).toMatchObject({
+            user_id: 'user-2',
+            voyage_id: 'voyage-b',
+            timestamp: iso(80),
+        });
     });
 });

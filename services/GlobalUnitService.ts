@@ -11,6 +11,8 @@
  * Stores user preference in localStorage for offline access.
  */
 
+import { authScopedStorageKey } from './authIdentityScope';
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type CurrencyCode = 'AUD' | 'USD' | 'EUR' | 'NZD' | 'FJD' | 'XPF' | 'GBP';
@@ -225,7 +227,7 @@ const DEFAULT_PREFS: UnitPreferences = {
 
 export function getUnitPreferences(): UnitPreferences {
     try {
-        const raw = localStorage.getItem(PREFS_KEY);
+        const raw = localStorage.getItem(authScopedStorageKey(PREFS_KEY));
         return raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS;
     } catch {
         return DEFAULT_PREFS;
@@ -236,7 +238,7 @@ export function setUnitPreferences(prefs: Partial<UnitPreferences>): void {
     const current = getUnitPreferences();
     const updated = { ...current, ...prefs };
     try {
-        localStorage.setItem(PREFS_KEY, JSON.stringify(updated));
+        localStorage.setItem(authScopedStorageKey(PREFS_KEY), JSON.stringify(updated));
     } catch {
         /* full */
     }

@@ -9,8 +9,9 @@
  * formatKnowledgeForPrompt below for the prompt-block shape and the
  * medical recall-not-advise framing the prompt guardrail relies on.
  */
-import { supabase } from './supabase';
+import { getCurrentUser, supabase } from './supabase';
 import { createLogger } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('CalypsoKnowledge');
 
@@ -50,19 +51,31 @@ const CATEGORY_LABEL: Record<KnowledgeCategory, string> = KNOWLEDGE_CATEGORIES.r
     {} as Record<KnowledgeCategory, string>,
 );
 
+async function verifyScopeUser(scope: AuthIdentityScope): Promise<string | null> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+    const user = await getCurrentUser();
+    if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
+    return scope.userId;
+}
+
 /** Fetch all of the signed-in user's knowledge rows (RLS-scoped). */
 export async function getKnowledge(): Promise<VesselKnowledge[]> {
     if (!supabase) return [];
+    const scope = getAuthIdentityScope();
+    const ownerUserId = await verifyScopeUser(scope);
+    if (!ownerUserId) return [];
     const { data, error } = await supabase
         .from('vessel_knowledge')
         .select('*')
+        .eq('user_id', ownerUserId)
         .order('category', { ascending: true })
         .order('updated_at', { ascending: false });
+    if (!isAuthIdentityScopeCurrent(scope)) return [];
     if (error) {
         log.warn('getKnowledge failed:', error.message);
         return [];
     }
-    return (data ?? []) as VesselKnowledge[];
+    return ((data ?? []) as VesselKnowledge[]).filter((row) => row.user_id === ownerUserId);
 }
 
 export async function addKnowledge(
@@ -71,22 +84,23 @@ export async function addKnowledge(
     body: string,
 ): Promise<VesselKnowledge | null> {
     if (!supabase) return null;
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+    const scope = getAuthIdentityScope();
+    const ownerUserId = await verifyScopeUser(scope);
+    if (!ownerUserId) {
         log.warn('addKnowledge: not signed in');
         return null;
     }
     const { data, error } = await supabase
         .from('vessel_knowledge')
-        .insert({ user_id: user.id, category, title: title.trim(), body: body.trim() })
+        .insert({ user_id: ownerUserId, category, title: title.trim(), body: body.trim() })
         .select()
         .single();
+    if (!isAuthIdentityScopeCurrent(scope)) return null;
     if (error) {
         log.warn('addKnowledge failed:', error.message);
         return null;
     }
+    if (!data || (data as VesselKnowledge).user_id !== ownerUserId) return null;
     invalidateKnowledgeBlock();
     return data as VesselKnowledge;
 }
@@ -96,14 +110,24 @@ export async function updateKnowledge(
     patch: Partial<Pick<VesselKnowledge, 'category' | 'title' | 'body'>>,
 ): Promise<boolean> {
     if (!supabase) return false;
+    const scope = getAuthIdentityScope();
+    const ownerUserId = await verifyScopeUser(scope);
+    if (!ownerUserId) return false;
     const trimmed = {
         ...patch,
         ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
         ...(patch.body !== undefined ? { body: patch.body.trim() } : {}),
     };
-    const { error } = await supabase.from('vessel_knowledge').update(trimmed).eq('id', id);
-    if (error) {
-        log.warn('updateKnowledge failed:', error.message);
+    const { data, error } = await supabase
+        .from('vessel_knowledge')
+        .update(trimmed)
+        .eq('user_id', ownerUserId)
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+    if (!isAuthIdentityScopeCurrent(scope)) return false;
+    if (error || !data) {
+        log.warn('updateKnowledge failed:', error?.message ?? 'row not found');
         return false;
     }
     invalidateKnowledgeBlock();
@@ -112,9 +136,19 @@ export async function updateKnowledge(
 
 export async function deleteKnowledge(id: string): Promise<boolean> {
     if (!supabase) return false;
-    const { error } = await supabase.from('vessel_knowledge').delete().eq('id', id);
-    if (error) {
-        log.warn('deleteKnowledge failed:', error.message);
+    const scope = getAuthIdentityScope();
+    const ownerUserId = await verifyScopeUser(scope);
+    if (!ownerUserId) return false;
+    const { data, error } = await supabase
+        .from('vessel_knowledge')
+        .delete()
+        .eq('user_id', ownerUserId)
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+    if (!isAuthIdentityScopeCurrent(scope)) return false;
+    if (error || !data) {
+        log.warn('deleteKnowledge failed:', error?.message ?? 'row not found');
         return false;
     }
     invalidateKnowledgeBlock();
@@ -171,12 +205,12 @@ export function buildKnowledgePromptBlock(rows: VesselKnowledge[]): string {
 // The orchestrator builds the system prompt on every turn; we must NOT
 // hit Supabase each time. Cache the formatted block; invalidate on any
 // local mutation so edits in Settings reflect on the next chat.
-let _blockCache: { text: string; fetchedAt: number } | null = null;
+const blockCacheByIdentity = new Map<string, { text: string; fetchedAt: number }>();
 const BLOCK_TTL_MS = 5 * 60 * 1000;
 
 /** Clear the cached prompt block (called after any mutation). */
 export function invalidateKnowledgeBlock(): void {
-    _blockCache = null;
+    blockCacheByIdentity.delete(getAuthIdentityScope().key);
 }
 
 /**
@@ -185,12 +219,16 @@ export function invalidateKnowledgeBlock(): void {
  * knowledge rows, so the caller skips the section entirely.
  */
 export async function getKnowledgePromptBlock(): Promise<string> {
+    const scope = getAuthIdentityScope();
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return '';
     const now = Date.now();
-    if (_blockCache && now - _blockCache.fetchedAt < BLOCK_TTL_MS) {
-        return _blockCache.text;
+    const cached = blockCacheByIdentity.get(scope.key);
+    if (cached && now - cached.fetchedAt < BLOCK_TTL_MS) {
+        return cached.text;
     }
     const rows = await getKnowledge();
+    if (!isAuthIdentityScopeCurrent(scope)) return '';
     const text = buildKnowledgePromptBlock(rows);
-    _blockCache = { text, fetchedAt: now };
+    blockCacheByIdentity.set(scope.key, { text, fetchedAt: now });
     return text;
 }

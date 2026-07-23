@@ -6,8 +6,23 @@
  * that previously triggered 10-20 sequential re-renders now cause just 1.
  */
 
-import { useReducer } from 'react';
+import { useEffect, useReducer } from 'react';
 import { CrewCard, SailorMatch, CrewProfile, CrewSearchFilters, ListingType } from '../services/LonelyHeartsService';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+
+function readInteractionIds(key: string, scope: AuthIdentityScope = getAuthIdentityScope()): Set<string> {
+    try {
+        const saved = localStorage.getItem(authScopedStorageKey(key, scope));
+        return saved ? new Set(JSON.parse(saved) as string[]) : new Set();
+    } catch {
+        return new Set();
+    }
+}
 
 // ── State shape ──────────────────────────────────────────────────
 
@@ -173,7 +188,8 @@ export type CrewFinderAction =
     | { type: 'SWIPE_ANIMATE'; payload: { direction: 'left' | 'right' } }
     | { type: 'SWIPE_COMPLETE'; payload: { newIndex: number } }
     | { type: 'GO_TO_START' }
-    | { type: 'REMOVE_LISTING'; payload: string }; // userId
+    | { type: 'REMOVE_LISTING'; payload: string }
+    | { type: 'RESET_IDENTITY'; payload: { likedUsers: Set<string>; messagedUsers: Set<string> } }; // userId
 
 // ── Initial state ────────────────────────────────────────────────
 
@@ -478,6 +494,13 @@ function crewFinderReducer(state: CrewFinderState, action: CrewFinderAction): Cr
         case 'REMOVE_LISTING':
             return { ...state, listings: state.listings.filter((l) => l.user_id !== action.payload) };
 
+        case 'RESET_IDENTITY':
+            return {
+                ...initialState,
+                likedUsers: action.payload.likedUsers,
+                messagedUsers: action.payload.messagedUsers,
+            };
+
         default:
             return state;
     }
@@ -488,22 +511,24 @@ function crewFinderReducer(state: CrewFinderState, action: CrewFinderAction): Cr
 export function useCrewFinderState() {
     // Initialise likedUsers and messagedUsers from localStorage
     const [state, dispatch] = useReducer(crewFinderReducer, initialState, (init) => {
-        let likedUsers = new Set<string>();
-        let messagedUsers = new Set<string>();
-        try {
-            const saved = localStorage.getItem('crew_liked_users');
-            if (saved) likedUsers = new Set(JSON.parse(saved));
-        } catch {
-            /* empty */
-        }
-        try {
-            const saved = localStorage.getItem('crew_messaged_users');
-            if (saved) messagedUsers = new Set(JSON.parse(saved));
-        } catch {
-            /* empty */
-        }
+        const likedUsers = readInteractionIds('crew_liked_users');
+        const messagedUsers = readInteractionIds('crew_messaged_users');
         return { ...init, likedUsers, messagedUsers };
     });
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope((next) => {
+                dispatch({
+                    type: 'RESET_IDENTITY',
+                    payload: {
+                        likedUsers: readInteractionIds('crew_liked_users', next),
+                        messagedUsers: readInteractionIds('crew_messaged_users', next),
+                    },
+                });
+            }),
+        [],
+    );
 
     return { state, dispatch };
 }

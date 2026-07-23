@@ -8,7 +8,7 @@
  * the passage planner computes a route on the Charts page).
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { usePassageStore, type PassageLeg } from '../../stores/PassageStore';
 import { PassageRouteMap } from './PassageRouteMap';
@@ -17,6 +17,8 @@ import type { PassageBriefData } from '../../services/PassageBriefService';
 import { useSettings } from '../../context/SettingsContext';
 import type { ShipLogEntry } from '../../types';
 import { TrackMapViewer } from '../TrackMapViewer';
+import { useReadinessIdentityScope, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
+import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -217,6 +219,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     arriveLon,
     onDepartureTimeChange,
 }) => {
+    const identityScope = useReadinessIdentityScope();
     const passage = usePassageStore();
     // settings.vessel.cruisingSpeed feeds the duration estimate when
     // there's no ETA on file. SettingsContext is reactive — change the
@@ -224,28 +227,25 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // re-derives the displayed duration on the next render.
     const { settings } = useSettings();
 
-    const [localTime, setLocalTime] = useState<string>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            return stored || '';
-        } catch {
-            return '';
-        }
-    });
+    const [localTime, setLocalTime] = useScopedReadinessStorageState<string>(STORAGE_KEY, voyageId, '');
 
     // Listen for cross-component departure-time updates — fired by
     // WeatherWindowCard when the user accepts a recommended departure
     // window. Without this, the time we show stays stale until the
     // user reloads the page or unmounts/remounts the card. Keeps the
-    // localStorage write + state both fresh.
+    // account/voyage-scoped local mirror + state both fresh.
     useEffect(() => {
+        const operationScope = identityScope;
         const handler = (e: Event) => {
-            const detail = (e as CustomEvent).detail as { hhmm?: string } | undefined;
-            if (detail?.hhmm) setLocalTime(detail.hhmm);
+            const detail = (e as CustomEvent).detail as { voyageId?: string; hhmm?: string } | undefined;
+            const hhmm = detail?.hhmm;
+            if (isAuthIdentityScopeCurrent(operationScope) && detail?.voyageId === voyageId && hhmm) {
+                setLocalTime(hhmm);
+            }
         };
         window.addEventListener('thalassa:departure-time-updated', handler);
         return () => window.removeEventListener('thalassa:departure-time-updated', handler);
-    }, []);
+    }, [identityScope, voyageId, setLocalTime]);
 
     const [showLegs, setShowLegs] = useState(false);
 
@@ -262,14 +262,36 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // Ref mirror of the loaded track so the live-poll interval can read the
     // latest without re-subscribing on every appended point.
     const trackEntriesRef = useRef<ShipLogEntry[] | null>(null);
+    const trackGenerationRef = useRef(0);
+
+    useLayoutEffect(() => {
+        trackGenerationRef.current += 1;
+        trackEntriesRef.current = null;
+        setTrackEntries(null);
+        setShowTrackViewer(false);
+        setLoadingTrack(false);
+        setShowLegs(false);
+    }, [identityScope, voyageId]);
+
+    useEffect(
+        () => () => {
+            trackGenerationRef.current += 1;
+        },
+        [],
+    );
 
     const handleOpenTrackViewer = useCallback(async () => {
+        const operationScope = identityScope;
+        const operationGeneration = ++trackGenerationRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) && trackGenerationRef.current === operationGeneration;
         triggerHaptic('light');
         setShowTrackViewer(true);
         // One-shot per mount — reuse once loaded.
         if (trackEntries !== null) return;
 
         const { getCachedVoyageTrack, setCachedVoyageTrack } = await import('../../services/shiplog/VoyageTrackCache');
+        if (!isOperationCurrent()) return;
 
         // Local-first: paint the cached track instantly so a flaky boat
         // connection — or a SECOND device viewing the recording device's
@@ -277,6 +299,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         // route up"). Then refresh from Supabase in the background and swap
         // in fresher data if it lands.
         const cached = await getCachedVoyageTrack(voyageId);
+        if (!isOperationCurrent()) return;
         const haveCache = !!cached && cached.length >= 2;
         if (haveCache) setTrackEntries(cached);
         else setLoadingTrack(true);
@@ -292,14 +315,16 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
 
         try {
             const { getLogEntries } = await import('../../services/shiplog/EntryCrud');
+            if (!isOperationCurrent()) return;
             const all = await withTimeout(getLogEntries(10_000), haveCache ? 30_000 : 8_000);
+            if (!isOperationCurrent()) return;
 
             // Sailed track first — entries written by the GPS pipeline once
             // the voyage casts off, keyed on the voyage's UUID (real telemetry).
             const sailed = voyageId ? all.filter((e) => e.voyageId === voyageId) : [];
             if (sailed.length >= 2) {
                 setTrackEntries(sailed);
-                void setCachedVoyageTrack(voyageId, sailed);
+                if (isOperationCurrent()) void setCachedVoyageTrack(voyageId, sailed);
                 return;
             }
 
@@ -309,12 +334,14 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             const expectedLabel = (voyageName || `${departPort ?? ''} → ${destPort ?? ''}`).trim().toLowerCase();
             if (expectedLabel) {
                 const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
+                if (!isOperationCurrent()) return;
                 const { routes } = await fetchRoutesAndTracks();
+                if (!isOperationCurrent()) return;
                 const matched = routes.find((r) => r.label.trim().toLowerCase() === expectedLabel);
                 if (matched) {
                     const planned = all.filter((e) => e.voyageId === matched.id);
                     setTrackEntries(planned);
-                    void setCachedVoyageTrack(voyageId, planned);
+                    if (isOperationCurrent()) void setCachedVoyageTrack(voyageId, planned);
                     return;
                 }
             }
@@ -323,11 +350,11 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         } catch {
             // Timeout or fetch error — keep the cached track if we have one,
             // otherwise show the empty state (never an infinite spinner).
-            if (!haveCache) setTrackEntries([]);
+            if (!haveCache && isOperationCurrent()) setTrackEntries([]);
         } finally {
-            setLoadingTrack(false);
+            if (isOperationCurrent()) setLoadingTrack(false);
         }
-    }, [trackEntries, voyageId, voyageName, departPort, destPort]);
+    }, [identityScope, trackEntries, voyageId, voyageName, departPort, destPort]);
 
     useEffect(() => {
         trackEntriesRef.current = trackEntries;
@@ -342,12 +369,16 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // offline boat LAN has nothing to poll.
     useEffect(() => {
         if (!showTrackViewer || !voyageId) return;
+        const operationScope = identityScope;
+        const operationGeneration = trackGenerationRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) && trackGenerationRef.current === operationGeneration;
         let stopped = false;
         const POLL_MS = 15_000;
         const ACTIVE_WINDOW_MS = 15 * 60_000;
 
         const tick = async () => {
-            if (stopped) return;
+            if (stopped || !isOperationCurrent()) return;
             const entries = trackEntriesRef.current;
             if (!entries || entries.length === 0) return;
             const newestMs = entries.reduce((m, e) => Math.max(m, Date.parse(e.timestamp)), 0);
@@ -359,12 +390,14 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             }
             try {
                 const { getVoyageEntriesSince } = await import('../../services/shiplog/EntryCrud');
+                if (stopped || !isOperationCurrent()) return;
                 const fresh = await getVoyageEntriesSince(voyageId, new Date(newestMs).toISOString());
-                if (stopped || fresh.length === 0) return;
+                if (stopped || !isOperationCurrent() || fresh.length === 0) return;
                 setTrackEntries((prev) => {
+                    if (!isOperationCurrent()) return prev;
                     const merged = [...(prev ?? []), ...fresh];
                     void import('../../services/shiplog/VoyageTrackCache').then(({ setCachedVoyageTrack }) =>
-                        setCachedVoyageTrack(voyageId, merged),
+                        isOperationCurrent() ? setCachedVoyageTrack(voyageId, merged) : undefined,
                     );
                     return merged;
                 });
@@ -378,7 +411,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             stopped = true;
             clearInterval(id);
         };
-    }, [showTrackViewer, voyageId]);
+    }, [identityScope, showTrackViewer, voyageId]);
 
     const effectiveTime = localTime || (departureTime ? departureTime.split('T')[1]?.slice(0, 5) : '');
 
@@ -386,15 +419,10 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         (e: React.ChangeEvent<HTMLInputElement>) => {
             const val = e.target.value;
             setLocalTime(val);
-            try {
-                localStorage.setItem(STORAGE_KEY, val);
-            } catch {
-                /* ignore */
-            }
             onDepartureTimeChange?.(val);
             triggerHaptic('light');
         },
-        [onDepartureTimeChange],
+        [onDepartureTimeChange, setLocalTime],
     );
 
     // ── Merge strategy (2026-05-05): props (voyage) win over PassageStore ──

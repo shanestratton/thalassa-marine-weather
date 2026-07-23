@@ -7,6 +7,8 @@
  * Returns: { articles: Array<{ title, snippet, url, source, icon, image, publishedAt }> }
  */
 
+import { safeRssHttpsUrl } from './urlSecurity.ts';
+
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -124,15 +126,16 @@ async function fetchFeed(feed: { url: string; source: string; icon: string }): P
 
             const itemXml = match[1];
             const title = stripHtml(getTag(itemXml, 'title'));
-            const link = stripHtml(getTag(itemXml, 'link'));
+            const link = safeRssHttpsUrl(stripHtml(getTag(itemXml, 'link')));
             const description = getTag(itemXml, 'description');
             const contentEncoded = getTag(itemXml, 'content:encoded');
             const pubDate = stripHtml(getTag(itemXml, 'pubDate'));
 
             if (!title || !link) continue;
 
-            const image = extractImage(itemXml);
+            const image = safeRssHttpsUrl(extractImage(itemXml));
             const snippet = toSnippet(description || contentEncoded);
+            const publishedMs = pubDate ? Date.parse(pubDate) : Number.NaN;
 
             articles.push({
                 title,
@@ -141,7 +144,9 @@ async function fetchFeed(feed: { url: string; source: string; icon: string }): P
                 source: feed.source,
                 icon: feed.icon,
                 image,
-                publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+                publishedAt: Number.isFinite(publishedMs)
+                    ? new Date(publishedMs).toISOString()
+                    : new Date().toISOString(),
             });
         }
 

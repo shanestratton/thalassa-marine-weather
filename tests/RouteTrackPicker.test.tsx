@@ -49,7 +49,9 @@ describe('RouteTrackPicker', () => {
         const input = props();
         render(<RouteTrackPicker {...input} />);
 
-        expect(screen.getByRole('dialog', { name: 'Routes picker' })).toHaveAttribute('aria-modal', 'true');
+        const dialog = screen.getByRole('dialog', { name: 'Routes picker' });
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(dialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         await screen.findByRole('button', { name: /Brisbane to Moreton/ });
         fireEvent.click(screen.getByRole('button', { name: /Brisbane to Moreton/ }));
 

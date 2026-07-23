@@ -12,6 +12,7 @@
  */
 import React, { useId, useRef } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from './OverlayPortal';
 
 interface GpsAcquiringOverlayProps {
     open: boolean;
@@ -30,7 +31,7 @@ export const GpsAcquiringOverlay: React.FC<GpsAcquiringOverlayProps> = ({ open, 
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6">
+        <OverlayPortal layer="critical" className="flex items-center justify-center p-6">
             <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm" aria-hidden="true" />
             <div
                 ref={dialogRef}
@@ -83,6 +84,6 @@ export const GpsAcquiringOverlay: React.FC<GpsAcquiringOverlayProps> = ({ open, 
                     Keep waiting in background
                 </button>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

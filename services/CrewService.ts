@@ -12,8 +12,37 @@
 import { supabase } from './supabase';
 
 import { createLogger } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('CrewService');
+
+interface ScopedUser {
+    id: string;
+    email?: string | null;
+}
+
+function captureAuthenticatedScope(): AuthIdentityScope | null {
+    const scope = getAuthIdentityScope();
+    return scope.userId && isAuthIdentityScopeCurrent(scope) ? scope : null;
+}
+
+function identityStillOwns(scope: AuthIdentityScope, userId: string = scope.userId ?? ''): boolean {
+    return Boolean(userId) && scope.userId === userId && isAuthIdentityScopeCurrent(scope);
+}
+
+/**
+ * Supabase auth is mutable process state. Every operation captures the
+ * synchronous application identity first, then verifies that Supabase still
+ * represents that exact user before issuing an owner-filtered query.
+ */
+async function getScopedUser(scope: AuthIdentityScope): Promise<ScopedUser | null> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+    if (!user || !identityStillOwns(scope, user.id)) return null;
+    return user;
+}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -113,6 +142,31 @@ export const DEFAULT_PERMISSIONS: CrewPermissions = {
     can_view_passage_checklist: false,
 };
 
+/**
+ * Keep the legacy/shared-register selector and the canonical JSONB passage
+ * flags in sync. Existing vessel-level permission flags are preserved; only
+ * the four one-to-one passage flags and their parent gate are derived here.
+ */
+export function syncPassagePermissions(
+    registers: SharedRegister[],
+    current: Partial<CrewPermissions> = DEFAULT_PERMISSIONS,
+): CrewPermissions {
+    const canViewMeals = registers.includes('passage_meals');
+    const canViewChat = registers.includes('passage_chat');
+    const canViewRoute = registers.includes('passage_route');
+    const canViewChecklist = registers.includes('passage_checklist');
+
+    return {
+        ...DEFAULT_PERMISSIONS,
+        ...current,
+        can_view_passage: canViewMeals || canViewChat || canViewRoute || canViewChecklist,
+        can_view_passage_meals: canViewMeals,
+        can_view_passage_chat: canViewChat,
+        can_view_passage_route: canViewRoute,
+        can_view_passage_checklist: canViewChecklist,
+    };
+}
+
 export type CrewRole = 'co-skipper' | 'navigator' | 'deckhand' | 'punter';
 
 export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
@@ -209,7 +263,10 @@ export interface ManifestInvite {
  * Look up a user by email via database function (SECURITY DEFINER).
  * No Edge Function deployment needed — queries auth.users server-side.
  */
-export async function lookupUserByEmail(email: string): Promise<{
+async function lookupUserByEmailForScope(
+    email: string,
+    scope: AuthIdentityScope,
+): Promise<{
     found: boolean;
     user_id?: string;
     email?: string;
@@ -218,14 +275,13 @@ export async function lookupUserByEmail(email: string): Promise<{
     if (!supabase) return null;
 
     try {
-        const {
-            data: { session },
-        } = await supabase.auth.getSession();
-        if (!session) return null;
+        const user = await getScopedUser(scope);
+        if (!user) return null;
 
         const { data, error } = await supabase.rpc('lookup_user_by_email', {
             lookup_email: email.toLowerCase().trim(),
         });
+        if (!identityStillOwns(scope, user.id)) return null;
 
         if (error) {
             log.error('[CrewService] Lookup failed:', error.message);
@@ -239,6 +295,16 @@ export async function lookupUserByEmail(email: string): Promise<{
     }
 }
 
+export async function lookupUserByEmail(email: string): Promise<{
+    found: boolean;
+    user_id?: string;
+    email?: string;
+    reason?: string;
+} | null> {
+    const scope = captureAuthenticatedScope();
+    return scope ? lookupUserByEmailForScope(email, scope) : null;
+}
+
 /**
  * Invite a crew member by email with specific register permissions.
  * Creates a pending invite that the crew member must accept.
@@ -249,16 +315,18 @@ export async function inviteCrew(
     voyageId?: string,
 ): Promise<{ success: boolean; error?: string }> {
     if (!supabase) return { success: false, error: 'Not connected' };
+    const scope = captureAuthenticatedScope();
+    if (!scope) return { success: false, error: 'Not authenticated' };
 
     try {
-        // Get current user
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return { success: false, error: 'Not authenticated' };
 
         // Look up the crew member
-        const lookup = await lookupUserByEmail(crewEmail);
+        const lookup = await lookupUserByEmailForScope(crewEmail, scope);
+        if (!identityStillOwns(scope, user.id)) {
+            return { success: false, error: 'Account changed while sending the invite' };
+        }
         if (!lookup?.found) {
             return {
                 success: false,
@@ -272,11 +340,14 @@ export async function inviteCrew(
         // Check if already invited (scope to voyage if provided)
         let existingQuery = supabase
             .from('vessel_crew')
-            .select('id, status')
+            .select('id, status, permissions')
             .eq('owner_id', user.id)
             .eq('crew_user_id', lookup.user_id!);
         existingQuery = voyageId ? existingQuery.eq('voyage_id', voyageId) : existingQuery.is('voyage_id', null);
-        const { data: existing } = await existingQuery.single();
+        const { data: existing } = await existingQuery.maybeSingle();
+        if (!identityStillOwns(scope, user.id)) {
+            return { success: false, error: 'Account changed while sending the invite' };
+        }
 
         if (existing) {
             if (existing.status === 'accepted') {
@@ -291,14 +362,24 @@ export async function inviteCrew(
                 .update({
                     status: 'pending',
                     shared_registers: registers,
+                    permissions: syncPassagePermissions(registers, existing.permissions),
                     updated_at: new Date().toISOString(),
                 })
-                .eq('id', existing.id);
+                .eq('id', existing.id)
+                .eq('owner_id', user.id);
 
-            if (updateError) return { success: false, error: updateError.message };
+            if (updateError || !identityStillOwns(scope, user.id)) {
+                return {
+                    success: false,
+                    error: updateError?.message || 'Account changed while sending the invite',
+                };
+            }
             return { success: true };
         }
 
+        if (!identityStillOwns(scope, user.id)) {
+            return { success: false, error: 'Account changed while sending the invite' };
+        }
         // Create new invite
         const { error: insertError } = await supabase.from('vessel_crew').insert({
             owner_id: user.id,
@@ -306,12 +387,18 @@ export async function inviteCrew(
             crew_email: crewEmail.toLowerCase().trim(),
             owner_email: user.email || '',
             shared_registers: registers,
+            permissions: syncPassagePermissions(registers),
             status: 'pending',
             role: 'deckhand',
             ...(voyageId ? { voyage_id: voyageId } : {}),
         });
 
-        if (insertError) return { success: false, error: insertError.message };
+        if (insertError || !identityStillOwns(scope, user.id)) {
+            return {
+                success: false,
+                error: insertError?.message || 'Account changed while sending the invite',
+            };
+        }
         return { success: true };
     } catch (e) {
         return { success: false, error: String(e) };
@@ -324,11 +411,11 @@ export async function inviteCrew(
  */
 export async function getMyCrew(voyageId?: string): Promise<CrewMember[]> {
     if (!supabase) return [];
+    const scope = captureAuthenticatedScope();
+    if (!scope) return [];
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return [];
 
         let query = supabase
@@ -348,7 +435,7 @@ export async function getMyCrew(voyageId?: string): Promise<CrewMember[]> {
             return [];
         }
 
-        return (data || []) as CrewMember[];
+        return identityStillOwns(scope, user.id) ? ((data || []) as CrewMember[]) : [];
     } catch (e) {
         return [];
     }
@@ -359,17 +446,31 @@ export async function getMyCrew(voyageId?: string): Promise<CrewMember[]> {
  */
 export async function updateCrewPermissions(crewId: string, registers: SharedRegister[]): Promise<boolean> {
     if (!supabase) return false;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return false;
 
     try {
+        const user = await getScopedUser(scope);
+        if (!user) return false;
+        const { data: member, error: readError } = await supabase
+            .from('vessel_crew')
+            .select('permissions')
+            .eq('id', crewId)
+            .eq('owner_id', user.id)
+            .maybeSingle();
+        if (readError || !member || !identityStillOwns(scope, user.id)) return false;
+
         const { error } = await supabase
             .from('vessel_crew')
             .update({
                 shared_registers: registers,
+                permissions: syncPassagePermissions(registers, member?.permissions),
                 updated_at: new Date().toISOString(),
             })
-            .eq('id', crewId);
+            .eq('id', crewId)
+            .eq('owner_id', user.id);
 
-        return !error;
+        return !error && identityStillOwns(scope, user.id);
     } catch (e) {
         return false;
     }
@@ -380,11 +481,15 @@ export async function updateCrewPermissions(crewId: string, registers: SharedReg
  */
 export async function removeCrew(crewId: string): Promise<boolean> {
     if (!supabase) return false;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return false;
 
     try {
-        const { error } = await supabase.from('vessel_crew').delete().eq('id', crewId);
+        const user = await getScopedUser(scope);
+        if (!user) return false;
+        const { error } = await supabase.from('vessel_crew').delete().eq('id', crewId).eq('owner_id', user.id);
 
-        return !error;
+        return !error && identityStillOwns(scope, user.id);
     } catch (e) {
         return false;
     }
@@ -397,11 +502,11 @@ export async function removeCrew(crewId: string): Promise<boolean> {
  */
 export async function getMyInvites(): Promise<CrewMember[]> {
     if (!supabase) return [];
+    const scope = captureAuthenticatedScope();
+    if (!scope) return [];
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -412,7 +517,7 @@ export async function getMyInvites(): Promise<CrewMember[]> {
             .order('created_at', { ascending: false });
 
         if (error) return [];
-        return (data || []) as CrewMember[];
+        return identityStillOwns(scope, user.id) ? ((data || []) as CrewMember[]) : [];
     } catch (e) {
         return [];
     }
@@ -423,11 +528,11 @@ export async function getMyInvites(): Promise<CrewMember[]> {
  */
 export async function getMyMemberships(): Promise<CrewMember[]> {
     if (!supabase) return [];
+    const scope = captureAuthenticatedScope();
+    if (!scope) return [];
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -438,7 +543,7 @@ export async function getMyMemberships(): Promise<CrewMember[]> {
             .order('created_at', { ascending: false });
 
         if (error) return [];
-        return (data || []) as CrewMember[];
+        return identityStillOwns(scope, user.id) ? ((data || []) as CrewMember[]) : [];
     } catch (e) {
         return [];
     }
@@ -449,14 +554,20 @@ export async function getMyMemberships(): Promise<CrewMember[]> {
  */
 export async function acceptInvite(inviteId: string): Promise<boolean> {
     if (!supabase) return false;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return false;
 
     try {
+        const user = await getScopedUser(scope);
+        if (!user) return false;
         // Get invite details first (need captain's user_id + crew user_id)
         const { data: invite } = await supabase
             .from('vessel_crew')
             .select('owner_id, crew_user_id')
             .eq('id', inviteId)
+            .eq('crew_user_id', user.id)
             .single();
+        if (!invite || !identityStillOwns(scope, user.id)) return false;
 
         const { error } = await supabase
             .from('vessel_crew')
@@ -464,13 +575,16 @@ export async function acceptInvite(inviteId: string): Promise<boolean> {
                 status: 'accepted',
                 updated_at: new Date().toISOString(),
             })
-            .eq('id', inviteId);
+            .eq('id', inviteId)
+            .eq('crew_user_id', user.id)
+            .eq('status', 'pending');
 
-        if (error) return false;
+        if (error || !identityStillOwns(scope, user.id)) return false;
 
         // Fire-and-forget: add crew to captain's voyage channels
         if (invite?.owner_id && invite?.crew_user_id) {
             import('./ChatService').then(({ ChatService }) => {
+                if (!identityStillOwns(scope, user.id)) return;
                 ChatService.addCrewToVoyageChannels(invite.owner_id, invite.crew_user_id).catch(() => {
                     /* best effort */
                 });
@@ -488,17 +602,23 @@ export async function acceptInvite(inviteId: string): Promise<boolean> {
  */
 export async function declineInvite(inviteId: string): Promise<boolean> {
     if (!supabase) return false;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return false;
 
     try {
+        const user = await getScopedUser(scope);
+        if (!user) return false;
         const { error } = await supabase
             .from('vessel_crew')
             .update({
                 status: 'declined',
                 updated_at: new Date().toISOString(),
             })
-            .eq('id', inviteId);
+            .eq('id', inviteId)
+            .eq('crew_user_id', user.id)
+            .eq('status', 'pending');
 
-        return !error;
+        return !error && identityStillOwns(scope, user.id);
     } catch (e) {
         return false;
     }
@@ -509,11 +629,20 @@ export async function declineInvite(inviteId: string): Promise<boolean> {
  */
 export async function leaveVessel(membershipId: string): Promise<boolean> {
     if (!supabase) return false;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return false;
 
     try {
-        const { error } = await supabase.from('vessel_crew').delete().eq('id', membershipId);
+        const user = await getScopedUser(scope);
+        if (!user) return false;
+        const { error } = await supabase
+            .from('vessel_crew')
+            .delete()
+            .eq('id', membershipId)
+            .eq('crew_user_id', user.id)
+            .eq('status', 'accepted');
 
-        return !error;
+        return !error && identityStillOwns(scope, user.id);
     } catch (e) {
         return false;
     }
@@ -526,17 +655,18 @@ export async function leaveVessel(membershipId: string): Promise<boolean> {
  */
 export async function disbandGroup(voyageId?: string): Promise<{ success: boolean; removedCount: number }> {
     if (!supabase) return { success: false, removedCount: 0 };
+    const scope = captureAuthenticatedScope();
+    if (!scope) return { success: false, removedCount: 0 };
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return { success: false, removedCount: 0 };
 
         // Get count first for reporting
         let countQuery = supabase.from('vessel_crew').select('id').eq('owner_id', user.id);
         if (voyageId) countQuery = countQuery.eq('voyage_id', voyageId);
         const { data: members } = await countQuery;
+        if (!identityStillOwns(scope, user.id)) return { success: false, removedCount: 0 };
 
         const count = members?.length || 0;
 
@@ -545,17 +675,19 @@ export async function disbandGroup(voyageId?: string): Promise<{ success: boolea
         if (voyageId) deleteQuery = deleteQuery.eq('voyage_id', voyageId);
         const { error } = await deleteQuery;
 
-        if (error) return { success: false, removedCount: 0 };
+        if (error || !identityStillOwns(scope, user.id)) return { success: false, removedCount: 0 };
 
         // Clear passage plan status
         try {
             const { clearPassagePlan } = await import('./PassagePlanService');
-            clearPassagePlan();
+            if (identityStillOwns(scope, user.id)) clearPassagePlan();
         } catch {
             /* non-critical */
         }
 
-        return { success: true, removedCount: count };
+        return identityStillOwns(scope, user.id)
+            ? { success: true, removedCount: count }
+            : { success: false, removedCount: 0 };
     } catch (e) {
         return { success: false, removedCount: 0 };
     }
@@ -571,11 +703,11 @@ export async function getSharedOwnerForRegister(
     register: SharedRegister,
 ): Promise<{ ownerId: string; ownerEmail: string } | null> {
     if (!supabase) return null;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return null;
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return null;
 
         const { data, error } = await supabase
@@ -587,7 +719,7 @@ export async function getSharedOwnerForRegister(
             .limit(1)
             .single();
 
-        if (error || !data) return null;
+        if (error || !data || !identityStillOwns(scope, user.id)) return null;
         return { ownerId: data.owner_id, ownerEmail: data.owner_email };
     } catch (e) {
         return null;
@@ -599,11 +731,11 @@ export async function getSharedOwnerForRegister(
  */
 export async function getPendingInviteCount(): Promise<number> {
     if (!supabase) return 0;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return 0;
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return 0;
 
         const { count, error } = await supabase
@@ -612,7 +744,7 @@ export async function getPendingInviteCount(): Promise<number> {
             .eq('crew_user_id', user.id)
             .eq('status', 'pending');
 
-        if (error) return 0;
+        if (error || !identityStillOwns(scope, user.id)) return 0;
         return count || 0;
     } catch (e) {
         return 0;
@@ -663,11 +795,11 @@ export async function createManifestInvite(
     email?: string,
 ): Promise<{ success: boolean; code?: string; error?: string }> {
     if (!supabase) return { success: false, error: 'Not connected' };
+    const scope = captureAuthenticatedScope();
+    if (!scope) return { success: false, error: 'Not authenticated' };
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return { success: false, error: 'Not authenticated' };
 
         const perms: CrewPermissions = {
@@ -679,6 +811,9 @@ export async function createManifestInvite(
         // retry the actual unique insert rather than enumerating other users'
         // invite rows to check for collisions.
         for (let attempt = 0; attempt < 5; attempt++) {
+            if (!identityStillOwns(scope, user.id)) {
+                return { success: false, error: 'Account changed while creating the invite' };
+            }
             const code = generateManifestCode();
             const { error } = await supabase.from('manifest_invites').insert({
                 owner_id: user.id,
@@ -689,7 +824,11 @@ export async function createManifestInvite(
                 status: 'pending',
             });
 
-            if (!error) return { success: true, code };
+            if (!error) {
+                return identityStillOwns(scope, user.id)
+                    ? { success: true, code }
+                    : { success: false, error: 'Account changed while creating the invite' };
+            }
             if (error.code !== '23505') {
                 return { success: false, error: error.message };
             }
@@ -708,17 +847,20 @@ export async function redeemManifestCode(
     code: string,
 ): Promise<{ success: boolean; error?: string; vesselName?: string }> {
     if (!supabase) return { success: false, error: 'Not connected' };
+    const scope = captureAuthenticatedScope();
+    if (!scope) return { success: false, error: 'Not authenticated' };
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return { success: false, error: 'Not authenticated' };
 
         const { data, error } = await supabase.rpc('redeem_manifest_invite', {
             p_code: code.toUpperCase().trim(),
             p_device_id: getDeviceId(),
         });
+        if (!identityStillOwns(scope, user.id)) {
+            return { success: false, error: 'Account changed while joining the vessel' };
+        }
         if (error) return { success: false, error: error.message };
 
         const result = data as {
@@ -743,11 +885,11 @@ export async function redeemManifestCode(
  */
 export async function getMyManifestInvites(): Promise<ManifestInvite[]> {
     if (!supabase) return [];
+    const scope = captureAuthenticatedScope();
+    if (!scope) return [];
 
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getScopedUser(scope);
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -757,7 +899,7 @@ export async function getMyManifestInvites(): Promise<ManifestInvite[]> {
             .order('created_at', { ascending: false });
 
         if (error) return [];
-        return (data || []) as ManifestInvite[];
+        return identityStillOwns(scope, user.id) ? ((data || []) as ManifestInvite[]) : [];
     } catch {
         return [];
     }
@@ -768,11 +910,19 @@ export async function getMyManifestInvites(): Promise<ManifestInvite[]> {
  */
 export async function revokeManifestInvite(inviteId: string): Promise<boolean> {
     if (!supabase) return false;
+    const scope = captureAuthenticatedScope();
+    if (!scope) return false;
 
     try {
-        const { error } = await supabase.from('manifest_invites').update({ status: 'revoked' }).eq('id', inviteId);
+        const user = await getScopedUser(scope);
+        if (!user) return false;
+        const { error } = await supabase
+            .from('manifest_invites')
+            .update({ status: 'revoked' })
+            .eq('id', inviteId)
+            .eq('owner_id', user.id);
 
-        return !error;
+        return !error && identityStillOwns(scope, user.id);
     } catch {
         return false;
     }

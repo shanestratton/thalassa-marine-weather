@@ -19,7 +19,7 @@
  *   → UI shows consensus/divergence for GO/NO-GO decision
  */
 
-import { getOpenMeteoKey } from './keys';
+import { fetchOpenMeteoPoints } from './openMeteoProxy';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -193,7 +193,6 @@ export async function queryMultiModel(
     forecastHours: number = 120,
 ): Promise<MultiModelResult | null> {
     const t0 = performance.now();
-    const omKey = getOpenMeteoKey();
 
     if (waypoints.length === 0) return null;
 
@@ -213,13 +212,9 @@ export async function queryMultiModel(
 
     if (models.length === 0) return null;
 
-    // Build multi-point lat/lon strings
-    const latStr = queryPoints.map((p) => p.lat.toFixed(4)).join(',');
-    const lonStr = queryPoints.map((p) => p.lon.toFixed(4)).join(',');
-
     // Query each model in parallel
     const modelForecasts = await Promise.all(
-        models.map((model) => fetchModelForecast(model, latStr, lonStr, forecastHours, queryPoints.length, omKey)),
+        models.map((model) => fetchModelForecast(model, queryPoints, forecastHours)),
     );
 
     // Build waypoint comparisons
@@ -286,67 +281,47 @@ export function recommendModels(lat: number, lon: number): WeatherModelId[] {
 
 async function fetchModelForecast(
     model: WeatherModelInfo,
-    latStr: string,
-    lonStr: string,
+    points: readonly { lat: number; lon: number }[],
     forecastHours: number,
-    numPoints: number,
-    omKey: string | null,
 ): Promise<ModelForecastPoint[][] | null> {
     try {
-        const params = new URLSearchParams({
-            latitude: latStr,
-            longitude: lonStr,
+        type HourlyPayload = {
+            hourly?: {
+                time?: string[];
+                wind_speed_10m?: number[];
+                wind_direction_10m?: number[];
+                wind_gusts_10m?: number[];
+                pressure_msl?: number[];
+                wave_height?: number[];
+            };
+        };
+        const params = {
             hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl',
-            forecast_hours: String(forecastHours),
+            forecast_hours: forecastHours,
             models: model.openMeteoModel,
             timezone: 'UTC',
-        });
+        };
 
         // Add wave height if available (not all models have it)
         // Open-Meteo marine endpoint provides waves
-        const waveParams = new URLSearchParams({
-            latitude: latStr,
-            longitude: lonStr,
+        const waveParams = {
             hourly: 'wave_height',
-            forecast_hours: String(forecastHours),
+            forecast_hours: forecastHours,
             models: 'best_match',
             timezone: 'UTC',
-        });
-
-        // Always use commercial API — free tier is not licensed for App Store apps
-        const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
-        const waveUrl = 'https://customer-marine-api.open-meteo.com/v1/marine';
-
-        if (omKey) {
-            params.set('apikey', omKey);
-            waveParams.set('apikey', omKey);
-        } else {
-            log.warn(`[MultiModel] No Open-Meteo API key — ${model.name} query may fail`);
-        }
+        };
 
         // Fetch wind/pressure and waves in parallel
-        const [windResp, waveResp] = await Promise.all([
-            fetch(`${baseUrl}?${params}`, { signal: AbortSignal.timeout(15_000) }),
-            fetch(`${waveUrl}?${waveParams}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null),
+        const [windResults, waveResults] = await Promise.all([
+            fetchOpenMeteoPoints<HourlyPayload>('forecast', points, params),
+            fetchOpenMeteoPoints<HourlyPayload>('marine', points, waveParams).catch(() => null),
         ]);
-
-        if (!windResp.ok) {
-            log.warn(`[MultiModel] ${model.name} fetch failed: ${windResp.status}`);
-            return null;
-        }
-
-        const windData = await windResp.json();
-        const waveData = waveResp?.ok ? await waveResp.json() : null;
-
-        // Parse results — Open-Meteo returns array for multi-point queries
-        const windResults = Array.isArray(windData) ? windData : [windData];
-        const waveResults = waveData ? (Array.isArray(waveData) ? waveData : [waveData]) : [];
 
         const allPoints: ModelForecastPoint[][] = [];
 
-        for (let i = 0; i < numPoints; i++) {
+        for (let i = 0; i < points.length; i++) {
             const hourly = windResults[i]?.hourly;
-            const waveHourly = waveResults[i]?.hourly;
+            const waveHourly = waveResults?.[i]?.hourly;
 
             if (!hourly) {
                 allPoints.push([]);

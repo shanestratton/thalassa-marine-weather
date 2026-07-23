@@ -1,5 +1,5 @@
 import { MarineWeatherReport, StormGlassHour, BeaconObservation } from '../../../types';
-import { getOpenMeteoKey } from '../keys';
+import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
 
@@ -119,15 +119,8 @@ const doFetchStormGlassWeather = async (
 
     const fetchHybridContext = async () => {
         try {
-            const omKey = getOpenMeteoKey();
-            if (!omKey) return null; // No free fallback — App Store compliance
-            const baseUrl = 'https://customer-api.open-meteo.com/v1';
-            // Commercial API serves marine data via the main 'forecast' endpoint, not 'marine'.
-            const _marineBaseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
-
             // FIX: Added hourly=uv_index to support Current Card UV display
             // FIX: Changed timezone=UTC to timezone=auto to get location's offset
-            const weatherUrl = `${baseUrl}/forecast?latitude=${lat}&longitude=${lon}&daily=uv_index_max&hourly=uv_index,cape&timezone=auto${omKey ? `&apikey=${omKey}` : ''}`;
 
             // Fetch Marine (Waves) using Ring Search (Proximity)
             let distToWaterIdx = 9999;
@@ -146,7 +139,19 @@ const doFetchStormGlassWeather = async (
                 // Silently ignored — non-critical failure
             }
 
-            const [wRes] = await Promise.all([fetch(weatherUrl).then((r) => r.json())]);
+            const wRes = await fetchOpenMeteoProxy<{
+                elevation?: number;
+                timezone?: string;
+                utc_offset_seconds?: number;
+                hourly?: { time: string[]; uv_index?: number[]; cape?: number[] };
+                daily?: { time: string[]; uv_index_max: number[] };
+            }>('forecast', {
+                latitude: lat.toFixed(4),
+                longitude: lon.toFixed(4),
+                daily: 'uv_index_max',
+                hourly: 'uv_index,cape',
+                timezone: 'auto',
+            });
 
             return {
                 weather: wRes,

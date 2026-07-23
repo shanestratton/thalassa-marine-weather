@@ -6,6 +6,15 @@ declare const Deno: {
     };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseBoundedNumber,
+    parseCoordinate,
+    readJsonObject,
+    readResponseTextLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * route-bathymetric — OSM Graph Dijkstra Marine Router
  *
@@ -76,6 +85,7 @@ interface NavGraph {
 const EARTH_RADIUS_NM = 3440.065;
 const MAX_SNAP_NM = 5.0;
 const GRAPH_CACHE_TTL = 3600000;
+const GRAPH_CACHE_MAX_REGIONS = 8;
 const DEFAULT_DRAFT = 2.0;
 
 // ── Soft Wall Penalties ──
@@ -207,16 +217,56 @@ async function loadGraph(region: string): Promise<CachedGraph> {
     console.info(`[graph] Loading: ${graphUrl}`);
     const t0 = performance.now();
 
-    const resp = await fetch(graphUrl);
+    const resp = await fetchWithTimeout(graphUrl, {}, 15_000);
     if (!resp.ok) throw new Error(`Failed to load graph "${region}": ${resp.status}`);
 
-    const graph: NavGraph = await resp.json();
+    const graphText = await readResponseTextLimited(resp, 40_000_000);
+    if (graphText === null) throw new Error('Navigation graph exceeds byte limit');
+    const graph = JSON.parse(graphText) as NavGraph;
+    if (
+        !graph ||
+        !graph.meta ||
+        !Array.isArray(graph.nodes) ||
+        !Array.isArray(graph.edges) ||
+        graph.nodes.length < 2 ||
+        graph.nodes.length > 1_000_000 ||
+        graph.edges.length < 1 ||
+        graph.edges.length > 4_000_000
+    ) {
+        throw new Error('Navigation graph schema is invalid');
+    }
+    for (const node of graph.nodes) {
+        if (
+            !Array.isArray(node) ||
+            node.length < 2 ||
+            parseCoordinate(node[0], 'lon') === null ||
+            parseCoordinate(node[1], 'lat') === null ||
+            (node[2] !== undefined && (typeof node[2] !== 'number' || !Number.isFinite(node[2])))
+        ) {
+            throw new Error('Navigation graph contains an invalid node');
+        }
+    }
     const hasDepth = graph.meta.coord_order === 'lon_lat_depth';
 
     // Build adjacency
     const adjacency: number[][][] = new Array(graph.nodes.length);
     for (let i = 0; i < graph.nodes.length; i++) adjacency[i] = [];
     for (const edge of graph.edges) {
+        if (
+            !Array.isArray(edge) ||
+            edge.length < 3 ||
+            !Number.isInteger(edge[0]) ||
+            !Number.isInteger(edge[1]) ||
+            edge[0] < 0 ||
+            edge[1] < 0 ||
+            edge[0] >= graph.nodes.length ||
+            edge[1] >= graph.nodes.length ||
+            typeof edge[2] !== 'number' ||
+            !Number.isFinite(edge[2]) ||
+            edge[2] <= 0
+        ) {
+            throw new Error('Navigation graph contains an invalid edge');
+        }
         adjacency[edge[0]].push([edge[1], edge[2]]);
         adjacency[edge[1]].push([edge[0], edge[2]]);
     }
@@ -241,6 +291,10 @@ async function loadGraph(region: string): Promise<CachedGraph> {
     );
 
     const entry: CachedGraph = { graph, adjacency, markerClass, obstacles, hasDepth, loadedAt: Date.now() };
+    if (graphCache.size >= GRAPH_CACHE_MAX_REGIONS && !graphCache.has(region)) {
+        const oldest = [...graphCache.entries()].sort((a, b) => a[1].loadedAt - b[1].loadedAt)[0]?.[0];
+        if (oldest) graphCache.delete(oldest);
+    }
     graphCache.set(region, entry);
     return entry;
 }
@@ -667,16 +721,46 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') return corsResponse(null, 204);
     if (req.method !== 'POST') return jsonResponse({ error: 'POST required' }, 405);
 
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'bathymetric_route', 60, 20, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
+
     const t0 = performance.now();
 
     try {
-        const body: RouteRequest = await req.json();
-        const { origin, destination, via } = body;
-        const region = body.region || 'se_queensland';
-        const draftM = body.vessel_draft ?? DEFAULT_DRAFT;
-
-        if (!origin?.lat || !origin?.lon || !destination?.lat || !destination?.lon) {
-            return jsonResponse({ error: 'Missing origin/destination coordinates' }, 400);
+        const body = await readJsonObject(req, 8192);
+        if (!body) return jsonResponse({ error: 'Invalid JSON request body' }, 400);
+        const originRecord =
+            body.origin && typeof body.origin === 'object' && !Array.isArray(body.origin)
+                ? (body.origin as Record<string, unknown>)
+                : null;
+        const destinationRecord =
+            body.destination && typeof body.destination === 'object' && !Array.isArray(body.destination)
+                ? (body.destination as Record<string, unknown>)
+                : null;
+        const originLat = originRecord ? parseCoordinate(originRecord.lat, 'lat') : null;
+        const originLon = originRecord ? parseCoordinate(originRecord.lon, 'lon') : null;
+        const destinationLat = destinationRecord ? parseCoordinate(destinationRecord.lat, 'lat') : null;
+        const destinationLon = destinationRecord ? parseCoordinate(destinationRecord.lon, 'lon') : null;
+        if (originLat === null || originLon === null || destinationLat === null || destinationLon === null) {
+            return jsonResponse({ error: 'Invalid origin/destination coordinates' }, 400);
+        }
+        const origin = { lat: originLat, lon: originLon };
+        const destination = { lat: destinationLat, lon: destinationLon };
+        const region = typeof body.region === 'string' ? body.region : 'se_queensland';
+        const draftM = parseBoundedNumber(body.vessel_draft ?? DEFAULT_DRAFT, 0.1, 30);
+        if (draftM === null || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(region)) {
+            return jsonResponse({ error: 'Invalid vessel draft or region' }, 400);
+        }
+        let via: { lat: number; lon: number } | undefined;
+        if (body.via !== undefined) {
+            if (!body.via || typeof body.via !== 'object' || Array.isArray(body.via)) {
+                return jsonResponse({ error: 'Invalid via coordinate' }, 400);
+            }
+            const viaRecord = body.via as Record<string, unknown>;
+            const viaLat = parseCoordinate(viaRecord.lat, 'lat');
+            const viaLon = parseCoordinate(viaRecord.lon, 'lon');
+            if (viaLat === null || viaLon === null) return jsonResponse({ error: 'Invalid via coordinate' }, 400);
+            via = { lat: viaLat, lon: viaLon };
         }
 
         console.info(
@@ -853,6 +937,6 @@ Deno.serve(async (req: Request) => {
         });
     } catch (err) {
         console.error('[route] ERROR:', err);
-        return jsonResponse({ error: err instanceof Error ? err.message : String(err) }, 500);
+        return jsonResponse({ error: 'Bathymetric route calculation failed' }, 500);
     }
 });

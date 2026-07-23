@@ -11,6 +11,7 @@
 import React, { useRef } from 'react';
 import type { CrewMember, CrewRole } from '../../services/CrewService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface WatchAssignSheetProps {
     open: boolean;
@@ -79,7 +80,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <OverlayPortal className="flex items-center justify-center p-4">
             {/* Backdrop */}
             <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
@@ -210,6 +211,6 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                     )}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

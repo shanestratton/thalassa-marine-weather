@@ -15,6 +15,7 @@
 import React from 'react';
 import { lazyRetry } from './utils/lazyRetry';
 import type { Feature } from './services/SubscriptionService';
+import { authScopedStorageKey } from './services/authIdentityScope';
 
 // ── Lazy-loaded components ───────────────────────────────────────────────────
 const GalleyPage = lazyRetry(
@@ -176,14 +177,15 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         group: 'standalone',
         getProps: (ctx) => {
             // Check if we came from radio console
-            const returnTo = typeof window !== 'undefined' ? localStorage.getItem('thalassa_settings_return_to') : null;
+            const returnKey = authScopedStorageKey('thalassa_settings_return_to');
+            const returnTo = typeof window !== 'undefined' ? localStorage.getItem(returnKey) : null;
             return {
                 settings: ctx.settings,
                 onSave: ctx.updateSettings,
                 onLocationSelect: ctx.handleFavoriteSelect,
                 onBack: () => {
                     if (returnTo) {
-                        localStorage.removeItem('thalassa_settings_return_to');
+                        localStorage.removeItem(returnKey);
                         ctx.setPage(returnTo);
                     } else {
                         ctx.setPage('vessel');

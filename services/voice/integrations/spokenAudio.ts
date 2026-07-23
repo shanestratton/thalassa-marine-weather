@@ -34,6 +34,10 @@ function dispatchUrl(url: string): void {
     }
 }
 
+function openExternalWebUrl(url: string): void {
+    window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 /**
  * Open Audible. Optional `query` opens the search UI pre-filled —
  * Audible doesn't auto-play search results, the skipper picks one.
@@ -56,7 +60,7 @@ export async function playAudiobook(query: string): Promise<{ content: string; i
 
     if (!Capacitor.isNativePlatform()) {
         try {
-            window.open(universalUrl, '_blank');
+            openExternalWebUrl(universalUrl);
             return {
                 content: JSON.stringify({
                     status: 'opened_web',
@@ -113,7 +117,7 @@ export async function playPodcast(query: string): Promise<{ content: string; isE
 
     if (!Capacitor.isNativePlatform()) {
         try {
-            window.open(universalUrl, '_blank');
+            openExternalWebUrl(universalUrl);
             return {
                 content: JSON.stringify({
                     status: 'opened_web',

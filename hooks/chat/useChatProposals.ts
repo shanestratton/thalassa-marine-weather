@@ -3,8 +3,13 @@
  * Manages channel proposal form, admin instant create, and private channel membership.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { ChatService, ChatChannel } from '../../services/ChatService';
+import { ChatService, ChatChannel, type ChatMessage } from '../../services/ChatService';
 import { toast } from '../../components/Toast';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 export interface UseChatProposalsOptions {
     channels: ChatChannel[];
@@ -31,19 +36,44 @@ export function useChatProposals(options: UseChatProposalsOptions) {
     const [joinRequestSent, setJoinRequestSent] = useState(false);
 
     // --- Report State ---
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [reportingMsg, setReportingMsg] = useState<any | null>(null);
+    const [reportingMsg, setReportingMsg] = useState<ChatMessage | null>(null);
     const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>(
         'inappropriate',
     );
     const [reportSent, setReportSent] = useState(false);
+    const [reportError, setReportError] = useState<string | null>(null);
+    const [reportSubmitting, setReportSubmitting] = useState(false);
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                setShowProposalForm(false);
+                setProposalName('');
+                setProposalDesc('');
+                setProposalSent(false);
+                setProposalIsPrivate(false);
+                setProposalParentId(null);
+                setMemberChannelIds(new Set());
+                setJoinRequestChannel(null);
+                setJoinRequestMessage('');
+                setJoinRequestSent(false);
+                setReportingMsg(null);
+                setReportReason('inappropriate');
+                setReportSent(false);
+                setReportError(null);
+                setReportSubmitting(false);
+            }),
+        [],
+    );
 
     // --- Load Memberships ---
     const loadMemberChannels = useCallback(async () => {
+        const identity = getAuthIdentityScope();
         const ids = new Set<string>();
         for (const ch of channels) {
             if (ch.is_private) {
                 const isMember = await ChatService.isChannelMember(ch.id);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 if (isMember) ids.add(ch.id);
             }
         }
@@ -58,6 +88,7 @@ export function useChatProposals(options: UseChatProposalsOptions) {
 
     const handleProposeChannel = useCallback(async () => {
         if (!proposalName.trim()) return;
+        const identity = getAuthIdentityScope();
 
         let ok = false;
         if (isAdmin) {
@@ -73,6 +104,7 @@ export function useChatProposals(options: UseChatProposalsOptions) {
             if (ok) {
                 // Use fresh fetch (bypass cache) to ensure new channel appears immediately
                 const updated = await ChatService.getChannelsFresh();
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 setChannels(updated);
             }
         } else {
@@ -85,11 +117,13 @@ export function useChatProposals(options: UseChatProposalsOptions) {
                 proposalParentId || undefined,
             );
         }
+        if (!isAuthIdentityScopeCurrent(identity)) return;
 
         if (ok) {
             setProposalSent(true);
             toast.success(isAdmin ? `${proposalName.trim()} created!` : 'Proposal submitted for admin review!');
             setTimeout(() => {
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 setShowProposalForm(false);
                 setProposalSent(false);
                 setProposalName('');
@@ -110,11 +144,15 @@ export function useChatProposals(options: UseChatProposalsOptions) {
 
     const handleSubmitJoinRequest = useCallback(async () => {
         if (!joinRequestChannel) return;
+        const identity = getAuthIdentityScope();
         const ok = await ChatService.requestJoinChannel(joinRequestChannel.id, joinRequestMessage);
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         if (ok) {
             setJoinRequestSent(true);
             toast.success(`Request sent to ${joinRequestChannel.name}!`);
-            setTimeout(() => setJoinRequestChannel(null), 2000);
+            setTimeout(() => {
+                if (isAuthIdentityScopeCurrent(identity)) setJoinRequestChannel(null);
+            }, 2000);
         } else {
             toast.error('Failed to send request — you may already have a pending request');
         }
@@ -151,6 +189,10 @@ export function useChatProposals(options: UseChatProposalsOptions) {
         setReportReason,
         reportSent,
         setReportSent,
+        reportError,
+        setReportError,
+        reportSubmitting,
+        setReportSubmitting,
 
         // Actions
         handleProposeChannel,

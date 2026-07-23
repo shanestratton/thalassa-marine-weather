@@ -11,7 +11,7 @@ declare const Deno: {
  *   - Premium (owner/crew): Rainbow.ai hyper-local nowcast + Open-Meteo atmospheric
  *   - Free (deckhand):      Apple WeatherKit REST API
  *
- * Accepts: GET ?lat=X&lon=Y&user_id=UUID&minified=0|1
+ * Accepts: GET ?lat=X&lon=Y&minified=0|1
  *
  * Returns a standardized JSON schema regardless of upstream provider, so the
  * React frontend and the Raspberry Pi 5 cache hit the same endpoint.
@@ -25,6 +25,13 @@ declare const Deno: {
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseCoordinate,
+    readJsonObject,
+    readResponseJsonObjectLimited,
+} from '../_shared/http-security.ts';
 
 // ════════════════════════════════════════════════════════════════
 // CORS & HELPERS
@@ -219,6 +226,326 @@ const frac = (v: number | null | undefined): number | null => (v != null ? Math.
 // ════════════════════════════════════════════════════════════════
 
 const RAINBOW_NOWCAST = 'https://api.rainbow.ai/nowcast/v1';
+const OPEN_METEO_MAX_BYTES = 1_500_000;
+const RAINBOW_MAX_BYTES = 750_000;
+const WEATHERKIT_MAX_BYTES = 3_000_000;
+
+type NumericSeries = (number | null)[];
+
+interface OpenMeteoPayload extends Record<string, unknown> {
+    current: {
+        temperature_2m?: number | null;
+        apparent_temperature?: number | null;
+        relative_humidity_2m?: number | null;
+        pressure_msl?: number | null;
+        wind_speed_10m?: number | null;
+        wind_direction_10m?: number | null;
+        wind_gusts_10m?: number | null;
+        weather_code?: number | null;
+        cloud_cover?: number | null;
+        precipitation?: number | null;
+        dew_point_2m?: number | null;
+        is_day?: number | null;
+    };
+    hourly: {
+        time: string[];
+        temperature_2m?: NumericSeries;
+        relative_humidity_2m?: NumericSeries;
+        precipitation_probability?: NumericSeries;
+        precipitation?: NumericSeries;
+        weather_code?: NumericSeries;
+        pressure_msl?: NumericSeries;
+        cloud_cover?: NumericSeries;
+        wind_speed_10m?: NumericSeries;
+        wind_direction_10m?: NumericSeries;
+        wind_gusts_10m?: NumericSeries;
+    };
+    daily: {
+        time: string[];
+        weather_code?: NumericSeries;
+        temperature_2m_max?: NumericSeries;
+        temperature_2m_min?: NumericSeries;
+        sunrise?: string[];
+        sunset?: string[];
+        uv_index_max?: NumericSeries;
+        precipitation_sum?: NumericSeries;
+        precipitation_probability_max?: NumericSeries;
+        wind_speed_10m_max?: NumericSeries;
+        wind_gusts_10m_max?: NumericSeries;
+    };
+    timezone?: string;
+}
+
+interface RainbowPayload {
+    forecast?: {
+        precipRate: number;
+        precipType?: string;
+        timestampBegin: number;
+        timestampEnd: number;
+    }[];
+    summary?: { intensity?: string };
+}
+
+interface WeatherKitCurrent {
+    temperature?: number | null;
+    temperatureApparent?: number | null;
+    humidity?: number | null;
+    pressure?: number | null;
+    windSpeed?: number | null;
+    windDirection?: number | null;
+    windGust?: number | null;
+    conditionCode?: string;
+    cloudCover?: number | null;
+    visibility?: number | null;
+    uvIndex?: number | null;
+    precipitationIntensity?: number | null;
+    temperatureDewPoint?: number | null;
+    daylight?: boolean | null;
+}
+
+interface WeatherKitPayload {
+    currentWeather: WeatherKitCurrent;
+    forecastNextHour?: Record<string, unknown> & {
+        minutes?: { startTime: string; precipitationIntensity: number }[];
+    };
+    forecastHourly: { hours: Record<string, unknown>[] };
+    forecastDaily: { days: Record<string, unknown>[] };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isFiniteNumberOrNull(value: unknown): value is number | null {
+    return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isBoundedStringArray(value: unknown, maxItems: number): value is string[] {
+    return (
+        Array.isArray(value) &&
+        value.length <= maxItems &&
+        value.every((item) => typeof item === 'string' && item.length <= 64)
+    );
+}
+
+function isBoundedNumericSeries(value: unknown, maxItems: number): value is NumericSeries {
+    return Array.isArray(value) && value.length <= maxItems && value.every(isFiniteNumberOrNull);
+}
+
+function hasOptionalFiniteNumbers(record: Record<string, unknown>, keys: readonly string[]): boolean {
+    return keys.every((key) => record[key] === undefined || isFiniteNumberOrNull(record[key]));
+}
+
+function hasOptionalShortString(record: Record<string, unknown>, key: string): boolean {
+    const value = record[key];
+    return value === undefined || (typeof value === 'string' && value.length <= 128);
+}
+
+function hasRequiredFiniteNumber(record: Record<string, unknown>, key: string): boolean {
+    return typeof record[key] === 'number' && Number.isFinite(record[key]);
+}
+
+function hasRequiredTimestamp(record: Record<string, unknown>, key: string): boolean {
+    const value = record[key];
+    return typeof value === 'string' && value.length <= 64 && value.length > 0 && Number.isFinite(Date.parse(value));
+}
+
+function isOpenMeteoPayload(value: Record<string, unknown>): value is OpenMeteoPayload {
+    if (!isRecord(value.current) || !isRecord(value.hourly) || !isRecord(value.daily)) return false;
+    const current = value.current;
+    const hourly = value.hourly;
+    const daily = value.daily;
+    if (!isBoundedStringArray(hourly.time, 192) || !isBoundedStringArray(daily.time, 10)) return false;
+    if (hourly.time.length === 0 || daily.time.length === 0) return false;
+    if (value.timezone !== undefined && (typeof value.timezone !== 'string' || value.timezone.length > 100))
+        return false;
+
+    const currentKeys = [
+        'temperature_2m',
+        'apparent_temperature',
+        'relative_humidity_2m',
+        'pressure_msl',
+        'wind_speed_10m',
+        'wind_direction_10m',
+        'wind_gusts_10m',
+        'weather_code',
+        'cloud_cover',
+        'precipitation',
+        'dew_point_2m',
+        'is_day',
+    ];
+    if (!currentKeys.every((key) => key in current)) return false;
+    if (currentKeys.some((key) => current[key] !== undefined && !isFiniteNumberOrNull(current[key]))) {
+        return false;
+    }
+    if (
+        !isBoundedNumericSeries(hourly.temperature_2m, 192) ||
+        !isBoundedNumericSeries(hourly.wind_speed_10m, 192) ||
+        !isBoundedNumericSeries(daily.temperature_2m_max, 10) ||
+        !isBoundedNumericSeries(daily.temperature_2m_min, 10)
+    ) {
+        return false;
+    }
+
+    for (const [key, series] of Object.entries(hourly)) {
+        if (key === 'time') continue;
+        if (!isBoundedNumericSeries(series, 192) || series.length !== hourly.time.length) return false;
+    }
+    for (const [key, series] of Object.entries(daily)) {
+        if (key === 'time') continue;
+        if (key === 'sunrise' || key === 'sunset') {
+            if (!isBoundedStringArray(series, 10) || series.length !== daily.time.length) return false;
+        } else if (!isBoundedNumericSeries(series, 10) || series.length !== daily.time.length) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function parseRainbowPayload(value: Record<string, unknown>): RainbowPayload | null {
+    if (value.summary !== undefined) {
+        if (!isRecord(value.summary)) return null;
+        const intensity = value.summary.intensity;
+        if (intensity !== undefined && (typeof intensity !== 'string' || intensity.length > 64)) return null;
+    }
+    if (value.forecast === undefined) return value as RainbowPayload;
+    if (!Array.isArray(value.forecast) || value.forecast.length > 300) return null;
+    for (const item of value.forecast) {
+        if (
+            !isRecord(item) ||
+            typeof item.precipRate !== 'number' ||
+            !Number.isFinite(item.precipRate) ||
+            typeof item.timestampBegin !== 'number' ||
+            !Number.isFinite(item.timestampBegin) ||
+            typeof item.timestampEnd !== 'number' ||
+            !Number.isFinite(item.timestampEnd) ||
+            (item.precipType !== undefined && (typeof item.precipType !== 'string' || item.precipType.length > 32))
+        ) {
+            return null;
+        }
+    }
+    return value as unknown as RainbowPayload;
+}
+
+function parseWeatherKitPayload(value: Record<string, unknown>): WeatherKitPayload | null {
+    if (!isRecord(value.currentWeather)) return null;
+    if (value.forecastNextHour !== undefined && !isRecord(value.forecastNextHour)) return null;
+    if (value.forecastHourly !== undefined && !isRecord(value.forecastHourly)) return null;
+    if (value.forecastDaily !== undefined && !isRecord(value.forecastDaily)) return null;
+
+    const current = value.currentWeather;
+    if (
+        !hasOptionalFiniteNumbers(current, [
+            'temperature',
+            'temperatureApparent',
+            'humidity',
+            'pressure',
+            'windSpeed',
+            'windDirection',
+            'windGust',
+            'cloudCover',
+            'visibility',
+            'uvIndex',
+            'precipitationIntensity',
+            'temperatureDewPoint',
+        ]) ||
+        !hasOptionalShortString(current, 'conditionCode') ||
+        !hasRequiredFiniteNumber(current, 'temperature') ||
+        typeof current.conditionCode !== 'string' ||
+        current.conditionCode.length === 0 ||
+        (current.daylight !== undefined && current.daylight !== null && typeof current.daylight !== 'boolean')
+    ) {
+        return null;
+    }
+
+    const nextHour = value.forecastNextHour as Record<string, unknown> | undefined;
+    const minutes = nextHour?.minutes;
+    if (
+        minutes !== undefined &&
+        (!Array.isArray(minutes) ||
+            minutes.length > 60 ||
+            !minutes.every(
+                (minute) =>
+                    isRecord(minute) &&
+                    hasRequiredTimestamp(minute, 'startTime') &&
+                    typeof minute.precipitationIntensity === 'number' &&
+                    Number.isFinite(minute.precipitationIntensity),
+            ))
+    ) {
+        return null;
+    }
+    const summary = nextHour?.summary;
+    if (
+        summary !== undefined &&
+        (!Array.isArray(summary) ||
+            summary.length > 60 ||
+            !summary.every(
+                (item) =>
+                    isRecord(item) &&
+                    typeof item.condition === 'string' &&
+                    item.condition.length <= 32 &&
+                    hasRequiredTimestamp(item, 'startTime'),
+            ))
+    ) {
+        return null;
+    }
+
+    const hourly = value.forecastHourly as Record<string, unknown> | undefined;
+    const hours = hourly?.hours;
+    if (!Array.isArray(hours) || hours.length > 240 || !hours.every(isRecord)) return null;
+    for (const hour of hours) {
+        if (
+            !hasOptionalFiniteNumbers(hour, [
+                'temperature',
+                'windSpeed',
+                'windDirection',
+                'windGust',
+                'precipitationAmount',
+                'precipitationChance',
+                'pressure',
+                'cloudCover',
+                'humidity',
+            ]) ||
+            !hasRequiredTimestamp(hour, 'forecastStart') ||
+            !hasRequiredFiniteNumber(hour, 'temperature') ||
+            !hasRequiredFiniteNumber(hour, 'windSpeed') ||
+            typeof hour.conditionCode !== 'string' ||
+            hour.conditionCode.length === 0 ||
+            hour.conditionCode.length > 128
+        ) {
+            return null;
+        }
+    }
+
+    const daily = value.forecastDaily as Record<string, unknown> | undefined;
+    const days = daily?.days;
+    if (!Array.isArray(days) || days.length > 10 || !days.every(isRecord)) return null;
+    for (const day of days) {
+        if (
+            !hasOptionalFiniteNumbers(day, [
+                'temperatureMax',
+                'temperatureMin',
+                'windSpeedMax',
+                'windGustSpeedMax',
+                'precipitationAmount',
+                'precipitationChance',
+                'maxUvIndex',
+            ]) ||
+            !hasRequiredTimestamp(day, 'forecastStart') ||
+            !hasRequiredFiniteNumber(day, 'temperatureMax') ||
+            !hasRequiredFiniteNumber(day, 'temperatureMin') ||
+            typeof day.conditionCode !== 'string' ||
+            day.conditionCode.length === 0 ||
+            day.conditionCode.length > 128 ||
+            !hasOptionalShortString(day, 'sunrise') ||
+            !hasOptionalShortString(day, 'sunset')
+        ) {
+            return null;
+        }
+    }
+
+    return value as unknown as WeatherKitPayload;
+}
 
 // ════════════════════════════════════════════════════════════════
 // DATA FETCHERS
@@ -244,9 +571,14 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
         (omKey ? `&apikey=${omKey}` : '');
 
     const [omRes, nowcast] = await Promise.all([
-        fetch(omUrl).then(async (r) => {
-            if (!r.ok) throw new Error(`Open-Meteo ${r.status}`);
-            return r.json();
+        fetchWithTimeout(omUrl, {}, 12_000).then(async (r) => {
+            if (!r.ok) {
+                await r.body?.cancel().catch(() => undefined);
+                throw new Error(`Open-Meteo ${r.status}`);
+            }
+            const payload = await readResponseJsonObjectLimited(r, OPEN_METEO_MAX_BYTES);
+            if (!payload || !isOpenMeteoPayload(payload)) throw new Error('Open-Meteo returned an invalid response');
+            return payload;
         }),
         fetchRainbowNowcast(lat, lon, rainbowKey),
     ]);
@@ -334,14 +666,20 @@ async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Pr
         // Nowcast API: /nowcast/v1/precip-global/{longitude}/{latitude}
         // NOTE: longitude comes FIRST in the path!
         const url = `${RAINBOW_NOWCAST}/precip-global/${lon.toFixed(4)}/${lat.toFixed(4)}?token=${apiKey}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        const res = await fetchWithTimeout(url, {}, 15_000);
 
         if (!res.ok) {
             console.warn(`[get-weather] Rainbow Nowcast API ${res.status}`);
+            await res.body?.cancel().catch(() => undefined);
             return null;
         }
 
-        const data = await res.json();
+        const payload = await readResponseJsonObjectLimited(res, RAINBOW_MAX_BYTES);
+        const data = payload ? parseRainbowPayload(payload) : null;
+        if (!data) {
+            console.warn('[get-weather] Rainbow Nowcast returned an invalid response');
+            return null;
+        }
         const forecast: { precipRate: number; precipType?: string; timestampBegin: number; timestampEnd: number }[] =
             data.forecast || [];
 
@@ -409,8 +747,8 @@ async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Pr
         }
 
         return { minutes, summary };
-    } catch (err) {
-        console.error('[get-weather] Rainbow Nowcast API error:', err);
+    } catch {
+        console.error('[get-weather] Rainbow Nowcast API request failed');
         return null;
     }
 }
@@ -439,15 +777,17 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
         `https://weatherkit.apple.com/api/v1/weather/en/${lat}/${lon}` +
         `?dataSets=currentWeather,forecastHourly,forecastDaily,forecastNextHour`;
 
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${jwt}` } });
+    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${jwt}` } }, 12_000);
 
     if (!res.ok) {
         if (res.status === 401) cachedAppleToken = null;
-        const detail = await res.text().catch(() => '');
-        throw new Error(`WeatherKit ${res.status}: ${detail.substring(0, 200)}`);
+        await res.body?.cancel().catch(() => undefined);
+        throw new Error(`WeatherKit ${res.status}`);
     }
 
-    const wk = await res.json();
+    const payload = await readResponseJsonObjectLimited(res, WEATHERKIT_MAX_BYTES);
+    const wk = payload ? parseWeatherKitPayload(payload) : null;
+    if (!wk) throw new Error('WeatherKit returned an invalid response');
 
     // ── Map Apple WeatherKit → Standard Schema ──
     const cw = wk.currentWeather || {};
@@ -484,7 +824,7 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
 
     // Hourly forecast
     const hourly: StandardHourly[] = (wk.forecastHourly?.hours ?? []).map((h: Record<string, unknown>) => ({
-        time: h.forecastStart || '',
+        time: (h.forecastStart as string) || '',
         temperature: (h.temperature as number) ?? 0,
         windSpeed: kmhToKts(h.windSpeed as number) ?? 0,
         windDirection: (h.windDirection as number) ?? 0,
@@ -607,43 +947,68 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
+    if (req.method !== 'GET' && req.method !== 'POST') {
+        return json({ error: 'GET or POST required' }, 405, { Allow: 'GET, POST' });
+    }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'weather', 120, 30, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
     try {
         // ── Parse request (supports both GET query params and POST body) ──
-        let lat: number, lon: number, userId: string | null, minified: boolean;
+        let rawLat: unknown;
+        let rawLon: unknown;
+        let minified: boolean;
 
         if (req.method === 'GET') {
             const url = new URL(req.url);
-            lat = parseFloat(url.searchParams.get('lat') || '');
-            lon = parseFloat(url.searchParams.get('lon') || '');
-            userId = url.searchParams.get('user_id');
+            rawLat = url.searchParams.get('lat');
+            rawLon = url.searchParams.get('lon');
+            const minifiedParam = url.searchParams.get('minified');
+            if (minifiedParam !== null && minifiedParam !== '0' && minifiedParam !== '1') {
+                return errorJson('minified must be 0 or 1', 400);
+            }
             minified = url.searchParams.get('minified') === '1';
         } else {
-            const body = await req.json();
-            lat = body.lat;
-            lon = body.lon;
-            userId = body.user_id || null;
-            minified = !!body.minified;
+            const body = await readJsonObject(req, 4096);
+            if (!body) return errorJson('Invalid JSON request body', 400);
+            rawLat = body.lat;
+            rawLon = body.lon;
+            if (
+                body.minified !== undefined &&
+                typeof body.minified !== 'boolean' &&
+                body.minified !== 0 &&
+                body.minified !== 1
+            ) {
+                return errorJson('minified must be boolean', 400);
+            }
+            minified = body.minified === true || body.minified === 1;
         }
 
-        if (isNaN(lat) || isNaN(lon)) {
-            return errorJson('lat and lon are required', 400);
+        const lat = parseCoordinate(rawLat, 'lat');
+        const lon = parseCoordinate(rawLon, 'lon');
+        if (lat === null || lon === null) {
+            return errorJson('lat/lon are required and must be valid coordinates', 400);
         }
 
-        // ── Check subscription tier ──
+        // The caller-supplied user_id parameter is intentionally ignored.
+        // Premium entitlement is derived only from a cryptographically verified
+        // user JWT. Anonymous/Pi callers stay on the honest free-provider path.
         let isPremium = false;
 
-        if (userId) {
+        if (caller.userId) {
             try {
-                const supabase = createClient(
-                    Deno.env.get('SUPABASE_URL')!,
-                    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-                );
+                const supabaseUrl = Deno.env.get('SUPABASE_URL');
+                const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+                if (!supabaseUrl || !serviceRoleKey) throw new Error('Profile service not configured');
+                const supabase = createClient(supabaseUrl, serviceRoleKey, {
+                    auth: { persistSession: false, autoRefreshToken: false },
+                });
 
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('subscription_status, subscription_expiry')
-                    .eq('id', userId)
+                    .eq('id', caller.userId)
                     .single();
 
                 if (profile) {
@@ -663,13 +1028,17 @@ Deno.serve(async (req: Request) => {
         const weather = isPremium ? await fetchPremium(lat, lon) : await fetchFree(lat, lon);
 
         // ── Return response ──
+        const cacheHeaders = {
+            'Cache-Control': caller.kind === 'authenticated' ? 'private, max-age=300' : 'public, max-age=300',
+            Vary: 'Authorization',
+        };
         if (minified) {
-            return json(minify(weather), 200, { 'Cache-Control': 'public, max-age=300' });
+            return json(minify(weather), 200, cacheHeaders);
         }
 
-        return json(weather, 200, { 'Cache-Control': 'public, max-age=300' });
-    } catch (err) {
-        console.error('[get-weather] Fatal:', err);
-        return errorJson('Weather fetch failed', 502, String(err));
+        return json(weather, 200, cacheHeaders);
+    } catch {
+        console.error('[get-weather] Weather provider request failed');
+        return errorJson('Weather fetch failed', 502);
     }
 });

@@ -6,9 +6,9 @@
  * Same red/green readiness pattern as other passage planning cards.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -36,14 +36,11 @@ const RESERVE_ITEMS = [
 const STORAGE_KEY = 'thalassa_essential_reserves';
 
 export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ voyageId, onReviewedChange }) => {
-    const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
-    });
+    const [checkedItems, setCheckedItems] = useScopedReadinessStorageState<Record<string, boolean>>(
+        STORAGE_KEY,
+        voyageId,
+        {},
+    );
 
     const { syncCheck } = useReadinessSync(voyageId, 'essential_reserves', checkedItems, setCheckedItems, STORAGE_KEY);
 
@@ -57,17 +54,12 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
         (key: string) => {
             setCheckedItems((prev) => {
                 const next = { ...prev, [key]: !prev[key] };
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-                } catch {
-                    /* ignore */
-                }
                 syncCheck(key, next[key]);
                 return next;
             });
             triggerHaptic('light');
         },
-        [syncCheck],
+        [setCheckedItems, syncCheck],
     );
 
     // Notify parent — all critical items must be checked

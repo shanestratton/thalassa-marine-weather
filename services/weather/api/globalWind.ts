@@ -8,7 +8,7 @@
  * wind heat map with isobar contour lines.
  */
 
-import { getOpenMeteoKey } from '../keys';
+import { fetchOpenMeteoPoints } from '../openMeteoProxy';
 
 export interface WindGridPoint {
     lat: number;
@@ -85,33 +85,30 @@ async function _doFetch(latMin: number, latMax: number, lonMin: number, lonMax: 
         const latStep = (effLatMax - effLatMin) / (GRID_SIZE - 1);
         const lonStep = (effLonMax - effLonMin) / (GRID_SIZE - 1);
 
-        const lats: number[] = [];
-        const lons: number[] = [];
+        const gridPoints: { lat: number; lon: number }[] = [];
 
         for (let r = 0; r < GRID_SIZE; r++) {
             for (let c = 0; c < GRID_SIZE; c++) {
-                lats.push(Math.round((effLatMin + r * latStep) * 100) / 100);
-                lons.push(Math.round((effLonMin + c * lonStep) * 100) / 100);
+                gridPoints.push({
+                    lat: Math.round((effLatMin + r * latStep) * 100) / 100,
+                    lon: Math.round((effLonMin + c * lonStep) * 100) / 100,
+                });
             }
         }
 
-        // Open-Meteo supports comma-separated coordinates for multi-location requests
-        const latParam = lats.join(',');
-        const lonParam = lons.join(',');
-
-        const omKey = getOpenMeteoKey();
-        if (!omKey) return null;
-        const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${latParam}&longitude=${lonParam}&current=wind_speed_10m,wind_direction_10m,surface_pressure&wind_speed_unit=kn&timezone=auto&apikey=${omKey}`;
-
-        const response = await fetch(url);
-        if (!response.ok) {
-            return null;
-        }
-
-        const json = await response.json();
-
-        // Open-Meteo returns an array when multiple coordinates are provided
-        const results = Array.isArray(json) ? json : [json];
+        const results = await fetchOpenMeteoPoints<{
+            latitude?: number;
+            longitude?: number;
+            current?: {
+                wind_speed_10m?: number;
+                wind_direction_10m?: number;
+                surface_pressure?: number;
+            };
+        }>('forecast', gridPoints, {
+            current: 'wind_speed_10m,wind_direction_10m,surface_pressure',
+            wind_speed_unit: 'kn',
+            timezone: 'auto',
+        });
 
         const points: WindGridPoint[] = [];
         for (let i = 0; i < results.length; i++) {
@@ -119,8 +116,8 @@ async function _doFetch(latMin: number, latMax: number, lonMin: number, lonMax: 
             if (!r?.current) continue;
 
             points.push({
-                lat: r.latitude ?? lats[i],
-                lon: r.longitude ?? lons[i],
+                lat: r.latitude ?? gridPoints[i].lat,
+                lon: r.longitude ?? gridPoints[i].lon,
                 windSpeed: r.current.wind_speed_10m ?? 0,
                 windDirection: r.current.wind_direction_10m ?? 0,
                 pressure: r.current.surface_pressure ?? 1013.25,

@@ -139,7 +139,10 @@ describe('viewer overlay accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        expect(screen.getByRole('dialog', { name: 'Search vessels' })).toBeInTheDocument();
+        const dialog = screen.getByRole('dialog', { name: 'Search vessels' });
+        expect(dialog).toBeInTheDocument();
+        expect(dialog.parentElement).toBe(document.body);
+        expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
         expect(screen.getByRole('textbox', { name: 'Vessel name or MMSI' })).toHaveFocus();
 
         fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
@@ -192,7 +195,11 @@ describe('viewer overlay accessibility', () => {
         opener.focus();
         fireEvent.click(opener);
 
-        expect(screen.getByRole('dialog', { name: 'Voyage track viewer' })).toBeInTheDocument();
+        const dialog = screen.getByRole('dialog', { name: 'Voyage track viewer' });
+        expect(dialog).toBeInTheDocument();
+        expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
+        expect(dialog.parentElement).toBe(document.body);
+        expect(dialog.style.zIndex).toBe('1100');
         expect(screen.getByRole('button', { name: 'Close track map viewer' })).toHaveFocus();
         expect(screen.queryByRole('slider', { name: 'Track playback position' })).not.toBeInTheDocument();
 

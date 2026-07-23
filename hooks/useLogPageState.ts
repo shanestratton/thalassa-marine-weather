@@ -8,7 +8,7 @@
  * All state, effects, and handlers live here.
  */
 
-import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useReducer, useRef, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('useLogPageState');
@@ -47,6 +47,12 @@ import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
 import { LogFilters } from '../components/LogFilterToolbar';
 import { getErrorMessage } from '../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 // ─── STATE SHAPE ──────────────────────────────────────────────────────────────
 
@@ -98,6 +104,7 @@ interface LogPageState {
 // ─── ACTIONS ──────────────────────────────────────────────────────────────────
 
 type LogPageAction =
+    | { type: 'RESET_IDENTITY' }
     | {
           type: 'LOAD_DATA';
           entries: ShipLogEntry[];
@@ -156,8 +163,18 @@ const initialState: LogPageState = {
     filters: { types: ['auto', 'manual', 'waypoint'], searchQuery: '' },
 };
 
+function freshInitialState(): LogPageState {
+    return {
+        ...initialState,
+        expandedVoyages: new Set(),
+        filters: { ...initialState.filters, types: [...initialState.filters.types] },
+    };
+}
+
 function logPageReducer(state: LogPageState, action: LogPageAction): LogPageState {
     switch (action.type) {
+        case 'RESET_IDENTITY':
+            return freshInitialState();
         case 'LOAD_DATA': {
             // Preserve user's expand/collapse state during polls.
             // Only auto-expand active voyage on FIRST load (when entries are empty).
@@ -244,6 +261,9 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
     }
 }
 
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
 // ─── HELPER: Group entries by voyage ──────────────────────────────────────────
 
 function groupEntriesByVoyage(entries: ShipLogEntry[]) {
@@ -272,12 +292,37 @@ function groupEntriesByVoyage(entries: ShipLogEntry[]) {
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
 
 export function useLogPageState() {
-    const [state, dispatch] = useReducer(logPageReducer, initialState);
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    const [storedState, rawDispatch] = useReducer(logPageReducer, initialState);
+    const stateOwnerRef = useRef(identityScope);
+    const stateBelongsToCurrentIdentity =
+        stateOwnerRef.current.key === identityScope.key &&
+        stateOwnerRef.current.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(stateOwnerRef.current);
+    // Never render the previous account for even one React effect cycle.
+    const state = stateBelongsToCurrentIdentity ? storedState : freshInitialState();
+    // Every callback closes over the dispatch for the identity which created
+    // it. A queued DOM event or deferred promise retaining A's callback
+    // therefore becomes a no-op as soon as B is current.
+    const dispatch = useCallback(
+        (action: LogPageAction) => {
+            if (isAuthIdentityScopeCurrent(identityScope)) rawDispatch(action);
+        },
+        [identityScope],
+    );
     const toast = useToast();
     const { settings } = useSettings();
 
+    useEffect(() => {
+        stateOwnerRef.current = identityScope;
+        rawDispatch({ type: 'RESET_IDENTITY' });
+    }, [identityScope]);
+
     // ── Archive state (separate from main state to avoid re-renders on every poll) ──
     const [archivedVoyages, setArchivedVoyages] = useState<ReturnType<typeof groupEntriesByVoyage>>([]);
+    useEffect(() => {
+        setArchivedVoyages([]);
+    }, [identityScope]);
 
     // Guard: prevents loadData from overwriting optimistic tracking=false during stop
     const stoppingRef = useRef(false);
@@ -309,9 +354,18 @@ export function useLogPageState() {
     const expandedRef = useRef(state.expandedVoyages);
     expandedRef.current = state.expandedVoyages;
 
+    useEffect(() => {
+        startingRef.current = false;
+        stoppingRef.current = false;
+        loadingRef.current = false;
+        entriesRef.current = [];
+        expandedRef.current = new Set();
+    }, [identityScope]);
+
     // ── Initialization ──────────────────────────────────────────────────────
 
     const loadDataInner = useCallback(async () => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         // voyageId AT START is only used to choose which voyage's points to
         // fetch — the tracking STATUS we dispatch is re-read after the await
         // (see below) to avoid clobbering an optimistic start/stop.
@@ -335,6 +389,7 @@ export function useLogPageState() {
             voyageIdAtStart ? ShipLogService.getVoyageEntries(voyageIdAtStart) : Promise.resolve([] as ShipLogEntry[]),
             ShipLogService.getOfflineEntries(),
         ]);
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         log.warn(
             `[perf] loadData network: ${Math.round(performance.now() - t0)}ms ` +
                 `(${summaries.length} voyages, ${activeEntries.length} active pts)`,
@@ -384,11 +439,14 @@ export function useLogPageState() {
         // selectEmptyVoyagesToPrune.
         void pruneEmptyTracks(mergeSummariesWithLive(summaries, merged), voyageId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [dispatch, identityScope]);
 
     // How many empty (0.0 NM) tracks were just tidied away — drives the
     // EmptyTrackRemovedModal announcement. null = nothing to show.
     const [emptyPruneNotice, setEmptyPruneNotice] = useState<number | null>(null);
+    useEffect(() => {
+        setEmptyPruneNotice(null);
+    }, [identityScope]);
 
     // Delete genuinely empty device tracks in the background. Idempotent:
     // once a voyage is pruned it's gone from summaries, so subsequent
@@ -396,6 +454,7 @@ export function useLogPageState() {
     const pruningRef = useRef(false);
     const pruneEmptyTracks = useCallback(
         async (summaries: VoyageSummary[], activeVoyageId: string | null | undefined) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
             if (pruningRef.current) return;
             const toPrune = selectEmptyVoyagesToPrune(summaries, { activeVoyageId, nowMs: Date.now() });
             if (toPrune.length === 0) return;
@@ -404,6 +463,7 @@ export function useLogPageState() {
                 let deleted = 0;
                 for (const voyageId of toPrune) {
                     const ok = await ShipLogService.deleteVoyage(voyageId);
+                    if (!isAuthIdentityScopeCurrent(identityScope)) return;
                     if (ok) {
                         deleted += 1;
                         dispatch({ type: 'REMOVE_VOYAGE', voyageId });
@@ -412,17 +472,20 @@ export function useLogPageState() {
                     }
                 }
                 if (deleted > 0) {
+                    if (!isAuthIdentityScopeCurrent(identityScope)) return;
                     reloadCareerData();
                     setEmptyPruneNotice(deleted);
                 }
             } catch (e) {
                 log.warn('pruneEmptyTracks failed', e);
             } finally {
-                pruningRef.current = false;
+                // A stale A sweep must not unlock B's in-flight sweep after
+                // the shared guard ref has been reset and reused by B.
+                if (isAuthIdentityScopeCurrent(identityScope)) pruningRef.current = false;
             }
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [toast],
+        [toast, dispatch, identityScope],
     );
 
     // Public loadData — in-flight guard so overlapping triggers can't stack
@@ -432,7 +495,12 @@ export function useLogPageState() {
     // currentVoyageId unset. So we COALESCE: remember that another run was
     // asked for and do exactly one more pass when the current one finishes.
     const pendingReloadRef = useRef(false);
+    useEffect(() => {
+        pendingReloadRef.current = false;
+        pruningRef.current = false;
+    }, [identityScope]);
     const loadData = useCallback(async () => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         if (loadingRef.current) {
             pendingReloadRef.current = true;
             return;
@@ -442,11 +510,11 @@ export function useLogPageState() {
             do {
                 pendingReloadRef.current = false;
                 await loadDataInner();
-            } while (pendingReloadRef.current);
+            } while (pendingReloadRef.current && isAuthIdentityScopeCurrent(identityScope));
         } finally {
-            loadingRef.current = false;
+            if (isAuthIdentityScopeCurrent(identityScope)) loadingRef.current = false;
         }
-    }, [loadDataInner]);
+    }, [identityScope, loadDataInner]);
 
     // Lightweight live-tracking refresh — DEVICE-ONLY. While a voyage is
     // recording, local-first capture writes every point to the offline
@@ -456,20 +524,22 @@ export function useLogPageState() {
     // This poll only runs on the RECORDING device (gated on isTracking +
     // getCurrentVoyageId), so no other surface loses cloud freshness.
     const refreshActiveVoyage = useCallback(async () => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const voyageId = ShipLogService.getCurrentVoyageId();
         if (!voyageId) return;
 
         try {
             const offlineEntries = await ShipLogService.getOfflineEntries();
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
             if (offlineEntries.length === 0) return;
             dispatch({
                 type: 'UPDATE_ENTRIES',
                 updater: (prev) => mergeRecentEntries(prev, offlineEntries),
             });
         } catch (e) {
-            log.warn('refreshActiveVoyage failed', e);
+            if (isAuthIdentityScopeCurrent(identityScope)) log.warn('refreshActiveVoyage failed', e);
         }
-    }, []);
+    }, [dispatch, identityScope]);
 
     // Auto-archive REMOVED 2026-05-05.
     //
@@ -494,16 +564,21 @@ export function useLogPageState() {
     // Reusable archive-data refresh. (Career totals no longer need a
     // separate entry fetch — they're derived from the voyage summaries.)
     const reloadCareerData = useCallback(() => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         ShipLogService.getArchivedEntries()
             .then((archived) => {
-                setArchivedVoyages(groupEntriesByVoyage(archived));
+                if (isAuthIdentityScopeCurrent(actionScope)) {
+                    setArchivedVoyages(groupEntriesByVoyage(archived));
+                }
             })
             .catch((e) => {
-                console.warn(`[useLogPageState]`, e);
+                if (isAuthIdentityScopeCurrent(actionScope)) console.warn(`[useLogPageState]`, e);
             });
-    }, []);
+    }, [identityScope]);
 
     useEffect(() => {
+        const effectScope = identityScope;
         let mounted = true;
         let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const timeout = setTimeout(() => {
@@ -526,31 +601,31 @@ export function useLogPageState() {
         (async () => {
             try {
                 const cached = await ShipLogService.getCachedVoyageSummaries();
-                if (mounted && cached.length > 0) {
+                if (mounted && isAuthIdentityScopeCurrent(effectScope) && cached.length > 0) {
                     dispatch({ type: 'SET_SUMMARIES', summaries: cached });
                 }
             } catch {
                 /* cache miss — the network load below fills it */
             } finally {
-                if (mounted) dispatch({ type: 'DONE_LOADING' });
+                if (mounted && isAuthIdentityScopeCurrent(effectScope)) dispatch({ type: 'DONE_LOADING' });
             }
         })();
         (async () => {
             try {
                 await ShipLogService.initialize();
-                if (mounted) await loadData();
+                if (mounted && isAuthIdentityScopeCurrent(effectScope)) await loadData();
 
                 // FIX: Supabase auth session may still be rehydrating from storage
                 // on cold starts. If getLogEntries returned [] because getUser() was
                 // null, retry after a short delay to give the session time to restore.
                 // This is the root cause of "empty LogPage on first visit".
                 retryTimer = setTimeout(async () => {
-                    if (mounted) await loadData();
+                    if (mounted && isAuthIdentityScopeCurrent(effectScope)) await loadData();
                 }, 1500);
             } catch (e) {
-                log.warn('Init failed:', e);
+                if (isAuthIdentityScopeCurrent(effectScope)) log.warn('Init failed:', e);
                 /* Init or load failure — stop spinner to show empty state */
-                if (mounted) dispatch({ type: 'DONE_LOADING' });
+                if (mounted && isAuthIdentityScopeCurrent(effectScope)) dispatch({ type: 'DONE_LOADING' });
             } finally {
                 clearTimeout(timeout);
             }
@@ -564,7 +639,7 @@ export function useLogPageState() {
                 data: { subscription },
             } = supabase.auth.onAuthStateChange((event) => {
                 if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                    if (mounted) loadData();
+                    if (mounted && isAuthIdentityScopeCurrent(effectScope)) loadData();
                 }
             });
             authUnsubscribe = () => subscription.unsubscribe();
@@ -576,7 +651,7 @@ export function useLogPageState() {
             if (retryTimer) clearTimeout(retryTimer);
             authUnsubscribe?.();
         };
-    }, [loadData]);
+    }, [dispatch, identityScope, loadData]);
 
     // ── GPS Status Polling ──────────────────────────────────────────────────
 
@@ -591,7 +666,7 @@ export function useLogPageState() {
         poll();
         const id = setInterval(poll, 5000);
         return () => clearInterval(id);
-    }, [state.isTracking]);
+    }, [dispatch, state.isTracking]);
 
     // ── Entry Refresh Polling — live updates while tracking ──────────────────
     // RAPID INITIAL POLL: Poll every 1s for the first 10s after tracking starts
@@ -633,6 +708,8 @@ export function useLogPageState() {
     // ── Tracking Handlers ───────────────────────────────────────────────────
 
     const handleStartTracking = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         // Offer to continue the most recent REAL voyage (device-tracked, not
         // suggested/imported). Sourced from summaries (newest-first) so it
         // works without the full history resident in `entries`.
@@ -646,58 +723,71 @@ export function useLogPageState() {
         startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking()
-            .then(() => loadData())
+            .then(() => (isAuthIdentityScopeCurrent(actionScope) ? loadData() : undefined))
             .then(() => {
-                startingRef.current = false;
+                if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
             })
             .catch((error: unknown) => {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 startingRef.current = false;
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
-    }, [state.summaries, loadData, toast]);
+    }, [dispatch, identityScope, state.summaries, loadData, toast]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking()
-            .then(() => loadData())
+            .then(() => (isAuthIdentityScopeCurrent(actionScope) ? loadData() : undefined))
             .then(() => {
-                startingRef.current = false;
+                if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
             })
             .catch((error: unknown) => {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 startingRef.current = false;
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
-    }, [loadData, toast]);
+    }, [dispatch, identityScope, loadData, toast]);
 
     const continueLastVoyage = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
         ShipLogService.startTracking(false, state.lastVoyageId || undefined)
-            .then(() => loadData())
+            .then(() => (isAuthIdentityScopeCurrent(actionScope) ? loadData() : undefined))
             .then(() => {
-                startingRef.current = false;
+                if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
             })
             .catch((error: unknown) => {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 startingRef.current = false;
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to continue tracking');
             });
-    }, [state.lastVoyageId, loadData, toast]);
+    }, [dispatch, identityScope, state.lastVoyageId, loadData, toast]);
 
     const handlePauseTracking = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         await ShipLogService.pauseTracking();
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: true });
-    }, []);
+    }, [dispatch, identityScope]);
 
     const handleToggleRapidMode = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const newState = !state.isRapidMode;
         await ShipLogService.setRapidMode(newState);
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         dispatch({ type: 'SET_RAPID_MODE', isRapidMode: newState });
-    }, [state.isRapidMode]);
+    }, [dispatch, identityScope, state.isRapidMode]);
 
     /**
      * Precision Mode toggle — hi-fi GPS capture at ~2 Hz with live
@@ -705,16 +795,22 @@ export function useLogPageState() {
      * battery / auto-shutoff story. Independent of Rapid Mode.
      */
     const handleTogglePrecisionMode = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const newState = !state.isPrecisionMode;
         await ShipLogService.setPrecisionMode(newState);
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         dispatch({ type: 'SET_PRECISION_MODE', isPrecisionMode: newState });
-    }, [state.isPrecisionMode]);
+    }, [dispatch, identityScope, state.isPrecisionMode]);
 
     const handleStopTracking = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         dispatch({ type: 'SHOW_STOP_DIALOG', show: true });
-    }, []);
+    }, [dispatch, identityScope]);
 
     const confirmStopVoyage = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         dispatch({ type: 'SHOW_STOP_DIALOG', show: false });
         // Capture the voyage id BEFORE stopTracking clears it.
         const stoppedVoyageId = ShipLogService.getCurrentVoyageId();
@@ -724,11 +820,13 @@ export function useLogPageState() {
         try {
             await ShipLogService.stopTracking();
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('stopTracking failed:', e);
             // Surface it — stopping a voyage that silently fails leaves
             // the user unsure whether tracking is still running.
             toast.error('Could not stop tracking cleanly — check the voyage status.');
         }
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         // Clear the guard
         stoppingRef.current = false;
 
@@ -744,6 +842,7 @@ export function useLogPageState() {
             if (dist < 0.05 && !hasManual) {
                 try {
                     const ok = await ShipLogService.deleteVoyage(stoppedVoyageId);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     if (ok) {
                         dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
                         loadedVoyagesRef.current.delete(stoppedVoyageId);
@@ -758,70 +857,88 @@ export function useLogPageState() {
 
         // Reload to pick up final state
         await loadData();
-    }, [loadData, toast]);
+    }, [dispatch, identityScope, loadData, toast]);
 
     // ── Entry CRUD ──────────────────────────────────────────────────────────
 
     // ── Soft-delete with undo ──
     const [deletedEntry, setDeletedEntry] = useState<ShipLogEntry | null>(null);
     const deletingEntryRef = useRef(false);
+    useEffect(() => {
+        setDeletedEntry(null);
+        deletingEntryRef.current = false;
+    }, [identityScope]);
 
-    const handleDeleteEntry = useCallback((entryId: string) => {
-        // Guard: prevent double-fire from stale callbacks
-        if (deletingEntryRef.current) return;
-        deletingEntryRef.current = true;
+    const handleDeleteEntry = useCallback(
+        (entryId: string) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+            // Guard: prevent double-fire from stale callbacks
+            if (deletingEntryRef.current) return;
+            deletingEntryRef.current = true;
 
-        const entry = entriesRef.current.find((e) => e.id === entryId);
-        if (!entry) {
-            deletingEntryRef.current = false;
-            return;
-        }
+            const entry = entriesRef.current.find((e) => e.id === entryId);
+            if (!entry) {
+                deletingEntryRef.current = false;
+                return;
+            }
 
-        // Remove from UI immediately
-        dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.id !== entryId) });
-        setDeletedEntry(entry);
-    }, []);
+            // Remove from UI immediately
+            dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.id !== entryId) });
+            setDeletedEntry(entry);
+        },
+        [dispatch, identityScope],
+    );
 
     // Called by UndoToast after 5s — performs the actual API delete
     const handleDismissDeleteEntry = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (!deletedEntry) return;
         const entry = deletedEntry;
         setDeletedEntry(null);
         deletingEntryRef.current = false;
         try {
             const success = await ShipLogService.deleteEntry(entry.id);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (!success) {
                 toast.error('Failed to delete entry');
                 dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, entry] });
             }
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             toast.error('Failed to delete entry');
             dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, entry] });
         }
-    }, [deletedEntry, toast]);
+    }, [deletedEntry, dispatch, identityScope, toast]);
 
     const handleUndoDeleteEntry = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         if (deletedEntry) {
             dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, deletedEntry] });
             toast.success('Entry restored');
         }
         setDeletedEntry(null);
         deletingEntryRef.current = false;
-    }, [deletedEntry, toast]);
+    }, [deletedEntry, dispatch, identityScope, toast]);
 
-    const handleEditEntry = useCallback((entry: ShipLogEntry) => {
-        dispatch({ type: 'SET_EDIT_ENTRY', entry });
-    }, []);
+    const handleEditEntry = useCallback(
+        (entry: ShipLogEntry) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+            dispatch({ type: 'SET_EDIT_ENTRY', entry });
+        },
+        [dispatch, identityScope],
+    );
 
     const handleSaveEdit = useCallback(
         (entryId: string, updates: { notes?: string; waypointName?: string }) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
             dispatch({
                 type: 'UPDATE_ENTRIES',
                 updater: (prev) => prev.map((e) => (e.id === entryId ? { ...e, ...updates } : e)),
             });
             toast.success('Entry updated');
         },
-        [toast],
+        [dispatch, identityScope, toast],
     );
 
     // ── Voyage Management ───────────────────────────────────────────────────
@@ -830,6 +947,10 @@ export function useLogPageState() {
     // session, so we don't re-fetch on every expand toggle.
     const loadedVoyagesRef = useRef<Set<string>>(new Set());
     const loadingVoyagesRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        loadedVoyagesRef.current.clear();
+        loadingVoyagesRef.current.clear();
+    }, [identityScope]);
 
     /**
      * Lazy-load a single voyage's FULL points (the list itself only holds
@@ -837,96 +958,113 @@ export function useLogPageState() {
      * stats / export. Idempotent: skips voyages already loaded or in
      * flight, and the active live-tracking voyage (already resident).
      */
-    const loadVoyageEntries = useCallback(async (voyageId: string) => {
-        if (!voyageId) return;
-        if (loadedVoyagesRef.current.has(voyageId) || loadingVoyagesRef.current.has(voyageId)) return;
-        // Only the ACTIVELY-RECORDING voyage may claim residency — its
-        // points stream into state live, so a fetch would be redundant.
-        // The old check latched on ANY resident row (`entries.some`), but
-        // the boot seed also loads offline-queue stragglers and a stopped
-        // voyage can leave 1-2 of those behind: one stray row marked the
-        // voyage "loaded", the 2,800-point fetch never ran, and the track
-        // viewer starved at "Loading track…" forever (Shane 2026-07-10 —
-        // one test track opened, the other never did).
-        if (voyageId === ShipLogService.getCurrentVoyageId()) {
-            loadedVoyagesRef.current.add(voyageId);
-            return;
-        }
-        loadingVoyagesRef.current.add(voyageId);
-
-        // Replace-then-merge: swap THIS voyage's resident entries for the
-        // incoming batch (instead of accumulating), so a cached paint
-        // followed by the network refresh never doubles the points —
-        // cached entries carry trkc_* ids, fresh ones real DB ids.
-        const swapIn = (batch: ShipLogEntry[]) =>
-            dispatch({
-                type: 'UPDATE_ENTRIES',
-                updater: (prev) =>
-                    mergeRecentEntries(
-                        prev.filter((e) => e.voyageId !== voyageId),
-                        batch,
-                    ),
-            });
-
-        try {
-            // CACHE-FIRST: paint instantly from the local track cache
-            // (written when the voyage stopped, or on a previous view),
-            // then refresh from Supabase in the background.
-            const cached = await getCachedVoyageTrack(voyageId);
-            const haveCache = !!cached && cached.length >= 2;
-            if (haveCache) swapIn(cached);
-
-            // Timeout the (paginated, un-cancellable) fetch so a cold
-            // view on bad comms shows what we have instead of hanging.
-            // Generous budget when a cached track is already painted.
-            // 8 s → 45 s cold budget (audit 2026-07-03): a full-retention
-            // one-day passage is many 1000-row pages; on boat comms the old
-            // 8 s race expired mid-pagination EVERY time for a big voyage,
-            // so an uncached track could never be opened at anchor. The
-            // fetch still resolves partial-page-by-page server-side; the
-            // budget only bounds how long the spinner can live.
-            const timeoutMs = haveCache ? 30_000 : 45_000;
-            const voyageEntries = await Promise.race([
-                ShipLogService.getVoyageEntries(voyageId),
-                new Promise<ShipLogEntry[]>((_, reject) =>
-                    setTimeout(() => reject(new Error('voyage-fetch-timeout')), timeoutMs),
-                ),
-            ]);
-
-            if (voyageEntries.length > 0) {
-                swapIn(voyageEntries);
-                void setCachedVoyageTrack(voyageId, voyageEntries);
+    const loadVoyageEntries = useCallback(
+        async (voyageId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (!voyageId) return;
+            if (loadedVoyagesRef.current.has(voyageId) || loadingVoyagesRef.current.has(voyageId)) return;
+            // Only the ACTIVELY-RECORDING voyage may claim residency — its
+            // points stream into state live, so a fetch would be redundant.
+            // The old check latched on ANY resident row (`entries.some`), but
+            // the boot seed also loads offline-queue stragglers and a stopped
+            // voyage can leave 1-2 of those behind: one stray row marked the
+            // voyage "loaded", the 2,800-point fetch never ran, and the track
+            // viewer starved at "Loading track…" forever (Shane 2026-07-10 —
+            // one test track opened, the other never did).
+            if (voyageId === ShipLogService.getCurrentVoyageId()) {
                 loadedVoyagesRef.current.add(voyageId);
-            } else if (haveCache) {
-                // Nothing in the cloud (yet) — the cached copy stands.
-                loadedVoyagesRef.current.add(voyageId);
+                return;
             }
-        } catch (e) {
-            // Timeout / network failure: the cached paint (if any)
-            // stands, and NOT marking the voyage loaded means the next
-            // open retries the refresh.
-            log.warn('loadVoyageEntries failed', e);
-        } finally {
-            loadingVoyagesRef.current.delete(voyageId);
-        }
-    }, []);
+            loadingVoyagesRef.current.add(voyageId);
+
+            // Replace-then-merge: swap THIS voyage's resident entries for the
+            // incoming batch (instead of accumulating), so a cached paint
+            // followed by the network refresh never doubles the points —
+            // cached entries carry trkc_* ids, fresh ones real DB ids.
+            const swapIn = (batch: ShipLogEntry[]) =>
+                isAuthIdentityScopeCurrent(actionScope) &&
+                dispatch({
+                    type: 'UPDATE_ENTRIES',
+                    updater: (prev) =>
+                        mergeRecentEntries(
+                            prev.filter((e) => e.voyageId !== voyageId),
+                            batch,
+                        ),
+                });
+
+            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+            try {
+                // CACHE-FIRST: paint instantly from the local track cache
+                // (written when the voyage stopped, or on a previous view),
+                // then refresh from Supabase in the background.
+                const cached = await getCachedVoyageTrack(voyageId);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                const haveCache = !!cached && cached.length >= 2;
+                if (haveCache) swapIn(cached);
+
+                // Timeout the (paginated, un-cancellable) fetch so a cold
+                // view on bad comms shows what we have instead of hanging.
+                // Generous budget when a cached track is already painted.
+                // 8 s → 45 s cold budget (audit 2026-07-03): a full-retention
+                // one-day passage is many 1000-row pages; on boat comms the old
+                // 8 s race expired mid-pagination EVERY time for a big voyage,
+                // so an uncached track could never be opened at anchor. The
+                // fetch still resolves partial-page-by-page server-side; the
+                // budget only bounds how long the spinner can live.
+                const timeoutMs = haveCache ? 30_000 : 45_000;
+                const voyageEntries = await Promise.race([
+                    ShipLogService.getVoyageEntries(voyageId),
+                    new Promise<ShipLogEntry[]>(
+                        (_, reject) =>
+                            (timeoutHandle = setTimeout(() => reject(new Error('voyage-fetch-timeout')), timeoutMs)),
+                    ),
+                ]);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+                if (voyageEntries.length > 0) {
+                    swapIn(voyageEntries);
+                    void setCachedVoyageTrack(voyageId, voyageEntries);
+                    loadedVoyagesRef.current.add(voyageId);
+                } else if (haveCache) {
+                    // Nothing in the cloud (yet) — the cached copy stands.
+                    loadedVoyagesRef.current.add(voyageId);
+                }
+            } catch (e) {
+                // Timeout / network failure: the cached paint (if any)
+                // stands, and NOT marking the voyage loaded means the next
+                // open retries the refresh.
+                if (isAuthIdentityScopeCurrent(actionScope)) log.warn('loadVoyageEntries failed', e);
+            } finally {
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+                if (isAuthIdentityScopeCurrent(actionScope)) loadingVoyagesRef.current.delete(voyageId);
+            }
+        },
+        [dispatch, identityScope],
+    );
 
     const toggleVoyage = useCallback(
         (voyageId: string) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
             // Expanding (it wasn't already expanded) → lazy-load its points.
             if (!expandedRef.current.has(voyageId)) {
                 void loadVoyageEntries(voyageId);
             }
             dispatch({ type: 'TOGGLE_VOYAGE', voyageId });
         },
-        [loadVoyageEntries],
+        [dispatch, identityScope, loadVoyageEntries],
     );
 
     // Opt-in heavy load: pulls a bounded window of ALL entries into state.
     // Used only by the "All Voyages" statistics deep-dive (an explicit
     // user action), so the default Log open never pays this cost.
     const allEntriesLoadedRef = useRef(false);
+    useEffect(() => {
+        allEntriesLoadedRef.current = false;
+    }, [identityScope]);
     const loadAllEntries = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (allEntriesLoadedRef.current || loadingRef.current) return;
         loadingRef.current = true;
         try {
@@ -934,17 +1072,18 @@ export function useLogPageState() {
                 ShipLogService.getLogEntries(MAX_LIST_ENTRIES),
                 ShipLogService.getOfflineEntries(),
             ]);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             dispatch({
                 type: 'UPDATE_ENTRIES',
                 updater: (prev) => mergeRecentEntries(prev, [...dbEntries, ...offlineEntries]),
             });
             allEntriesLoadedRef.current = true;
         } catch (e) {
-            log.warn('loadAllEntries failed', e);
+            if (isAuthIdentityScopeCurrent(actionScope)) log.warn('loadAllEntries failed', e);
         } finally {
-            loadingRef.current = false;
+            if (isAuthIdentityScopeCurrent(actionScope)) loadingRef.current = false;
         }
-    }, []);
+    }, [dispatch, identityScope]);
 
     // ── Soft-delete voyage with undo ──
     // Holds the removed voyage's summary (so the card can be restored even
@@ -955,12 +1094,18 @@ export function useLogPageState() {
         entries: ShipLogEntry[];
         summary: VoyageSummary | null;
     } | null>(null);
+    useEffect(() => {
+        setDeletedVoyage(null);
+    }, [identityScope]);
 
     const handleDeleteVoyageRequest = useCallback(
         async (voyageId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             // Check for shared tracks first — those need a confirmation
             try {
                 const sharedTracks = await TrackSharingService.getSharedTracksByVoyageId(voyageId);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 if (sharedTracks.length > 0) {
                     const trackInfo = sharedTracks
                         .map((t) => `"${t.title}" (${t.download_count || 0} downloads)`)
@@ -969,6 +1114,7 @@ export function useLogPageState() {
                     return;
                 }
             } catch (e) {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 log.warn('shared track check failed:', e);
             }
 
@@ -980,19 +1126,21 @@ export function useLogPageState() {
             dispatch({ type: 'REMOVE_VOYAGE', voyageId });
             setDeletedVoyage({ voyageId, entries: voyageEntries, summary });
         },
-        [state.entries, state.summaries],
+        [dispatch, identityScope, state.entries, state.summaries],
     );
 
     // Called by UndoToast after 5s — performs the actual voyage delete
     const handleDismissDeleteVoyage = useCallback(async () => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         if (!deletedVoyage) return;
         const { voyageId } = deletedVoyage;
         setDeletedVoyage(null);
         await executeVoyageDelete(voyageId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [deletedVoyage]);
+    }, [deletedVoyage, identityScope]);
 
     const handleUndoDeleteVoyage = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         if (deletedVoyage) {
             // Restore resident points (if any were loaded)…
             if (deletedVoyage.entries.length > 0) {
@@ -1009,21 +1157,27 @@ export function useLogPageState() {
             toast.success('Voyage restored');
         }
         setDeletedVoyage(null);
-    }, [deletedVoyage, toast, state.summaries]);
+    }, [deletedVoyage, dispatch, identityScope, toast, state.summaries]);
 
     // Track shared voyage warning state for ConfirmDialog in UI
     const [showSharedVoyageWarning, setShowSharedVoyageWarning] = useState<{
         voyageId: string;
         trackInfo: string;
     } | null>(null);
+    useEffect(() => {
+        setShowSharedVoyageWarning(null);
+    }, [identityScope]);
 
     const handleConfirmDeleteVoyage = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (!state.deleteVoyageId) return;
         const voyageId = state.deleteVoyageId;
 
         // Check if this voyage has been shared to the community
         try {
             const sharedTracks = await TrackSharingService.getSharedTracksByVoyageId(voyageId);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (sharedTracks.length > 0) {
                 const trackInfo = sharedTracks
                     .map((t) => `"${t.title}" (${t.download_count || 0} downloads)`)
@@ -1033,24 +1187,29 @@ export function useLogPageState() {
                 return; // Wait for user to confirm via UI
             }
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('shared track check failed:', e);
         }
 
         // No shared tracks — proceed directly
         await executeVoyageDelete(voyageId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [state.deleteVoyageId]);
+    }, [identityScope, state.deleteVoyageId]);
 
     const executeVoyageDelete = useCallback(
         async (voyageId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             // Delete community shares if any
             try {
                 await TrackSharingService.deleteSharedTracksByVoyageId(voyageId);
             } catch (e) {
                 /* ok — may not exist */
             }
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
 
             const success = await ShipLogService.deleteVoyage(voyageId);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (success) {
                 dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.voyageId !== voyageId) });
                 reloadCareerData();
@@ -1063,56 +1222,78 @@ export function useLogPageState() {
             dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
             setShowSharedVoyageWarning(null);
         },
-        [toast, reloadCareerData],
+        [dispatch, identityScope, toast, reloadCareerData],
     );
 
     const confirmDeleteSharedVoyage = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         if (showSharedVoyageWarning) {
-            executeVoyageDelete(showSharedVoyageWarning.voyageId);
+            void executeVoyageDelete(showSharedVoyageWarning.voyageId);
         }
-    }, [showSharedVoyageWarning, executeVoyageDelete]);
+    }, [identityScope, showSharedVoyageWarning, executeVoyageDelete]);
 
     const cancelDeleteSharedVoyage = useCallback(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
         dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
         setShowSharedVoyageWarning(null);
-    }, []);
+    }, [dispatch, identityScope]);
 
     // ── Export / Share ───────────────────────────────────────────────────────
 
     const handleExportCSV = useCallback(async () => {
-        const { exportToCSV } = await import('../utils/logExport');
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : state.entries;
+            : [...state.entries];
+        const { exportToCSV } = await import('../utils/logExport');
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         exportToCSV(targetEntries, 'ships_log.csv', {
             onProgress: () => {},
             onSuccess: () => {},
-            onError: (err) => toast.error(err),
+            onError: (err) => {
+                if (isAuthIdentityScopeCurrent(actionScope)) toast.error(err);
+            },
         });
-    }, [state.selectedVoyageId, state.entries, toast]);
+    }, [identityScope, state.selectedVoyageId, state.entries, toast]);
 
     const handleShare = useCallback(async () => {
-        const { sharePDF } = await import('../utils/logExport');
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : state.entries;
+            : [...state.entries];
+        const { sharePDF } = await import('../utils/logExport');
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         await sharePDF(
             targetEntries,
             {
                 onProgress: () => {},
                 onSuccess: () => {},
-                onError: (err) => toast.error(err),
+                onError: (err) => {
+                    if (isAuthIdentityScopeCurrent(actionScope)) toast.error(err);
+                },
             },
             settings.vessel?.name,
             { vessel: settings.vessel, vesselUnits: settings.vesselUnits, units: settings.units },
         );
-    }, [state.selectedVoyageId, state.entries, settings.vessel, settings.vesselUnits, settings.units, toast]);
+    }, [
+        identityScope,
+        state.selectedVoyageId,
+        state.entries,
+        settings.vessel,
+        settings.vesselUnits,
+        settings.units,
+        toast,
+    ]);
 
     const handleExportThenDelete = useCallback(async () => {
         await handleShare();
     }, [handleShare]);
 
     const handleExportGPX = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
             : state.entries;
@@ -1123,18 +1304,22 @@ export function useLogPageState() {
         try {
             await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             // AbortError = user dismissed the native share sheet — not a
             // failure, stay silent. Anything else is a real export error.
             if (e instanceof Error && e.name === 'AbortError') return;
             log.warn('GPX export failed:', e);
             toast.error('Could not export the GPX file — try again.');
         }
-    }, [state.selectedVoyageId, state.entries, settings.vessel?.name, toast]);
+    }, [dispatch, identityScope, state.selectedVoyageId, state.entries, settings.vessel?.name, toast]);
 
     const handleImportGPXFile = useCallback(
         async (file: File) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             try {
                 const gpxXml = await readGPXFile(file);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 const entries = importGPXToEntries(gpxXml);
                 if (entries.length === 0) {
                     toast.error('No valid track points found in file');
@@ -1146,17 +1331,22 @@ export function useLogPageState() {
                     (e as any).source = 'gpx_import';
                 });
                 const { savedCount } = await ShipLogService.importGPXVoyage(entries);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 toast.success(`Imported ${savedCount} entries from ${file.name}`);
                 await loadData();
             } catch (err: unknown) {
-                toast.error(getErrorMessage(err) || 'Failed to import GPX file');
+                if (isAuthIdentityScopeCurrent(actionScope)) {
+                    toast.error(getErrorMessage(err) || 'Failed to import GPX file');
+                }
             }
         },
-        [toast, loadData],
+        [identityScope, toast, loadData],
     );
 
     const handleShareToCommunity = useCallback(
         async (shareData: { title: string; description: string; category: TrackCategory; region: string }) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
             const targetEntries = state.selectedVoyageId
                 ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
@@ -1174,16 +1364,19 @@ export function useLogPageState() {
                     category: shareData.category,
                     region: shareData.region,
                 });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 if (result) {
                     toast.success('Track shared to community!');
                 } else {
                     toast.error('Failed to share track');
                 }
             } catch (err: unknown) {
-                toast.error(getErrorMessage(err) || 'Share failed');
+                if (isAuthIdentityScopeCurrent(actionScope)) {
+                    toast.error(getErrorMessage(err) || 'Share failed');
+                }
             }
         },
-        [state.selectedVoyageId, state.entries, toast],
+        [dispatch, identityScope, state.selectedVoyageId, state.entries, toast],
     );
 
     // ── Derived State ───────────────────────────────────────────────────────
@@ -1307,7 +1500,10 @@ export function useLogPageState() {
 
     const handleArchiveVoyage = useCallback(
         async (voyageId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             const success = await ShipLogService.archiveVoyage(voyageId);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (success) {
                 // Immediately remove from active view (summary card + any
                 // resident points for the voyage).
@@ -1318,21 +1514,25 @@ export function useLogPageState() {
                 toast.error('Failed to archive voyage — check if the "archived" column exists in Supabase');
             }
         },
-        [toast, reloadCareerData],
+        [dispatch, identityScope, toast, reloadCareerData],
     );
 
     const handleUnarchiveVoyage = useCallback(
         async (voyageId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             const success = await ShipLogService.unarchiveVoyage(voyageId);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (success) {
                 await loadData();
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 reloadCareerData();
                 toast.success('Voyage restored');
             } else {
                 toast.error('Failed to unarchive voyage');
             }
         },
-        [loadData, reloadCareerData, toast],
+        [identityScope, loadData, reloadCareerData, toast],
     );
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -1359,7 +1559,7 @@ export function useLogPageState() {
         handleDeleteEntry,
         handleUndoDeleteEntry,
         handleDismissDeleteEntry,
-        deletedEntry,
+        deletedEntry: stateBelongsToCurrentIdentity ? deletedEntry : null,
         handleEditEntry,
         handleSaveEdit,
         loadData,
@@ -1368,10 +1568,10 @@ export function useLogPageState() {
         toggleVoyage,
         handleDeleteVoyageRequest,
         handleConfirmDeleteVoyage,
-        deletedVoyage,
+        deletedVoyage: stateBelongsToCurrentIdentity ? deletedVoyage : null,
         handleUndoDeleteVoyage,
         handleDismissDeleteVoyage,
-        showSharedVoyageWarning,
+        showSharedVoyageWarning: stateBelongsToCurrentIdentity ? showSharedVoyageWarning : null,
         confirmDeleteSharedVoyage,
         cancelDeleteSharedVoyage,
 
@@ -1401,12 +1601,14 @@ export function useLogPageState() {
         careerTotals,
 
         // Archive
-        archivedVoyages,
+        archivedVoyages: stateBelongsToCurrentIdentity ? archivedVoyages : [],
         handleArchiveVoyage,
         handleUnarchiveVoyage,
 
         // Empty-track tidy announcement
-        emptyPruneNotice,
-        clearEmptyPruneNotice: () => setEmptyPruneNotice(null),
+        emptyPruneNotice: stateBelongsToCurrentIdentity ? emptyPruneNotice : null,
+        clearEmptyPruneNotice: () => {
+            if (isAuthIdentityScopeCurrent(identityScope)) setEmptyPruneNotice(null);
+        },
     };
 }

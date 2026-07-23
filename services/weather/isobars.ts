@@ -65,7 +65,7 @@ const GRID_RESOLUTION = 1.0; // degrees (1° ≈ 111km — fast, sufficient for 
 const _GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
 
-import { getOpenMeteoKey } from './keys';
+import { fetchOpenMeteoPoints } from './openMeteoProxy';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -258,19 +258,18 @@ export async function fetchPressureGrid(
             }
         }
 
-        const multiLats = points.map((p) => p.lat).join(',');
-        const multiLons = points.map((p) => p.lon).join(',');
-
         // Fetch all forecast hours of pressure + wind in one request
-        const omKey = getOpenMeteoKey();
-        if (!omKey) return null;
-        const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=pressure_msl,wind_speed_10m,wind_direction_10m&forecast_hours=${FORECAST_HOURS}&timezone=auto&apikey=${omKey}`;
-
-        const response = await fetch(url);
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        const results = Array.isArray(data) ? data : [data];
+        const results = await fetchOpenMeteoPoints<{
+            hourly?: {
+                pressure_msl?: number[];
+                wind_speed_10m?: number[];
+                wind_direction_10m?: number[];
+            };
+        }>('forecast', points, {
+            hourly: 'pressure_msl,wind_speed_10m,wind_direction_10m',
+            forecast_hours: FORECAST_HOURS,
+            timezone: 'auto',
+        });
 
         const uniqueLats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
         const uniqueLons = [...new Set(points.map((p) => p.lon))].sort((a, b) => a - b);

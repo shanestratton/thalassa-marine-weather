@@ -11,7 +11,7 @@
  * Enforces access locally even when 200nm offshore.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import {
     type CrewPermissions,
@@ -19,6 +19,7 @@ import {
     DEFAULT_PERMISSIONS,
     ROLE_DEFAULT_PERMISSIONS,
 } from '../services/CrewService';
+import { useAuthStore } from '../stores/authStore';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,20 @@ export interface PermissionsState {
     canManageCrew: boolean;
 }
 
-const CACHE_KEY = 'thalassa_permissions';
+const CACHE_KEY_PREFIX = 'thalassa_permissions';
+const CACHE_VERSION = 1;
+
+interface PermissionCacheEntry {
+    version: typeof CACHE_VERSION;
+    userId: string;
+    role: CrewRole | 'skipper';
+    permissions: CrewPermissions;
+}
+
+interface ScopedPermissionsState {
+    userId: string | null;
+    state: PermissionsState;
+}
 
 // ── Skipper: full access ──────────────────────────────────────────────────
 
@@ -94,96 +108,191 @@ function expandPermissions(role: CrewRole | 'skipper', perms: CrewPermissions): 
     };
 }
 
+const RESTRICTED_PERMISSIONS = expandPermissions('punter', DEFAULT_PERMISSIONS);
+const LOADING_PERMISSIONS: PermissionsState = {
+    ...RESTRICTED_PERMISSIONS,
+    loaded: false,
+};
+
+const CREW_ROLES: ReadonlySet<CrewRole | 'skipper'> = new Set([
+    'skipper',
+    'co-skipper',
+    'navigator',
+    'deckhand',
+    'punter',
+]);
+const PERMISSION_KEYS = Object.keys(DEFAULT_PERMISSIONS) as (keyof CrewPermissions)[];
+
+function cacheKey(userId: string): string {
+    return `${CACHE_KEY_PREFIX}:${userId}`;
+}
+
+function isPermissionCacheEntry(value: unknown, expectedUserId: string): value is PermissionCacheEntry {
+    if (!value || typeof value !== 'object') return false;
+
+    const entry = value as Partial<PermissionCacheEntry>;
+    if (
+        entry.version !== CACHE_VERSION ||
+        entry.userId !== expectedUserId ||
+        typeof entry.role !== 'string' ||
+        !CREW_ROLES.has(entry.role as CrewRole | 'skipper') ||
+        !entry.permissions ||
+        typeof entry.permissions !== 'object'
+    ) {
+        return false;
+    }
+
+    return PERMISSION_KEYS.every((key) => typeof entry.permissions?.[key] === 'boolean');
+}
+
+function readCachedPermissions(userId: string): PermissionsState | null {
+    try {
+        const key = cacheKey(userId);
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+
+        const parsed: unknown = JSON.parse(raw);
+        if (!isPermissionCacheEntry(parsed, userId)) {
+            localStorage.removeItem(key);
+            return null;
+        }
+        return expandPermissions(parsed.role, parsed.permissions);
+    } catch {
+        return null;
+    }
+}
+
+function writeCachedPermissions(userId: string, state: PermissionsState): void {
+    const entry: PermissionCacheEntry = {
+        version: CACHE_VERSION,
+        userId,
+        role: state.role,
+        permissions: state.permissions,
+    };
+    try {
+        localStorage.setItem(cacheKey(userId), JSON.stringify(entry));
+    } catch {
+        /* storage full or unavailable */
+    }
+}
+
+function mergeCrewPermissions(role: CrewRole, value: unknown): CrewPermissions {
+    const overrides =
+        value && typeof value === 'object' ? (value as Partial<Record<keyof CrewPermissions, unknown>>) : {};
+    const defaults = ROLE_DEFAULT_PERMISSIONS[role];
+
+    return Object.fromEntries(
+        PERMISSION_KEYS.map((key) => [key, typeof overrides[key] === 'boolean' ? overrides[key] : defaults[key]]),
+    ) as unknown as CrewPermissions;
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────
 
 export function usePermissions(): PermissionsState {
-    const [state, setState] = useState<PermissionsState>(() => {
-        // Load from cache for instant offline display
-        try {
-            const raw = localStorage.getItem(CACHE_KEY);
-            if (raw) return JSON.parse(raw);
-        } catch {
-            /* ignore */
-        }
-        // Default to skipper if no cache (owner's device)
-        return { ...SKIPPER_PERMISSIONS, loaded: false };
+    const currentUserId = useAuthStore((auth) => auth.user?.id ?? null);
+    const authChecked = useAuthStore((auth) => auth.authChecked);
+    const [scopedState, setScopedState] = useState<ScopedPermissionsState>(() => {
+        const cached = currentUserId ? readCachedPermissions(currentUserId) : null;
+        return {
+            userId: currentUserId,
+            state: cached ?? LOADING_PERMISSIONS,
+        };
     });
 
-    const fetchPermissions = useCallback(async () => {
-        if (!supabase) {
-            // Offline — use cached
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!currentUserId) {
+            setScopedState({
+                userId: null,
+                state: authChecked ? RESTRICTED_PERMISSIONS : LOADING_PERMISSIONS,
+            });
             return;
         }
 
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return;
+        const cached = readCachedPermissions(currentUserId);
+        setScopedState({
+            userId: currentUserId,
+            state: cached ?? LOADING_PERMISSIONS,
+        });
 
-        // Check if user is the vessel owner (skipper)
-        const { data: vessel } = await supabase.from('vessel_identity').select('user_id').limit(1).maybeSingle();
+        if (!supabase) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (vessel && (vessel as any).user_id === user.id) {
-            setState(SKIPPER_PERMISSIONS);
-            try {
-                localStorage.setItem(CACHE_KEY, JSON.stringify(SKIPPER_PERMISSIONS));
-            } catch {
-                /* full */
-            }
-            return;
-        }
-
-        // Fetch crew record
-        const { data: crew } = await supabase
-            .from('vessel_crew')
-            .select('role, permissions')
-            .eq('crew_user_id', user.id)
-            .eq('status', 'accepted')
-            .limit(1)
-            .maybeSingle();
-
-        if (!crew) {
-            // Not a crew member — restrict to punter defaults
-            const punterState = expandPermissions('punter', DEFAULT_PERMISSIONS);
-            setState(punterState);
-            return;
-        }
-
-        const role = ((crew as { role?: string }).role || 'deckhand') as CrewRole;
-        const perms = {
-            ...ROLE_DEFAULT_PERMISSIONS[role],
-            ...((crew as { permissions?: Partial<CrewPermissions> }).permissions || {}),
+        const commit = (state: PermissionsState) => {
+            if (cancelled) return;
+            setScopedState({ userId: currentUserId, state });
+            writeCachedPermissions(currentUserId, state);
         };
 
-        const permState = expandPermissions(role, perms);
-        setState(permState);
+        void (async () => {
+            try {
+                const {
+                    data: { user },
+                    error: authError,
+                } = await supabase.auth.getUser();
+                if (authError || user?.id !== currentUserId || cancelled) return;
 
-        try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(permState));
-        } catch {
-            /* full */
-        }
-    }, []);
+                // Scope owner detection to the authenticated account. Reading
+                // an arbitrary first vessel could grant skipper rights from a
+                // previous account or another locally cached vessel.
+                const { data: vessel, error: vesselError } = await supabase
+                    .from('vessel_identity')
+                    .select('user_id')
+                    .eq('user_id', currentUserId)
+                    .limit(1)
+                    .maybeSingle();
+                if (vesselError || cancelled) return;
 
-    useEffect(() => {
-        fetchPermissions();
-    }, [fetchPermissions]);
+                if ((vessel as { user_id?: string } | null)?.user_id === currentUserId) {
+                    commit(SKIPPER_PERMISSIONS);
+                    return;
+                }
 
-    return state;
+                const { data: crew, error: crewError } = await supabase
+                    .from('vessel_crew')
+                    .select('role, permissions')
+                    .eq('crew_user_id', currentUserId)
+                    .eq('status', 'accepted')
+                    .limit(1)
+                    .maybeSingle();
+                if (crewError || cancelled) return;
+
+                if (!crew) {
+                    commit(RESTRICTED_PERMISSIONS);
+                    return;
+                }
+
+                const rawRole = (crew as { role?: string }).role;
+                const role: CrewRole =
+                    rawRole && CREW_ROLES.has(rawRole as CrewRole) && rawRole !== 'skipper'
+                        ? (rawRole as CrewRole)
+                        : 'deckhand';
+                const perms = mergeCrewPermissions(role, (crew as { permissions?: unknown }).permissions);
+                commit(expandPermissions(role, perms));
+            } catch {
+                // Offline or temporarily unavailable: retain only this
+                // authenticated account's validated cache.
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [authChecked, currentUserId]);
+
+    // Effects run after paint. Never expose account A's state during the
+    // render in which Zustand has already switched to account B.
+    return scopedState.userId === currentUserId ? scopedState.state : LOADING_PERMISSIONS;
 }
 
 /**
  * Check a specific permission (for use outside React components).
  */
 export function checkPermission(key: keyof CrewPermissions): boolean {
-    try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return true; // Default to allowed if no cache (owner)
-        const state: PermissionsState = JSON.parse(raw);
-        if (state.isSkipper) return true;
-        return state.permissions[key] ?? false;
-    } catch {
-        return true; // Fail open
-    }
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return false;
+
+    const state = readCachedPermissions(userId);
+    if (!state) return false;
+    return state.isSkipper || state.permissions[key] === true;
 }

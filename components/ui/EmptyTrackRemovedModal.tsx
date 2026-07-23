@@ -9,6 +9,7 @@
  */
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from './OverlayPortal';
 
 interface EmptyTrackRemovedModalProps {
     /** Number of empty tracks removed; null/0 = closed. */
@@ -48,7 +49,7 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
     const plural = count! > 1;
 
     return (
-        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-5" onClick={onClose}>
+        <OverlayPortal className="flex items-center justify-center p-5" onClick={onClose}>
             <style>{`@keyframes tmv-ring-deplete { from { stroke-dashoffset: 0; } to { stroke-dashoffset: ${C}; } }`}</style>
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden="true" />
 
@@ -114,6 +115,6 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
                     Got it{secondsLeft > 0 ? ` · ${secondsLeft}` : ''}
                 </button>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

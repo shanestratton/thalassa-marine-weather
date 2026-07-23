@@ -37,6 +37,9 @@ import { supabase } from '../services/supabase';
 import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 import { FEET_PER_METRE } from '../services/units';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { OverlayPortal } from './ui/OverlayPortal';
+import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
 interface OnboardingWizardProps {
     onComplete: (settings: Partial<UserSettings>) => void;
@@ -48,6 +51,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     // Ref to the outer scroll container so we can snapshot + restore
     // scrollTop across keyboard-hide events (see handler below).
     const scrollRef = React.useRef<HTMLDivElement | null>(null);
+    const focusTrapRef = useFocusTrap<HTMLDivElement>(true);
+    const stepContentRef = React.useRef<HTMLDivElement | null>(null);
+    const previousStepRef = React.useRef(step);
 
     // Keyboard tracking — same pattern as DiaryPage
     useEffect(() => {
@@ -112,6 +118,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     React.useLayoutEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = 0;
+        }
+        if (previousStepRef.current !== step) {
+            // The button that advances a step is removed during the render.
+            // Keep focus inside the mounted dialog and announce the new step
+            // instead of allowing focus to fall back to <body>. Do not focus
+            // this group on the initial mount: the trap must first snapshot
+            // the external launcher so it can restore it on completion.
+            stepContentRef.current?.focus({ preventScroll: true });
+            previousStepRef.current = step;
         }
     }, [step]);
 
@@ -433,6 +448,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const handleFinish = () => {
+        const actionScope = getAuthIdentityScope();
+        if (!actionScope.userId || !isAuthIdentityScopeCurrent(actionScope)) {
+            toast.error('Your sign-in changed. Please reopen setup and try again.');
+            return;
+        }
         let finalVesselType = vesselType;
         // VesselProfile dimensions are stored in FEET — this is THE
         // conversion point that establishes the convention every consumer
@@ -556,9 +576,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 : {}),
         };
 
-        localStorage.setItem('thalassa_v3_onboarded', 'true');
-        localStorage.setItem('thalassa_tutorial_completed', 'true'); // Tips now shown during onboarding
-        localStorage.setItem('thalassa_crew_count', String(crewCount ? parseInt(crewCount) || 2 : 2));
+        localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded', actionScope), 'true');
+        localStorage.setItem(authScopedStorageKey('thalassa_tutorial_completed', actionScope), 'true'); // Tips now shown during onboarding
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_crew_count', actionScope),
+            String(crewCount ? parseInt(crewCount) || 2 : 2),
+        );
 
         // Trigger the intro overlay + glass gesture tutorial. Default
         // hidden on mount (see OnboardingOverlay and GlassTutorial)
@@ -567,7 +590,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         // later than the overlays mount. This event is the ONLY
         // moment we show them — exclusively for brand-new accounts
         // that just finished the wizard.
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && isAuthIdentityScopeCurrent(actionScope)) {
             window.dispatchEvent(new CustomEvent('thalassa:show-intro-overlay'));
             window.dispatchEvent(new CustomEvent('thalassa:show-glass-tutorial'));
         }
@@ -576,7 +599,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         // voyage-log SQL helper (user_name_parts) can compose the byline
         // server-side. Fire-and-forget — local Capacitor Preferences is still
         // the canonical settings store, this is just for the boat-member sync.
-        if (supabase) {
+        if (supabase && isAuthIdentityScopeCurrent(actionScope)) {
             void supabase.auth
                 .updateUser({
                     data: {
@@ -589,6 +612,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 .catch((err) => log.warn('auth.updateUser failed (non-fatal):', err));
         }
 
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         onComplete({
             ...settings,
             subscriptionTier,
@@ -601,14 +625,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     return (
-        <div
+        <OverlayPortal
             ref={scrollRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboarding-wizard-title"
             // `overflow-x-hidden` prevents the entrance animations
             // (slide-in-from-right-8) or any mis-sized child from
             // letting the user swipe horizontally. `touch-action: pan-y`
             // on the inline style further locks the wizard to
             // vertical-only gestures on iOS WebKit.
-            className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-x-hidden overflow-y-auto wizard-scroll"
+            className="bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-x-hidden overflow-y-auto wizard-scroll"
             style={{
                 paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 3.5rem))',
                 paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
@@ -619,7 +646,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[120px] pointer-events-none"></div>
             <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
-            <div className="w-full max-w-lg relative">
+            <div ref={focusTrapRef} className="w-full max-w-lg relative">
+                <h2 id="onboarding-wizard-title" className="sr-only">
+                    Set up Thalassa
+                </h2>
                 {/* BACK BUTTON — fixed to the viewport with safe-area padding
                     so it sits below the Dynamic Island / notch on iPhone rather
                     than (a) going off-screen on tall devices or (b) hiding under
@@ -636,132 +666,140 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     </button>
                 )}
 
-                {/* STEP 1: WELCOME */}
-                {step === 1 && <WelcomeStep onNext={handleNext} />}
+                <div
+                    ref={stepContentRef}
+                    role="group"
+                    aria-label={`Setup step ${step} of 7`}
+                    tabIndex={-1}
+                    className="outline-none"
+                >
+                    {/* STEP 1: WELCOME */}
+                    {step === 1 && <WelcomeStep onNext={handleNext} />}
 
-                {/* STEP 2: HOME PORT */}
-                {step === 2 && (
-                    <HomePortStep
-                        homePort={homePort}
-                        onHomePortChange={setHomePort}
-                        isLocating={isLocating}
-                        showMap={showMap}
-                        onShowMap={setShowMap}
-                        tempLocation={tempLocation}
-                        onLocate={handleLocate}
-                        onMapSelect={handleMapSelect}
-                        onConfirmMapSelection={confirmMapSelection}
-                        prefix={prefix}
-                        onPrefixChange={setPrefix}
-                        firstName={firstName}
-                        onFirstNameChange={setFirstName}
-                        lastName={lastName}
-                        onLastNameChange={setLastName}
-                        nickname={nickname}
-                        onNicknameChange={setNickname}
-                        onNext={handleNext}
-                    />
-                )}
+                    {/* STEP 2: HOME PORT */}
+                    {step === 2 && (
+                        <HomePortStep
+                            homePort={homePort}
+                            onHomePortChange={setHomePort}
+                            isLocating={isLocating}
+                            showMap={showMap}
+                            onShowMap={setShowMap}
+                            tempLocation={tempLocation}
+                            onLocate={handleLocate}
+                            onMapSelect={handleMapSelect}
+                            onConfirmMapSelection={confirmMapSelection}
+                            prefix={prefix}
+                            onPrefixChange={setPrefix}
+                            firstName={firstName}
+                            onFirstNameChange={setFirstName}
+                            lastName={lastName}
+                            onLastNameChange={setLastName}
+                            nickname={nickname}
+                            onNicknameChange={setNickname}
+                            onNext={handleNext}
+                        />
+                    )}
 
-                {/* STEP 3: ROLE & TIER SELECTION */}
-                {step === 3 && (
-                    <RoleSelectionStep
-                        selectedTier={subscriptionTier}
-                        onTierChange={setSubscriptionTier}
-                        onVesselTypeChange={setVesselType}
-                        onNext={handleNext}
-                    />
-                )}
+                    {/* STEP 3: ROLE & TIER SELECTION */}
+                    {step === 3 && (
+                        <RoleSelectionStep
+                            selectedTier={subscriptionTier}
+                            onTierChange={setSubscriptionTier}
+                            onVesselTypeChange={setVesselType}
+                            onNext={handleNext}
+                        />
+                    )}
 
-                {/* STEP 4: UNIT PREFERENCES — moved ahead of Vessel Details so
+                    {/* STEP 4: UNIT PREFERENCES — moved ahead of Vessel Details so
                     those fields inherit the user's chosen length/volume units */}
-                {step === 4 && (
-                    <UnitPreferencesStep
-                        prefSpeed={prefSpeed}
-                        onSpeedChange={setPrefSpeed}
-                        prefWaveHeight={prefWaveHeight}
-                        onWaveHeightChange={setPrefWaveHeight}
-                        prefLength={prefLength}
-                        onLengthChange={setPrefLength}
-                        prefTemp={prefTemp}
-                        onTempChange={setPrefTemp}
-                        prefDist={prefDist}
-                        onDistChange={setPrefDist}
-                        prefVolume={prefVolume}
-                        onVolumeChange={setPrefVolume}
-                        onNext={handleNext}
-                    />
-                )}
+                    {step === 4 && (
+                        <UnitPreferencesStep
+                            prefSpeed={prefSpeed}
+                            onSpeedChange={setPrefSpeed}
+                            prefWaveHeight={prefWaveHeight}
+                            onWaveHeightChange={setPrefWaveHeight}
+                            prefLength={prefLength}
+                            onLengthChange={setPrefLength}
+                            prefTemp={prefTemp}
+                            onTempChange={setPrefTemp}
+                            prefDist={prefDist}
+                            onDistChange={setPrefDist}
+                            prefVolume={prefVolume}
+                            onVolumeChange={setPrefVolume}
+                            onNext={handleNext}
+                        />
+                    )}
 
-                {/* STEP 5: VESSEL DETAILS (Skipper only) */}
-                {step === 5 && (
-                    <VesselDetailsStep
-                        vesselType={vesselType}
-                        onVesselTypeChange={setVesselType}
-                        name={name}
-                        onNameChange={setName}
-                        registration={registration}
-                        onRegistrationChange={setRegistration}
-                        mmsi={mmsi}
-                        onMmsiChange={setMmsi}
-                        hullType={hullType}
-                        onHullTypeChange={setHullType}
-                        keelType={keelType}
-                        onKeelTypeChange={setKeelType}
-                        riggingType={riggingType}
-                        onRiggingTypeChange={setRiggingType}
-                        length={length}
-                        onLengthChange={setLength}
-                        lengthUnit={lengthUnit}
-                        onToggleLengthUnit={toggleLengthUnit}
-                        beam={beam}
-                        onBeamChange={setBeam}
-                        beamUnit={beamUnit}
-                        onToggleBeamUnit={toggleBeamUnit}
-                        draft={draft}
-                        onDraftChange={setDraft}
-                        draftUnit={draftUnit}
-                        onToggleDraftUnit={toggleDraftUnit}
-                        displacement={displacement}
-                        onDisplacementChange={setDisplacement}
-                        dispUnit={dispUnit}
-                        onToggleDispUnit={toggleDispUnit}
-                        airDraft={airDraft}
-                        onAirDraftChange={setAirDraft}
-                        airDraftUnit={airDraftUnit}
-                        onToggleAirDraftUnit={toggleAirDraftUnit}
-                        fuel={fuel}
-                        onFuelChange={setFuel}
-                        water={water}
-                        onWaterChange={setWater}
-                        volUnit={volUnit}
-                        onToggleVolUnit={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
-                        crewCount={crewCount}
-                        onCrewCountChange={setCrewCount}
-                        selectedPolarModel={selectedPolar?.model}
-                        onYachtSelect={handleYachtSelect}
-                        keyboardHeight={keyboardHeight}
-                        onNext={handleNext}
-                    />
-                )}
+                    {/* STEP 5: VESSEL DETAILS (Skipper only) */}
+                    {step === 5 && (
+                        <VesselDetailsStep
+                            vesselType={vesselType}
+                            onVesselTypeChange={setVesselType}
+                            name={name}
+                            onNameChange={setName}
+                            registration={registration}
+                            onRegistrationChange={setRegistration}
+                            mmsi={mmsi}
+                            onMmsiChange={setMmsi}
+                            hullType={hullType}
+                            onHullTypeChange={setHullType}
+                            keelType={keelType}
+                            onKeelTypeChange={setKeelType}
+                            riggingType={riggingType}
+                            onRiggingTypeChange={setRiggingType}
+                            length={length}
+                            onLengthChange={setLength}
+                            lengthUnit={lengthUnit}
+                            onToggleLengthUnit={toggleLengthUnit}
+                            beam={beam}
+                            onBeamChange={setBeam}
+                            beamUnit={beamUnit}
+                            onToggleBeamUnit={toggleBeamUnit}
+                            draft={draft}
+                            onDraftChange={setDraft}
+                            draftUnit={draftUnit}
+                            onToggleDraftUnit={toggleDraftUnit}
+                            displacement={displacement}
+                            onDisplacementChange={setDisplacement}
+                            dispUnit={dispUnit}
+                            onToggleDispUnit={toggleDispUnit}
+                            airDraft={airDraft}
+                            onAirDraftChange={setAirDraft}
+                            airDraftUnit={airDraftUnit}
+                            onToggleAirDraftUnit={toggleAirDraftUnit}
+                            fuel={fuel}
+                            onFuelChange={setFuel}
+                            water={water}
+                            onWaterChange={setWater}
+                            volUnit={volUnit}
+                            onToggleVolUnit={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
+                            crewCount={crewCount}
+                            onCrewCountChange={setCrewCount}
+                            selectedPolarModel={selectedPolar?.model}
+                            onYachtSelect={handleYachtSelect}
+                            keyboardHeight={keyboardHeight}
+                            onNext={handleNext}
+                        />
+                    )}
 
-                {/* STEP 6: OFFSHORE MODEL (Skipper only) */}
-                {step === 6 && (
-                    <OffshoreModelStep selected={offshoreModel} onChange={setOffshoreModel} onNext={handleNext} />
-                )}
+                    {/* STEP 6: OFFSHORE MODEL (Skipper only) */}
+                    {step === 6 && (
+                        <OffshoreModelStep selected={offshoreModel} onChange={setOffshoreModel} onNext={handleNext} />
+                    )}
 
-                {/* STEP 7: DISPLAY PREFERENCES */}
-                {step === 7 && (
-                    <DisplayPrefsStep
-                        prefAlwaysOn={prefAlwaysOn}
-                        onAlwaysOnChange={setPrefAlwaysOn}
-                        prefOrientation={prefOrientation}
-                        onOrientationChange={setPrefOrientation}
-                        prefDisplayMode={prefDisplayMode}
-                        onDisplayModeChange={setPrefDisplayMode}
-                        onFinish={handleFinish}
-                    />
-                )}
+                    {/* STEP 7: DISPLAY PREFERENCES */}
+                    {step === 7 && (
+                        <DisplayPrefsStep
+                            prefAlwaysOn={prefAlwaysOn}
+                            onAlwaysOnChange={setPrefAlwaysOn}
+                            prefOrientation={prefOrientation}
+                            onOrientationChange={setPrefOrientation}
+                            prefDisplayMode={prefDisplayMode}
+                            onDisplayModeChange={setPrefDisplayMode}
+                            onFinish={handleFinish}
+                        />
+                    )}
+                </div>
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
@@ -773,6 +811,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     ))}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 });

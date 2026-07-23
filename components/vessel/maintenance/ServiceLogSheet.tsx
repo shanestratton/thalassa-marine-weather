@@ -5,6 +5,7 @@
 import React, { useRef } from 'react';
 import type { TaskWithStatus, TrafficLight } from '../../../services/MaintenanceService';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
+import { OverlayPortal } from '../../ui/OverlayPortal';
 
 const LIGHT_COLORS: Record<TrafficLight, { dot: string; text: string }> = {
     red: { dot: 'bg-red-500', text: 'text-red-400' },
@@ -43,11 +44,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     });
 
     return (
-        <div
-            className="fixed inset-0 z-[999] flex items-center justify-center p-4"
-            onClick={onClose}
-            role="presentation"
-        >
+        <OverlayPortal className="flex items-center justify-center p-4" onClick={onClose} role="presentation">
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/60" />
 
@@ -143,6 +140,6 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

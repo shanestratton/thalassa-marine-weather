@@ -54,6 +54,12 @@ import {
 } from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext, prewarmPhoneGpsContext } from '../../services/voice/thalassaContext';
 import { canAccess } from '../../services/SubscriptionService';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
@@ -165,6 +171,11 @@ interface TargetState {
 
 const initialTargetState: TargetState = { bosun: 'idle', cloud: 'idle' };
 
+interface VoiceOperation {
+    readonly identity: AuthIdentityScope;
+    readonly lifecycleGeneration: number;
+}
+
 /** Decode a base64 string to a Blob URL for HTML5 audio playback. */
 function audioFromBase64(b64: string, mimeType = 'audio/mpeg'): string {
     const binary = atob(b64);
@@ -184,6 +195,7 @@ async function checkCloudReachable(): Promise<boolean> {
 
 export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const [buttonState, setButtonState] = useState<TargetState>(initialTargetState);
+    const [identityGeneration, setIdentityGeneration] = useState(() => getAuthIdentityScope().generation);
     // Conversation history persists across console open/close via Zustand +
     // localStorage. Adding a turn auto-trims to MAX_PERSISTED_TURNS in the
     // store. The slice we SEND to Haiku is still capped at HISTORY_TURN_LIMIT
@@ -281,6 +293,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 
     const recorderRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null);
     const speechRecognizerRef = useRef<SpeechRecognizerHandle | null>(null);
+    const stoppingRecorderRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null);
+    const stoppingSpeechRecognizerRef = useRef<SpeechRecognizerHandle | null>(null);
     /**
      * Deepgram WebSocket recognizer — primary cloud-streaming STT. Used
      * in preference to Apple SR when available because (a) it doesn't
@@ -294,8 +308,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * actually started.
      */
     const deepgramRecognizerRef = useRef<DeepgramRecognizerHandle | null>(null);
+    const stoppingDeepgramRecognizerRef = useRef<DeepgramRecognizerHandle | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlsRef = useRef<string[]>([]);
+    const voiceTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+    const requestControllersRef = useRef<Set<AbortController>>(new Set());
+    const lifecycleGenerationRef = useRef(0);
     const conversationEndRef = useRef<HTMLDivElement | null>(null);
 
     /**
@@ -374,23 +392,176 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      */
     const [srEventLog, setSrEventLog] = useState<Array<{ ts: number; msg: string }>>([]);
 
-    // Wire the speechRecognizer's event tap into local state so emitted [SR]
-    // messages show up in the debug strip. Runs once per mount.
+    const captureVoiceOperation = useCallback(
+        (): VoiceOperation => ({
+            identity: getAuthIdentityScope(),
+            lifecycleGeneration: lifecycleGenerationRef.current,
+        }),
+        [],
+    );
+
+    const isVoiceOperationCurrent = useCallback(
+        (operation: VoiceOperation): boolean =>
+            operation.lifecycleGeneration === lifecycleGenerationRef.current &&
+            isAuthIdentityScopeCurrent(operation.identity),
+        [],
+    );
+
+    const clearVoiceTimeouts = useCallback(() => {
+        for (const timeout of voiceTimeoutsRef.current) clearTimeout(timeout);
+        voiceTimeoutsRef.current.clear();
+    }, []);
+
+    const scheduleVoiceTimeout = useCallback(
+        (operation: VoiceOperation, callback: () => void, delay: number): ReturnType<typeof setTimeout> => {
+            const timeout = setTimeout(() => {
+                voiceTimeoutsRef.current.delete(timeout);
+                if (isVoiceOperationCurrent(operation)) callback();
+            }, delay);
+            voiceTimeoutsRef.current.add(timeout);
+            return timeout;
+        },
+        [isVoiceOperationCurrent],
+    );
+
+    /**
+     * Immediately release every resource that can retain microphone input,
+     * account text, or account audio. Promise-returning native/plugin stops
+     * are deliberately started synchronously; generation fences below make
+     * their eventual completions inert.
+     */
+    const terminateVoiceResources = useCallback(() => {
+        firstPartialPromiseRef.current?.resolve();
+        firstPartialPromiseRef.current = null;
+
+        const recorder = recorderRef.current;
+        recorderRef.current = null;
+        try {
+            recorder?.cancel();
+        } catch {
+            /* best-effort release */
+        }
+        const stoppingRecorder = stoppingRecorderRef.current;
+        stoppingRecorderRef.current = null;
+        try {
+            stoppingRecorder?.cancel();
+        } catch {
+            /* best-effort release */
+        }
+
+        const appleRecognizer = speechRecognizerRef.current;
+        speechRecognizerRef.current = null;
+        try {
+            void appleRecognizer?.cancel();
+        } catch {
+            /* best-effort release */
+        }
+        const stoppingAppleRecognizer = stoppingSpeechRecognizerRef.current;
+        stoppingSpeechRecognizerRef.current = null;
+        try {
+            void stoppingAppleRecognizer?.cancel();
+        } catch {
+            /* best-effort release */
+        }
+
+        const deepgramRecognizer = deepgramRecognizerRef.current;
+        deepgramRecognizerRef.current = null;
+        try {
+            void deepgramRecognizer?.cancel();
+        } catch {
+            /* best-effort release */
+        }
+        const stoppingDeepgramRecognizer = stoppingDeepgramRecognizerRef.current;
+        stoppingDeepgramRecognizerRef.current = null;
+        try {
+            void stoppingDeepgramRecognizer?.cancel();
+        } catch {
+            /* best-effort release */
+        }
+
+        const sync = syncHandleRef.current;
+        syncHandleRef.current = null;
+        if (sync) void sync.stop();
+
+        const audio = audioRef.current;
+        audioRef.current = null;
+        if (audio) {
+            audio.onended = null;
+            audio.onerror = null;
+            try {
+                audio.pause();
+                audio.removeAttribute('src');
+                audio.load();
+            } catch {
+                /* best-effort release */
+            }
+        }
+
+        const cap = (
+            globalThis as typeof globalThis & {
+                Capacitor?: {
+                    Plugins?: {
+                        AppleMusic?: {
+                            cancelTtsAudio?: () => Promise<{ status: string }>;
+                        };
+                    };
+                };
+            }
+        ).Capacitor;
+        void cap?.Plugins?.AppleMusic?.cancelTtsAudio?.().catch(() => undefined);
+
+        for (const url of audioUrlsRef.current.splice(0)) URL.revokeObjectURL(url);
+        for (const controller of requestControllersRef.current) controller.abort();
+        requestControllersRef.current.clear();
+        clearVoiceTimeouts();
+        setSrEventTap(null);
+        setDeepgramEventTap(null);
+        releasePrewarmedMicStream();
+        releasePrewarmedWebSocket();
+        releasePrewarmedAudioContext();
+    }, [clearVoiceTimeouts]);
+
+    // Auth scope is a hard boundary for the live sensor. This listener runs
+    // synchronously from authStore before the replacement identity is exposed.
     useEffect(() => {
+        return subscribeAuthIdentityScope((next) => {
+            lifecycleGenerationRef.current += 1;
+            terminateVoiceResources();
+            setButtonState(initialTargetState);
+            setTypedQuery('');
+            setRawErrorMessage(null);
+            setActiveTarget(null);
+            setLiveTranscript('');
+            setSrActive(false);
+            setActiveRecognizerKind(null);
+            setPrewarmReady(false);
+            setPiSetupOpen(false);
+            setSrEventLog([]);
+            setIdentityGeneration(next.generation);
+        });
+    }, [terminateVoiceResources]);
+
+    // Wire the speechRecognizer's event tap into local state so emitted [SR]
+    // messages show up in the debug strip. Rebind on identity change so a
+    // late event emitted by a cancelled A recognizer cannot appear for B.
+    useEffect(() => {
+        const operation = captureVoiceOperation();
         setSrEventTap((msg) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             setSrEventLog((prev) => [...prev.slice(-19), { ts: Date.now(), msg }]);
         });
         // Same hook for [DG] (Deepgram) events — share the debug strip so
         // the skipper can see the full path: token mint → ws open → first
         // partial → close, all in one timeline.
         setDeepgramEventTap((msg) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             setSrEventLog((prev) => [...prev.slice(-19), { ts: Date.now(), msg }]);
         });
         return () => {
             setSrEventTap(null);
             setDeepgramEventTap(null);
         };
-    }, []);
+    }, [captureVoiceOperation, identityGeneration, isVoiceOperationCurrent]);
 
     // ── Effects ─────────────────────────────────────────────────────────
 
@@ -520,9 +691,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     useEffect(() => {
         // BosunConsole now mounts/unmounts via the page registry, so the
         // legacy isOpen guard is redundant — effects always run on mount.
+        const operation = captureVoiceOperation();
         let cancelled = false;
         void isDeepgramAvailable(true).then((available) => {
-            if (cancelled) return;
+            if (cancelled || !isVoiceOperationCurrent(operation)) return;
             setDeepgramStatus(available ? 'available' : 'unavailable');
             if (available) {
                 // Multi-prewarm to slash cold-start latency on first
@@ -579,7 +751,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // per the system prompt's PHONE GPS rules.
                     prewarmPhoneGpsContext(),
                 ]).then(() => {
-                    if (cancelled) return;
+                    if (cancelled || !isVoiceOperationCurrent(operation)) {
+                        releasePrewarmedMicStream();
+                        releasePrewarmedWebSocket();
+                        releasePrewarmedAudioContext();
+                        return;
+                    }
                     setPrewarmReady(true);
                     void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {
                         /* ignore — web/sim has no haptics */
@@ -600,7 +777,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             releasePrewarmedWebSocket();
             releasePrewarmedAudioContext();
         };
-    }, []);
+    }, [captureVoiceOperation, identityGeneration, isVoiceOperationCurrent]);
 
     /**
      * Re-arm the prewarm pipeline after a recognizer session ends.
@@ -623,16 +800,27 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * If a re-arm somehow fails we don't toggle it false; falling through
      * to a cold getUserMedia/context build is still functional, just slower.
      */
-    const rearmPrewarm = useCallback(() => {
-        void Promise.all([
-            prewarmMicStream().then(async (ok) => {
-                if (ok) await prewarmAudioContext();
-                return ok;
-            }),
-            prewarmWorkletAsset(),
-            prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
-        ]);
-    }, []);
+    const rearmPrewarm = useCallback(
+        (operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
+            void Promise.all([
+                prewarmMicStream().then(async (ok) => {
+                    if (ok) await prewarmAudioContext();
+                    return ok;
+                }),
+                prewarmWorkletAsset(),
+                prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
+            ]).then(() => {
+                if (isVoiceOperationCurrent(operation)) return;
+                // A transition may occur while getUserMedia/WS acquisition is
+                // pending. Release anything that completed after the cutover.
+                releasePrewarmedMicStream();
+                releasePrewarmedWebSocket();
+                releasePrewarmedAudioContext();
+            });
+        },
+        [isVoiceOperationCurrent],
+    );
 
     // Auto-scroll on new content
     useEffect(() => {
@@ -645,14 +833,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     useEffect(() => {
         // BosunConsole now mounts/unmounts via the page registry, so the
         // legacy isOpen guard is redundant — effects always run on mount.
+        const operation = captureVoiceOperation();
         let cancelled = false;
         void startConversationSync({
             onRemoteTurn: (turn) => {
-                if (cancelled) return;
+                if (cancelled || !isVoiceOperationCurrent(operation)) return;
                 upsertTurnSorted(turn);
             },
         }).then((handle) => {
-            if (cancelled) {
+            if (cancelled || !isVoiceOperationCurrent(operation)) {
                 void handle.stop();
                 return;
             }
@@ -664,39 +853,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             syncHandleRef.current = null;
             if (handle) void handle.stop();
         };
-    }, [upsertTurnSorted]);
+    }, [captureVoiceOperation, identityGeneration, isVoiceOperationCurrent, upsertTurnSorted]);
 
     // Cleanup on unmount: free Blob URLs, abort any in-flight recording + SR
     useEffect(() => {
-        const urls = audioUrlsRef.current;
         return () => {
-            urls.forEach((u) => URL.revokeObjectURL(u));
-            const rec = recorderRef.current;
-            if (rec) {
-                try {
-                    rec.cancel();
-                } catch {
-                    /* ignore */
-                }
-            }
-            const sr = speechRecognizerRef.current;
-            if (sr) {
-                try {
-                    void sr.cancel();
-                } catch {
-                    /* ignore */
-                }
-            }
-            const dg = deepgramRecognizerRef.current;
-            if (dg) {
-                try {
-                    void dg.cancel();
-                } catch {
-                    /* ignore */
-                }
-            }
+            lifecycleGenerationRef.current += 1;
+            terminateVoiceResources();
         };
-    }, []);
+    }, [terminateVoiceResources]);
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -736,46 +901,53 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * Must be called synchronously inside the tap handler — NOT inside
      * useCallback (callbacks are fine but they must run before any await).
      */
-    const unlockAudio = useCallback(() => {
-        if (!audioRef.current) {
-            audioRef.current = new Audio();
-            audioRef.current.preload = 'auto';
-        }
-        const audio = audioRef.current;
-        // CRITICAL: clear stale onended/onerror from the previous response.
-        // Without this, the silent unlock WAV's 'ended' event fires the
-        // OLD closure (e.g. setOneButton('cloud', 'idle') from cycle 1)
-        // which then clobbers the 'recording' state we're about to set —
-        // observed as "tap → tap to send → straight back to tap to talk".
-        audio.onended = null;
-        audio.onerror = null;
-
-        // Tiny silent WAV (44-byte RIFF header, no samples) — just enough
-        // to satisfy iOS that this Audio element is in a "playing" lineage.
-        const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-        try {
-            audio.muted = true;
-            audio.src = silentWav;
-            // .play() returns a Promise we don't await — fire and continue.
-            // The promise resolves successfully on iOS when called from
-            // within a user gesture, even with the silent buffer.
-            const p = audio.play();
-            if (p && typeof p.then === 'function') {
-                p.then(() => {
-                    audio.pause();
-                    audio.muted = false;
-                    audio.currentTime = 0;
-                }).catch(() => {
-                    audio.muted = false;
-                });
+    const unlockAudio = useCallback(
+        (operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
+            if (!audioRef.current) {
+                audioRef.current = new Audio();
+                audioRef.current.preload = 'auto';
             }
-        } catch {
-            /* ignore — we'll surface the real error on actual playback */
-        }
-    }, []);
+            const audio = audioRef.current;
+            // CRITICAL: clear stale onended/onerror from the previous response.
+            // Without this, the silent unlock WAV's 'ended' event fires the
+            // OLD closure (e.g. setOneButton('cloud', 'idle') from cycle 1)
+            // which then clobbers the 'recording' state we're about to set —
+            // observed as "tap → tap to send → straight back to tap to talk".
+            audio.onended = null;
+            audio.onerror = null;
+
+            // Tiny silent WAV (44-byte RIFF header, no samples) — just enough
+            // to satisfy iOS that this Audio element is in a "playing" lineage.
+            const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+            try {
+                audio.muted = true;
+                audio.src = silentWav;
+                // .play() returns a Promise we don't await — fire and continue.
+                // The promise resolves successfully on iOS when called from
+                // within a user gesture, even with the silent buffer.
+                const p = audio.play();
+                if (p && typeof p.then === 'function') {
+                    p.then(() => {
+                        if (!isVoiceOperationCurrent(operation) || audioRef.current !== audio) return;
+                        audio.pause();
+                        audio.muted = false;
+                        audio.currentTime = 0;
+                    }).catch(() => {
+                        if (!isVoiceOperationCurrent(operation) || audioRef.current !== audio) return;
+                        audio.muted = false;
+                    });
+                }
+            } catch {
+                /* ignore — we'll surface the real error on actual playback */
+            }
+        },
+        [isVoiceOperationCurrent],
+    );
 
     const playResponseAudio = useCallback(
-        (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
+        (response: VoiceQueryResponse, to: 'bosun' | 'cloud', operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             if (!response.audio_b64) {
                 setOneButton(to, 'idle');
                 return;
@@ -792,12 +964,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             void (async () => {
                 try {
                     const { Capacitor } = await import('@capacitor/core');
+                    if (!isVoiceOperationCurrent(operation)) return;
                     if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
                         const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } })
                             .Capacitor;
                         const plugin = cap?.Plugins?.AppleMusic as
                             | {
                                   playTtsAudio: (opts: { audio_b64: string }) => Promise<{ status: string }>;
+                                  cancelTtsAudio?: () => Promise<{ status: string }>;
                               }
                             | undefined;
                         if (plugin) {
@@ -805,6 +979,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                                 await plugin.playTtsAudio({ audio_b64 });
                             } catch {
                                 /* swallow — TTS already failed; nothing to surface */
+                            }
+                            if (!isVoiceOperationCurrent(operation)) {
+                                void plugin.cancelTtsAudio?.().catch(() => undefined);
+                                return;
                             }
                             setOneButton(to, 'idle');
                             return;
@@ -816,7 +994,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 
                 // ── HTML5 Audio fallback (web / non-iOS-native) ──
                 try {
+                    if (!isVoiceOperationCurrent(operation)) return;
                     const url = audioFromBase64(audio_b64);
+                    if (!isVoiceOperationCurrent(operation)) {
+                        URL.revokeObjectURL(url);
+                        return;
+                    }
                     audioUrlsRef.current.push(url);
 
                     // Reuse the unlocked Audio element from the user tap. If
@@ -835,12 +1018,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     audio.src = url;
                     audio.muted = false;
                     audio.currentTime = 0;
-                    audio.onended = () => setOneButton(to, 'idle');
-                    audio.onerror = () => setOneButton(to, 'idle');
+                    audio.onended = () => {
+                        if (isVoiceOperationCurrent(operation) && audioRef.current === audio) setOneButton(to, 'idle');
+                    };
+                    audio.onerror = () => {
+                        if (isVoiceOperationCurrent(operation) && audioRef.current === audio) setOneButton(to, 'idle');
+                    };
 
                     const playPromise = audio.play();
                     if (playPromise && typeof playPromise.then === 'function') {
                         playPromise.catch((err: Error) => {
+                            if (!isVoiceOperationCurrent(operation) || audioRef.current !== audio) return;
                             if (err?.name === 'NotAllowedError') {
                                 setErrorMessage(
                                     'Audio playback blocked by iOS — tap a talk button first to enable, then replay this answer.',
@@ -850,15 +1038,16 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         });
                     }
                 } catch {
-                    setOneButton(to, 'idle');
+                    if (isVoiceOperationCurrent(operation)) setOneButton(to, 'idle');
                 }
             })();
         },
-        [setErrorMessage, setOneButton],
+        [isVoiceOperationCurrent, setErrorMessage, setOneButton],
     );
 
     const appendTurn = useCallback(
-        (transcript: string, response: VoiceQueryResponse) => {
+        (transcript: string, response: VoiceQueryResponse, operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             const turn: VoiceTurn = {
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 timestamp: Date.now(),
@@ -876,20 +1065,25 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 void publishTurn(sync, turn, response);
             }
         },
-        [addTurn],
+        [addTurn, isVoiceOperationCurrent],
     );
 
     const handleResponse = useCallback(
-        (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
-            appendTurn(response.transcript || '(no transcript)', response);
+        (response: VoiceQueryResponse, to: 'bosun' | 'cloud', operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
+            appendTurn(response.transcript || '(no transcript)', response, operation);
             setOneButton(to, 'playing');
-            playResponseAudio(response, to);
+            playResponseAudio(response, to, operation);
             // Safety net: force idle after 60s if onended never fires.
-            setTimeout(() => {
-                setButtonState((s) => (s[to] === 'playing' ? { ...s, [to]: 'idle' } : s));
-            }, 60_000);
+            scheduleVoiceTimeout(
+                operation,
+                () => {
+                    setButtonState((s) => (s[to] === 'playing' ? { ...s, [to]: 'idle' } : s));
+                },
+                60_000,
+            );
         },
-        [appendTurn, playResponseAudio, setOneButton],
+        [appendTurn, isVoiceOperationCurrent, playResponseAudio, scheduleVoiceTimeout, setOneButton],
     );
 
     /**
@@ -915,7 +1109,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     );
 
     const runOrchestrator = useCallback(
-        async (text: string): Promise<VoiceQueryResponse> => {
+        async (text: string, operation: VoiceOperation, signal: AbortSignal): Promise<VoiceQueryResponse> => {
+            if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
             const context = gatherThalassaContext();
             const history = buildHistory(turns);
             const result = await askHaiku({
@@ -923,8 +1118,11 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 context,
                 history,
                 integrations: integrationsEnabled,
+                signal,
             });
-            const audio_b64 = await synthesiseSpeech(result.answerText);
+            if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
+            const audio_b64 = await synthesiseSpeech(result.answerText, signal);
+            if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
             return {
                 transcript: text,
                 answer_text: result.answerText,
@@ -937,17 +1135,25 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 })),
             };
         },
-        [turns, integrationsEnabled],
+        [turns, integrationsEnabled, isVoiceOperationCurrent],
     );
 
     const sendVoiceQuery = useCallback(
-        async (audioBlob: Blob, to: 'bosun' | 'cloud', preTranscribed?: string | null) => {
+        async (
+            audioBlob: Blob,
+            to: 'bosun' | 'cloud',
+            preTranscribed: string | null | undefined,
+            operation: VoiceOperation,
+        ) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             if (audioBlob.size === 0 && !preTranscribed) {
                 setErrorMessage('No audio captured — try holding for a moment longer.');
                 setOneButton(to, 'error');
-                setTimeout(() => setOneButton(to, 'idle'), 1500);
+                scheduleVoiceTimeout(operation, () => setOneButton(to, 'idle'), 1500);
                 return;
             }
+            const controller = new AbortController();
+            requestControllersRef.current.add(controller);
             setOneButton(to, 'awaiting');
             setErrorMessage(null);
             try {
@@ -956,7 +1162,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // FAST PATH: Apple SR transcribed on-device. Run the
                     // full Haiku tool-loop on the iPhone so Pi tools are
                     // dispatched without extra Supabase round-trips.
-                    response = await runOrchestrator(preTranscribed);
+                    response = await runOrchestrator(preTranscribed, operation, controller.signal);
                 } else if (to === 'cloud') {
                     // FALLBACK: SR didn't produce text, ship the audio
                     // blob to the legacy edge function which runs Scribe
@@ -964,37 +1170,62 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // STT yet — separate commit.
                     const context = gatherThalassaContext();
                     const history = buildHistory(turns);
-                    response = await askCloudVoice(audioBlob, context, history);
+                    response = await askCloudVoice(audioBlob, context, history, controller.signal);
                 } else {
                     // Tier-D: Pi cascade (3B + RAG) on local LAN.
-                    response = await askBosunVoice(audioBlob);
+                    response = await askBosunVoice(audioBlob, controller.signal);
                 }
-                handleResponse(response, to);
+                if (!isVoiceOperationCurrent(operation)) return;
+                handleResponse(response, to, operation);
             } catch (err) {
+                if ((err as Error)?.name === 'AbortError') return;
+                if (!isVoiceOperationCurrent(operation)) return;
                 setQuotaTrace(err);
                 setErrorMessage((err as Error).message || 'Something went wrong.');
                 setOneButton(to, 'error');
-                setTimeout(() => setOneButton(to, 'idle'), 1500);
+                scheduleVoiceTimeout(operation, () => setOneButton(to, 'idle'), 1500);
+            } finally {
+                requestControllersRef.current.delete(controller);
             }
         },
-        [handleResponse, runOrchestrator, setErrorMessage, setOneButton, setQuotaTrace, turns],
+        [
+            handleResponse,
+            isVoiceOperationCurrent,
+            runOrchestrator,
+            scheduleVoiceTimeout,
+            setErrorMessage,
+            setOneButton,
+            setQuotaTrace,
+            turns,
+        ],
     );
 
     const sendTextQuery = useCallback(
-        async (text: string, to: 'bosun' | 'cloud') => {
+        async (text: string, to: 'bosun' | 'cloud', operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             if (!text.trim()) return;
+            const controller = new AbortController();
+            requestControllersRef.current.add(controller);
             setOneButton(to, 'awaiting');
             setErrorMessage(null);
             try {
-                const response = to === 'bosun' ? await askBosunText({ text }) : await runOrchestrator(text);
-                handleResponse(response, to);
+                const response =
+                    to === 'bosun'
+                        ? await askBosunText({ text }, controller.signal)
+                        : await runOrchestrator(text, operation, controller.signal);
+                if (!isVoiceOperationCurrent(operation)) return;
+                handleResponse(response, to, operation);
             } catch (err) {
+                if ((err as Error)?.name === 'AbortError') return;
+                if (!isVoiceOperationCurrent(operation)) return;
                 setErrorMessage((err as Error).message || 'Something went wrong.');
                 setOneButton(to, 'error');
-                setTimeout(() => setOneButton(to, 'idle'), 1500);
+                scheduleVoiceTimeout(operation, () => setOneButton(to, 'idle'), 1500);
+            } finally {
+                requestControllersRef.current.delete(controller);
             }
         },
-        [handleResponse, runOrchestrator, setErrorMessage, setOneButton],
+        [handleResponse, isVoiceOperationCurrent, runOrchestrator, scheduleVoiceTimeout, setErrorMessage, setOneButton],
     );
 
     /**
@@ -1005,7 +1236,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * been torn down (e.g. user tapped concurrently), this is a no-op.
      */
     const handleOverGesture = useCallback(
-        async (cleanedText: string, target: 'bosun' | 'cloud') => {
+        async (cleanedText: string, target: 'bosun' | 'cloud', operation: VoiceOperation) => {
+            if (!isVoiceOperationCurrent(operation)) return;
             const handle = recorderRef.current;
             const srHandle = speechRecognizerRef.current;
             const dgHandle = deepgramRecognizerRef.current;
@@ -1013,6 +1245,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             recorderRef.current = null;
             speechRecognizerRef.current = null;
             deepgramRecognizerRef.current = null;
+            stoppingRecorderRef.current = handle;
+            stoppingSpeechRecognizerRef.current = srHandle;
+            stoppingDeepgramRecognizerRef.current = dgHandle;
             setOneButton(target, 'sending');
             try {
                 if (dgHandle) {
@@ -1021,40 +1256,51 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // WS (don't wait for the final flush since we're
                     // bypassing it) and ship the text directly.
                     await dgHandle.cancel();
-                    rearmPrewarm(); // overlap re-arm with the API call below
+                    if (stoppingDeepgramRecognizerRef.current === dgHandle)
+                        stoppingDeepgramRecognizerRef.current = null;
+                    if (!isVoiceOperationCurrent(operation)) return;
+                    rearmPrewarm(operation); // overlap re-arm with the API call below
                     setActiveTarget(null);
                     setActiveRecognizerKind(null);
                     setLiveTranscript('');
                     setSrActive(false);
-                    await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText);
+                    await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText, operation);
                 } else if (srHandle) {
                     // Apple SR fallback path — same flow, different recognizer.
                     await srHandle.cancel();
-                    rearmPrewarm();
+                    if (stoppingSpeechRecognizerRef.current === srHandle) stoppingSpeechRecognizerRef.current = null;
+                    if (!isVoiceOperationCurrent(operation)) return;
+                    rearmPrewarm(operation);
                     setActiveTarget(null);
                     setActiveRecognizerKind(null);
                     setLiveTranscript('');
                     setSrActive(false);
-                    await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText);
+                    await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText, operation);
                 } else if (handle) {
                     const blob = await handle.stop();
-                    rearmPrewarm();
+                    if (stoppingRecorderRef.current === handle) stoppingRecorderRef.current = null;
+                    if (!isVoiceOperationCurrent(operation)) return;
+                    rearmPrewarm(operation);
                     setActiveTarget(null);
                     setActiveRecognizerKind(null);
                     setLiveTranscript('');
                     setSrActive(false);
-                    await sendVoiceQuery(blob, target, cleanedText);
+                    await sendVoiceQuery(blob, target, cleanedText, operation);
                 }
             } catch (err) {
+                if (stoppingRecorderRef.current === handle) stoppingRecorderRef.current = null;
+                if (stoppingSpeechRecognizerRef.current === srHandle) stoppingSpeechRecognizerRef.current = null;
+                if (stoppingDeepgramRecognizerRef.current === dgHandle) stoppingDeepgramRecognizerRef.current = null;
+                if (!isVoiceOperationCurrent(operation)) return;
                 setErrorMessage((err as Error).message);
                 setOneButton(target, 'error');
-                setTimeout(() => setOneButton(target, 'idle'), 1500);
+                scheduleVoiceTimeout(operation, () => setOneButton(target, 'idle'), 1500);
                 // Even on error, re-arm so the next tap isn't worse than it
                 // would be without this whole fix.
-                rearmPrewarm();
+                rearmPrewarm(operation);
             }
         },
-        [rearmPrewarm, sendVoiceQuery, setErrorMessage, setOneButton],
+        [isVoiceOperationCurrent, rearmPrewarm, scheduleVoiceTimeout, sendVoiceQuery, setErrorMessage, setOneButton],
     );
 
     // ── Tap handlers ────────────────────────────────────────────────────
@@ -1067,11 +1313,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      */
     const handleTalkTap = useCallback(
         async (which: 'bosun' | 'cloud') => {
+            const operation = captureVoiceOperation();
             // CRITICAL: unlock audio playback for iOS WKWebView synchronously,
             // BEFORE any await. iOS only lets us prime the Audio element from
             // within a user-gesture handler — once we await anything, the
             // gesture context evaporates and the response audio won't play.
-            unlockAudio();
+            unlockAudio(operation);
+            if (!isVoiceOperationCurrent(operation)) return;
 
             const currentState = buttonState[which];
 
@@ -1142,6 +1390,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     try {
                         const dgHandle = await startDeepgramRecognizer({
                             onPartial: (text) => {
+                                if (!isVoiceOperationCurrent(operation)) return;
                                 setLiveTranscript(text);
                                 const { matched, cleaned } = detectOverSuffix(text);
                                 if (matched && cleaned.length > 0) {
@@ -1149,10 +1398,11 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                                         ...prev.slice(-19),
                                         { ts: Date.now(), msg: `[over] fired: "${cleaned.slice(0, 60)}"` },
                                     ]);
-                                    void handleOverGesture(cleaned, which);
+                                    void handleOverGesture(cleaned, which, operation);
                                 }
                             },
                             onFirstPartial: () => {
+                                if (!isVoiceOperationCurrent(operation)) return;
                                 setSrActive(true);
                                 firstPartialPromiseRef.current?.resolve();
                                 // Haptic confirm — tactile signal that
@@ -1166,10 +1416,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                                 });
                             },
                         });
+                        if (!isVoiceOperationCurrent(operation)) {
+                            await dgHandle.cancel();
+                            return;
+                        }
                         deepgramRecognizerRef.current = dgHandle;
                         recognizerStarted = true;
                         setActiveRecognizerKind('deepgram');
                     } catch (err) {
+                        if (!isVoiceOperationCurrent(operation)) return;
                         // Deepgram failed (token mint, WS, mic). Surface
                         // in the debug strip and fall through to Apple SR.
                         const msg = (err as Error).message || 'unknown';
@@ -1201,6 +1456,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     try {
                         const srHandle = await startSpeechRecognition({
                             onPartial: (text) => {
+                                if (!isVoiceOperationCurrent(operation)) return;
                                 setLiveTranscript(text);
                                 const { matched, cleaned } = detectOverSuffix(text);
                                 if (matched && cleaned.length > 0) {
@@ -1210,21 +1466,27 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                                         ...prev.slice(-19),
                                         { ts: Date.now(), msg: `[over] fired: "${cleaned.slice(0, 60)}"` },
                                     ]);
-                                    void handleOverGesture(cleaned, which);
+                                    void handleOverGesture(cleaned, which, operation);
                                 }
                             },
                             onFirstPartial: () => {
+                                if (!isVoiceOperationCurrent(operation)) return;
                                 setSrActive(true);
                                 // Unblock any tap-to-stop grace period waiting on
                                 // the first partial. Only resolves once per cycle.
                                 firstPartialPromiseRef.current?.resolve();
                             },
                         });
+                        if (!isVoiceOperationCurrent(operation)) {
+                            await srHandle.cancel();
+                            return;
+                        }
                         speechRecognizerRef.current = srHandle;
                         srStarted = true;
                         recognizerStarted = true;
                         setActiveRecognizerKind('apple-sr');
                     } catch (err) {
+                        if (!isVoiceOperationCurrent(operation)) return;
                         // SR start rejected — fall through to MediaRecorder.
                         // The wrapper already logged the rejection to the
                         // debug strip via emitEvent.
@@ -1257,9 +1519,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 if (!recognizerStarted) {
                     try {
                         const handle = await startRecording();
+                        if (!isVoiceOperationCurrent(operation)) {
+                            handle.cancel();
+                            return;
+                        }
                         recorderRef.current = handle;
                         setActiveRecognizerKind('media-recorder');
                     } catch (err) {
+                        if (!isVoiceOperationCurrent(operation)) return;
                         // Translate iOS's per-device speech-recognition
                         // rate limit ("The quota has been exceeded.") into
                         // something actionable. This is Apple's SR bucket,
@@ -1282,7 +1549,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         }
                         setErrorMessage(friendly);
                         setOneButton(which, 'error');
-                        setTimeout(() => setOneButton(which, 'idle'), 1500);
+                        scheduleVoiceTimeout(operation, () => setOneButton(which, 'idle'), 1500);
                         return;
                     }
                 }
@@ -1315,8 +1582,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 if (streamingHandle && !srActive && firstPartialPromiseRef.current) {
                     await Promise.race([
                         firstPartialPromiseRef.current.promise,
-                        new Promise<void>((resolve) => setTimeout(resolve, 500)),
+                        new Promise<void>((resolve) => scheduleVoiceTimeout(operation, resolve, 500)),
                     ]);
+                    if (!isVoiceOperationCurrent(operation)) return;
                     // The OVER gesture fires synchronously inside onPartial
                     // and clears recognizer refs. If that happened during
                     // the grace, refs are gone — bail out cleanly.
@@ -1325,6 +1593,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 recorderRef.current = null;
                 speechRecognizerRef.current = null;
                 deepgramRecognizerRef.current = null;
+                stoppingRecorderRef.current = handle;
+                stoppingSpeechRecognizerRef.current = srHandle;
+                stoppingDeepgramRecognizerRef.current = dgHandle;
                 setOneButton(which, 'sending');
                 try {
                     if (dgHandle) {
@@ -1333,11 +1604,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         // ever travels over our edge function — the audio
                         // already streamed to Deepgram directly.
                         const dg = await dgHandle.stop();
+                        if (stoppingDeepgramRecognizerRef.current === dgHandle) {
+                            stoppingDeepgramRecognizerRef.current = null;
+                        }
+                        if (!isVoiceOperationCurrent(operation)) return;
                         // Re-arm the prewarm pipeline NOW so it overlaps with
                         // the API call below. By the time the user has heard
                         // Calypso's response and is ready to tap again, the
                         // mic / context / worklet / WebSocket are all warm.
-                        rearmPrewarm();
+                        rearmPrewarm(operation);
                         setActiveTarget(null);
                         setActiveRecognizerKind(null);
                         setLiveTranscript('');
@@ -1345,7 +1620,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         if (!dg.text) {
                             setErrorMessage("Couldn't make out what you said — try again.");
                             setOneButton(which, 'error');
-                            setTimeout(() => setOneButton(which, 'idle'), 1500);
+                            scheduleVoiceTimeout(operation, () => setOneButton(which, 'idle'), 1500);
                             return;
                         }
                         // Strip-at-stop safety net for the OVER gesture,
@@ -1367,13 +1642,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                             }
                             return dg.text;
                         })();
-                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, finalText);
+                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, finalText, operation);
                     } else if (srHandle) {
                         // Apple SR fallback path: stop SR, get its
                         // on-device transcript, hit Haiku directly with
                         // text. No audio blob.
                         const sr = await srHandle.stop();
-                        rearmPrewarm();
+                        if (stoppingSpeechRecognizerRef.current === srHandle) {
+                            stoppingSpeechRecognizerRef.current = null;
+                        }
+                        if (!isVoiceOperationCurrent(operation)) return;
+                        rearmPrewarm(operation);
                         setActiveTarget(null);
                         setActiveRecognizerKind(null);
                         setLiveTranscript('');
@@ -1381,7 +1660,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         if (!sr.text) {
                             setErrorMessage("Couldn't make out what you said — try again.");
                             setOneButton(which, 'error');
-                            setTimeout(() => setOneButton(which, 'idle'), 1500);
+                            scheduleVoiceTimeout(operation, () => setOneButton(which, 'idle'), 1500);
                             return;
                         }
                         // Safety net: if the live partial-stream over-detection
@@ -1405,30 +1684,40 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                             }
                             return sr.text;
                         })();
-                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, finalText);
+                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, finalText, operation);
                     } else if (handle) {
                         // MediaRecorder fallback path: stop, send blob to
                         // Scribe-backed edge function for STT.
                         const blob = await handle.stop();
-                        rearmPrewarm();
+                        if (stoppingRecorderRef.current === handle) stoppingRecorderRef.current = null;
+                        if (!isVoiceOperationCurrent(operation)) return;
+                        rearmPrewarm(operation);
                         setActiveTarget(null);
                         setActiveRecognizerKind(null);
                         setLiveTranscript('');
                         setSrActive(false);
-                        await sendVoiceQuery(blob, which, null);
+                        await sendVoiceQuery(blob, which, null, operation);
                     }
                 } catch (err) {
+                    if (stoppingRecorderRef.current === handle) stoppingRecorderRef.current = null;
+                    if (stoppingSpeechRecognizerRef.current === srHandle) stoppingSpeechRecognizerRef.current = null;
+                    if (stoppingDeepgramRecognizerRef.current === dgHandle)
+                        stoppingDeepgramRecognizerRef.current = null;
+                    if (!isVoiceOperationCurrent(operation)) return;
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
-                    setTimeout(() => setOneButton(which, 'idle'), 1500);
-                    rearmPrewarm();
+                    scheduleVoiceTimeout(operation, () => setOneButton(which, 'idle'), 1500);
+                    rearmPrewarm(operation);
                 }
             }
             // sending / awaiting: ignore.
         },
         [
             buttonState,
+            captureVoiceOperation,
             activeTarget,
+            isVoiceOperationCurrent,
+            scheduleVoiceTimeout,
             sendVoiceQuery,
             setErrorMessage,
             setOneButton,
@@ -1452,26 +1741,28 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const handleTypedSubmit = useCallback(
         (e: React.FormEvent, to: 'bosun' | 'cloud') => {
             e.preventDefault();
+            const operation = captureVoiceOperation();
             // Same iOS audio-unlock trick as the talk button — synchronous
             // priming inside the user gesture (form submit click).
-            unlockAudio();
+            unlockAudio(operation);
             const text = typedQuery.trim();
             if (!text) return;
             setTypedQuery('');
-            void sendTextQuery(text, to);
+            void sendTextQuery(text, to, operation);
         },
-        [typedQuery, sendTextQuery, unlockAudio],
+        [captureVoiceOperation, typedQuery, sendTextQuery, unlockAudio],
     );
 
     const handleReplay = useCallback(
         (response: VoiceQueryResponse) => {
+            const operation = captureVoiceOperation();
             // The replay button click IS a user gesture — unlock again to
             // be safe in case the page audio context lapsed.
-            unlockAudio();
+            unlockAudio(operation);
             const to: 'bosun' | 'cloud' = response.source === 'cloud' ? 'cloud' : 'bosun';
-            playResponseAudio(response, to);
+            playResponseAudio(response, to, operation);
         },
-        [playResponseAudio, unlockAudio],
+        [captureVoiceOperation, playResponseAudio, unlockAudio],
     );
 
     /**

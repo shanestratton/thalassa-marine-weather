@@ -58,7 +58,8 @@ interface AskBody {
     knowledge?: string;
 }
 
-async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
+async function postToFallback(body: AskBody, signal?: AbortSignal): Promise<VoiceQueryResponse> {
+    signal?.throwIfAborted();
     if (!SUPABASE_URL || !SUPABASE_KEY) {
         throw new CloudFallbackError('Cloud fallback not configured (missing Supabase credentials).');
     }
@@ -69,59 +70,68 @@ async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
     // CapacitorHttp ignores readTimeout > 60s, so we use native fetch + abort
     // with the deadline we actually want.
     const ctrl = new AbortController();
+    const abortFromCaller = () => ctrl.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
     const watchdog = setTimeout(() => ctrl.abort(), CLOUD_REQUEST_TIMEOUT_MS);
 
-    let response: Response;
     try {
-        const headers = await getAuthenticatedFunctionHeaders();
-        response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal: ctrl.signal,
-        });
-    } catch (err) {
-        const e = err as Error;
-        if (e.name === 'AbortError') {
-            throw new CloudFallbackError(
-                `Cloud fallback timed out after ${Math.round(CLOUD_REQUEST_TIMEOUT_MS / 1000)}s. ` +
-                    `Try again, or switch to typed input.`,
-            );
+        let response: Response;
+        try {
+            const headers = await getAuthenticatedFunctionHeaders();
+            response = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                signal: ctrl.signal,
+            });
+        } catch (err) {
+            const e = err as Error;
+            if (e.name === 'AbortError') {
+                if (signal?.aborted) throw e;
+                throw new CloudFallbackError(
+                    `Cloud fallback timed out after ${Math.round(CLOUD_REQUEST_TIMEOUT_MS / 1000)}s. ` +
+                        `Try again, or switch to typed input.`,
+                );
+            }
+            throw new CloudFallbackError(`Cloud fallback request failed: ${e.message}`);
         }
-        throw new CloudFallbackError(`Cloud fallback request failed: ${e.message}`);
+
+        if (!response.ok) {
+            let errMsg = `Cloud responded with HTTP ${response.status}`;
+            try {
+                const errBody = await response.json();
+                if (errBody?.error) errMsg = errBody.error;
+            } catch {
+                signal?.throwIfAborted();
+                /* non-JSON body — keep the status code message */
+            }
+            throw new CloudFallbackError(errMsg);
+        }
+
+        let data: Partial<VoiceQueryResponse>;
+        try {
+            data = await response.json();
+        } catch {
+            signal?.throwIfAborted();
+            throw new CloudFallbackError('Cloud fallback returned a non-JSON response');
+        }
+
+        if (!data || typeof data.answer_text !== 'string') {
+            throw new CloudFallbackError('Cloud fallback returned an unexpected response shape');
+        }
+
+        return {
+            transcript: data.transcript ?? body.text ?? '',
+            answer_text: data.answer_text,
+            audio_b64: data.audio_b64,
+            source: 'cloud',
+            timings_ms: data.timings_ms,
+        };
     } finally {
         clearTimeout(watchdog);
+        signal?.removeEventListener('abort', abortFromCaller);
     }
-
-    if (!response.ok) {
-        let errMsg = `Cloud responded with HTTP ${response.status}`;
-        try {
-            const errBody = await response.json();
-            if (errBody?.error) errMsg = errBody.error;
-        } catch {
-            /* non-JSON body — keep the status code message */
-        }
-        throw new CloudFallbackError(errMsg);
-    }
-
-    let data: Partial<VoiceQueryResponse>;
-    try {
-        data = await response.json();
-    } catch {
-        throw new CloudFallbackError('Cloud fallback returned a non-JSON response');
-    }
-
-    if (!data || typeof data.answer_text !== 'string') {
-        throw new CloudFallbackError('Cloud fallback returned an unexpected response shape');
-    }
-
-    return {
-        transcript: data.transcript ?? body.text ?? '',
-        answer_text: data.answer_text,
-        audio_b64: data.audio_b64,
-        source: 'cloud',
-        timings_ms: data.timings_ms,
-    };
 }
 
 /** Best-effort fetch of the skipper's knowledge block — never blocks a
@@ -136,14 +146,19 @@ async function knowledgeBlock(): Promise<string | undefined> {
 }
 
 /** Send a typed-text query to the cloud Haiku fallback. */
-export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryResponse> {
-    return postToFallback({
-        text: req.text,
-        session_id: req.sessionId,
-        context: req.context,
-        history: req.history,
-        knowledge: await knowledgeBlock(),
-    });
+export async function askCloudText(req: VoiceQueryRequest, signal?: AbortSignal): Promise<VoiceQueryResponse> {
+    const knowledge = await knowledgeBlock();
+    signal?.throwIfAborted();
+    return postToFallback(
+        {
+            text: req.text,
+            session_id: req.sessionId,
+            context: req.context,
+            history: req.history,
+            knowledge,
+        },
+        signal,
+    );
 }
 
 /**
@@ -155,18 +170,25 @@ export async function askCloudVoice(
     audioBlob: Blob,
     context?: ThalassaContext,
     history?: VoiceHistoryTurn[],
+    signal?: AbortSignal,
 ): Promise<VoiceQueryResponse> {
     const audio_b64 = await blobToBase64(audioBlob);
+    signal?.throwIfAborted();
     if (!audio_b64) {
         throw new CloudFallbackError('Recorded audio is empty — try holding for a moment longer.');
     }
-    return postToFallback({
-        audio_b64,
-        mime_type: audioBlob.type || 'audio/mp4',
-        context,
-        history,
-        knowledge: await knowledgeBlock(),
-    });
+    const knowledge = await knowledgeBlock();
+    signal?.throwIfAborted();
+    return postToFallback(
+        {
+            audio_b64,
+            mime_type: audioBlob.type || 'audio/mp4',
+            context,
+            history,
+            knowledge,
+        },
+        signal,
+    );
 }
 
 // ── backwards-compat alias for any callers still using askCloud(text) ──

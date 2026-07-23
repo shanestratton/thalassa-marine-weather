@@ -17,12 +17,22 @@
  * native web platforms (where the launch experience differs).
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 const STORAGE_KEY = 'thalassa_glass_tutorial_seen';
 const ONBOARDING_STORAGE_KEY = 'thalassa_onboarding_complete';
 const ONBOARDING_COMPLETE_EVENT = 'thalassa:intro-overlay-complete';
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
 interface Slide {
     title: string;
@@ -62,45 +72,55 @@ const SLIDES: Slide[] = [
 ];
 
 export const GlassTutorial: React.FC = () => {
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     // Default HIDDEN. Same model as OnboardingOverlay: the wizard
     // dispatches `thalassa:show-glass-tutorial` after a brand-new
     // account finishes vessel setup. Returning users on a fresh
     // install never trigger the wizard → never see this →
     // no flash.
-    const [visible, setVisible] = useState(false);
+    const [visibleScope, setVisibleScope] = useState<AuthIdentityScope | null>(null);
     const [current, setCurrent] = useState(0);
-    const pendingShowRef = useRef(false);
+    const pendingShowRef = useRef<AuthIdentityScope | null>(null);
+    const visible =
+        visibleScope !== null &&
+        visibleScope.key === identityScope.key &&
+        visibleScope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(visibleScope);
 
     useEffect(() => {
-        const showIfUnseen = () => {
+        const showIfUnseen = (scope: AuthIdentityScope) => {
+            if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
             try {
-                if (localStorage.getItem(STORAGE_KEY)) return; // already seen
+                if (localStorage.getItem(authScopedStorageKey(STORAGE_KEY, scope))) return; // already seen
             } catch {
                 /* ok */
             }
-            pendingShowRef.current = false;
-            setVisible(true);
+            pendingShowRef.current = null;
+            setVisibleScope(scope);
             setCurrent(0);
         };
 
         const handler = () => {
+            const actionScope = getAuthIdentityScope();
+            if (!actionScope.userId || !isAuthIdentityScopeCurrent(actionScope)) return;
             try {
-                if (localStorage.getItem(STORAGE_KEY)) return;
-                if (!localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
-                    pendingShowRef.current = true;
+                if (localStorage.getItem(authScopedStorageKey(STORAGE_KEY, actionScope))) return;
+                if (!localStorage.getItem(authScopedStorageKey(ONBOARDING_STORAGE_KEY, actionScope))) {
+                    pendingShowRef.current = actionScope;
                     return;
                 }
             } catch {
                 // The intro and Glass events are dispatched together for new
                 // accounts. Defer in private mode too so two modals never stack.
-                pendingShowRef.current = true;
+                pendingShowRef.current = actionScope;
                 return;
             }
-            showIfUnseen();
+            showIfUnseen(actionScope);
         };
 
         const handleOnboardingComplete = () => {
-            if (pendingShowRef.current) showIfUnseen();
+            const pendingScope = pendingShowRef.current;
+            if (pendingScope) showIfUnseen(pendingScope);
         };
 
         window.addEventListener('thalassa:show-glass-tutorial', handler);
@@ -112,13 +132,17 @@ export const GlassTutorial: React.FC = () => {
     }, []);
 
     const dismiss = useCallback(() => {
+        if (!visibleScope || !isAuthIdentityScopeCurrent(visibleScope)) {
+            setVisibleScope(null);
+            return;
+        }
         try {
-            localStorage.setItem(STORAGE_KEY, 'true');
+            localStorage.setItem(authScopedStorageKey(STORAGE_KEY, visibleScope), 'true');
         } catch {
             /* private mode, storage full, whatever — tutorial just re-appears */
         }
-        setVisible(false);
-    }, []);
+        setVisibleScope(null);
+    }, [visibleScope]);
 
     const primaryActionRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, {
@@ -140,9 +164,9 @@ export const GlassTutorial: React.FC = () => {
     const isLast = current === SLIDES.length - 1;
 
     return (
-        <div
+        <OverlayPortal
             role="presentation"
-            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6"
+            className="flex items-center justify-center bg-black/80 backdrop-blur-sm p-6"
         >
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-300">
                 <div
@@ -210,7 +234,7 @@ export const GlassTutorial: React.FC = () => {
                     </div>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

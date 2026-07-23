@@ -32,6 +32,7 @@ import {
     WIND_NODATA_COLOR,
 } from '../services/shiplog/trackViz';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { OverlayPortal } from './ui/OverlayPortal';
 
 // Base-map tile templates: light Voyager by day, dark by night watch.
 // Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
@@ -780,12 +781,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     })();
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Voyage track viewer"
-            className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu"
+            className="bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu"
         >
             {/* Deep-water filter lives in index.css (.tmv-deepwater img) —
                 it must target the tile IMAGES, not the layer container, or
@@ -1292,7 +1293,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                     </span>
                 </div>
             )}
-        </div>
+        </OverlayPortal>
     );
 });
 

@@ -17,6 +17,7 @@ import { Capacitor } from '@capacitor/core';
 import { toast } from '../Toast';
 import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
+import { OverlayPortal } from '../ui/OverlayPortal';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
@@ -584,12 +585,12 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
 
     // ── Camera scanner mode (original layout) ──
     return (
-        <div
+        <OverlayPortal
             ref={cameraDialogRef}
             role={sheetMode === 'hidden' ? 'dialog' : 'presentation'}
             aria-modal={sheetMode === 'hidden' ? 'true' : undefined}
             aria-label={sheetMode === 'hidden' ? 'Inventory barcode scanner' : undefined}
-            className="fixed inset-0 z-[2000] bg-black flex flex-col"
+            className="bg-black flex flex-col"
         >
             {/* ── Camera View ── */}
             <div className="relative flex-1 overflow-hidden">
@@ -942,6 +943,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     </div>
                 </div>
             )}
-        </div>
+        </OverlayPortal>
     );
 };

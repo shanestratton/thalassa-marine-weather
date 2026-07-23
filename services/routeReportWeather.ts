@@ -11,7 +11,7 @@
  * come back, just with null weather, so the report always shows the timings.
  */
 
-import { getOpenMeteoKey } from './weather/keys';
+import { fetchOpenMeteoPoints } from './weather/openMeteoProxy';
 import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
 
@@ -87,12 +87,6 @@ export async function fetchRouteWaypointWeather(
         beyondForecast: false,
     });
 
-    const key = getOpenMeteoKey();
-    if (!key) {
-        log.warn('no Open-Meteo key — ETAs only, no weather');
-        return rows.map(etaOnly);
-    }
-
     // forecast_days must reach the last ETA — measured from NOW, because the
     // departure may be days out (departure date/time planning, 2026-07-16).
     // Open-Meteo's forecast starts today; unixtime matching finds each ETA's
@@ -100,29 +94,24 @@ export async function fetchRouteWaypointWeather(
     // come back beyondForecast=true.
     const lastEtaMs = rows[rows.length - 1]?.etaMs ?? departureMs;
     const days = Math.min(16, Math.max(2, Math.ceil((lastEtaMs - Date.now()) / 86_400_000) + 1));
-    const lats = pins.map((p) => p.lat.toFixed(4)).join(',');
-    const lons = pins.map((p) => p.lon.toFixed(4)).join(',');
-    const url =
-        `https://customer-api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
-        `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-        `&wind_speed_unit=kn&timeformat=unixtime&forecast_days=${days}&apikey=${key}`;
-
     try {
-        // CapacitorHttp ignores AbortSignal on native, so bound it in JS.
-        const resp = await withDeadline(fetch(url), 20_000, 'route weather');
-        if (!resp.ok) {
-            log.warn(`Open-Meteo ${resp.status} — ETAs only`);
-            return rows.map(etaOnly);
-        }
-        const data: unknown = await resp.json();
-        const results = (Array.isArray(data) ? data : [data]) as Array<{
-            hourly?: {
-                time?: number[];
-                wind_speed_10m?: number[];
-                wind_direction_10m?: number[];
-                wind_gusts_10m?: number[];
-            };
-        }>;
+        const results = await withDeadline(
+            fetchOpenMeteoPoints<{
+                hourly?: {
+                    time?: number[];
+                    wind_speed_10m?: number[];
+                    wind_direction_10m?: number[];
+                    wind_gusts_10m?: number[];
+                };
+            }>('forecast', pins, {
+                hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+                wind_speed_unit: 'kn',
+                timeformat: 'unixtime',
+                forecast_days: days,
+            }),
+            20_000,
+            'route weather',
+        );
         return rows.map((r) => {
             const hourly = results[r.index]?.hourly;
             const times = hourly?.time;

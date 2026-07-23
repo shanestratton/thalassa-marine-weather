@@ -22,11 +22,13 @@
 // of an Inmarsat SafetyNET broadcast; we don't need to hammer them).
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, jsonResponse, readResponseTextLimited } from '../_shared/http-security.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 const UKHO_URL = 'https://msi.admiralty.co.uk/RadioNavigationalWarnings';
@@ -101,15 +103,20 @@ function parseReference(ref: string): { navArea: string; msgNumber: number; msgY
 }
 
 async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }> {
-    const res = await fetch(UKHO_URL, {
-        headers: {
-            'User-Agent':
-                'Mozilla/5.0 (compatible; ThalassaMarine/1.0; +https://github.com/shanestratton/thalassa-marine-weather)',
-            Accept: 'text/html,application/xhtml+xml',
+    const res = await fetchWithTimeout(
+        UKHO_URL,
+        {
+            headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (compatible; ThalassaMarine/1.0; +https://github.com/shanestratton/thalassa-marine-weather)',
+                Accept: 'text/html,application/xhtml+xml',
+            },
         },
-    });
+        15_000,
+    );
     if (!res.ok) throw new Error(`UKHO MSI returned ${res.status}`);
-    const html = await res.text();
+    const html = await readResponseTextLimited(res, 5_000_000);
+    if (html === null) throw new Error('UKHO MSI response exceeded the safety limit');
 
     // UKHO renders one tr per warning in the body table, then a
     // sibling <tr id="collapse_N">…<pre id="Details_Description_N">…
@@ -156,7 +163,7 @@ async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }
         // Prepend the reference as the first body line so the iOS-side
         // title builder grabs the reference number first rather than the
         // first body sentence (same pattern as the AMSA proxy).
-        const text = `${refText}\n${body}`.trim();
+        const text = `${refText}\n${body}`.trim().slice(0, 20_000);
 
         const id = `${parsed.navArea}-${parsed.msgYear}/${parsed.msgNumber}`;
         if (seen.has(id)) continue;
@@ -172,6 +179,7 @@ async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }
             issueDate,
             authority: 'UKHO',
         });
+        if (warns.length >= 2_000) break;
     }
 
     return { 'broadcast-warn': warns };
@@ -182,38 +190,48 @@ serve(async (req) => {
         return new Response(null, { headers: CORS_HEADERS });
     }
     if (req.method !== 'GET') {
-        return new Response(JSON.stringify({ error: 'method not allowed' }), {
-            status: 405,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'GET required' }, 405, CORS_HEADERS);
     }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'ukho_msi', 240, 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS_HEADERS);
 
     try {
         if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
             return new Response(JSON.stringify(cache.payload), {
-                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'X-Cache': 'HIT' },
+                headers: {
+                    ...CORS_HEADERS,
+                    'Content-Type': 'application/json',
+                    'X-Cache': 'HIT',
+                    'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+                    'X-Content-Type-Options': 'nosniff',
+                },
             });
         }
         const payload = await fetchAndParse();
         cache = { fetchedAt: Date.now(), payload };
         return new Response(JSON.stringify(payload), {
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'X-Cache': 'MISS' },
+            headers: {
+                ...CORS_HEADERS,
+                'Content-Type': 'application/json',
+                'X-Cache': 'MISS',
+                'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+                'X-Content-Type-Options': 'nosniff',
+            },
         });
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        console.error('[proxy-ukho-msi] Refresh failed:', err);
         if (cache) {
             return new Response(JSON.stringify({ ...(cache.payload as object), _stale: true }), {
                 headers: {
                     ...CORS_HEADERS,
                     'Content-Type': 'application/json',
                     'X-Cache': 'STALE',
-                    'X-Error': message,
+                    'Cache-Control': 'public, max-age=60, stale-while-revalidate=3600',
+                    'X-Content-Type-Options': 'nosniff',
                 },
             });
         }
-        return new Response(JSON.stringify({ error: message }), {
-            status: 502,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'UKHO notices are temporarily unavailable' }, 502, CORS_HEADERS);
     }
 });

@@ -33,11 +33,13 @@
 // every few hours; we don't need to hammer them).
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import { fetchWithTimeout, jsonResponse, readResponseTextLimited } from '../_shared/http-security.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 const AMSA_URL = 'https://www.operations.amsa.gov.au/AMSA.Web.MSIPublication/Home';
@@ -138,6 +140,7 @@ function parseWarning(block: string): RawBroadcastWarn | null {
     // truncated mid-sentence line.
     const headerLine = `NAVAREA X ${idMatch[1]}/${idMatch[2]}`;
     body = `${headerLine}\n${body}`;
+    body = body.slice(0, 20_000);
 
     return {
         msgYear,
@@ -152,20 +155,25 @@ function parseWarning(block: string): RawBroadcastWarn | null {
 }
 
 async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }> {
-    const res = await fetch(AMSA_URL, {
-        headers: {
-            // AMSA's IIS server gates on a real-looking UA. Without one
-            // it occasionally serves a redirect / "site is being updated"
-            // page instead of the bulletin.
-            'User-Agent':
-                'Mozilla/5.0 (compatible; ThalassaMarine/1.0; +https://github.com/shanestratton/thalassa-marine-weather)',
-            Accept: 'text/html,application/xhtml+xml',
+    const res = await fetchWithTimeout(
+        AMSA_URL,
+        {
+            headers: {
+                // AMSA's IIS server gates on a real-looking UA. Without one
+                // it occasionally serves a redirect / "site is being updated"
+                // page instead of the bulletin.
+                'User-Agent':
+                    'Mozilla/5.0 (compatible; ThalassaMarine/1.0; +https://github.com/shanestratton/thalassa-marine-weather)',
+                Accept: 'text/html,application/xhtml+xml',
+            },
         },
-    });
+        15_000,
+    );
     if (!res.ok) {
         throw new Error(`AMSA MSI returned ${res.status}`);
     }
-    const html = await res.text();
+    const html = await readResponseTextLimited(res, 5_000_000);
+    if (html === null) throw new Error('AMSA MSI response exceeded the safety limit');
     const text = htmlToText(html);
     const blocks = splitWarnings(text);
     const warns: RawBroadcastWarn[] = [];
@@ -177,6 +185,7 @@ async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }
         if (seen.has(id)) continue;
         seen.add(id);
         warns.push(w);
+        if (warns.length >= 2_000) break;
     }
     return { 'broadcast-warn': warns };
 }
@@ -186,11 +195,11 @@ serve(async (req) => {
         return new Response(null, { headers: CORS_HEADERS });
     }
     if (req.method !== 'GET') {
-        return new Response(JSON.stringify({ error: 'method not allowed' }), {
-            status: 405,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'GET required' }, 405, CORS_HEADERS);
     }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'amsa_msi', 240, 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS_HEADERS);
 
     try {
         // Edge-level cache to avoid hammering AMSA's IIS box.
@@ -200,6 +209,8 @@ serve(async (req) => {
                     ...CORS_HEADERS,
                     'Content-Type': 'application/json',
                     'X-Cache': 'HIT',
+                    'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+                    'X-Content-Type-Options': 'nosniff',
                 },
             });
         }
@@ -211,10 +222,12 @@ serve(async (req) => {
                 ...CORS_HEADERS,
                 'Content-Type': 'application/json',
                 'X-Cache': 'MISS',
+                'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+                'X-Content-Type-Options': 'nosniff',
             },
         });
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        console.error('[proxy-amsa-msi] Refresh failed:', err);
         // If we have stale cache, serve it on error rather than failing
         // — bulletin downtime shouldn't break the client's notice page.
         if (cache) {
@@ -223,13 +236,11 @@ serve(async (req) => {
                     ...CORS_HEADERS,
                     'Content-Type': 'application/json',
                     'X-Cache': 'STALE',
-                    'X-Error': message,
+                    'Cache-Control': 'public, max-age=60, stale-while-revalidate=3600',
+                    'X-Content-Type-Options': 'nosniff',
                 },
             });
         }
-        return new Response(JSON.stringify({ error: message }), {
-            status: 502,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: 'AMSA notices are temporarily unavailable' }, 502, CORS_HEADERS);
     }
 });

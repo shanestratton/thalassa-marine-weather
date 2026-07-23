@@ -9,6 +9,7 @@
 import React, { useRef } from 'react';
 import type { MarketplaceListing } from '../../services/MarketplaceService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { SafeImage } from '../ui/SafeImage';
 
 // --- HELPERS ---
 
@@ -93,7 +94,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 {/* Listing context card */}
                 <div className="mx-5 mt-2 mb-4 p-3 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex gap-3 items-center">
                     {listing.images.length > 0 && (
-                        <img
+                        <SafeImage
                             src={listing.images[0]}
                             loading="lazy"
                             alt=""

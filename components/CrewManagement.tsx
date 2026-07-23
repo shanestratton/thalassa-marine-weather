@@ -9,9 +9,10 @@
  *   - InviteCrewModal: invite form
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { t } from '../theme';
 import { useAuthStore } from '../stores/authStore';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ModalSheet } from './ui/ModalSheet';
 import { UndoToast } from './ui/UndoToast';
 
@@ -19,6 +20,7 @@ import {
     type SharedRegister,
     type CrewMember,
     ALL_REGISTERS,
+    PASSAGE_REGISTERS,
     REGISTER_ICONS,
     REGISTER_LABELS,
     inviteCrew,
@@ -37,7 +39,22 @@ import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import { createVoyage, getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
-import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+import {
+    NO_PASSAGE_ACCESS,
+    type PassageStatus,
+    clearPassagePlan,
+    getActivePassageId,
+    getAuthorizedSharedVoyages,
+    getPassageStatus,
+    setActivePassage,
+} from '../services/PassagePlanService';
 import { SignInScreen } from './SignInScreen';
 import { lazyRetry } from '../utils/lazyRetry';
 import { UsersIcon, CompassIcon, CalendarGridIcon, AnchorIcon, AlertTriangleIcon, SosIcon } from './Icons';
@@ -67,10 +84,41 @@ export type VoyageRow = Voyage & {
     departureCoords?: { lat: number; lon: number };
     arrivalCoords?: { lat: number; lon: number };
     durationHours?: number;
+    /** True when this voyage belongs to a captain who shared it with us. */
+    isShared?: boolean;
+    sharedOwnerEmail?: string;
 };
 
 interface CrewManagementProps {
     onBack: () => void;
+}
+
+const DELEGATION_STORAGE_KEY = 'thalassa_card_delegations_v2';
+type CardDelegationsByVoyage = Record<string, Record<string, string>>;
+
+function readDelegations(scope: AuthIdentityScope): CardDelegationsByVoyage {
+    try {
+        // The old unscoped map has no owner marker. Never assign its crew
+        // email addresses to whichever account happens to sign in next.
+        const stored = localStorage.getItem(authScopedStorageKey(DELEGATION_STORAGE_KEY, scope));
+        if (!stored) return {};
+        const parsed: unknown = JSON.parse(stored);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+        const result: CardDelegationsByVoyage = {};
+        for (const [voyageId, assignments] of Object.entries(parsed)) {
+            if (!assignments || typeof assignments !== 'object' || Array.isArray(assignments)) continue;
+            const validAssignments = Object.fromEntries(
+                Object.entries(assignments).filter(
+                    ([cardKey, email]) => Boolean(cardKey) && typeof email === 'string' && email.length > 0,
+                ),
+            ) as Record<string, string>;
+            if (Object.keys(validAssignments).length > 0) result[voyageId] = validAssignments;
+        }
+        return result;
+    } catch {
+        return {};
+    }
 }
 
 export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
@@ -82,7 +130,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // a header with an empty body (the "blank Passage Planning" bug).
     const authedUser = useAuthStore((s) => s.user);
     const authChecked = useAuthStore((s) => s.authChecked);
+    const authUserId = authedUser?.id ?? null;
     const isAuthed = !!authedUser;
+    const [privateScopeKey, setPrivateScopeKey] = useState(() => getAuthIdentityScope().key);
 
     // Captain state
     const [myCrew, setMyCrew] = useState<CrewMember[]>([]);
@@ -96,6 +146,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Crew state
     const [pendingInvites, setPendingInvites] = useState<CrewMember[]>([]);
     const [memberships, setMemberships] = useState<CrewMember[]>([]);
+    const [membershipsLoaded, setMembershipsLoaded] = useState(false);
 
     // Navigation hook — used by the "Plan a route" button at the
     // top of the page to take the skipper to the standalone Route
@@ -142,6 +193,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // bridge that gap without a migration.
     const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>([]);
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
+    const selectedPassageRef = useRef(selectedPassageId);
+    selectedPassageRef.current = selectedPassageId;
+    const [passageStatus, setPassageStatus] = useState<PassageStatus>(NO_PASSAGE_ACCESS);
+    const [passageStatusLoading, setPassageStatusLoading] = useState(true);
+    const passageSelectionVersion = useRef(0);
+    const dropdownReloadVersion = useRef(0);
+    const dataLoadVersion = useRef(0);
+    const editLoadVersion = useRef(0);
+    const inviteOperationVersion = useRef(0);
+    const inviteSuccessTimer = useRef<number | null>(null);
+    const dataLoadTimeouts = useRef(new Map<number, () => void>());
 
     // ── Readiness card states ──
     const [customsCleared, setCustomsCleared] = useState(false);
@@ -166,35 +228,77 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [weatherWindowReady, setWeatherWindowReady] = useState(false);
     const [currentsBriefed, setCurrentsBriefed] = useState(false);
 
+    const resetReadinessState = useCallback(() => {
+        setCustomsCleared(false);
+        setCustomsProgress({ total: 0, checked: 0 });
+        setReservesReady(false);
+        setNavAcknowledged(false);
+        setWatchBriefed(false);
+        setCommsReady(false);
+        setVesselChecked(false);
+        setMedicalReady(false);
+        setVesselProfileReady(false);
+        setComfortProfileReady(false);
+        setWeatherWindowReady(false);
+        setCurrentsBriefed(false);
+        setDelegationMenuOpen(null);
+        setShowCastOff(false);
+    }, []);
+
     // Card delegation
-    const DELEGATION_STORAGE_KEY = 'thalassa_card_delegations';
-    const [cardDelegations, setCardDelegations] = useState<Record<string, string>>(() => {
-        try {
-            const stored = localStorage.getItem(DELEGATION_STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
+    const [delegationState, setDelegationState] = useState<{
+        scopeKey: string;
+        byVoyage: CardDelegationsByVoyage;
+    }>(() => {
+        const scope = getAuthIdentityScope();
+        return { scopeKey: scope.key, byVoyage: readDelegations(scope) };
     });
     const [delegationMenuOpen, setDelegationMenuOpen] = useState<string | null>(null);
+    const renderScope = getAuthIdentityScope();
+    const privateIdentityMatches = privateScopeKey === renderScope.key && renderScope.userId === authUserId;
+    const delegationIdentityMatches = privateIdentityMatches && delegationState.scopeKey === renderScope.key;
+    const cardDelegations =
+        delegationIdentityMatches && selectedPassageId ? (delegationState.byVoyage[selectedPassageId] ?? {}) : {};
 
-    const assignCard = useCallback((cardKey: string, crewEmail: string | null) => {
-        setCardDelegations((prev) => {
-            const next = { ...prev };
-            if (crewEmail) {
-                next[cardKey] = crewEmail;
-            } else {
-                delete next[cardKey];
+    const assignCard = useCallback(
+        (cardKey: string, crewEmail: string | null) => {
+            const scope = getAuthIdentityScope();
+            if (
+                !selectedPassageId ||
+                !passageStatus.isOwner ||
+                passageStatus.voyageId !== selectedPassageId ||
+                passageStatus.ownerUserId !== scope.userId
+            ) {
+                return;
             }
-            try {
-                localStorage.setItem(DELEGATION_STORAGE_KEY, JSON.stringify(next));
-            } catch {
-                /* ignore */
-            }
-            return next;
-        });
-        setDelegationMenuOpen(null);
-    }, []);
+            if (!scope.userId || scope.userId !== authedUser?.id) return;
+
+            setDelegationState((previous) => {
+                if (previous.scopeKey !== scope.key || !isAuthIdentityScopeCurrent(scope)) return previous;
+                const voyageDelegations = { ...(previous.byVoyage[selectedPassageId] ?? {}) };
+                if (crewEmail) {
+                    voyageDelegations[cardKey] = crewEmail;
+                } else {
+                    delete voyageDelegations[cardKey];
+                }
+                const nextByVoyage = {
+                    ...previous.byVoyage,
+                    [selectedPassageId]: voyageDelegations,
+                };
+                try {
+                    localStorage.setItem(
+                        authScopedStorageKey(DELEGATION_STORAGE_KEY, scope),
+                        JSON.stringify(nextByVoyage),
+                    );
+                } catch {
+                    /* ignore */
+                }
+                return { scopeKey: scope.key, byVoyage: nextByVoyage };
+            });
+            setDelegationMenuOpen(null);
+        },
+        [authedUser?.id, passageStatus.isOwner, passageStatus.ownerUserId, passageStatus.voyageId, selectedPassageId],
+    );
 
     // All readiness cards green → Cast Off unlocked.
     // weatherReviewed removed 2026-05-17; weatherWindowReady (window
@@ -213,9 +317,103 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
     const [disbandConfirmText, setDisbandConfirmText] = useState('');
     const [disbanding, setDisbanding] = useState(false);
+    const [clearPassagesRequest, setClearPassagesRequest] = useState<{
+        scope: AuthIdentityScope;
+        count: number;
+        visibleNames: string;
+    } | null>(null);
+    const clearPassagesInFlight = useRef(false);
 
     // Planning panel state
     const [planDeparture, setPlanDeparture] = useState('');
+
+    const resetPrivateIdentity = useCallback(
+        (next: AuthIdentityScope) => {
+            dataLoadVersion.current += 1;
+            dropdownReloadVersion.current += 1;
+            passageSelectionVersion.current += 1;
+            editLoadVersion.current += 1;
+            inviteOperationVersion.current += 1;
+            for (const [timeoutId, settle] of dataLoadTimeouts.current) {
+                window.clearTimeout(timeoutId);
+                settle();
+            }
+            dataLoadTimeouts.current.clear();
+            if (inviteSuccessTimer.current !== null) {
+                window.clearTimeout(inviteSuccessTimer.current);
+                inviteSuccessTimer.current = null;
+            }
+
+            const nextPassageId = next.userId ? getActivePassageId() || '' : '';
+            selectedPassageRef.current = nextPassageId;
+            setPrivateScopeKey(next.key);
+            setMyCrew([]);
+            setPendingInvites([]);
+            setMemberships([]);
+            setMembershipsLoaded(false);
+            setDraftVoyages([]);
+            setSelectedPassageId(nextPassageId);
+            setPassageStatus(NO_PASSAGE_ACCESS);
+            setPassageStatusLoading(Boolean(next.userId));
+            setLoading(Boolean(next.userId));
+            setLastSyncedAt(null);
+            setSyncError(null);
+            setDeletedMember(null);
+            setActiveVoyageName(null);
+            setPlanDeparture('');
+
+            setShowInviteModal(false);
+            setInviteEmail('');
+            setInviteRegisters([]);
+            setInviteLoading(false);
+            setInviteError(null);
+            setInviteSuccess(false);
+
+            setEditTarget(null);
+            setEditRegisters([]);
+            setEditPrefix('');
+            setEditFirstName('');
+            setEditLastName('');
+            setEditNickname('');
+            setEditBoatMemberLoaded(false);
+
+            setShowDisbandConfirm(false);
+            setDisbandConfirmText('');
+            setDisbanding(false);
+            clearPassagesInFlight.current = false;
+            setClearPassagesRequest(null);
+            setDelegationState({
+                scopeKey: next.key,
+                byVoyage: readDelegations(next),
+            });
+            resetReadinessState();
+        },
+        [resetReadinessState],
+    );
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope((next) => {
+                resetPrivateIdentity(next);
+            }),
+        [resetPrivateIdentity],
+    );
+
+    // The identity fence moves before authStore publishes its new user. This
+    // reconciliation also covers a transition that occurred before the
+    // subscription effect mounted.
+    useEffect(() => {
+        const scope = getAuthIdentityScope();
+        if (scope.userId === authUserId && privateScopeKey !== scope.key) {
+            resetPrivateIdentity(scope);
+        }
+    }, [authUserId, privateScopeKey, resetPrivateIdentity]);
+
+    const scopeStillOwnsPage = useCallback(
+        (scope: AuthIdentityScope) =>
+            isAuthIdentityScopeCurrent(scope) && Boolean(scope.userId) && scope.userId === authUserId,
+        [authUserId],
+    );
 
     // Auth check — read once from the cached session (sync-ish, no
     // round-trip) AND subscribe to onAuthStateChange so we react to a
@@ -255,12 +453,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // hang surrenders instead of leaving the page partially-rendered
     // forever.
     const loadData = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        const requestVersion = ++dataLoadVersion.current;
         setLoading(true);
+        setMembershipsLoaded(false);
         setSyncError(null);
-        const timeout = new Promise<'timeout'>((resolve) => window.setTimeout(() => resolve('timeout'), 6000));
+        let timeoutId: number | null = null;
+        const timeout = new Promise<'timeout'>((resolve) => {
+            timeoutId = window.setTimeout(() => {
+                if (timeoutId !== null) dataLoadTimeouts.current.delete(timeoutId);
+                resolve('timeout');
+            }, 6000);
+            dataLoadTimeouts.current.set(timeoutId, () => resolve('timeout'));
+        });
         const work = Promise.allSettled([getMyCrew(), getMyInvites(), getMyMemberships()]);
         try {
             const result = await Promise.race([work, timeout]);
+            if (requestVersion !== dataLoadVersion.current || !scopeStillOwnsPage(scope)) return;
             if (result === 'timeout') {
                 console.warn('[CrewManagement] loadData: timed out after 6s — leaving lists empty for now');
                 setSyncError('Sync timed out — tap retry');
@@ -268,39 +478,113 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 const [crewRes, invitesRes, shipsRes] = result;
                 if (crewRes.status === 'fulfilled') setMyCrew(crewRes.value);
                 if (invitesRes.status === 'fulfilled') setPendingInvites(invitesRes.value);
-                if (shipsRes.status === 'fulfilled') setMemberships(shipsRes.value);
+                if (shipsRes.status === 'fulfilled') {
+                    setMemberships(shipsRes.value);
+                    setMembershipsLoaded(true);
+                }
                 // Surface the freshness signal — even if some lists
                 // failed, the user gets a "synced 2m ago" pill so
                 // they know their view isn't stale-by-default.
                 setLastSyncedAt(Date.now());
             }
         } finally {
-            setLoading(false);
+            if (timeoutId !== null) {
+                window.clearTimeout(timeoutId);
+                dataLoadTimeouts.current.delete(timeoutId);
+            }
+            if (requestVersion === dataLoadVersion.current && scopeStillOwnsPage(scope)) setLoading(false);
         }
-    }, []);
+    }, [scopeStillOwnsPage]);
 
     useEffect(() => {
-        if (isAuthed) loadData();
-    }, [isAuthed, loadData]);
+        const scope = getAuthIdentityScope();
+        if (authUserId && privateScopeKey === scope.key && scope.userId === authUserId) {
+            void loadData();
+        }
+        return () => {
+            dataLoadVersion.current += 1;
+        };
+    }, [authUserId, loadData, privateScopeKey]);
 
-    // Load voyage status + populate the dropdown DIRECTLY from logbook
-    // routes. The voyages-table drafts are no longer the source of truth
-    // for what shows here — they're only the receipt of which one the
-    // user selected as active. This eliminates the filter/auto-heal
-    // dance entirely:
-    //
-    //   - In the logbook → in the dropdown.
-    //   - Not in the logbook → not in the dropdown.
-    //
-    // No drift possible because there's only one source.
-    //
-    // Existing voyages-table drafts that line up by name (case + trim
-    // insensitive) get merged in so we already have a UUID for them
-    // when the user selects (no creation roundtrip). New routes get a
-    // UUID on first select via the on-select handler.
+    useEffect(
+        () => () => {
+            for (const [timeoutId, settle] of dataLoadTimeouts.current) {
+                window.clearTimeout(timeoutId);
+                settle();
+            }
+            dataLoadTimeouts.current.clear();
+            if (inviteSuccessTimer.current !== null) {
+                window.clearTimeout(inviteSuccessTimer.current);
+            }
+        },
+        [],
+    );
+
+    // Resolve owner/crew passage permissions independently from the roster
+    // load. The selected localStorage ID is only navigation state; it is not
+    // evidence that the current user owns the passage. Keep the readiness
+    // surface fail-closed until PassagePlanService verifies ownership or an
+    // applicable accepted membership.
+    useEffect(() => {
+        const scope = getAuthIdentityScope();
+        if (!authUserId || !scopeStillOwnsPage(scope)) {
+            setPassageStatus(NO_PASSAGE_ACCESS);
+            setPassageStatusLoading(false);
+            return;
+        }
+
+        let active = true;
+        setPassageStatus(NO_PASSAGE_ACCESS);
+        setPassageStatusLoading(true);
+
+        void getPassageStatus(selectedPassageId || null)
+            .then((status) => {
+                if (!active || !scopeStillOwnsPage(scope)) return;
+                setPassageStatus(status);
+            })
+            .catch(() => {
+                if (active && scopeStillOwnsPage(scope)) setPassageStatus(NO_PASSAGE_ACCESS);
+            })
+            .finally(() => {
+                if (active && scopeStillOwnsPage(scope)) setPassageStatusLoading(false);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [authUserId, memberships, scopeStillOwnsPage, selectedPassageId]);
+
+    useEffect(() => {
+        const onPassageChanged = (event: Event) => {
+            const scope = getAuthIdentityScope();
+            if (!scopeStillOwnsPage(scope)) return;
+            const nextId = ((event as CustomEvent<{ voyageId?: string | null }>).detail?.voyageId || '').trim();
+            setSelectedPassageId((currentId) => {
+                if (currentId !== nextId) resetReadinessState();
+                return nextId;
+            });
+            selectedPassageRef.current = nextId;
+            if (!nextId) {
+                setActiveVoyageName(null);
+                setPlanDeparture('');
+            }
+        };
+        window.addEventListener('thalassa:passage-changed', onPassageChanged);
+        return () => window.removeEventListener('thalassa:passage-changed', onPassageChanged);
+    }, [resetReadinessState, scopeStillOwnsPage]);
+
+    // Populate the dropdown from two independently verified sources:
+    // the user's own logbook routes and voyage rows shared by an accepted
+    // membership. Shared rows deliberately remain useful without logbook
+    // coordinates; route-derived cards can show their normal unavailable
+    // state while meals/checklists/chat still receive the correct voyage ID.
     const reloadDropdown = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        const requestVersion = ++dropdownReloadVersion.current;
         try {
             const { getCachedActiveVoyage } = await import('../services/VoyageService');
+            if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
             const v = getCachedActiveVoyage();
             if (v) setActiveVoyageName(v.voyage_name);
         } catch {
@@ -308,7 +592,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         }
         // Force-refresh so a stale 60s RoutesAndTracks cache can't
         // miss a just-saved route or include a just-deleted one.
-        const [routesAndTracks, allDrafts] = await Promise.all([fetchRoutesAndTracks(true), getDraftVoyages()]);
+        const [routesAndTracks, allDrafts, sharedResult] = await Promise.all([
+            fetchRoutesAndTracks(true),
+            getDraftVoyages(),
+            membershipsLoaded ? getAuthorizedSharedVoyages() : Promise.resolve({ voyages: [], complete: false }),
+        ]);
+        if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
         const norm = (s: string) => s.trim().toLowerCase();
         const draftByName = new Map(allDrafts.map((d) => [norm(d.voyage_name), d] as const));
 
@@ -325,7 +614,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // run, and the voyages-table schema doesn't carry them. Pulling
         // from the logbook route is the path of least resistance: the
         // coords are already there from the original passage save.
-        const rows: VoyageRow[] = routesAndTracks.routes.map((r) => {
+        const ownRows: VoyageRow[] = routesAndTracks.routes.map((r) => {
             const first = r.points[0];
             const last = r.points[r.points.length - 1];
             const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
@@ -381,39 +670,56 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             };
         });
 
-        setDraftVoyages(rows);
-
-        // ── Orphan auto-heal at parent level ──────────────────────
-        // selectedPassageId / getActivePassageId may point to a
-        // voyage that no longer has a matching logbook route (e.g.
-        // user deleted the route, or the voyage was created via Cast
-        // Off without a planned route). The dropdown rows are built
-        // FROM logbook routes, so the orphan is invisible there but
-        // CastOffPanel still picks it up via initialVoyageId =
-        // selectedPassageId, leading to "Newport → Perth"-style
-        // stale-data confusion.
-        //
-        // If the current active id isn't in the new rows AND there's
-        // at least one row with a real logbook route, switch the
-        // active passage to the first row and update both:
-        //   - setActivePassage (the localStorage cache)
-        //   - selectedPassageId (this component's React state)
-        // The rest of the app (CastOffPanel, GalleyCard) reads the
-        // corrected id and shows the right voyage.
         const activeId = getActivePassageId();
-        const activeIdInRows = activeId ? rows.some((r) => r.id === activeId) : false;
-        if (activeId && !activeIdInRows && rows.length > 0) {
-            const replacement = rows.find((r) => !r.id.startsWith('logbook:')) ?? rows[0];
-            console.warn(
-                `[CrewManagement] orphan auto-heal — active passage "${activeId}" has no matching row, switching to "${replacement.voyage_name}" (${replacement.id})`,
-            );
-            setActivePassage(replacement.id);
-            setSelectedPassageId(replacement.id);
-            setActiveVoyageName(replacement.voyage_name);
-            if (replacement.departure_time) setPlanDeparture(replacement.departure_time.slice(0, 16));
-        } else if (activeId) {
-            const vMatch = rows.find((d) => d.id === activeId);
+
+        // Keep an explicitly selected, still-valid own draft even when it has
+        // no matching logbook route. This mirrors the shared-row rule below:
+        // a missing polyline is not evidence that a voyage is unauthorized.
+        const activeOwnDraft = activeId ? allDrafts.find((draft) => draft.id === activeId) : undefined;
+        if (activeOwnDraft && !ownRows.some((row) => row.id === activeOwnDraft.id)) {
+            ownRows.push(activeOwnDraft);
+        }
+
+        const sharedRows: VoyageRow[] = sharedResult.voyages.map(({ voyage, ownerEmail }) => ({
+            ...voyage,
+            isShared: true,
+            sharedOwnerEmail: ownerEmail,
+        }));
+        const rows = [...new Map([...ownRows, ...sharedRows].map((row) => [row.id, row] as const)).values()];
+
+        // A transient shared-voyage query failure must not make a valid row
+        // disappear from the selector. Keep the last verified shared rows
+        // until a complete refresh can replace them.
+        setDraftVoyages((previous) => {
+            if (sharedResult.complete) return rows;
+            return [
+                ...new Map(
+                    [...rows, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
+                ).values(),
+            ];
+        });
+
+        const activeIdInRows = activeId ? rows.some((row) => row.id === activeId) : false;
+        if (activeId && activeIdInRows) {
+            const vMatch = rows.find((row) => row.id === activeId);
             if (vMatch?.departure_time) setPlanDeparture(vMatch.departure_time.slice(0, 16));
+            if (vMatch) setActiveVoyageName(vMatch.voyage_name);
+        } else if (activeId && membershipsLoaded && sharedResult.complete) {
+            // Only heal after accepted memberships and every shared ownership
+            // lookup have completed. Re-verify the exact active ID before
+            // clearing it, and never substitute one of the user's routes for
+            // a valid shared passage.
+            const activeStatus = await getPassageStatus(activeId);
+            if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
+            if (!activeStatus.visible) {
+                console.warn(`[CrewManagement] clearing inaccessible active passage "${activeId}"`);
+                clearPassagePlan();
+                selectedPassageRef.current = '';
+                setSelectedPassageId('');
+                setActiveVoyageName(null);
+                setPlanDeparture('');
+                resetReadinessState();
+            }
         }
 
         // Backfill ETA on any voyage where departure_time is set but eta
@@ -428,6 +734,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             if (
                 row.id &&
                 !row.id.startsWith('logbook:') &&
+                !row.isShared &&
                 row.departure_time &&
                 !row.eta &&
                 row.durationHours &&
@@ -435,6 +742,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             ) {
                 const etaIso = new Date(Date.parse(row.departure_time) + row.durationHours * 3_600_000).toISOString();
                 updateVoyage(row.id, { eta: etaIso }).then((result) => {
+                    if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
                     if (result.voyage) {
                         setDraftVoyages((prev) =>
                             prev.map((v) =>
@@ -452,7 +760,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 });
             }
         }
-    }, []);
+    }, [membershipsLoaded, resetReadinessState, scopeStillOwnsPage]);
 
     useEffect(() => {
         // Wait for auth to land before fetching — fetchRoutesAndTracks
@@ -463,7 +771,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // "No draft passages yet" even when ship_logs had their saved
         // routes — it was a race between auth-check and dropdown-load,
         // and dropdown-load was winning.
-        if (!isAuthed) return;
+        const scope = getAuthIdentityScope();
+        if (!authUserId || privateScopeKey !== scope.key || !scopeStillOwnsPage(scope)) return;
         void reloadDropdown();
         // Refresh when a passage plan is saved while this page is
         // already mounted — e.g. user saves on the Route Planner and
@@ -485,32 +794,57 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             window.addEventListener('thalassa:passage-plan-saved', onSaved);
             window.addEventListener('thalassa:departure-time-updated', onDepartureUpdate);
             return () => {
+                dropdownReloadVersion.current += 1;
                 window.removeEventListener('thalassa:passage-plan-saved', onSaved);
                 window.removeEventListener('thalassa:departure-time-updated', onDepartureUpdate);
             };
         }
         return undefined;
-    }, [reloadDropdown, isAuthed]);
+    }, [authUserId, privateScopeKey, reloadDropdown, scopeStillOwnsPage]);
 
     // ── Handlers ──
 
     const handleInvite = async () => {
-        if (!inviteEmail.trim() || inviteRegisters.length === 0) return;
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        const requestVersion = ++inviteOperationVersion.current;
+        const email = inviteEmail.trim();
+        const registers = [...inviteRegisters];
+        const passageId = selectedPassageId;
+        if (!email || registers.length === 0) return;
+        const includesPassageAccess = registers.some((register) => PASSAGE_REGISTERS.includes(register));
+        const ownsSelectedPassage =
+            Boolean(passageId) &&
+            passageStatus.visible &&
+            passageStatus.isOwner &&
+            passageStatus.voyageId === passageId &&
+            passageStatus.ownerUserId === scope.userId;
+        if (includesPassageAccess && !ownsSelectedPassage) {
+            setInviteError('Select one of your own passages before sharing passage access.');
+            return;
+        }
+
         setInviteLoading(true);
         setInviteError(null);
         setInviteSuccess(false);
 
-        const result = await inviteCrew(inviteEmail, inviteRegisters);
+        const result = await inviteCrew(email, registers, includesPassageAccess ? passageId : undefined);
+        if (requestVersion !== inviteOperationVersion.current || !scopeStillOwnsPage(scope)) return;
 
         if (result.success) {
             setInviteSuccess(true);
             triggerHaptic('medium');
-            setTimeout(() => {
+            if (inviteSuccessTimer.current !== null) window.clearTimeout(inviteSuccessTimer.current);
+            inviteSuccessTimer.current = window.setTimeout(() => {
+                inviteSuccessTimer.current = null;
+                if (requestVersion !== inviteOperationVersion.current || !scopeStillOwnsPage(scope)) {
+                    return;
+                }
                 setShowInviteModal(false);
                 setInviteEmail('');
                 setInviteRegisters([]);
                 setInviteSuccess(false);
-                loadData();
+                void loadData();
             }, 1200);
         } else {
             setInviteError(result.error || 'Failed to send invite');
@@ -520,6 +854,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     };
 
     const handleSoftDelete = (member: CrewMember, mode: 'captain' | 'crew') => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
         triggerHaptic('medium');
         if (mode === 'captain') {
             setMyCrew((prev) => prev.filter((m) => m.id !== member.id));
@@ -531,15 +867,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     const handleDismissDelete = async () => {
         if (!deletedMember) return;
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
         const { member, mode } = deletedMember;
         setDeletedMember(null);
         try {
-            if (mode === 'captain') {
-                await removeCrew(member.id);
-            } else {
-                await leaveVessel(member.id);
-            }
+            const removed = mode === 'captain' ? await removeCrew(member.id) : await leaveVessel(member.id);
+            if (!scopeStillOwnsPage(scope)) return;
+            if (removed) return;
+            throw new Error('Crew mutation was rejected');
         } catch {
+            if (!scopeStillOwnsPage(scope)) return;
             toast.error(mode === 'captain' ? 'Failed to remove crew' : 'Failed to leave vessel');
             if (mode === 'captain') {
                 setMyCrew((prev) => [...prev, member]);
@@ -550,13 +888,27 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     };
 
     const handleDisbandGroup = async () => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        const sharedSelectionToPreserve =
+            selectedPassageId &&
+            passageStatus.visible &&
+            !passageStatus.isOwner &&
+            passageStatus.voyageId === selectedPassageId
+                ? selectedPassageId
+                : null;
         setDisbanding(true);
         const result = await disbandGroup();
+        if (!scopeStillOwnsPage(scope)) return;
         setDisbanding(false);
         setShowDisbandConfirm(false);
         setDisbandConfirmText('');
 
         if (result.success) {
+            // disbandGroup clears legacy local passage state as part of its
+            // owner cleanup. That must not eject this user from an unrelated
+            // captain's still-authorized shared passage.
+            if (sharedSelectionToPreserve) setActivePassage(sharedSelectionToPreserve);
             triggerHaptic('heavy');
             toast.success(
                 `Group disbanded — ${result.removedCount} member${result.removedCount !== 1 ? 's' : ''} removed`,
@@ -568,6 +920,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     };
 
     const handleUndoDelete = () => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
         if (deletedMember) {
             if (deletedMember.mode === 'captain') {
                 setMyCrew((prev) => [...prev, deletedMember.member]);
@@ -580,44 +934,76 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     };
 
     const handleAccept = async (invite: CrewMember) => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
         triggerHaptic('medium');
         const ok = await acceptInvite(invite.id);
+        if (!scopeStillOwnsPage(scope)) return;
         if (ok) {
             toast.success('Invite accepted!');
-            loadData();
+            void loadData();
         }
     };
 
     const handleDecline = async (invite: CrewMember) => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
         triggerHaptic('light');
         const ok = await declineInvite(invite.id);
-        if (ok) loadData();
+        if (!scopeStillOwnsPage(scope)) return;
+        if (ok) void loadData();
     };
 
     const handleSavePermissions = async () => {
         if (!editTarget) return;
-        const ok = await updateCrewPermissions(editTarget.id, editRegisters);
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        const requestVersion = editLoadVersion.current;
+        const target = editTarget;
+        const registers = [...editRegisters];
+        const byline = {
+            prefix: editPrefix.trim() || null,
+            firstName: editFirstName.trim() || 'Crew',
+            lastName: editLastName.trim() || null,
+            nickname: editNickname.trim() || null,
+        };
+        const shouldSaveByline = editBoatMemberLoaded && Boolean(target.crew_user_id);
+        const ok = await updateCrewPermissions(target.id, registers);
+        if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope)) return;
+        if (!ok) {
+            toast.error('Could not update permissions');
+            return;
+        }
 
         // Mirror byline edits to boat_members if the modal had loaded one
         // (i.e. accepted invite, crew member is on the boat). UNIQUE
         // constraint catches collisions; we surface that as a toast and
         // keep the modal open so the owner can pick a different byline.
         let bylineErr: string | null = null;
-        if (ok && editBoatMemberLoaded && supabase && editTarget.crew_user_id) {
+        if (shouldSaveByline && supabase && target.crew_user_id) {
             const { data: authData } = await supabase.auth.getUser();
-            const myId = authData.user?.id;
+            if (
+                requestVersion !== editLoadVersion.current ||
+                !scopeStillOwnsPage(scope) ||
+                authData.user?.id !== scope.userId
+            ) {
+                return;
+            }
+            const myId = scope.userId;
             if (myId) {
                 const { data: boat } = await supabase.from('boats').select('id').eq('owner_id', myId).maybeSingle();
+                if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope)) return;
                 if (boat?.id) {
                     const { error } = await supabase
                         .from('boat_members')
                         .update({
-                            prefix: editPrefix.trim() || null,
-                            first_name: editFirstName.trim() || 'Crew',
-                            last_name: editLastName.trim() || null,
-                            nickname: editNickname.trim() || null,
+                            prefix: byline.prefix,
+                            first_name: byline.firstName,
+                            last_name: byline.lastName,
+                            nickname: byline.nickname,
                         })
-                        .match({ boat_id: boat.id, user_id: editTarget.crew_user_id });
+                        .match({ boat_id: boat.id, user_id: target.crew_user_id });
+                    if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope)) return;
                     if (error) {
                         bylineErr =
                             error.code === '23505'
@@ -632,11 +1018,171 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             toast.error(bylineErr);
             return; // Keep the modal open so the owner can retry.
         }
-        if (ok) {
-            setEditTarget(null);
-            toast.success('Permissions updated');
-            loadData();
+        setEditTarget(null);
+        toast.success('Permissions updated');
+        void loadData();
+    };
+
+    const handleEditMember = async (member: CrewMember) => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        const requestVersion = ++editLoadVersion.current;
+        setEditTarget(member);
+        setEditRegisters([...member.shared_registers]);
+        setEditPrefix('');
+        setEditFirstName('');
+        setEditLastName('');
+        setEditNickname('');
+        setEditBoatMemberLoaded(false);
+
+        // The bridge row exists only for accepted crew.
+        if (!supabase || !member.crew_user_id || member.status !== 'accepted') return;
+        const { data: authData } = await supabase.auth.getUser();
+        if (
+            requestVersion !== editLoadVersion.current ||
+            !scopeStillOwnsPage(scope) ||
+            authData.user?.id !== scope.userId
+        ) {
+            return;
         }
+
+        const { data: boat } = await supabase.from('boats').select('id').eq('owner_id', scope.userId).maybeSingle();
+        if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope) || !boat?.id) return;
+
+        const { data: boatMember } = await supabase
+            .from('boat_members')
+            .select('prefix, first_name, last_name, nickname')
+            .eq('boat_id', boat.id)
+            .eq('user_id', member.crew_user_id)
+            .maybeSingle();
+        if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope) || !boatMember) {
+            return;
+        }
+
+        setEditPrefix(boatMember.prefix ?? '');
+        setEditFirstName(boatMember.first_name ?? '');
+        setEditLastName(boatMember.last_name ?? '');
+        setEditNickname(boatMember.nickname ?? '');
+        setEditBoatMemberLoaded(true);
+    };
+
+    const closeEditMember = () => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope)) return;
+        editLoadVersion.current += 1;
+        setEditTarget(null);
+        setEditRegisters([]);
+        setEditBoatMemberLoaded(false);
+    };
+
+    const requestClearAllPassages = () => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope) || clearPassagesInFlight.current) return;
+        const ownRows = draftVoyages.filter((voyage) => !voyage.isShared);
+        if (ownRows.length === 0) return;
+        const visibleNames = ownRows
+            .slice(0, 5)
+            .map((voyage) => voyage.voyage_name || '?')
+            .join(', ');
+        const overflow = ownRows.length > 5 ? `, and ${ownRows.length - 5} more` : '';
+        setClearPassagesRequest({
+            scope,
+            count: ownRows.length,
+            visibleNames: `${visibleNames}${overflow}`,
+        });
+    };
+
+    const handleClearAllPassages = async () => {
+        const request = clearPassagesRequest;
+        if (!request || clearPassagesInFlight.current || !scopeStillOwnsPage(request.scope)) {
+            setClearPassagesRequest(null);
+            return;
+        }
+
+        clearPassagesInFlight.current = true;
+        triggerHaptic('medium');
+        try {
+            const { ShipLogService } = await import('../services/ShipLogService');
+            if (!scopeStillOwnsPage(request.scope)) return;
+            const fresh = await fetchRoutesAndTracks(true);
+            if (!scopeStillOwnsPage(request.scope)) return;
+            for (const route of fresh.routes) {
+                if (!scopeStillOwnsPage(request.scope)) return;
+                await ShipLogService.deleteVoyage(route.id);
+                if (!scopeStillOwnsPage(request.scope)) return;
+            }
+
+            const remainingDrafts = await getDraftVoyages();
+            if (!scopeStillOwnsPage(request.scope)) return;
+            for (const draft of remainingDrafts) {
+                if (!scopeStillOwnsPage(request.scope)) return;
+                if (!draft.voyage_name.includes('→')) continue;
+                const { deleteDraftVoyagesByNameAndDay } = await import('../services/VoyageService');
+                if (!scopeStillOwnsPage(request.scope)) return;
+                await deleteDraftVoyagesByNameAndDay(draft.voyage_name, draft.created_at.slice(0, 10));
+            }
+            if (!scopeStillOwnsPage(request.scope)) return;
+
+            setDraftVoyages((previous) => previous.filter((voyage) => voyage.isShared));
+            clearPassagePlan();
+            selectedPassageRef.current = '';
+            setSelectedPassageId('');
+            setActiveVoyageName(null);
+            setPlanDeparture('');
+            setPassageStatus(NO_PASSAGE_ACCESS);
+            resetReadinessState();
+            toast.success('All saved passages cleared');
+        } catch (error) {
+            if (!scopeStillOwnsPage(request.scope)) return;
+            console.error('[CrewManagement] cleanup failed:', error);
+            toast.error('Cleanup failed — try again');
+        } finally {
+            clearPassagesInFlight.current = false;
+            if (scopeStillOwnsPage(request.scope)) setClearPassagesRequest(null);
+        }
+    };
+
+    const handleDepartureDateChange = (value: string) => {
+        const scope = getAuthIdentityScope();
+        const passageId = selectedPassageId;
+        if (
+            !scopeStillOwnsPage(scope) ||
+            !passageId ||
+            !passageStatus.isOwner ||
+            passageStatus.voyageId !== passageId ||
+            passageStatus.ownerUserId !== scope.userId
+        ) {
+            return;
+        }
+
+        setPlanDeparture(value);
+        if (!value) return;
+        const departureIso = new Date(value).toISOString();
+        const row = draftVoyages.find((voyage) => voyage.id === passageId);
+        const update: Parameters<typeof updateVoyage>[1] = {
+            departure_time: departureIso,
+        };
+        if (row?.durationHours && row.durationHours > 0) {
+            update.eta = new Date(Date.parse(departureIso) + row.durationHours * 3_600_000).toISOString();
+        }
+
+        void updateVoyage(passageId, update).then((result) => {
+            if (!scopeStillOwnsPage(scope) || selectedPassageRef.current !== passageId || !result.voyage) {
+                return;
+            }
+            setDraftVoyages((previous) =>
+                previous.map((voyage) =>
+                    voyage.id === passageId
+                        ? {
+                              ...result.voyage!,
+                              departureCoords: voyage.departureCoords,
+                              arrivalCoords: voyage.arrivalCoords,
+                              durationHours: voyage.durationHours,
+                          }
+                        : voyage,
+                ),
+            );
+        });
     };
 
     const toggleRegister = (
@@ -651,12 +1197,94 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         }
     };
 
+    const handlePassageSelection = useCallback(
+        async (id: string) => {
+            const scope = getAuthIdentityScope();
+            if (!scopeStillOwnsPage(scope)) return;
+            const requestVersion = ++passageSelectionVersion.current;
+
+            if (!id) {
+                setPassageStatus(NO_PASSAGE_ACCESS);
+                setPassageStatusLoading(false);
+                clearPassagePlan();
+                selectedPassageRef.current = '';
+                setSelectedPassageId('');
+                setActiveVoyageName(null);
+                setPlanDeparture('');
+                resetReadinessState();
+                return;
+            }
+
+            let realId = id;
+            let row = draftVoyages.find((voyage) => voyage.id === id);
+
+            // A logbook-only row has no authoritative voyage UUID yet.
+            // Materialise it before changing either React state or localStorage
+            // so an in-flight create can never leave the two sources split.
+            if (id.startsWith('logbook:') && row) {
+                const { voyage, error } = await createVoyage({
+                    voyage_name: row.voyage_name,
+                    departure_port: row.departure_port,
+                    destination_port: row.destination_port,
+                    crew_count: 1,
+                    departure_time: row.departure_time,
+                    eta: row.eta,
+                });
+                if (requestVersion !== passageSelectionVersion.current || !scopeStillOwnsPage(scope)) return;
+                if (!voyage) {
+                    toast.error(error || 'Could not activate passage');
+                    return;
+                }
+
+                realId = voyage.id;
+                const promoted: VoyageRow = {
+                    ...voyage,
+                    departureCoords: row.departureCoords,
+                    arrivalCoords: row.arrivalCoords,
+                    durationHours: row.durationHours,
+                };
+                row = promoted;
+                setDraftVoyages((previous) =>
+                    previous.map((candidate) => (candidate.id === id ? promoted : candidate)),
+                );
+            }
+
+            if (!row || requestVersion !== passageSelectionVersion.current || !scopeStillOwnsPage(scope)) {
+                return;
+            }
+
+            setPassageStatus(NO_PASSAGE_ACCESS);
+            setPassageStatusLoading(true);
+            resetReadinessState();
+            setActivePassage(realId);
+            selectedPassageRef.current = realId;
+            setSelectedPassageId(realId);
+            setActiveVoyageName(row.voyage_name || `${row.departure_port || '?'} → ${row.destination_port || '?'}`);
+            setPlanDeparture(row.departure_time ? row.departure_time.slice(0, 16) : '');
+            triggerHaptic('light');
+        },
+        [draftVoyages, resetReadinessState, scopeStillOwnsPage],
+    );
+
     // Filter out declined invites older than 7 days
-    const visibleCrew = myCrew.filter((m) => {
+    const visibleCrew = (privateIdentityMatches ? myCrew : []).filter((m) => {
         if (m.status !== 'declined') return true;
         const declinedAge = Date.now() - new Date(m.updated_at).getTime();
         return declinedAge < 7 * 24 * 60 * 60 * 1000;
     });
+    const verifiedPassageStatus =
+        selectedPassageId && passageStatus.voyageId === selectedPassageId ? passageStatus : NO_PASSAGE_ACCESS;
+    const isSelectedPassageOwner =
+        Boolean(selectedPassageId) && verifiedPassageStatus.visible && verifiedPassageStatus.isOwner;
+    const selectedVoyage = draftVoyages.find((voyage) => voyage.id === selectedPassageId);
+    const selectedPassageCrew = isSelectedPassageOwner
+        ? visibleCrew.filter((member) => member.voyage_id === null || member.voyage_id === selectedPassageId)
+        : [];
+    const selectedPassageCrewCount = isSelectedPassageOwner
+        ? Math.max(selectedPassageCrew.length + 1, 2)
+        : Math.max(selectedVoyage?.crew_count ?? 2, 2);
+    const ownVoyageCount = draftVoyages.filter((voyage) => !voyage.isShared).length;
+    const sharedVoyageCount = draftVoyages.length - ownVoyageCount;
 
     // ── Auth check in flight ──
     // Don't paint anything until we've actually checked the session.
@@ -664,6 +1292,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Required" empty state every time the page mounts, even for
     // already-signed-in users.
     if (!authChecked) {
+        return (
+            <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
+                <PageHeader title="Passage Planning" onBack={onBack} />
+                <div className="flex-1" />
+            </div>
+        );
+    }
+
+    // authStore intentionally publishes the new user after the synchronous
+    // identity fence moves. Never paint the previous account's private state
+    // during that hand-off, even for a single React commit.
+    if (isAuthed && !privateIdentityMatches) {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
                 <PageHeader title="Passage Planning" onBack={onBack} />
@@ -749,49 +1389,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     loading={loading}
                     onSoftDeleteCaptain={(m) => handleSoftDelete(m, 'captain')}
                     onSoftDeleteCrew={(m) => handleSoftDelete(m, 'crew')}
-                    onEditMember={async (m) => {
-                        setEditTarget(m);
-                        setEditRegisters([...m.shared_registers]);
-                        // Reset byline state until we know whether boat_members exists.
-                        setEditPrefix('');
-                        setEditFirstName('');
-                        setEditLastName('');
-                        setEditNickname('');
-                        setEditBoatMemberLoaded(false);
-                        // Look up the crew's boat_members row on the captain's boat.
-                        // Only valid for accepted invites (the bridge trigger creates
-                        // boat_members on status='accepted').
-                        if (supabase && m.crew_user_id && m.status === 'accepted') {
-                            const { data: authData } = await supabase.auth.getUser();
-                            const myId = authData.user?.id;
-                            if (myId) {
-                                const { data: boat } = await supabase
-                                    .from('boats')
-                                    .select('id')
-                                    .eq('owner_id', myId)
-                                    .maybeSingle();
-                                if (boat?.id) {
-                                    const { data: bm } = await supabase
-                                        .from('boat_members')
-                                        .select('prefix, first_name, last_name, nickname')
-                                        .eq('boat_id', boat.id)
-                                        .eq('user_id', m.crew_user_id)
-                                        .maybeSingle();
-                                    if (bm) {
-                                        setEditPrefix(bm.prefix ?? '');
-                                        setEditFirstName(bm.first_name ?? '');
-                                        setEditLastName(bm.last_name ?? '');
-                                        setEditNickname(bm.nickname ?? '');
-                                        setEditBoatMemberLoaded(true);
-                                    }
-                                }
-                            }
-                        }
-                    }}
+                    onEditMember={handleEditMember}
                     onAcceptInvite={handleAccept}
                     onDeclineInvite={handleDecline}
-                    onDisbandClick={() => setShowDisbandConfirm(true)}
+                    onDisbandClick={() => {
+                        if (scopeStillOwnsPage(renderScope)) setShowDisbandConfirm(true);
+                    }}
                     onInviteClick={() => {
+                        if (!scopeStillOwnsPage(renderScope)) return;
                         setShowInviteModal(true);
                         setInviteError(null);
                         setInviteSuccess(false);
@@ -843,70 +1448,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </label>
                     {draftVoyages.length > 0 ? (
                         <select
+                            aria-label="Active Passage"
                             value={selectedPassageId}
-                            onChange={async (e) => {
-                                const id = e.target.value;
-                                setSelectedPassageId(id);
-                                if (!id) {
-                                    setActiveVoyageName(null);
-                                    return;
-                                }
-
-                                // Stub rows from the logbook have id
-                                // prefixed `logbook:`. Materialise a real
-                                // voyages-table row before activating so
-                                // setActivePassage gets a UUID it can
-                                // resolve back to a voyage downstream.
-                                let realId = id;
-                                let row = draftVoyages.find((v) => v.id === id);
-                                if (id.startsWith('logbook:') && row) {
-                                    const { voyage } = await createVoyage({
-                                        voyage_name: row.voyage_name,
-                                        departure_port: row.departure_port,
-                                        destination_port: row.destination_port,
-                                        crew_count: 1,
-                                        // Persist the route-inferred dates
-                                        // when promoting a stub. Without
-                                        // this, picking a logbook route in
-                                        // the dropdown for the first time
-                                        // creates a voyage with null dates
-                                        // and the user has to re-pick.
-                                        departure_time: row.departure_time,
-                                        eta: row.eta,
-                                    });
-                                    if (voyage) {
-                                        realId = voyage.id;
-                                        // Replace the stub with the real
-                                        // row so future selects in this
-                                        // session use the UUID directly.
-                                        // Carry over the coords + duration
-                                        // from the logbook lookup so the
-                                        // readiness cards (Weather Windows,
-                                        // Ocean Currents) can still find
-                                        // their departure point AND voyage
-                                        // provisioning can auto-compute ETA.
-                                        const promoted: VoyageRow = {
-                                            ...voyage,
-                                            departureCoords: row.departureCoords,
-                                            arrivalCoords: row.arrivalCoords,
-                                            durationHours: row.durationHours,
-                                        };
-                                        row = promoted;
-                                        setDraftVoyages((prev) => prev.map((d) => (d.id === id ? promoted : d)));
-                                        setSelectedPassageId(voyage.id);
-                                    }
-                                }
-
-                                setActivePassage(realId);
-                                triggerHaptic('light');
-                                if (row) {
-                                    setActiveVoyageName(
-                                        row.voyage_name ||
-                                            `${row.departure_port || '?'} → ${row.destination_port || '?'}`,
-                                    );
-                                    setPlanDeparture(row.departure_time ? row.departure_time.slice(0, 16) : '');
-                                }
-                            }}
+                            onChange={(event) => void handlePassageSelection(event.target.value)}
                             className="w-full bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
                             style={{
                                 backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a78bfa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
@@ -921,6 +1465,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             {draftVoyages.map((v) => (
                                 <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
                                     {v.voyage_name || `${v.departure_port || '?'} → ${v.destination_port || '?'}`}
+                                    {v.isShared ? ` — Shared by ${v.sharedOwnerEmail || 'skipper'}` : ''}
                                 </option>
                             ))}
                         </select>
@@ -961,53 +1506,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     {/* "ghost" passage (in DB but no longer in your logbook) */}
                     {/* can be wiped without poking around in Supabase. */}
                     <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
-                        <span className="text-[10px] text-gray-500 font-mono">{draftVoyages.length} from logbook</span>
-                        {draftVoyages.length > 0 && (
+                        <span className="text-[10px] text-gray-500 font-mono">
+                            {ownVoyageCount} yours
+                            {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
+                        </span>
+                        {ownVoyageCount > 0 && (!selectedPassageId || isSelectedPassageOwner) && (
                             <button
                                 type="button"
-                                onClick={async () => {
-                                    const visibleNames = draftVoyages.map((v) => v.voyage_name || '?').join(', ');
-                                    if (
-                                        !window.confirm(
-                                            `This will delete ALL saved passage routes from your logbook ` +
-                                                `(${draftVoyages.length} item${draftVoyages.length === 1 ? '' : 's'}: ${visibleNames}).\n\n` +
-                                                `Recorded tracks (actual sailed voyages) will NOT be touched. ` +
-                                                `Continue?`,
-                                        )
-                                    ) {
-                                        return;
-                                    }
-                                    triggerHaptic('medium');
-                                    try {
-                                        const { ShipLogService } = await import('../services/ShipLogService');
-                                        // Pull a fresh route list (force = true) and delete each
-                                        // by voyageId — the existing deleteVoyage cascades to
-                                        // both ship_log rows + the matching voyages-table draft.
-                                        const fresh = await fetchRoutesAndTracks(true);
-                                        for (const r of fresh.routes) {
-                                            await ShipLogService.deleteVoyage(r.id);
-                                        }
-                                        // Also cull any draft voyages whose name doesn't
-                                        // correspond to a remaining ship_log route — picks up
-                                        // pre-existing orphans that the cascade can't reach
-                                        // because there are no entries left to link them.
-                                        const remainingDrafts = await getDraftVoyages();
-                                        for (const d of remainingDrafts) {
-                                            if (!d.voyage_name.includes('→')) continue;
-                                            const day = d.created_at.slice(0, 10);
-                                            const { deleteDraftVoyagesByNameAndDay } =
-                                                await import('../services/VoyageService');
-                                            await deleteDraftVoyagesByNameAndDay(d.voyage_name, day);
-                                        }
-                                        setDraftVoyages([]);
-                                        setSelectedPassageId('');
-                                        setActiveVoyageName(null);
-                                        toast.success('All saved passages cleared');
-                                    } catch (err) {
-                                        console.error('[CrewManagement] cleanup failed:', err);
-                                        toast.error('Cleanup failed — try again');
-                                    }
-                                }}
+                                onClick={requestClearAllPassages}
                                 className="text-[10px] uppercase font-bold tracking-widest text-red-400/70 hover:text-red-400 transition-colors"
                             >
                                 Clear all
@@ -1017,7 +1523,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 </div>
 
                 {/* ── DEPARTURE DATE + CAST OFF (single row) ── */}
-                {selectedPassageId && (
+                {selectedPassageId && isSelectedPassageOwner && (
                     <div className="mb-4 flex items-end gap-2">
                         {/* Departure date — date only, time decided later */}
                         <div className="flex-1 min-w-0">
@@ -1027,66 +1533,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             </label>
                             <input
                                 type="date"
+                                aria-label="Departure Date"
                                 value={planDeparture ? planDeparture.slice(0, 10) : ''}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    setPlanDeparture(val);
-                                    // Auto-save to voyage AND auto-compute
-                                    // ETA = departure + planned duration.
-                                    // The duration came from the logbook
-                                    // route's entry-timestamp spread (see
-                                    // RoutesAndTracks.durationHours), which
-                                    // round-trips back to the original
-                                    // Gemini estimate at save time.
-                                    // Without auto-ETA, the GalleyCard meal
-                                    // planner blocks on a missing eta and
-                                    // tells the user "set departure & eta"
-                                    // even though departure IS set.
-                                    if (selectedPassageId && val) {
-                                        // Store the picked date as UTC midnight, NOT
-                                        // local midnight. `new Date(val)` (where val is
-                                        // YYYY-MM-DD) parses as UTC per the ECMAScript
-                                        // spec — and slicing the resulting ISO back to
-                                        // the first 10 chars gives the same calendar
-                                        // day regardless of the user's timezone. The
-                                        // previous `${val}T00:00:00` (no Z) was parsed
-                                        // as local time, which in AEST shifted the
-                                        // stored value back to the previous day's UTC
-                                        // — user picked May 12, ISO stored as May 11.
-                                        const departureIso = new Date(val).toISOString();
-                                        const row = draftVoyages.find((v) => v.id === selectedPassageId);
-                                        const durHours = row?.durationHours;
-                                        const update: Parameters<typeof updateVoyage>[1] = {
-                                            departure_time: departureIso,
-                                        };
-                                        if (durHours && durHours > 0) {
-                                            update.eta = new Date(
-                                                Date.parse(departureIso) + durHours * 3_600_000,
-                                            ).toISOString();
-                                        }
-                                        updateVoyage(selectedPassageId, update).then((result) => {
-                                            if (result.voyage) {
-                                                // Preserve the row's
-                                                // departureCoords /
-                                                // arrivalCoords / durationHours
-                                                // through the merge — those
-                                                // aren't stored in supabase.
-                                                setDraftVoyages((prev) =>
-                                                    prev.map((v) =>
-                                                        v.id === selectedPassageId
-                                                            ? {
-                                                                  ...result.voyage!,
-                                                                  departureCoords: v.departureCoords,
-                                                                  arrivalCoords: v.arrivalCoords,
-                                                                  durationHours: v.durationHours,
-                                                              }
-                                                            : v,
-                                                    ),
-                                                );
-                                            }
-                                        });
-                                    }
-                                }}
+                                onChange={(event) => handleDepartureDateChange(event.target.value)}
                                 className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/30 transition-colors [color-scheme:dark]"
                             />
                         </div>
@@ -1094,6 +1543,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         {/* Cast Off CTA */}
                         <button
                             onClick={() => {
+                                if (!scopeStillOwnsPage(renderScope)) return;
                                 setShowCastOff(true);
                                 triggerHaptic('medium');
                             }}
@@ -1109,6 +1559,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         </button>
                     </div>
                 )}
+                {selectedPassageId && verifiedPassageStatus.visible && !verifiedPassageStatus.isOwner && (
+                    <p className="mb-4 rounded-xl border border-sky-500/15 bg-sky-500/[0.05] px-3 py-2 text-[11px] text-sky-200/80">
+                        Shared passage — departure and Cast Off stay with the skipper.
+                    </p>
+                )}
 
                 {/* CrewRoster moved to the top of the scroll content. */}
 
@@ -1118,12 +1573,23 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     itself — when no passage is picked, just the headers
                     show (rolled up) with a hint above pointing the user
                     at the passage selector. */}
-                {!loading && (
+                {!loading && passageStatusLoading && (
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center"
+                    >
+                        <p className="text-sm text-gray-400">Checking passage access…</p>
+                    </div>
+                )}
+                {!loading && !passageStatusLoading && (
                     <ReadinessCardStack
+                        key={selectedPassageId || 'no-passage'}
                         selectedPassageId={selectedPassageId}
+                        passageStatus={verifiedPassageStatus}
                         draftVoyages={draftVoyages}
-                        visibleCrew={visibleCrew}
-                        planCrewCount={Math.max(visibleCrew.length + 1, 2)}
+                        visibleCrew={selectedPassageCrew}
+                        planCrewCount={selectedPassageCrewCount}
                         reservesReady={reservesReady}
                         vesselChecked={vesselChecked}
                         medicalReady={medicalReady}
@@ -1132,28 +1598,73 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         customsCleared={customsCleared}
                         navAcknowledged={navAcknowledged}
                         customsProgress={customsProgress}
-                        onReservesChange={setReservesReady}
-                        onVesselCheckChange={setVesselChecked}
-                        onMedicalChange={setMedicalReady}
-                        onWatchChange={setWatchBriefed}
-                        onCommsChange={setCommsReady}
+                        onReservesChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setReservesReady(value);
+                            }
+                        }}
+                        onVesselCheckChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setVesselChecked(value);
+                            }
+                        }}
+                        onMedicalChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setMedicalReady(value);
+                            }
+                        }}
+                        onWatchChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setWatchBriefed(value);
+                            }
+                        }}
+                        onCommsChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setCommsReady(value);
+                            }
+                        }}
                         onCustomsChange={(total, checked) => {
+                            if (!scopeStillOwnsPage(renderScope) || selectedPassageRef.current !== selectedPassageId) {
+                                return;
+                            }
                             setCustomsProgress({ total, checked });
                             setCustomsCleared(total > 0 && checked >= total);
                         }}
-                        onNavChange={setNavAcknowledged}
+                        onNavChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setNavAcknowledged(value);
+                            }
+                        }}
                         cardDelegations={cardDelegations}
                         delegationMenuOpen={delegationMenuOpen}
-                        onDelegationMenuToggle={setDelegationMenuOpen}
+                        onDelegationMenuToggle={(cardKey) => {
+                            if (scopeStillOwnsPage(renderScope)) setDelegationMenuOpen(cardKey);
+                        }}
                         onAssignCard={assignCard}
                         vesselProfileReady={vesselProfileReady}
                         comfortProfileReady={comfortProfileReady}
                         weatherWindowReady={weatherWindowReady}
                         currentsBriefed={currentsBriefed}
-                        onVesselProfileChange={setVesselProfileReady}
-                        onComfortProfileChange={setComfortProfileReady}
-                        onWeatherWindowChange={setWeatherWindowReady}
-                        onCurrentsChange={setCurrentsBriefed}
+                        onVesselProfileChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setVesselProfileReady(value);
+                            }
+                        }}
+                        onComfortProfileChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setComfortProfileReady(value);
+                            }
+                        }}
+                        onWeatherWindowChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setWeatherWindowReady(value);
+                            }
+                        }}
+                        onCurrentsChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setCurrentsBriefed(value);
+                            }
+                        }}
                     />
                 )}
             </div>
@@ -1162,7 +1673,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             <ModalSheet
                 isOpen={showInviteModal}
                 onClose={() => {
+                    if (!scopeStillOwnsPage(renderScope)) return;
+                    inviteOperationVersion.current += 1;
+                    if (inviteSuccessTimer.current !== null) {
+                        window.clearTimeout(inviteSuccessTimer.current);
+                        inviteSuccessTimer.current = null;
+                    }
                     setShowInviteModal(false);
+                    setInviteLoading(false);
                     setInviteEmail('');
                     setInviteRegisters([]);
                     setInviteError(null);
@@ -1176,8 +1694,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     inviteLoading={inviteLoading}
                     inviteError={inviteError}
                     inviteSuccess={inviteSuccess}
-                    onEmailChange={setInviteEmail}
-                    onToggleRegister={(reg) => toggleRegister(reg, inviteRegisters, setInviteRegisters)}
+                    onEmailChange={(value) => {
+                        if (scopeStillOwnsPage(renderScope)) setInviteEmail(value);
+                    }}
+                    onToggleRegister={(register) => {
+                        if (scopeStillOwnsPage(renderScope)) {
+                            toggleRegister(register, inviteRegisters, setInviteRegisters);
+                        }
+                    }}
                     onInvite={handleInvite}
                 />
             </ModalSheet>
@@ -1185,7 +1709,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             {/* ── EDIT PERMISSIONS MODAL ── */}
             <ModalSheet
                 isOpen={!!editTarget}
-                onClose={() => setEditTarget(null)}
+                onClose={closeEditMember}
                 title={`Edit Access — ${editTarget?.crew_email || ''}`}
             >
                 <div className="p-6 space-y-5">
@@ -1201,7 +1725,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 <input
                                     type="text"
                                     value={editPrefix}
-                                    onChange={(e) => setEditPrefix(e.target.value)}
+                                    onChange={(event) => {
+                                        if (scopeStillOwnsPage(renderScope)) setEditPrefix(event.target.value);
+                                    }}
                                     placeholder="Capt."
                                     aria-label="Title prefix (optional)"
                                     className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
@@ -1209,7 +1735,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 <input
                                     type="text"
                                     value={editFirstName}
-                                    onChange={(e) => setEditFirstName(e.target.value)}
+                                    onChange={(event) => {
+                                        if (scopeStillOwnsPage(renderScope)) setEditFirstName(event.target.value);
+                                    }}
                                     placeholder="First *"
                                     aria-label="First name"
                                     className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
@@ -1219,7 +1747,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 <input
                                     type="text"
                                     value={editLastName}
-                                    onChange={(e) => setEditLastName(e.target.value)}
+                                    onChange={(event) => {
+                                        if (scopeStillOwnsPage(renderScope)) setEditLastName(event.target.value);
+                                    }}
                                     placeholder="Surname"
                                     aria-label="Surname"
                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
@@ -1227,7 +1757,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 <input
                                     type="text"
                                     value={editNickname}
-                                    onChange={(e) => setEditNickname(e.target.value)}
+                                    onChange={(event) => {
+                                        if (scopeStillOwnsPage(renderScope)) setEditNickname(event.target.value);
+                                    }}
                                     placeholder="Nickname"
                                     aria-label="Nickname"
                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
@@ -1265,7 +1797,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                         aria-label="Register new crew member"
                                         key={reg}
                                         type="button"
-                                        onClick={() => toggleRegister(reg, editRegisters, setEditRegisters)}
+                                        onClick={() => {
+                                            if (scopeStillOwnsPage(renderScope)) {
+                                                toggleRegister(reg, editRegisters, setEditRegisters);
+                                            }
+                                        }}
                                         className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
                                             selected
                                                 ? 'bg-sky-500/15 border-sky-500/40'
@@ -1328,10 +1864,29 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 onDismiss={handleDismissDelete}
             />
 
+            <ConfirmDialog
+                isOpen={clearPassagesRequest !== null}
+                title="Clear all saved passages?"
+                message={
+                    clearPassagesRequest
+                        ? `This will delete ${clearPassagesRequest.count} saved passage route${
+                              clearPassagesRequest.count === 1 ? '' : 's'
+                          } from your logbook (${clearPassagesRequest.visibleNames}). Recorded tracks of voyages you actually sailed will not be touched.`
+                        : ''
+                }
+                confirmLabel="Clear all"
+                destructive
+                onConfirm={handleClearAllPassages}
+                onCancel={() => {
+                    if (!clearPassagesInFlight.current) setClearPassagesRequest(null);
+                }}
+            />
+
             {/* ── DISBAND GROUP CONFIRMATION ── */}
             <ModalSheet
                 isOpen={showDisbandConfirm}
                 onClose={() => {
+                    if (!scopeStillOwnsPage(renderScope)) return;
                     setShowDisbandConfirm(false);
                     setDisbandConfirmText('');
                 }}
@@ -1358,7 +1913,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         </label>
                         <input
                             value={disbandConfirmText}
-                            onChange={(e) => setDisbandConfirmText(e.target.value.toUpperCase())}
+                            onChange={(event) => {
+                                if (scopeStillOwnsPage(renderScope)) {
+                                    setDisbandConfirmText(event.target.value.toUpperCase());
+                                }
+                            }}
                             placeholder="DISBAND"
                             className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-red-500/40"
                         />
@@ -1387,11 +1946,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             </ModalSheet>
 
             {/* ── CAST OFF PANEL ── */}
-            {showCastOff && (
+            {showCastOff && isSelectedPassageOwner && (
                 <CastOffPanel
-                    onClose={() => setShowCastOff(false)}
+                    onClose={() => {
+                        if (scopeStillOwnsPage(renderScope)) setShowCastOff(false);
+                    }}
                     initialVoyageId={selectedPassageId || undefined}
                     onCastOff={(voyage) => {
+                        if (!scopeStillOwnsPage(renderScope)) return;
                         setActiveVoyageName(voyage.voyage_name);
                         setShowCastOff(false);
                     }}

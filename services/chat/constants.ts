@@ -15,6 +15,7 @@ export const DM_BLOCKS_TABLE = 'dm_blocks';
 export const PLATFORM_OWNER_EMAIL = 'shane.stratton@gmail.com';
 export const CHANNELS_CACHE_KEY = 'thalassa_chat_channels_v1';
 export const OFFLINE_QUEUE_KEY = 'chat_offline_queue';
+export const QUEUED_DM_SENT_EVENT = 'thalassa:queued-dm-sent';
 
 // --- PIN DROP ---
 export const PIN_DROP_PREFIX = '📍PIN|';

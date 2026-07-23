@@ -1,5 +1,5 @@
 /**
- * RecipeEditor — Multi-step recipe creation form.
+ * RecipeEditor — Multi-step recipe creation and editing form.
  *
  * Steps:
  *   1. Title & Photo
@@ -8,21 +8,26 @@
  *   4. Instructions (free-text)
  *   5. Visibility (personal / shared)
  *
- * Saves via createCustomRecipe() → LocalDB + Supabase.
+ * Saves via createCustomRecipe()/updateCustomRecipe() → LocalDB + Supabase.
  */
-import React, { useCallback, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
     createCustomRecipe,
+    updateCustomRecipe,
     type RecipeIngredient,
     type RecipeVisibility,
     type CreateRecipeInput,
+    type StoredRecipe,
 } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { SafeImage } from '../ui/SafeImage';
 
 interface RecipeEditorProps {
     onClose: () => void;
     onSaved: () => void;
+    recipe?: StoredRecipe;
 }
 
 const MEAL_TAGS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Sea-Friendly', 'Quick'];
@@ -35,7 +40,29 @@ const GLASS = {
     borderRadius: '16px',
 } as React.CSSProperties;
 
-export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) => {
+function instructionsForEditing(instructions: string): string {
+    try {
+        const parsed = JSON.parse(instructions) as unknown;
+        if (!Array.isArray(parsed)) return instructions;
+
+        return parsed
+            .map((entry) => {
+                if (typeof entry === 'string') return entry;
+                if (entry && typeof entry === 'object' && 'step' in entry) {
+                    const step = (entry as { step?: unknown }).step;
+                    return typeof step === 'string' ? step : '';
+                }
+                return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+    } catch {
+        return instructions;
+    }
+}
+
+export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, recipe }) => {
+    const isEditing = Boolean(recipe);
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -49,24 +76,35 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
     const instructionsInputId = useId();
     const visibilityLabelId = useId();
     const titleInputRef = useRef<HTMLInputElement>(null);
+    const mountedRef = useRef(true);
+    const saveLockRef = useRef(false);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: titleInputRef,
         onEscape: saving ? undefined : onClose,
     });
 
     // Form state
-    const [title, setTitle] = useState('');
-    const [imageUrl, setImageUrl] = useState('');
-    const [servings, setServings] = useState(4);
-    const [cookTime, setCookTime] = useState(30);
-    const [tags, setTags] = useState<string[]>([]);
-    const [ingredients, setIngredients] = useState<RecipeIngredient[]>([
-        { name: '', amount: 1, unit: '', scalable: true, aisle: 'Other' },
-    ]);
-    const [instructions, setInstructions] = useState('');
-    const [visibility, setVisibility] = useState<RecipeVisibility>('personal');
+    const [title, setTitle] = useState(recipe?.title ?? '');
+    const [imageUrl, setImageUrl] = useState(recipe?.image_url ?? '');
+    const [servings, setServings] = useState(recipe?.servings ?? 4);
+    const [cookTime, setCookTime] = useState(recipe?.ready_in_minutes ?? 30);
+    const [tags, setTags] = useState<string[]>(() => [...(recipe?.tags ?? [])]);
+    const [ingredients, setIngredients] = useState<RecipeIngredient[]>(() =>
+        recipe?.ingredients.length
+            ? recipe.ingredients.map((ingredient) => ({ ...ingredient }))
+            : [{ name: '', amount: 1, unit: '', scalable: true, aisle: 'Other' }],
+    );
+    const [instructions, setInstructions] = useState(() => instructionsForEditing(recipe?.instructions ?? ''));
+    const [visibility, setVisibility] = useState<RecipeVisibility>(recipe?.visibility ?? 'personal');
 
     const totalSteps = 5;
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
 
     const toggleTag = (tag: string) => {
         setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
@@ -103,13 +141,14 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
     }, [step, title, servings, cookTime, ingredients]);
 
     const handleSave = async () => {
-        if (saving) return;
+        if (saveLockRef.current) return;
+        saveLockRef.current = true;
         setSaving(true);
         setSaveError(null);
         triggerHaptic('medium');
 
         const input: CreateRecipeInput = {
-            title,
+            title: title.trim(),
             instructions,
             image_url: imageUrl || undefined,
             ready_in_minutes: cookTime,
@@ -120,7 +159,13 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
         };
 
         try {
-            const result = await createCustomRecipe(input);
+            const result = recipe
+                ? await updateCustomRecipe(recipe.id, {
+                      ...input,
+                      image_url: input.image_url ?? '',
+                  })
+                : await createCustomRecipe(input);
+            if (!mountedRef.current) return;
             if (!result) {
                 setSaveError('The recipe could not be saved. Check your storage and try again.');
                 return;
@@ -129,35 +174,38 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
             onSaved();
             onClose();
         } catch {
-            setSaveError('The recipe could not be saved. Check your storage and try again.');
+            if (mountedRef.current) {
+                setSaveError('The recipe could not be saved. Check your storage and try again.');
+            }
         } finally {
-            setSaving(false);
+            saveLockRef.current = false;
+            if (mountedRef.current) setSaving(false);
         }
     };
 
     return (
-        <div
+        <OverlayPortal
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
             aria-describedby={stepDescriptionId}
             aria-busy={saving}
-            className="fixed inset-0 z-[1100] flex flex-col bg-black/90"
+            className="flex flex-col bg-black/90"
         >
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
                 <button
                     onClick={onClose}
                     disabled={saving}
-                    aria-label="Cancel recipe creation"
+                    aria-label={isEditing ? 'Cancel recipe editing' : 'Cancel recipe creation'}
                     className="text-gray-400 hover:text-white text-sm font-bold transition-colors"
                 >
                     Cancel
                 </button>
                 <div className="text-center">
                     <h2 id={titleId} className="text-white font-black text-sm tracking-wider">
-                        NEW RECIPE
+                        {isEditing ? 'EDIT RECIPE' : 'NEW RECIPE'}
                     </h2>
                     <p id={stepDescriptionId} className="text-[11px] text-gray-500 mt-0.5">
                         Step {step} of {totalSteps}
@@ -171,7 +219,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                     <div
                         role="progressbar"
-                        aria-label="Recipe creation progress"
+                        aria-label={isEditing ? 'Recipe editing progress' : 'Recipe creation progress'}
                         aria-valuemin={1}
                         aria-valuemax={totalSteps}
                         aria-valuenow={step}
@@ -221,7 +269,8 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                             />
                             {imageUrl && (
                                 <div className="mt-3 rounded-xl overflow-hidden border border-white/10 h-32">
-                                    <img
+                                    <SafeImage
+                                        key={imageUrl}
                                         src={imageUrl}
                                         alt="Preview"
                                         className="w-full h-full object-cover"
@@ -504,7 +553,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                         <button
                             onClick={handleSave}
                             disabled={saving}
-                            aria-label={saving ? 'Saving recipe' : 'Save recipe'}
+                            aria-label={saving ? 'Saving recipe' : isEditing ? 'Save recipe changes' : 'Save recipe'}
                             className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
                             {saving ? (
@@ -513,12 +562,12 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                     Saving...
                                 </>
                             ) : (
-                                <>🍳 Save Recipe</>
+                                <>🍳 {isEditing ? 'Save Changes' : 'Save Recipe'}</>
                             )}
                         </button>
                     )}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

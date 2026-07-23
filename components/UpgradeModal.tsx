@@ -4,6 +4,7 @@ import { XIcon, CheckIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { TIER_INFO, type Feature as _Feature } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
+import { OverlayPortal } from './ui/OverlayPortal';
 // Brand mark — same lockup as the SignInScreen. Vite resolves the
 // import to a hashed URL string at build time. Replaces the previous
 // DiamondIcon header treatment (the "jewelry-store / Vegas" vibe the
@@ -159,8 +160,8 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
     const selectedInfo = TIER_INFO[selectedTier];
 
     return (
-        <div
-            className="fixed inset-0 z-[1200] flex items-center justify-center p-4"
+        <OverlayPortal
+            className="flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="upgrade-title"
@@ -281,6 +282,6 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Preferences } from '@capacitor/preferences';
 
 import { createLogger } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('supabase');
 
@@ -23,8 +24,28 @@ const log = createLogger('supabase');
  * fall back to localStorage transparently — same behaviour as before
  * the swap.
  */
-const capacitorAuthStorage = {
+let authStorageQueue: Promise<void> = Promise.resolve();
+
+function enqueueAuthStorageMutation(operation: () => Promise<void>): Promise<void> {
+    const result = authStorageQueue.then(operation, operation);
+    authStorageQueue = result.catch(() => undefined);
+    return result;
+}
+
+function removeLocalAuthShadow(key: string): void {
+    try {
+        if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+    } catch {
+        /* storage unavailable */
+    }
+}
+
+export const capacitorAuthStorage = {
     async getItem(key: string): Promise<string | null> {
+        // A migration, refresh-token write, and logout must have a single
+        // observable order. Otherwise a delayed legacy migration can restore
+        // a session after sign-out has already removed it.
+        await authStorageQueue;
         try {
             const { value } = await Preferences.get({ key });
             return value ?? null;
@@ -38,26 +59,32 @@ const capacitorAuthStorage = {
         }
     },
     async setItem(key: string, value: string): Promise<void> {
-        try {
-            await Preferences.set({ key, value });
-        } catch {
+        return enqueueAuthStorageMutation(async () => {
             try {
-                if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+                await Preferences.set({ key, value });
+                // Retire any fallback/legacy copy after native persistence
+                // succeeds. Leaving it behind can resurrect an old account.
+                removeLocalAuthShadow(key);
             } catch {
-                /* storage full or unavailable */
+                try {
+                    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+                } catch {
+                    /* storage full or unavailable */
+                }
             }
-        }
+        });
     },
     async removeItem(key: string): Promise<void> {
-        try {
-            await Preferences.remove({ key });
-        } catch {
+        return enqueueAuthStorageMutation(async () => {
             try {
-                if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+                await Preferences.remove({ key });
             } catch {
-                /* storage unavailable */
+                /* browser/native bridge unavailable; still purge fallback */
             }
-        }
+            // Always delete both stores. Removing only the currently available
+            // backend leaves a bearer session ready for the next fallback.
+            removeLocalAuthShadow(key);
+        });
     },
 };
 
@@ -137,20 +164,27 @@ if (URL && KEY) {
  * from there. Best-effort: failure means one extra login, then
  * we're stable.
  */
-async function migrateAuthSessionToCapacitor(): Promise<void> {
-    if (typeof localStorage === 'undefined') return;
+export function migrateAuthSessionToCapacitor(): Promise<void> {
+    if (typeof localStorage === 'undefined') return Promise.resolve();
     const SESSION_KEY = 'thalassa-auth-session';
-    try {
-        const { value: existing } = await Preferences.get({ key: SESSION_KEY });
-        if (existing) return;
-        const local = localStorage.getItem(SESSION_KEY);
-        if (!local) return;
-        await Preferences.set({ key: SESSION_KEY, value: local });
-        localStorage.removeItem(SESSION_KEY);
-        log.info('migrated auth session: localStorage → Capacitor Preferences');
-    } catch (e) {
-        log.warn('auth session migration failed (one-time)', e);
-    }
+    return enqueueAuthStorageMutation(async () => {
+        try {
+            const { value: existing } = await Preferences.get({ key: SESSION_KEY });
+            const local = localStorage.getItem(SESSION_KEY);
+            if (existing) {
+                // A prior copy may have succeeded just before a crash. Native
+                // storage is authoritative; purge the stale bearer duplicate.
+                if (local) removeLocalAuthShadow(SESSION_KEY);
+                return;
+            }
+            if (!local) return;
+            await Preferences.set({ key: SESSION_KEY, value: local });
+            removeLocalAuthShadow(SESSION_KEY);
+            log.info('migrated auth session: localStorage → Capacitor Preferences');
+        } catch (e) {
+            log.warn('auth session migration failed (one-time)', e);
+        }
+    });
 }
 void migrateAuthSessionToCapacitor();
 
@@ -192,13 +226,13 @@ export const isSupabaseConfigured = () => !!supabase;
  *
  * Use this in hot paths instead of getUser(). Returns null if unauthenticated.
  */
-export async function getCurrentUserId(): Promise<string | null> {
-    if (!supabase) return null;
+export async function getCurrentUserId(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<string | null> {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
     try {
         const {
             data: { session },
         } = await supabase.auth.getSession();
-        return session?.user?.id ?? null;
+        return isAuthIdentityScopeCurrent(scope) && session?.user?.id === scope.userId ? scope.userId : null;
     } catch {
         return null;
     }
@@ -210,8 +244,10 @@ export async function getCurrentUserId(): Promise<string | null> {
  * `const { data: { user } } = await supabase.auth.getUser()` can swap to
  * `const user = await getCurrentUser()` with zero downstream changes.
  */
-export async function getCurrentUser(): Promise<{ id: string } | null> {
-    const id = await getCurrentUserId();
+export async function getCurrentUser(
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<{ id: string } | null> {
+    const id = await getCurrentUserId(scope);
     return id ? { id } : null;
 }
 
@@ -244,33 +280,61 @@ export interface Waypoint {
  * Fetch a user's profile from the `profiles` table.
  */
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
-    if (!supabase) return null;
+    const scope = getAuthIdentityScope();
+    if (!supabase || userId !== scope.userId || (await getCurrentUserId(scope)) !== userId) return null;
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (error) return null;
-    return data as UserProfile;
+    if (error || !isAuthIdentityScopeCurrent(scope) || data?.id !== userId) return null;
+    return { ...(data as UserProfile) };
 }
 
 /**
  * Update fields on a user's profile.
  */
-export async function updateUserProfile(
-    userId: string,
-    updates: Partial<Omit<UserProfile, 'id' | 'created_at'>>,
-): Promise<boolean> {
-    if (!supabase) return false;
+export type UserProfileUpdate = Pick<UserProfile, 'display_name' | 'avatar_url' | 'vessel_name'>;
+
+export async function updateUserProfile(userId: string, updates: Partial<UserProfileUpdate>): Promise<boolean> {
+    const scope = getAuthIdentityScope();
+    if (!supabase || userId !== scope.userId || (await getCurrentUserId(scope)) !== userId) return false;
+    const snapshot: Partial<UserProfileUpdate> = {};
+    if (typeof updates.display_name === 'string') snapshot.display_name = updates.display_name;
+    if (typeof updates.avatar_url === 'string') snapshot.avatar_url = updates.avatar_url;
+    if (typeof updates.vessel_name === 'string') snapshot.vessel_name = updates.vessel_name;
+    if (Object.keys(snapshot).length === 0) return false;
     const { error } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...snapshot, updated_at: new Date().toISOString() })
         .eq('id', userId);
-    return !error;
+    return !error && isAuthIdentityScopeCurrent(scope);
 }
 
 /**
  * Sync waypoints to the `waypoints` table (upsert by id).
  */
 export async function syncWaypoints(userId: string, waypoints: Waypoint[]): Promise<boolean> {
-    if (!supabase || waypoints.length === 0) return true;
-    const rows = waypoints.map((wp) => ({ ...wp, user_id: userId }));
+    if (waypoints.length === 0) return true;
+    const scope = getAuthIdentityScope();
+    if (!supabase || userId !== scope.userId || (await getCurrentUserId(scope)) !== userId) return false;
+    const rows = waypoints
+        .filter(
+            (waypoint) =>
+                typeof waypoint.id === 'string' &&
+                waypoint.id.trim() &&
+                typeof waypoint.name === 'string' &&
+                Number.isFinite(waypoint.latitude) &&
+                Number.isFinite(waypoint.longitude) &&
+                Math.abs(waypoint.latitude) <= 90 &&
+                Math.abs(waypoint.longitude) <= 180,
+        )
+        .map((waypoint) => ({
+            id: waypoint.id,
+            user_id: userId,
+            name: waypoint.name,
+            latitude: waypoint.latitude,
+            longitude: waypoint.longitude,
+            ...(typeof waypoint.notes === 'string' ? { notes: waypoint.notes } : {}),
+            ...(typeof waypoint.created_at === 'string' ? { created_at: waypoint.created_at } : {}),
+        }));
+    if (rows.length !== waypoints.length) return false;
     const { error } = await supabase.from('waypoints').upsert(rows, { onConflict: 'id' });
-    return !error;
+    return !error && isAuthIdentityScopeCurrent(scope);
 }

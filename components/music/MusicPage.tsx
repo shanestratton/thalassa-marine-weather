@@ -19,6 +19,7 @@
  */
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
+import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
     getUserPlaylists,
@@ -44,6 +45,7 @@ import {
 } from '../../services/voice/integrations/appleMusic';
 import { triggerHaptic } from '../../utils/system';
 import { markMusicEngaged } from '../../services/musicEngagement';
+import { SafeImage } from '../ui/SafeImage';
 
 interface MusicPageProps {
     onBack: () => void;
@@ -779,12 +781,13 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
             } ${active ? 'border-pink-400/60 ring-2 ring-pink-400/40' : 'border-white/10 hover:border-white/30'}`}
         >
             {showRemote ? (
-                <img
+                <SafeImage
                     src={playlist.artworkUrl}
                     alt={playlist.name}
                     className="w-full h-full object-cover"
                     loading="lazy"
                     onError={() => setImageFailed(true)}
+                    fallback={<GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />}
                 />
             ) : (
                 <GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />
@@ -846,15 +849,12 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
     const showRemote = !!playlist.artworkUrl && !imageFailed;
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex flex-col"
+        <OverlayPortal
+            className="flex flex-col"
             aria-hidden={covered || undefined}
-            // Pad the bottom by the global bottom-nav height + safe area
-            // so the sheet's bottom edge lands above the nav. Without
-            // this, mt-auto pins the sheet to the screen bottom and
-            // the nav (z-[900]) renders ON TOP of the sheet's action
-            // buttons — invisible action buttons for empty playlists.
-            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+            // The body portal already sits above app navigation. Only the
+            // device safe area belongs below the blocking sheet.
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
             {/* Backdrop — absolute inset-0 so it still covers the
              *  full viewport (including the padding zone behind the nav). */}
@@ -867,8 +867,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
             />
             {/* Sheet — min-h-[55vh] gives empty playlists visual
              *  presence (Play + Add tracks land mid-screen instead of
-             *  squashed at the bottom). max-h respects the nav-clear
-             *  padding above. */}
+             *  squashed at the bottom). */}
             <div
                 ref={focusTrapRef}
                 role="dialog"
@@ -879,7 +878,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 }`}
                 style={{
                     minHeight: '55vh',
-                    maxHeight: 'calc(92vh - 4rem - env(safe-area-inset-bottom))',
+                    maxHeight: 'calc(92dvh - env(safe-area-inset-bottom))',
                 }}
             >
                 {/* Drag handle + close button */}
@@ -899,11 +898,13 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 <div className="flex items-center gap-4 px-5 py-4">
                     <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0 shadow-lg ring-1 ring-white/10">
                         {showRemote ? (
-                            <img
+                            <SafeImage
                                 src={playlist.artworkUrl}
                                 alt=""
                                 className="w-full h-full object-cover"
+                                loading="eager"
                                 onError={() => setImageFailed(true)}
+                                fallback={<GeneratedPlaylistArtwork name={playlist.name} />}
                             />
                         ) : (
                             <GeneratedPlaylistArtwork name={playlist.name} />
@@ -1011,7 +1012,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     </div>
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 
@@ -1126,10 +1127,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
     );
 
     return (
-        <div
-            className="fixed inset-0 z-[55] flex flex-col"
-            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
-        >
+        <OverlayPortal className="flex flex-col" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div
                 role="presentation"
                 onClick={onClose}
@@ -1162,7 +1160,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                               : 'translateY(100%)',
                     // No min-height when the keyboard is up: the
                     // available space is already small (viewport minus
-                    // keyboard minus nav minus safe-area), and a 55vh
+                    // keyboard and safe area), and a 55vh
                     // floor would force the sheet's top edge above the
                     // viewport, hiding the search input the skipper
                     // is trying to type into. Only apply the floor
@@ -1172,7 +1170,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                     maxHeight:
                         keyboardHeight > 0
                             ? `calc(100vh - ${keyboardHeight}px - 2rem)`
-                            : 'calc(92vh - 4rem - env(safe-area-inset-bottom))',
+                            : 'calc(92dvh - env(safe-area-inset-bottom))',
                 }}
             >
                 {/* Drag handle */}
@@ -1256,7 +1254,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                     ))}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 
@@ -1284,11 +1282,12 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redi
         >
             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5">
                 {showRemote ? (
-                    <img
+                    <SafeImage
                         src={song.artworkUrl}
                         alt=""
                         className="w-full h-full object-cover"
                         onError={() => setImageFailed(true)}
+                        fallback={<GeneratedPlaylistArtwork name={song.title} />}
                     />
                 ) : (
                     <GeneratedPlaylistArtwork name={song.title} />
@@ -1339,7 +1338,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
         return () => cancelAnimationFrame(id);
     }, []);
     return (
-        <div className="fixed inset-0 z-[70]">
+        <OverlayPortal>
             <div
                 role="presentation"
                 onClick={onCancel}
@@ -1392,7 +1391,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                     </div>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 
@@ -1455,7 +1454,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
     }, []);
 
     return (
-        <div className="fixed inset-0 z-[60]">
+        <OverlayPortal>
             <div
                 role="presentation"
                 onClick={onClose}
@@ -1561,7 +1560,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                     </div>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 
@@ -1778,11 +1777,17 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
         <div className="p-3">
             <div className="flex items-center gap-3">
                 {showRemote ? (
-                    <img
+                    <SafeImage
                         src={nowPlaying.artworkUrl}
                         alt=""
                         className="w-12 h-12 rounded-lg object-cover shrink-0"
+                        loading="eager"
                         onError={() => setImageFailed(true)}
+                        fallback={
+                            <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                                <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
+                            </div>
+                        }
                     />
                 ) : (
                     <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">

@@ -11,6 +11,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 const log = createLogger('CrewFinder');
 
 // --- TABLES ---
@@ -301,34 +302,38 @@ export interface CrewSearchFilters {
 // ═══════════════════════════════════════════════════
 
 class LonelyHeartsServiceClass {
-    private currentUserId: string | null = null;
-
-    async init(): Promise<void> {
-        if (!supabase) return;
-        // Try getUser (network call) first, fall back to getSession (local cache)
+    private async getAuthenticatedOwner(scope: AuthIdentityScope): Promise<string | null> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
         try {
             const {
                 data: { user },
+                error,
             } = await supabase.auth.getUser();
-            if (user?.id) {
-                this.currentUserId = user.id;
-                log.info('Auth via getUser:', user.id.slice(0, 8));
-                return;
-            }
-        } catch (e) {
-            log.warn('getUser failed, trying getSession:', e);
+            if (error || !isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
+            return scope.userId;
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) log.warn('Authenticated-user check failed:', error);
+            return null;
         }
-        // Fallback: getSession uses locally cached token
-        try {
-            const {
-                data: { session },
-            } = await supabase.auth.getSession();
-            this.currentUserId = session?.user?.id || null;
-            log.info('Auth via getSession:', this.currentUserId?.slice(0, 8) || 'null');
-        } catch (e) {
-            log.warn('getSession failed:', e);
-            this.currentUserId = null;
-        }
+    }
+
+    private cloneUpdates<T extends object>(updates: T): T {
+        return Object.fromEntries(
+            Object.entries(updates).map(([key, value]) => [key, Array.isArray(value) ? [...value] : value]),
+        ) as T;
+    }
+
+    private normalizeTargetId(targetId: string): string | null {
+        if (typeof targetId !== 'string') return null;
+        const normalized = targetId.trim();
+        return normalized && normalized.length <= 128 ? normalized : null;
+    }
+
+    async init(): Promise<void> {
+        if (!supabase) return;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (ownerId && isAuthIdentityScopeCurrent(scope)) log.info('Auth verified:', ownerId.slice(0, 8));
     }
 
     // ─── CREW PROFILES (Find Crew) ─────────────────
@@ -336,11 +341,19 @@ class LonelyHeartsServiceClass {
     /** Get crew profile for a user */
     async getCrewProfile(userId?: string): Promise<CrewProfile | null> {
         if (!supabase) return null;
-        const targetId = userId || this.currentUserId;
+        const scope = getAuthIdentityScope();
+        const hasExplicitTarget = userId !== undefined;
+        const explicitTarget = hasExplicitTarget ? this.normalizeTargetId(userId) : null;
+        if (hasExplicitTarget && !explicitTarget) return null;
+        const ownerId = scope.userId ? await this.getAuthenticatedOwner(scope) : null;
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+        if (scope.userId && !ownerId) return null;
+        const targetId = explicitTarget || ownerId;
         if (!targetId) return null;
 
         const { data } = await supabase.from(CREW_PROFILES_TABLE).select('*').eq('user_id', targetId).single();
 
+        if (!isAuthIdentityScopeCurrent(scope) || data?.user_id !== targetId) return null;
         if (data) return this.normalizeCrewProfile(data);
         return null;
     }
@@ -354,25 +367,25 @@ class LonelyHeartsServiceClass {
             age_range: data.age_range || null,
             has_partner: data.has_partner || false,
             partner_details: data.partner_details || null,
-            skills: data.skills || [],
+            skills: [...(data.skills || [])],
             sailing_experience: data.sailing_experience || null,
             sailing_region: data.sailing_region || null,
             available_from: data.available_from || null,
             available_to: data.available_to || null,
             bio: data.bio || null,
-            vibe: data.vibe || [],
-            languages: data.languages || [],
+            vibe: [...(data.vibe || [])],
+            languages: [...(data.languages || [])],
             smoking: data.smoking || null,
             drinking: data.drinking || null,
             pets: data.pets || null,
-            interests: data.interests || [],
+            interests: [...(data.interests || [])],
             last_active: data.last_active || null,
             is_verified: data.is_verified || false,
             location_city: data.location_city || null,
             location_state: data.location_state || null,
             location_country: data.location_country || null,
             photo_url: data.photo_url || null,
-            photos: data.photos || [],
+            photos: [...(data.photos || [])],
             created_at: data.created_at,
             updated_at: data.updated_at,
         };
@@ -382,61 +395,93 @@ class LonelyHeartsServiceClass {
     async updateCrewProfile(
         updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>>,
     ): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
+        const scope = getAuthIdentityScope();
+        const updatesSnapshot = this.cloneUpdates(updates);
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        return this.updateCrewProfileForScope(scope, ownerId, updatesSnapshot);
+    }
 
+    private async updateCrewProfileForScope(
+        scope: AuthIdentityScope,
+        ownerId: string,
+        updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>>,
+    ): Promise<boolean> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
         const { error } = await supabase.from(CREW_PROFILES_TABLE).upsert(
             {
-                user_id: this.currentUserId,
                 ...updates,
+                user_id: ownerId,
                 updated_at: new Date().toISOString(),
             },
             { onConflict: 'user_id' },
         );
 
-        return !error;
+        return !error && isAuthIdentityScopeCurrent(scope);
     }
 
     /** Upload a crew photo (single) */
     async uploadCrewPhoto(file: File): Promise<{ success: boolean; url?: string; error?: string }> {
-        if (!supabase || !this.currentUserId) return { success: false, error: 'Not authenticated' };
+        if (!supabase) return { success: false, error: 'Not authenticated' };
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) {
+            return { success: false, error: 'Not authenticated' };
+        }
+        const fileSnapshot = file;
 
         try {
             const { compressImage, moderatePhoto } = await import('./ProfilePhotoService');
-            const blob = await compressImage(file);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
+            const blob = await compressImage(fileSnapshot);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
 
             const modResult = await moderatePhoto(blob);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             if (modResult.verdict !== 'approved') {
                 return { success: false, error: modResult.reason };
             }
 
-            const path = `crew/${this.currentUserId}/${Date.now()}.jpg`;
+            const path = `crew/${ownerId}/${Date.now()}.jpg`;
             const { error: uploadError } = await supabase.storage
                 .from('chat-avatars')
                 .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             if (uploadError) return { success: false, error: uploadError.message };
 
             const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
 
             const url = urlData.publicUrl;
-            await this.updateCrewProfile({ photo_url: url });
+            const updated = await this.updateCrewProfileForScope(scope, ownerId, { photo_url: url });
+            if (!updated || !isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Account changed' };
+            }
             return { success: true, url };
         } catch (err: unknown) {
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
         }
     }
 
     /** Remove crew photo */
     async removeCrewPhoto(): Promise<boolean> {
-        return this.updateCrewProfile({ photo_url: null });
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        return this.updateCrewProfileForScope(scope, ownerId, { photo_url: null });
     }
 
     /** Delete entire crew profile (remove listing from board) */
     async deleteCrewProfile(): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
 
-        const { error } = await supabase.from(CREW_PROFILES_TABLE).delete().eq('user_id', this.currentUserId);
+        const { error } = await supabase.from(CREW_PROFILES_TABLE).delete().eq('user_id', ownerId);
 
-        return !error;
+        return !error && isAuthIdentityScopeCurrent(scope);
     }
 
     // ─── DATING PROFILES (Lonely Hearts) ────────────
@@ -444,11 +489,23 @@ class LonelyHeartsServiceClass {
     /** Get dating profile for a user */
     async getDatingProfile(userId?: string): Promise<DatingProfile | null> {
         if (!supabase) return null;
-        const targetId = userId || this.currentUserId;
+        const scope = getAuthIdentityScope();
+        const hasExplicitTarget = userId !== undefined;
+        const explicitTarget = hasExplicitTarget ? this.normalizeTargetId(userId) : null;
+        if (hasExplicitTarget && !explicitTarget) return null;
+        const ownerId = scope.userId ? await this.getAuthenticatedOwner(scope) : null;
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+        if (scope.userId && !ownerId) return null;
+        const targetId = explicitTarget || ownerId;
         if (!targetId) return null;
+        return this.getDatingProfileForScope(scope, targetId);
+    }
 
+    private async getDatingProfileForScope(scope: AuthIdentityScope, targetId: string): Promise<DatingProfile | null> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
         const { data } = await supabase.from(DATING_PROFILES_TABLE).select('*').eq('user_id', targetId).single();
 
+        if (!isAuthIdentityScopeCurrent(scope) || data?.user_id !== targetId) return null;
         if (data) return this.normalizeDatingProfile(data);
         return null;
     }
@@ -460,12 +517,12 @@ class LonelyHeartsServiceClass {
             gender: data.gender || null,
             age_range: data.age_range || null,
             bio: data.bio || data.bio_dating || null,
-            interests: data.interests || [],
+            interests: [...(data.interests || [])],
             seeking: data.seeking || null,
             location_text: data.location_text || null,
             sailing_experience: data.sailing_experience || null,
             sailing_region: data.sailing_region || null,
-            photos: data.photos || data.dating_photos || [],
+            photos: [...(data.photos || data.dating_photos || [])],
             created_at: data.created_at,
             updated_at: data.updated_at,
         };
@@ -475,18 +532,29 @@ class LonelyHeartsServiceClass {
     async updateDatingProfile(
         updates: Partial<Omit<DatingProfile, 'user_id' | 'created_at' | 'updated_at'>>,
     ): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
+        const scope = getAuthIdentityScope();
+        const updatesSnapshot = this.cloneUpdates(updates);
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        return this.updateDatingProfileForScope(scope, ownerId, updatesSnapshot);
+    }
 
+    private async updateDatingProfileForScope(
+        scope: AuthIdentityScope,
+        ownerId: string,
+        updates: Partial<Omit<DatingProfile, 'user_id' | 'created_at' | 'updated_at'>>,
+    ): Promise<boolean> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
         const { error } = await supabase.from(DATING_PROFILES_TABLE).upsert(
             {
-                user_id: this.currentUserId,
                 ...updates,
+                user_id: ownerId,
                 updated_at: new Date().toISOString(),
             },
             { onConflict: 'user_id' },
         );
 
-        return !error;
+        return !error && isAuthIdentityScopeCurrent(scope);
     }
 
     /** Upload a dating photo at a given position (0-5) */
@@ -494,50 +562,76 @@ class LonelyHeartsServiceClass {
         file: File,
         position: number = 0,
     ): Promise<{ success: boolean; url?: string; error?: string }> {
-        if (!supabase || !this.currentUserId) return { success: false, error: 'Not authenticated' };
-        if (position < 0 || position > 5) return { success: false, error: 'Invalid photo position (0-5)' };
+        if (!supabase) return { success: false, error: 'Not authenticated' };
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) {
+            return { success: false, error: 'Not authenticated' };
+        }
+        const photoPosition = Math.trunc(position);
+        if (photoPosition !== position || photoPosition < 0 || photoPosition > 5) {
+            return { success: false, error: 'Invalid photo position (0-5)' };
+        }
+        const fileSnapshot = file;
 
         try {
             const { compressImage, moderatePhoto } = await import('./ProfilePhotoService');
-            const blob = await compressImage(file);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
+            const blob = await compressImage(fileSnapshot);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
 
             const modResult = await moderatePhoto(blob);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             if (modResult.verdict !== 'approved') {
                 return { success: false, error: modResult.reason };
             }
 
-            const path = `dating/${this.currentUserId}/${position}_${Date.now()}.jpg`;
+            const path = `dating/${ownerId}/${photoPosition}_${Date.now()}.jpg`;
             const { error: uploadError } = await supabase.storage
                 .from('chat-avatars')
                 .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             if (uploadError) return { success: false, error: uploadError.message };
 
             const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             const url = urlData.publicUrl;
 
             // Update photos array in dating profile
-            const profile = await this.getDatingProfile();
-            const photos = profile?.photos || [];
-            while (photos.length <= position) photos.push('');
-            photos[position] = url;
+            const profile = await this.getDatingProfileForScope(scope, ownerId);
+            if (!profile || !isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Profile unavailable' };
+            }
+            const photos = [...profile.photos];
+            while (photos.length <= photoPosition) photos.push('');
+            photos[photoPosition] = url;
 
-            await this.updateDatingProfile({ photos });
+            const updated = await this.updateDatingProfileForScope(scope, ownerId, { photos });
+            if (!updated || !isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Account changed' };
+            }
             return { success: true, url };
         } catch (err: unknown) {
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
         }
     }
 
     /** Remove a dating photo at given position */
     async removeDatingPhoto(position: number): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
-        const profile = await this.getDatingProfile();
-        if (!profile) return false;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        const photoPosition = Math.trunc(position);
+        if (photoPosition !== position || photoPosition < 0) return false;
+        const profile = await this.getDatingProfileForScope(scope, ownerId);
+        if (!profile || !isAuthIdentityScopeCurrent(scope)) return false;
 
         const photos = [...(profile.photos || [])];
-        if (position >= 0 && position < photos.length) {
-            photos.splice(position, 1);
-            return this.updateDatingProfile({ photos });
+        if (photoPosition < photos.length) {
+            photos.splice(photoPosition, 1);
+            return this.updateDatingProfileForScope(scope, ownerId, { photos });
         }
         return false;
     }
@@ -549,32 +643,52 @@ class LonelyHeartsServiceClass {
      * Joins chat_profiles with crew profiles.
      */
     async getCrewListings(filters: CrewSearchFilters = {}, limit = 30): Promise<CrewCard[]> {
-        if (!supabase || !this.currentUserId) return [];
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const filterSnapshot: CrewSearchFilters = {
+            ...filters,
+            skills: filters.skills ? [...filters.skills] : undefined,
+            age_ranges: filters.age_ranges ? [...filters.age_ranges] : undefined,
+        };
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 30;
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const blockedIds = new Set(await this.getBlockedUserIdsForScope(scope, ownerId));
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
         // 1. Get opted-in profiles (looking_for_love = true)
-        const { data: chatProfiles } = await supabase
+        const { data: rawChatProfiles } = await supabase
             .from(CHAT_PROFILES_TABLE)
             .select('user_id, display_name, avatar_url, vessel_name, home_port')
             .eq('looking_for_love', true)
-            .neq('user_id', this.currentUserId)
+            .neq('user_id', ownerId)
             .limit(100);
 
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        const chatProfiles = (rawChatProfiles || []).filter(
+            (profile: SupabaseRow) =>
+                typeof profile.user_id === 'string' && profile.user_id !== ownerId && !blockedIds.has(profile.user_id),
+        );
         if (!chatProfiles || chatProfiles.length === 0) return [];
 
         // 2. Fetch crew profiles for these users
         const userIds = chatProfiles.map((p: Record<string, string>) => p.user_id);
         let query = supabase.from(CREW_PROFILES_TABLE).select('*').in('user_id', userIds);
 
-        if (filters.listing_type) {
-            query = query.eq('listing_type', filters.listing_type);
+        if (filterSnapshot.listing_type) {
+            query = query.eq('listing_type', filterSnapshot.listing_type);
         }
 
         const { data: crewProfiles } = await query;
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
         const crewMap = new Map<string, SupabaseRow>();
+        const requestedIds = new Set(userIds);
         if (crewProfiles) {
             for (const cp of crewProfiles) {
-                crewMap.set(cp.user_id, cp);
+                if (requestedIds.has(cp.user_id) && cp.user_id !== ownerId && !blockedIds.has(cp.user_id)) {
+                    crewMap.set(cp.user_id, cp);
+                }
             }
         }
 
@@ -592,39 +706,40 @@ class LonelyHeartsServiceClass {
             const card = this.buildCrewCard(chat, crew);
 
             // Client-side filters
-            if (filters.skills && filters.skills.length > 0) {
-                const hasMatch = filters.skills.some((s) => (card.skills || []).includes(s));
+            if (filterSnapshot.skills && filterSnapshot.skills.length > 0) {
+                const hasMatch = filterSnapshot.skills.some((s) => (card.skills || []).includes(s));
                 if (!hasMatch) continue;
             }
-            if (filters.experience && card.sailing_experience !== filters.experience) continue;
+            if (filterSnapshot.experience && card.sailing_experience !== filterSnapshot.experience) continue;
             if (
-                filters.region &&
+                filterSnapshot.region &&
                 card.sailing_region &&
-                !card.sailing_region.toLowerCase().includes(filters.region.toLowerCase())
+                !card.sailing_region.toLowerCase().includes(filterSnapshot.region.toLowerCase())
             )
                 continue;
-            if (filters.gender && card.gender !== filters.gender) continue;
+            if (filterSnapshot.gender && card.gender !== filterSnapshot.gender) continue;
             if (
-                filters.age_ranges &&
-                filters.age_ranges.length > 0 &&
-                !filters.age_ranges.includes(card.age_range || '')
+                filterSnapshot.age_ranges &&
+                filterSnapshot.age_ranges.length > 0 &&
+                !filterSnapshot.age_ranges.includes(card.age_range || '')
             )
                 continue;
             if (
-                filters.location_country &&
+                filterSnapshot.location_country &&
                 (!card.location_country ||
-                    !card.location_country.toLowerCase().includes(filters.location_country.toLowerCase()))
+                    !card.location_country.toLowerCase().includes(filterSnapshot.location_country.toLowerCase()))
             )
                 continue;
             if (
-                filters.location_state &&
+                filterSnapshot.location_state &&
                 (!card.location_state ||
-                    !card.location_state.toLowerCase().includes(filters.location_state.toLowerCase()))
+                    !card.location_state.toLowerCase().includes(filterSnapshot.location_state.toLowerCase()))
             )
                 continue;
             if (
-                filters.location_city &&
-                (!card.location_city || !card.location_city.toLowerCase().includes(filters.location_city.toLowerCase()))
+                filterSnapshot.location_city &&
+                (!card.location_city ||
+                    !card.location_city.toLowerCase().includes(filterSnapshot.location_city.toLowerCase()))
             )
                 continue;
 
@@ -632,7 +747,7 @@ class LonelyHeartsServiceClass {
         }
 
         // Include chat profiles without crew profiles (legacy)
-        if (!filters.listing_type && !filters.skills?.length && !filters.experience) {
+        if (!filterSnapshot.listing_type && !filterSnapshot.skills?.length && !filterSnapshot.experience) {
             for (const cp of chatProfiles) {
                 if (!crewMap.has(cp.user_id)) {
                     cards.push(this.buildCrewCard(cp, null));
@@ -642,37 +757,40 @@ class LonelyHeartsServiceClass {
 
         // Include crew-only profiles (e.g. seed profiles without chat_profiles)
         const chatUserIds = new Set(chatProfiles.map((p: Record<string, string>) => p.user_id));
-        let crewOnlyQuery = supabase
-            .from(CREW_PROFILES_TABLE)
-            .select('*')
-            .neq('user_id', this.currentUserId)
-            .not('user_id', 'in', `(${[...chatUserIds].join(',')})`)
-            .limit(30);
+        let crewOnlyQuery = supabase.from(CREW_PROFILES_TABLE).select('*').neq('user_id', ownerId).limit(100);
 
-        if (filters.listing_type) {
-            crewOnlyQuery = crewOnlyQuery.eq('listing_type', filters.listing_type);
+        if (filterSnapshot.listing_type) {
+            crewOnlyQuery = crewOnlyQuery.eq('listing_type', filterSnapshot.listing_type);
         }
 
         const { data: crewOnlyProfiles } = await crewOnlyQuery;
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (crewOnlyProfiles) {
             for (const cp of crewOnlyProfiles) {
-                const card = this.buildCrewCard(null, cp);
-                if (filters.skills && filters.skills.length > 0) {
-                    if (!filters.skills.some((s) => (card.skills || []).includes(s))) continue;
-                }
-                if (filters.experience && card.sailing_experience !== filters.experience) continue;
-                if (filters.gender && card.gender !== filters.gender) continue;
                 if (
-                    filters.age_ranges &&
-                    filters.age_ranges.length > 0 &&
-                    !filters.age_ranges.includes(card.age_range || '')
+                    typeof cp.user_id !== 'string' ||
+                    cp.user_id === ownerId ||
+                    blockedIds.has(cp.user_id) ||
+                    chatUserIds.has(cp.user_id)
+                )
+                    continue;
+                const card = this.buildCrewCard(null, cp);
+                if (filterSnapshot.skills && filterSnapshot.skills.length > 0) {
+                    if (!filterSnapshot.skills.some((s) => (card.skills || []).includes(s))) continue;
+                }
+                if (filterSnapshot.experience && card.sailing_experience !== filterSnapshot.experience) continue;
+                if (filterSnapshot.gender && card.gender !== filterSnapshot.gender) continue;
+                if (
+                    filterSnapshot.age_ranges &&
+                    filterSnapshot.age_ranges.length > 0 &&
+                    !filterSnapshot.age_ranges.includes(card.age_range || '')
                 )
                     continue;
                 cards.push(card);
             }
         }
 
-        return cards.slice(0, limit);
+        return isAuthIdentityScopeCurrent(scope) ? cards.slice(0, safeLimit) : [];
     }
 
     /** Legacy browse method */
@@ -697,24 +815,24 @@ class LonelyHeartsServiceClass {
             age_range: cp.age_range || null,
             has_partner: cp.has_partner || false,
             partner_details: cp.partner_details || null,
-            skills: cp.skills || [],
+            skills: [...(cp.skills || [])],
             sailing_experience: cp.sailing_experience || null,
             sailing_region: cp.sailing_region || null,
             available_from: cp.available_from || null,
             available_to: cp.available_to || null,
             bio: cp.bio || null,
-            vibe: cp.vibe || [],
-            languages: cp.languages || [],
+            vibe: [...(cp.vibe || [])],
+            languages: [...(cp.languages || [])],
             smoking: cp.smoking || null,
             drinking: cp.drinking || null,
             pets: cp.pets || null,
-            interests: cp.interests || [],
+            interests: [...(cp.interests || [])],
             last_active: cp.last_active || null,
             is_verified: cp.is_verified || false,
             location_city: cp.location_city || null,
             location_state: cp.location_state || null,
             location_country: cp.location_country || null,
-            photos: cp.photos || cp.dating_photos || [],
+            photos: [...(cp.photos || cp.dating_photos || [])],
         };
     }
 
@@ -722,24 +840,39 @@ class LonelyHeartsServiceClass {
 
     /** Get dating profiles to swipe on (Lonely Hearts) */
     async getDatingProfilesToBrowse(limit = 20): Promise<DatingCard[]> {
-        if (!supabase || !this.currentUserId) return [];
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 20;
+        const blockedIds = new Set(await this.getBlockedUserIdsForScope(scope, ownerId));
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-        const { data: chatProfiles } = await supabase
+        const { data: rawChatProfiles } = await supabase
             .from(CHAT_PROFILES_TABLE)
             .select('user_id, display_name, avatar_url, vessel_name, home_port')
             .eq('looking_for_love', true)
-            .neq('user_id', this.currentUserId)
+            .neq('user_id', ownerId)
             .limit(100);
 
-        if (!chatProfiles || chatProfiles.length === 0) return [];
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        const chatProfiles = (rawChatProfiles || []).filter(
+            (profile: SupabaseRow) =>
+                typeof profile.user_id === 'string' && profile.user_id !== ownerId && !blockedIds.has(profile.user_id),
+        );
+        if (chatProfiles.length === 0) return [];
 
         const userIds = chatProfiles.map((p: Record<string, string>) => p.user_id);
         const { data: datingProfiles } = await supabase.from(DATING_PROFILES_TABLE).select('*').in('user_id', userIds);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
         const datingMap = new Map<string, SupabaseRow>();
+        const requestedIds = new Set(userIds);
         if (datingProfiles) {
             for (const dp of datingProfiles) {
-                datingMap.set(dp.user_id, dp);
+                if (requestedIds.has(dp.user_id) && dp.user_id !== ownerId && !blockedIds.has(dp.user_id)) {
+                    datingMap.set(dp.user_id, dp);
+                }
             }
         }
 
@@ -749,7 +882,7 @@ class LonelyHeartsServiceClass {
             cards.push(this.buildDatingCard(cp, dp));
         }
 
-        return cards.slice(0, limit);
+        return isAuthIdentityScopeCurrent(scope) ? cards.slice(0, safeLimit) : [];
     }
 
     private buildDatingCard(chatProfile: SupabaseRow, datingProfile: SupabaseRow | null): DatingCard {
@@ -761,11 +894,11 @@ class LonelyHeartsServiceClass {
             vessel_name: chatProfile.vessel_name,
             home_port: chatProfile.home_port,
             first_name: dp.first_name || dp.dating_first_name || null,
-            photos: dp.photos || dp.dating_photos || [],
+            photos: [...(dp.photos || dp.dating_photos || [])],
             gender: dp.gender || null,
             age_range: dp.age_range || null,
             bio: dp.bio || dp.bio_dating || null,
-            interests: dp.interests || [],
+            interests: [...(dp.interests || [])],
             seeking: dp.seeking || null,
             location_text: dp.location_text || null,
             sailing_experience: dp.sailing_experience || null,
@@ -777,73 +910,127 @@ class LonelyHeartsServiceClass {
 
     /** Record a like or pass */
     async recordLike(targetId: string, isLike: boolean): Promise<{ matched: boolean }> {
-        if (!supabase || !this.currentUserId) return { matched: false };
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) {
+            return { matched: false };
+        }
+        return this.recordLikeForScope(scope, ownerId, target, Boolean(isLike));
+    }
 
+    private async recordLikeForScope(
+        scope: AuthIdentityScope,
+        ownerId: string,
+        targetId: string,
+        isLike: boolean,
+    ): Promise<{ matched: boolean }> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return { matched: false };
         const { error } = await supabase.from(LIKES_TABLE).upsert(
             {
-                liker_id: this.currentUserId,
+                liker_id: ownerId,
                 liked_id: targetId,
                 is_like: isLike,
             },
             { onConflict: 'liker_id,liked_id' },
         );
 
-        if (error) return { matched: false };
+        if (error || !isAuthIdentityScopeCurrent(scope)) return { matched: false };
 
         if (isLike) {
-            return { matched: await this.checkMutualMatch(targetId) };
+            const matched = await this.checkMutualMatchForScope(scope, ownerId, targetId);
+            return { matched: isAuthIdentityScopeCurrent(scope) && matched };
         }
         return { matched: false };
     }
 
     /** Check if both users liked each other */
     async checkMutualMatch(targetId: string): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        return this.checkMutualMatchForScope(scope, ownerId, target);
+    }
 
+    private async checkMutualMatchForScope(
+        scope: AuthIdentityScope,
+        ownerId: string,
+        targetId: string,
+    ): Promise<boolean> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
         const { data } = await supabase
             .from(LIKES_TABLE)
             .select('id')
             .eq('liker_id', targetId)
-            .eq('liked_id', this.currentUserId)
+            .eq('liked_id', ownerId)
             .eq('is_like', true)
             .single();
 
-        return !!data;
+        return isAuthIdentityScopeCurrent(scope) && !!data;
     }
 
     /** Get all mutual matches */
     async getMatches(): Promise<SailorMatch[]> {
-        if (!supabase || !this.currentUserId) return [];
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const blockedIds = new Set(await this.getBlockedUserIdsForScope(scope, ownerId));
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
 
         const { data: myLikes } = await supabase
             .from(LIKES_TABLE)
             .select('liked_id, created_at')
-            .eq('liker_id', this.currentUserId)
+            .eq('liker_id', ownerId)
             .eq('is_like', true);
 
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (!myLikes || myLikes.length === 0) return [];
 
-        const likedIds = myLikes.map((l: { liked_id: string }) => l.liked_id);
+        const likedIds = [
+            ...new Set(
+                myLikes
+                    .map((like: { liked_id: string }) => like.liked_id)
+                    .filter(
+                        (likedId: unknown): likedId is string =>
+                            typeof likedId === 'string' && likedId !== ownerId && !blockedIds.has(likedId),
+                    ),
+            ),
+        ];
+        if (likedIds.length === 0) return [];
         const { data: theirLikes } = await supabase
             .from(LIKES_TABLE)
             .select('liker_id, created_at')
             .in('liker_id', likedIds)
-            .eq('liked_id', this.currentUserId)
+            .eq('liked_id', ownerId)
             .eq('is_like', true);
 
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (!theirLikes || theirLikes.length === 0) return [];
 
-        const mutualIds = new Set(theirLikes.map((l: { liker_id: string }) => l.liker_id));
+        const likedIdSet = new Set(likedIds);
+        const mutualIds = new Set<string>();
         const matchDates = new Map<string, string>();
         for (const tl of theirLikes) {
-            matchDates.set(tl.liker_id, tl.created_at);
+            if (
+                typeof tl.liker_id === 'string' &&
+                likedIdSet.has(tl.liker_id) &&
+                tl.liker_id !== ownerId &&
+                !blockedIds.has(tl.liker_id)
+            ) {
+                mutualIds.add(tl.liker_id);
+                matchDates.set(tl.liker_id, tl.created_at);
+            }
         }
+        if (mutualIds.size === 0) return [];
 
         const { data: profiles } = await supabase
             .from(CHAT_PROFILES_TABLE)
             .select('user_id, display_name, avatar_url, vessel_name, home_port')
             .in('user_id', Array.from(mutualIds));
 
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (!profiles) return [];
 
         // Fetch dating profiles for first names + photos
@@ -851,6 +1038,7 @@ class LonelyHeartsServiceClass {
             .from(DATING_PROFILES_TABLE)
             .select('user_id, first_name, dating_first_name, photos, dating_photos')
             .in('user_id', Array.from(mutualIds));
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const datingMap = new Map<string, any>();
         if (datingProfiles) {
@@ -862,13 +1050,18 @@ class LonelyHeartsServiceClass {
             .from(CREW_PROFILES_TABLE)
             .select('user_id, interests, vibe, languages, smoking, drinking, pets, sailing_experience')
             .in('user_id', Array.from(mutualIds));
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const crewMap = new Map<string, any>();
         if (crewProfiles) {
             for (const cp of crewProfiles) crewMap.set(cp.user_id, cp);
         }
 
-        return profiles
+        const matches = profiles
+            .filter(
+                (profile: Record<string, unknown>) =>
+                    typeof profile.user_id === 'string' && mutualIds.has(profile.user_id),
+            )
             .map((p: Record<string, unknown>) => {
                 const uid = p.user_id as string;
                 const dp = datingMap.get(uid);
@@ -877,13 +1070,13 @@ class LonelyHeartsServiceClass {
                     user_id: uid,
                     display_name: (p.display_name as string) || 'Anonymous Sailor',
                     dating_first_name: dp?.first_name || dp?.dating_first_name || null,
-                    dating_photos: dp?.photos || dp?.dating_photos || [],
+                    dating_photos: [...(dp?.photos || dp?.dating_photos || [])],
                     avatar_url: p.avatar_url as string | null,
                     vessel_name: p.vessel_name as string | null,
                     home_port: p.home_port as string | null,
-                    interests: cp?.interests || [],
-                    vibe: cp?.vibe || [],
-                    languages: cp?.languages || [],
+                    interests: [...(cp?.interests || [])],
+                    vibe: [...(cp?.vibe || [])],
+                    languages: [...(cp?.languages || [])],
                     smoking: cp?.smoking || null,
                     drinking: cp?.drinking || null,
                     pets: cp?.pets || null,
@@ -894,99 +1087,141 @@ class LonelyHeartsServiceClass {
             .sort(
                 (a: SailorMatch, b: SailorMatch) => new Date(b.matched_at).getTime() - new Date(a.matched_at).getTime(),
             );
+        return isAuthIdentityScopeCurrent(scope) ? matches : [];
     }
 
     /** Count of unviewed matches (for badge) */
     async getMatchCount(): Promise<number> {
+        const scope = getAuthIdentityScope();
         const matches = await this.getMatches();
-        return matches.length;
+        return isAuthIdentityScopeCurrent(scope) ? matches.length : 0;
     }
 
     // ─── BLOCK & REPORT ─────────────────────────────
 
     /** Block a user (hides them from your browse) */
     async blockUser(targetId: string): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
         const { error } = await supabase
             .from(BLOCKS_TABLE)
-            .upsert({ blocker_id: this.currentUserId, blocked_id: targetId }, { onConflict: 'blocker_id,blocked_id' });
-        return !error;
+            .upsert({ blocker_id: ownerId, blocked_id: target }, { onConflict: 'blocker_id,blocked_id' });
+        return !error && isAuthIdentityScopeCurrent(scope);
     }
 
     /** Unblock a user */
     async unblockUser(targetId: string): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
-        const { error } = await supabase
-            .from(BLOCKS_TABLE)
-            .delete()
-            .eq('blocker_id', this.currentUserId)
-            .eq('blocked_id', targetId);
-        return !error;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        const { error } = await supabase.from(BLOCKS_TABLE).delete().eq('blocker_id', ownerId).eq('blocked_id', target);
+        return !error && isAuthIdentityScopeCurrent(scope);
     }
 
     /** Get IDs of users this person has blocked */
     async getBlockedUserIds(): Promise<string[]> {
-        if (!supabase || !this.currentUserId) return [];
-        const { data } = await supabase.from(BLOCKS_TABLE).select('blocked_id').eq('blocker_id', this.currentUserId);
-        return data?.map((d: Record<string, string>) => d.blocked_id) || [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        return this.getBlockedUserIdsForScope(scope, ownerId);
+    }
+
+    private async getBlockedUserIdsForScope(scope: AuthIdentityScope, ownerId: string): Promise<string[]> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return [];
+        const { data } = await supabase.from(BLOCKS_TABLE).select('blocked_id').eq('blocker_id', ownerId);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return [
+            ...new Set(
+                (data || [])
+                    .map((row: Record<string, unknown>) => row.blocked_id)
+                    .filter((blockedId: unknown): blockedId is string => typeof blockedId === 'string'),
+            ),
+        ];
     }
 
     /** Report a user */
     async reportUser(targetId: string, reason: string): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return false;
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        const reasonSnapshot = reason.trim().slice(0, 2000);
+        if (!ownerId || !target || target === ownerId || !reasonSnapshot || !isAuthIdentityScopeCurrent(scope)) {
+            return false;
+        }
         const { error } = await supabase.from(REPORTS_TABLE).insert({
-            reporter_id: this.currentUserId,
-            reported_id: targetId,
-            reason,
+            reporter_id: ownerId,
+            reported_id: target,
+            reason: reasonSnapshot,
             created_at: new Date().toISOString(),
         });
-        return !error;
+        return !error && isAuthIdentityScopeCurrent(scope);
     }
 
     // ─── SUPER LIKE ─────────────────────────────────
 
     /** Record a super like with an optional message */
     async recordSuperLike(targetId: string, message: string): Promise<{ matched: boolean }> {
-        if (!supabase || !this.currentUserId) return { matched: false };
+        if (!supabase) return { matched: false };
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        const messageSnapshot = message.trim().slice(0, 1000);
+        if (!ownerId || !target || target === ownerId || !messageSnapshot || !isAuthIdentityScopeCurrent(scope)) {
+            return { matched: false };
+        }
 
         // Record the like first
-        const result = await this.recordLike(targetId, true);
+        const result = await this.recordLikeForScope(scope, ownerId, target, true);
+        if (!isAuthIdentityScopeCurrent(scope)) return { matched: false };
 
         // Store the super-like message
-        await supabase
+        const { error } = await supabase
             .from(LIKES_TABLE)
-            .update({ super_like_message: message })
-            .eq('liker_id', this.currentUserId)
-            .eq('liked_id', targetId);
+            .update({ super_like_message: messageSnapshot })
+            .eq('liker_id', ownerId)
+            .eq('liked_id', target);
 
-        return result;
+        return !error && isAuthIdentityScopeCurrent(scope) ? result : { matched: false };
     }
 
     /** Check if user has used their daily super like */
     async hasSuperLikedToday(): Promise<boolean> {
-        if (!supabase || !this.currentUserId) return true;
+        if (!supabase) return true;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return true;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         const { data } = await supabase
             .from(LIKES_TABLE)
             .select('id')
-            .eq('liker_id', this.currentUserId)
+            .eq('liker_id', ownerId)
             .not('super_like_message', 'is', null)
             .gte('created_at', today.toISOString());
 
-        return (data?.length || 0) >= SUPER_LIKE_DAILY_LIMIT;
+        return isAuthIdentityScopeCurrent(scope) && (data?.length || 0) >= SUPER_LIKE_DAILY_LIMIT;
     }
 
     // ─── LAST ACTIVE ────────────────────────────────
 
     /** Update the current user's last_active timestamp */
     async updateLastActive(): Promise<void> {
-        if (!supabase || !this.currentUserId) return;
+        if (!supabase) return;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return;
         await supabase
             .from(CREW_PROFILES_TABLE)
             .update({ last_active: new Date().toISOString() })
-            .eq('user_id', this.currentUserId);
+            .eq('user_id', ownerId);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
     }
 }
 

@@ -1,7 +1,8 @@
 /**
  * CustomRecipes — Unit tests for recipe CRUD, encoding/decoding, and visibility.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 // Mock LocalDatabase
 
@@ -42,10 +43,19 @@ vi.mock('../services/supabase', () => ({
 import {
     encodeRecipeShare,
     decodeRecipeShare,
+    parseRecipeShareMessage,
     RECIPE_SHARE_PREFIX,
+    getFavouriteIds,
     isScalable,
+    toggleFavourite,
     type StoredRecipe,
 } from '../services/GalleyRecipeService';
+
+beforeEach(() => {
+    localStorage.clear();
+    setAuthIdentityScope(null);
+    setAuthIdentityScope('account-a');
+});
 
 describe('Recipe Share Encoding', () => {
     const mockRecipe: StoredRecipe = {
@@ -71,7 +81,7 @@ describe('Recipe Share Encoding', () => {
         const encoded = encodeRecipeShare(mockRecipe);
         expect(encoded).toContain(RECIPE_SHARE_PREFIX);
         expect(encoded).toContain('recipe-123');
-        expect(encoded).toContain('Fish Curry');
+        expect(encoded).toContain(encodeURIComponent('Fish Curry'));
         expect(encoded).toContain('4');
         expect(encoded).toContain('45');
     });
@@ -101,6 +111,32 @@ describe('Recipe Share Encoding', () => {
         const encoded = encodeRecipeShare(noImage);
         const decoded = decodeRecipeShare(encoded);
         expect(decoded!.imageUrl).toBe('');
+    });
+
+    it('preserves delimiter and percent characters in encoded fields', () => {
+        const unusual = {
+            ...mockRecipe,
+            title: 'Fish | chips 100%',
+            image_url: 'https://example.com/fish%20chips.jpg?crop=a|b',
+        };
+
+        expect(decodeRecipeShare(encodeRecipeShare(unusual))).toMatchObject({
+            title: unusual.title,
+            imageUrl: unusual.image_url,
+        });
+    });
+
+    it('parses a sender note on the lines before the recipe token', () => {
+        const encoded = encodeRecipeShare(mockRecipe);
+        const parsed = parseRecipeShareMessage(`Made this offshore.\nCrew approved.\n${encoded}\nBest with lime.`);
+
+        expect(parsed?.note).toBe('Made this offshore.\nCrew approved.\nBest with lime.');
+        expect(parsed?.recipe.title).toBe('Fish Curry');
+        expect(decodeRecipeShare(`A good one\n${encoded}`)?.recipeId).toBe('recipe-123');
+    });
+
+    it('does not classify an inline token mention as a recipe share', () => {
+        expect(decodeRecipeShare(`The internal marker is ${RECIPE_SHARE_PREFIX} but this is prose`)).toBeNull();
     });
 });
 
@@ -162,5 +198,24 @@ describe('StoredRecipe Custom Fields', () => {
         const shared: StoredRecipe['visibility'] = 'shared';
         expect(personal).toBe('personal');
         expect(shared).toBe('shared');
+    });
+});
+
+describe('Recipe favourite identity isolation', () => {
+    it('keeps each account’s local favourites separate', () => {
+        expect(toggleFavourite('recipe-a')).toBe(true);
+        expect(getFavouriteIds()).toEqual(new Set(['recipe-a']));
+
+        setAuthIdentityScope('account-b');
+        expect(getFavouriteIds()).toEqual(new Set());
+        expect(toggleFavourite('recipe-b')).toBe(true);
+
+        setAuthIdentityScope('account-a');
+        expect(getFavouriteIds()).toEqual(new Set(['recipe-a']));
+    });
+
+    it('does not adopt the unattributable legacy favourites list', () => {
+        localStorage.setItem('thalassa_galley_favourites', JSON.stringify(['legacy-private-recipe']));
+        expect(getFavouriteIds()).toEqual(new Set());
     });
 });

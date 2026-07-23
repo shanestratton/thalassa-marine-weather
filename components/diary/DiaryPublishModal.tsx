@@ -12,6 +12,7 @@ import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryServi
 import { VoyageLogService, voyageLogPublicUrl } from '../../services/VoyageLogService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 type Phase = 'choose' | 'working' | 'done';
 
@@ -160,9 +161,9 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     const showLink = !working && result !== 'unpublished' && (startsPublic || result === 'published');
 
     return (
-        <div
+        <OverlayPortal
             role="presentation"
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
         >
             <div
                 ref={dialogRef}
@@ -316,6 +317,6 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                     )}
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

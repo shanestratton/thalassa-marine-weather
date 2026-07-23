@@ -117,7 +117,14 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                     {/* LEFT: LOGBOOK AREA */}
                     <div className="flex flex-1 flex-col relative">
                         {/* Background Texture */}
-                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/nautical-charts.png')] opacity-5 pointer-events-none"></div>
+                        <div
+                            className="absolute inset-0 opacity-10 pointer-events-none"
+                            style={{
+                                backgroundImage:
+                                    'linear-gradient(rgba(125,211,252,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(125,211,252,0.12) 1px, transparent 1px)',
+                                backgroundSize: '24px 24px',
+                            }}
+                        />
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-[#0f172a] to-sky-950/30"></div>
 
                         {/* Content Layer */}

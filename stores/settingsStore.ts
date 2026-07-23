@@ -21,10 +21,32 @@ import { getErrorMessage } from '../utils/createLogger';
 import { tierIsPro } from '../services/SubscriptionService';
 import { createLogger } from '../utils/createLogger';
 import { Geolocation } from '@capacitor/geolocation';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 const log = createLogger('SettingsStore');
 
 const DAILY_STORMGLASS_LIMIT = 100;
+const SETTINGS_KEY = 'thalassa_settings';
+const SETTINGS_LEGACY_QUARANTINE_KEY = 'thalassa_settings_quarantine_v2';
+const SETTINGS_ANONYMOUS_CLAIM_KEY = 'thalassa_settings_anonymous_claim_v1';
+
+interface PersistedSettingsEnvelope {
+    version: 2;
+    owner_user_id: string | null;
+    settings: UserSettings;
+}
+
+interface AnonymousSettingsClaim {
+    owner_user_id: string;
+    state: 'claiming' | 'completed';
+    claimed_at: string;
+}
 
 export const DEFAULT_SETTINGS: UserSettings = {
     subscriptionTier: 'owner', // Default to owner for development
@@ -75,8 +97,9 @@ interface SettingsState {
     _setUserId: (id: string | null) => void;
 }
 
-// Internal ref to avoid circular store deps
-let _userId: string | null = null;
+// Internal ref to avoid circular store deps. The synchronous auth scope is
+// authoritative; this mirrors the SettingsProvider bridge only.
+let _userId: string | null = getAuthIdentityScope().userId;
 let _addDebugLog: (msg: string) => void = () => {};
 /**
  * True if loadSettings() found existing `thalassa_settings` data in
@@ -86,7 +109,7 @@ let _addDebugLog: (msg: string) => void = () => {};
  * device), not every time someone signs out and back in on the same
  * phone where their settings already live locally.
  */
-let _localHadPriorData = false;
+const _localHadPriorData = new Map<string, boolean>();
 /**
  * Promise that resolves once loadSettings() has finished its disk
  * read and committed its `setState({ ..., loading: false })`.
@@ -102,6 +125,11 @@ let _localHadPriorData = false;
  * regardless of which native promise resolves first.
  */
 let _loadSettingsPromise: Promise<void> | null = null;
+const _scopeLoadPromises = new Map<string, Promise<void>>();
+const _anonymousAdoptedScopes = new Set<string>();
+let _hydratedScopeKey: string | null = null;
+let _lastCloudPullGeneration = -1;
+let _scopeTransitionTail: Promise<void> = Promise.resolve();
 
 /** Wire the debug log sink from uiStore (called once from ThalassaContext bridge) */
 export function setSettingsDebugSink(fn: (msg: string) => void) {
@@ -119,9 +147,9 @@ export function awaitSettingsLoaded(): Promise<void> {
     return _loadSettingsPromise ?? Promise.resolve();
 }
 
-async function syncToCloud(userId: string, s: UserSettings) {
-    if (!supabase) return;
-    await supabase.from('profiles').upsert({ id: userId, settings: s, updated_at: new Date().toISOString() });
+async function syncToCloud(scope: AuthIdentityScope, s: UserSettings) {
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+    await supabase.from('profiles').upsert({ id: scope.userId, settings: s, updated_at: new Date().toISOString() });
 }
 
 /**
@@ -229,6 +257,169 @@ export function buildRestoredSummary(s: UserSettings): RestoredSummary {
     };
 }
 
+function settingsPreferenceKey(scope: AuthIdentityScope): string {
+    return authScopedStorageKey(SETTINGS_KEY, scope);
+}
+
+function persistedEnvelope(scope: AuthIdentityScope, settings: UserSettings): PersistedSettingsEnvelope {
+    return {
+        version: 2,
+        owner_user_id: scope.userId,
+        settings,
+    };
+}
+
+function parseEnvelope(raw: string): {
+    ownerKnown: boolean;
+    ownerUserId: string | null;
+    settings: UserSettings | null;
+} {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { ownerKnown: false, ownerUserId: null, settings: null };
+    }
+    const record = parsed as Record<string, unknown>;
+    if (
+        Object.prototype.hasOwnProperty.call(record, 'owner_user_id') &&
+        (record.owner_user_id === null || typeof record.owner_user_id === 'string') &&
+        record.settings &&
+        typeof record.settings === 'object' &&
+        !Array.isArray(record.settings)
+    ) {
+        return {
+            ownerKnown: true,
+            ownerUserId: typeof record.owner_user_id === 'string' ? record.owner_user_id.trim() || null : null,
+            settings: mergeSettings(record.settings as Record<string, unknown>),
+        };
+    }
+    return {
+        ownerKnown: false,
+        ownerUserId: null,
+        settings: mergeSettings(record),
+    };
+}
+
+async function writeSettingsToPreferences(scope: AuthIdentityScope, settings: UserSettings): Promise<void> {
+    await Preferences.set({
+        key: settingsPreferenceKey(scope),
+        value: JSON.stringify(persistedEnvelope(scope, settings)),
+    });
+}
+
+async function readSettingsFromPreferences(scope: AuthIdentityScope): Promise<UserSettings | null> {
+    const { value } = await Preferences.get({ key: settingsPreferenceKey(scope) });
+    if (!value) return null;
+    const parsed = parseEnvelope(value);
+    // Raw values inside an identity-scoped key came from the first scoped
+    // release. The namespace itself proves their owner.
+    if (!parsed.ownerKnown || parsed.ownerUserId === scope.userId) return parsed.settings;
+    await Preferences.set({
+        key: SETTINGS_LEGACY_QUARANTINE_KEY,
+        value: JSON.stringify({
+            reason: 'scoped settings owner mismatch',
+            scoped_key: settingsPreferenceKey(scope),
+            quarantined_at: new Date().toISOString(),
+            value,
+        }),
+    });
+    await Preferences.remove({ key: settingsPreferenceKey(scope) });
+    return null;
+}
+
+/**
+ * The historical Preferences key had no account namespace. Only an envelope
+ * with an explicit matching owner can be adopted; raw legacy settings are
+ * retained in quarantine and never guessed to belong to the next login.
+ */
+async function migrateLegacyPreferences(scope: AuthIdentityScope): Promise<void> {
+    const { value } = await Preferences.get({ key: SETTINGS_KEY });
+    if (!value) return;
+    try {
+        const parsed = parseEnvelope(value);
+        if (parsed.ownerKnown && parsed.ownerUserId === scope.userId && parsed.settings) {
+            const { value: existing } = await Preferences.get({ key: settingsPreferenceKey(scope) });
+            if (!existing) await writeSettingsToPreferences(scope, parsed.settings);
+            await Preferences.remove({ key: SETTINGS_KEY });
+            return;
+        }
+        if (parsed.ownerKnown) return; // leave it for its explicit owner
+    } catch {
+        // Preserved below as opaque quarantine data.
+    }
+    await Preferences.set({
+        key: SETTINGS_LEGACY_QUARANTINE_KEY,
+        value: JSON.stringify({
+            reason: 'unattributed legacy settings',
+            quarantined_at: new Date().toISOString(),
+            value,
+        }),
+    });
+    await Preferences.remove({ key: SETTINGS_KEY });
+}
+
+/**
+ * Assign anonymous onboarding once, to the first authenticated identity on
+ * this installation. The durable claim is written before copying so another
+ * account can never win a crash/interleaving race.
+ */
+async function adoptAnonymousSettingsIfSafe(
+    scope: AuthIdentityScope,
+    previous: AuthIdentityScope | null,
+): Promise<void> {
+    if (!scope.userId) return;
+    const { value: claimValue } = await Preferences.get({ key: SETTINGS_ANONYMOUS_CLAIM_KEY });
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+
+    let claim: AnonymousSettingsClaim | null = null;
+    if (claimValue) {
+        try {
+            const parsed = JSON.parse(claimValue) as AnonymousSettingsClaim;
+            if (parsed?.owner_user_id && (parsed.state === 'claiming' || parsed.state === 'completed')) claim = parsed;
+        } catch {
+            return; // corrupt claim is unsafe to guess through
+        }
+    }
+    const canStart = !claim && previous?.userId === null;
+    const canResume = claim?.state === 'claiming' && claim.owner_user_id === scope.userId;
+    if (!canStart && !canResume) return;
+
+    if (!claim) {
+        claim = {
+            owner_user_id: scope.userId,
+            state: 'claiming',
+            claimed_at: new Date().toISOString(),
+        };
+        await Preferences.set({ key: SETTINGS_ANONYMOUS_CLAIM_KEY, value: JSON.stringify(claim) });
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+    }
+
+    const anonymousScope: AuthIdentityScope = {
+        key: 'anonymous',
+        userId: null,
+        generation: scope.generation,
+    };
+    const { value: destinationValue } = await Preferences.get({ key: settingsPreferenceKey(scope) });
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    if (!destinationValue) {
+        const anonymousSettings = await readSettingsFromPreferences(anonymousScope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        if (anonymousSettings) {
+            await writeSettingsToPreferences(scope, anonymousSettings);
+            writeSettingsMirror(anonymousSettings, scope);
+            _anonymousAdoptedScopes.add(scope.key);
+        }
+    }
+
+    // Claimed anonymous state must not reappear in browse mode or be offered
+    // to a later account.
+    await Preferences.remove({ key: settingsPreferenceKey(anonymousScope) });
+    removeSettingsMirror(anonymousScope);
+    await Preferences.set({
+        key: SETTINGS_ANONYMOUS_CLAIM_KEY,
+        value: JSON.stringify({ ...claim, state: 'completed' } satisfies AnonymousSettingsClaim),
+    });
+}
+
 /**
  * Pull cloud preferences for the just-signed-in user and merge into
  * local settings. Cloud values win for any key the cloud has set —
@@ -244,9 +435,12 @@ export function buildRestoredSummary(s: UserSettings): RestoredSummary {
  * Idempotent — running twice is harmless. Also tolerant of the
  * profiles row not existing yet (fresh account).
  */
-async function pullFromCloud(userId: string): Promise<void> {
-    if (!supabase) {
-        log.warn(`[pullFromCloud] BAIL: supabase client is null for userId=${userId.slice(0, 8)}`);
+async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
+    const userId = scope.userId;
+    if (!supabase || !userId || !isAuthIdentityScopeCurrent(scope)) {
+        if (!supabase && userId) {
+            log.warn(`[pullFromCloud] BAIL: supabase client is null for userId=${userId.slice(0, 8)}`);
+        }
         return;
     }
     log.warn(`[pullFromCloud] STARTING for userId=${userId.slice(0, 8)}`);
@@ -257,19 +451,22 @@ async function pullFromCloud(userId: string): Promise<void> {
     // own setState land afterwards and silently roll the merge back.
     // The await is a no-op once loadSettings has already resolved
     // (the common case) — it's cheap insurance for the cold-boot edge.
-    if (_loadSettingsPromise) {
+    const scopeLoad = _scopeLoadPromises.get(scope.key);
+    if (scopeLoad) {
         try {
-            await _loadSettingsPromise;
+            await scopeLoad;
         } catch {
             // loadSettings already catches its own errors; this catch
             // exists purely to keep us moving if the promise rejects.
         }
     }
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
         // 1. profiles.settings — the JSONB blob carrying everything
         // the user has changed via updateSettings.
         log.warn('[pullFromCloud] querying profiles…');
         const { data: profile } = await supabase.from('profiles').select('settings').eq('id', userId).maybeSingle();
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         log.warn(`[pullFromCloud] profiles result: ${profile?.settings ? 'has-settings' : 'no-settings'}`);
 
         const cloudSettings = (profile?.settings ?? null) as Partial<UserSettings> | null;
@@ -283,9 +480,13 @@ async function pullFromCloud(userId: string): Promise<void> {
             .select('vessel_name, vessel_type, model')
             .eq('owner_id', userId)
             .maybeSingle();
+        if (!isAuthIdentityScopeCurrent(scope)) return;
 
-        // Nothing to merge? Bail.
-        if (!cloudSettings && !vessel) return;
+        // A normal empty account has nothing to reconcile. Anonymous
+        // onboarding is the deliberate exception: its one-time claimed
+        // settings must be pushed into this first account, not stranded only
+        // on the device.
+        if (!cloudSettings && !vessel && !_anonymousAdoptedScopes.has(scope.key)) return;
 
         const current = useSettingsStore.getState().settings;
 
@@ -343,18 +544,21 @@ async function pullFromCloud(userId: string): Promise<void> {
             } catch (err) {
                 log.warn(`[pullFromCloud] Geolocation permission threw: ${getErrorMessage(err)}`);
             }
+            if (!isAuthIdentityScopeCurrent(scope)) return;
             merged.defaultLocation = 'Current Location';
         }
 
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         useSettingsStore.setState({ settings: merged, isPro: merged.isPro });
 
         // Persist back to Capacitor Preferences so next cold boot is
         // already correct without waiting for the cloud round-trip — and
         // mirror it so the synchronous warm-boot seed reflects the restore.
-        writeSettingsMirror(merged);
-        await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(merged) });
+        writeSettingsMirror(merged, scope);
+        await writeSettingsToPreferences(scope, merged);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         _addDebugLog('CLOUD PULL OK: settings merged from profiles + vessel_identity');
-        manageScreenEffects(merged);
+        void manageScreenEffects(merged, scope);
 
         // ── TWO-WAY reconcile (Shane 2026-07-17: "ensure that when I log in on
         // another device, ALL of the vessel profile info transfers across") ──
@@ -377,8 +581,11 @@ async function pullFromCloud(userId: string): Promise<void> {
             _addDebugLog(
                 `CLOUD PUSH-BACK: local vessel (draft ${merged.vessel?.draft}) was missing from the cloud — uploading`,
             );
-            void syncToCloud(userId, merged);
+            void syncToCloud(scope, merged);
+        } else if (_anonymousAdoptedScopes.has(scope.key)) {
+            void syncToCloud(scope, merged);
         }
+        _anonymousAdoptedScopes.delete(scope.key);
 
         // ── Welcome-back modal ─────────────────────────────────────
         // Fire ONCE per user per device, ONLY on a fresh-device
@@ -386,9 +593,10 @@ async function pullFromCloud(userId: string): Promise<void> {
         // users would see the modal every time they sign out and
         // back in on their primary phone, which would be noise.
         try {
-            if (!_localHadPriorData) {
-                const seenKey = `thalassa_restored_modal_seen_${userId}`;
+            if (!_localHadPriorData.get(scope.key)) {
+                const seenKey = authScopedStorageKey('thalassa_restored_modal_seen', scope);
                 const { value: alreadySeen } = await Preferences.get({ key: seenKey });
+                if (!isAuthIdentityScopeCurrent(scope)) return;
                 if (!alreadySeen) {
                     const summary = buildRestoredSummary(merged);
                     if (typeof window !== 'undefined') {
@@ -399,6 +607,7 @@ async function pullFromCloud(userId: string): Promise<void> {
                         );
                     }
                     await Preferences.set({ key: seenKey, value: '1' });
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
                 }
             }
         } catch (modalErr) {
@@ -416,7 +625,7 @@ async function pullFromCloud(userId: string): Promise<void> {
         // A direct event removes that indirection — WeatherContext
         // listens and triggers fetchWeather as soon as it sees a
         // location lands.
-        if (typeof window !== 'undefined' && merged.defaultLocation) {
+        if (isAuthIdentityScopeCurrent(scope) && typeof window !== 'undefined' && merged.defaultLocation) {
             log.warn(`[pullFromCloud] dispatching settings-restored event: defaultLocation=${merged.defaultLocation}`);
             window.dispatchEvent(
                 new CustomEvent('thalassa:settings-restored', {
@@ -437,10 +646,11 @@ async function pullFromCloud(userId: string): Promise<void> {
     }
 }
 
-async function manageScreenEffects(s: UserSettings) {
-    if (!Capacitor.isNativePlatform()) return;
+async function manageScreenEffects(s: UserSettings, scope: AuthIdentityScope = getAuthIdentityScope()) {
+    if (!Capacitor.isNativePlatform() || !isAuthIdentityScopeCurrent(scope)) return;
 
     try {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         if (s.alwaysOn) {
             await KeepAwake.keepAwake();
         } else {
@@ -452,6 +662,7 @@ async function manageScreenEffects(s: UserSettings) {
 
     try {
         const { ScreenOrientation } = await import('@capacitor/screen-orientation');
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         switch (s.screenOrientation) {
             case 'portrait':
                 await ScreenOrientation.lock({ orientation: 'portrait' });
@@ -480,18 +691,55 @@ async function manageScreenEffects(s: UserSettings) {
 // we fall back to the async load, i.e. today's behaviour). Mirrors the
 // weather cache's loadLargeDataSync pattern (services/nativeStorage.ts).
 export const SETTINGS_MIRROR_KEY = 'thalassa_settings_mirror';
+const SETTINGS_MIRROR_QUARANTINE_KEY = `${SETTINGS_MIRROR_KEY}_quarantine_v2`;
 
-/** Write-safety gate, distinct from the paint `loading` flag: updates are
- *  refused until the authoritative async load has run, exactly as the old
- *  `if (get().loading) return` did before the sync seed made loading=false
- *  early. Preserves the cold-boot race fix. */
-let _fullyHydrated = false;
+function settingsMirrorKey(scope: AuthIdentityScope): string {
+    return authScopedStorageKey(SETTINGS_MIRROR_KEY, scope);
+}
 
-export function writeSettingsMirror(s: UserSettings): void {
+function migrateLegacyMirror(scope: AuthIdentityScope): void {
     try {
-        localStorage.setItem(SETTINGS_MIRROR_KEY, JSON.stringify(s));
+        const raw = localStorage.getItem(SETTINGS_MIRROR_KEY);
+        if (!raw) return;
+        const parsed = parseEnvelope(raw);
+        if (parsed.ownerKnown && parsed.ownerUserId === scope.userId && parsed.settings) {
+            if (!localStorage.getItem(settingsMirrorKey(scope))) {
+                localStorage.setItem(
+                    settingsMirrorKey(scope),
+                    JSON.stringify(persistedEnvelope(scope, parsed.settings)),
+                );
+            }
+            localStorage.removeItem(SETTINGS_MIRROR_KEY);
+            return;
+        }
+        if (parsed.ownerKnown) return;
+        localStorage.setItem(
+            SETTINGS_MIRROR_QUARANTINE_KEY,
+            JSON.stringify({
+                reason: 'unattributed legacy settings mirror',
+                quarantined_at: new Date().toISOString(),
+                value: raw,
+            }),
+        );
+        localStorage.removeItem(SETTINGS_MIRROR_KEY);
+    } catch {
+        // A corrupt/unavailable mirror is never authoritative.
+    }
+}
+
+export function writeSettingsMirror(s: UserSettings, scope: AuthIdentityScope = getAuthIdentityScope()): void {
+    try {
+        localStorage.setItem(settingsMirrorKey(scope), JSON.stringify(persistedEnvelope(scope, s)));
     } catch {
         /* localStorage full/unavailable — Preferences remains the truth */
+    }
+}
+
+function removeSettingsMirror(scope: AuthIdentityScope): void {
+    try {
+        localStorage.removeItem(settingsMirrorKey(scope));
+    } catch {
+        /* unavailable */
     }
 }
 
@@ -521,11 +769,25 @@ export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
 }
 
 /** Synchronous warm-boot seed from the localStorage mirror, or null. */
-export function readSettingsMirrorSync(): UserSettings | null {
+export function readSettingsMirrorSync(scope: AuthIdentityScope = getAuthIdentityScope()): UserSettings | null {
     try {
-        const raw = localStorage.getItem(SETTINGS_MIRROR_KEY);
+        migrateLegacyMirror(scope);
+        const raw = localStorage.getItem(settingsMirrorKey(scope));
         if (!raw) return null;
-        return mergeSettings(JSON.parse(raw));
+        const parsed = parseEnvelope(raw);
+        if (parsed.ownerKnown && parsed.ownerUserId !== scope.userId) {
+            localStorage.setItem(
+                SETTINGS_MIRROR_QUARANTINE_KEY,
+                JSON.stringify({
+                    reason: 'scoped mirror owner mismatch',
+                    scoped_key: settingsMirrorKey(scope),
+                    value: raw,
+                }),
+            );
+            localStorage.removeItem(settingsMirrorKey(scope));
+            return null;
+        }
+        return parsed.settings;
     } catch {
         return null;
     }
@@ -553,8 +815,10 @@ function migrateRowOrder(saved: string[]): string[] {
 // Seed synchronously from the mirror so a warm boot paints immediately
 // (loading=false, real settings). First-ever launch (no mirror) keeps the
 // old loading=true → splash → async-load path. Writes stay gated on
-// _fullyHydrated until the authoritative load runs.
-const _seed = readSettingsMirrorSync();
+// Writes stay gated by the current scope's authoritative hydration.
+const _seedScope = getAuthIdentityScope();
+const _seed = readSettingsMirrorSync(_seedScope);
+_localHadPriorData.set(_seedScope.key, _seed !== null);
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
     settings: _seed ?? DEFAULT_SETTINGS,
@@ -563,17 +827,14 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     quotaLimit: DAILY_STORMGLASS_LIMIT,
 
     _setUserId: (id) => {
-        const wasSignedOut = _userId === null;
         _userId = id;
-        // Cross-device sync: when a user signs in (transition from
-        // no-user → user), pull their saved settings + vessel info
-        // from cloud and merge into the local store. Solves the
-        // "reinstall, sign in, lose all my prefs" bug. Fires once
-        // per sign-in event; subsequent settings changes go through
-        // the normal updateSettings → syncToCloud path.
-        if (id && wasSignedOut) {
-            void pullFromCloud(id);
-        }
+        const scope = getAuthIdentityScope();
+        if (!id || scope.userId !== id || _lastCloudPullGeneration === scope.generation) return;
+        _lastCloudPullGeneration = scope.generation;
+        const localLoad = _scopeLoadPromises.get(scope.key) ?? Promise.resolve();
+        void localLoad.then(() => {
+            if (isAuthIdentityScopeCurrent(scope)) return pullFromCloud(scope);
+        });
     },
 
     updateSettings: async (patch) => {
@@ -581,17 +842,19 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         // makes loading=false early, but writes must still wait for the
         // authoritative load so they can't be clobbered by it (the
         // cold-boot race this guard has always protected).
-        if (!_fullyHydrated) return;
+        const scope = getAuthIdentityScope();
+        if (_hydratedScopeKey !== scope.key) return;
 
         const updated = { ...get().settings, ...patch };
         // Keep isPro in sync with subscriptionTier
         updated.isPro = tierIsPro(updated.subscriptionTier);
         set({ settings: updated, isPro: tierIsPro(updated.subscriptionTier) });
         // Mirror first (synchronous) so the very next boot paints this change.
-        writeSettingsMirror(updated);
+        writeSettingsMirror(updated, scope);
 
         try {
-            await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(updated) });
+            await writeSettingsToPreferences(scope, updated);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
             if (patch.heroWidgets) {
                 _addDebugLog(`SAVE OK: [${patch.heroWidgets.join(', ')}]`);
             } else {
@@ -601,8 +864,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
             _addDebugLog(`SAVE FAIL: ${getErrorMessage(err)}`);
         }
 
-        if (_userId) syncToCloud(_userId, updated);
-        manageScreenEffects(updated);
+        if (scope.userId && _userId === scope.userId) void syncToCloud(scope, updated);
+        if (isAuthIdentityScopeCurrent(scope)) void manageScreenEffects(updated, scope);
     },
 
     togglePro: () => get().updateSettings({ subscriptionTier: 'owner', isPro: true }),
@@ -610,52 +873,97 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     setTier: (tier) => get().updateSettings({ subscriptionTier: tier, isPro: tierIsPro(tier) }),
 
     resetSettings: async () => {
+        const scope = getAuthIdentityScope();
+        if (_hydratedScopeKey !== scope.key) return;
         set({ settings: DEFAULT_SETTINGS });
         // Update the sync mirror BEFORE the reload, or the warm-boot seed
         // would paint the pre-reset settings for a frame.
-        writeSettingsMirror(DEFAULT_SETTINGS);
-        await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(DEFAULT_SETTINGS) });
-        window.location.reload();
+        writeSettingsMirror(DEFAULT_SETTINGS, scope);
+        await writeSettingsToPreferences(scope, DEFAULT_SETTINGS);
+        if (isAuthIdentityScopeCurrent(scope)) window.location.reload();
     },
 }));
 
-// ── Load settings from disk on init ──────────────────────────────
-async function loadSettings() {
+// ── Identity-scoped load + transition ────────────────────────────
+async function loadSettings(scope: AuthIdentityScope): Promise<void> {
     try {
-        const { value } = await Preferences.get({ key: 'thalassa_settings' });
-        if (value) {
+        await migrateLegacyPreferences(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        const loaded = await readSettingsFromPreferences(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        if (loaded) {
             // Mark that this device had its own settings on disk
             // before any cloud pull — gates the welcome-back modal so
             // it only fires on true fresh-device restores.
-            _localHadPriorData = true;
-            const merged = mergeSettings(JSON.parse(value));
+            _localHadPriorData.set(scope.key, true);
+            const merged = loaded;
 
             useSettingsStore.setState({ settings: merged, isPro: tierIsPro(merged.subscriptionTier), loading: false });
             // Refresh the sync mirror with the authoritative (migrated)
             // settings so the next warm boot seeds from the same shape.
-            writeSettingsMirror(merged);
+            writeSettingsMirror(merged, scope);
             _addDebugLog(`LOADED: [${(merged.heroWidgets ?? []).join(', ')}] from Disk.`);
-            manageScreenEffects(merged);
+            void manageScreenEffects(merged, scope);
 
             // Boot Pi Cache from saved settings (no UI dependency)
-            piCache.boot({
-                piCacheEnabled: merged.piCacheEnabled,
-                piCacheHost: merged.piCacheHost,
-                piCachePort: merged.piCachePort,
-            });
+            if (isAuthIdentityScopeCurrent(scope)) {
+                piCache.boot({
+                    piCacheEnabled: merged.piCacheEnabled,
+                    piCacheHost: merged.piCacheHost,
+                    piCachePort: merged.piCachePort,
+                });
+            }
         } else {
+            _localHadPriorData.set(scope.key, _localHadPriorData.get(scope.key) ?? false);
             useSettingsStore.setState({ loading: false });
             _addDebugLog('INIT: No Settings Found (Starting Defaults)');
         }
     } catch {
-        useSettingsStore.setState({ loading: false });
-        _addDebugLog('ERROR: Native Load Failed');
+        if (isAuthIdentityScopeCurrent(scope)) {
+            useSettingsStore.setState({ loading: false });
+            _addDebugLog('ERROR: Native Load Failed');
+        }
     } finally {
         // Authoritative load is done (success, no-data, or error) — writes
         // are now safe to accept. Set in `finally` so a Preferences failure
         // can't leave updateSettings permanently dead.
-        _fullyHydrated = true;
+        if (isAuthIdentityScopeCurrent(scope)) {
+            _hydratedScopeKey = scope.key;
+            useSettingsStore.setState({ loading: false });
+        }
     }
 }
 
-_loadSettingsPromise = loadSettings();
+function beginSettingsScope(scope: AuthIdentityScope, previous: AuthIdentityScope | null): Promise<void> {
+    _userId = scope.userId;
+    _hydratedScopeKey = null;
+
+    // Privacy fence and warm paint happen synchronously with the auth switch.
+    const mirror = readSettingsMirrorSync(scope);
+    _localHadPriorData.set(scope.key, mirror !== null);
+    const visible = mirror ?? DEFAULT_SETTINGS;
+    useSettingsStore.setState({
+        settings: visible,
+        isPro: tierIsPro(visible.subscriptionTier),
+        loading: mirror === null,
+    });
+
+    const transition = _scopeTransitionTail.then(async () => {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await migrateLegacyPreferences(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await adoptAnonymousSettingsIfSafe(scope, previous);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        await loadSettings(scope);
+    });
+    _scopeTransitionTail = transition.catch(() => undefined);
+    _scopeLoadPromises.set(scope.key, transition);
+    _loadSettingsPromise = transition;
+    return transition;
+}
+
+subscribeAuthIdentityScope((next, previous) => {
+    void beginSettingsScope(next, previous);
+});
+
+void beginSettingsScope(_seedScope, null);

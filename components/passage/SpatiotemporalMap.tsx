@@ -36,21 +36,24 @@ const OCEAN_STYLE: StyleSpecification = {
             tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
             tileSize: 256,
             maxzoom: 20,
-            attribution: '&copy; <a href="https://carto.com">CARTO</a>',
+            attribution:
+                '&copy; <a href="https://carto.com" rel="noopener noreferrer" referrerpolicy="no-referrer">CARTO</a>',
         },
         'gebco-bathymetry': {
             type: 'raster',
             tiles: ['https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png'],
             tileSize: 256,
             maxzoom: 7,
-            attribution: '&copy; <a href="https://emodnet.ec.europa.eu/bathymetry">EMODnet Bathymetry</a>',
+            attribution:
+                '&copy; <a href="https://emodnet.ec.europa.eu/bathymetry" rel="noopener noreferrer" referrerpolicy="no-referrer">EMODnet Bathymetry</a>',
         },
         openseamap: {
             type: 'raster',
             tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
             tileSize: 256,
             maxzoom: 18,
-            attribution: 'Map data: &copy; <a href="https://www.openseamap.org">OpenSeaMap</a> contributors',
+            attribution:
+                'Map data: &copy; <a href="https://www.openseamap.org" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenSeaMap</a> contributors',
         },
     },
     layers: [

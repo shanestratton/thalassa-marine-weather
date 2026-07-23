@@ -1,38 +1,35 @@
 /**
- * VoyageTrackCache — local-first persistence for voyages' recorded tracks.
+ * Account-scoped local-first cache for recorded voyage tracks.
  *
- * Why: viewing a voyage's track (TrackMapViewer / PassageSummaryCard)
- * re-fetches every entry from Supabase (paginated, slow on a boat link).
- * Caching tracks locally lets viewers paint instantly while the network
- * refresh happens in the background.
- *
- * v2 (2026-06-13): multi-voyage. v1 kept ONE most-recently-viewed track
- * in Capacitor Preferences; opening any other voyage still hit the
- * network cold. v2 keeps the last MAX_CACHED_VOYAGES tracks as
- * individual Filesystem payloads (nativeStorage.saveLargeData — real
- * files on device, localStorage fallback on web) with a small LRU
- * index in Preferences. The recording device also writes the cache at
- * voyage STOP (ShipLogService.stopTracking), so your own voyages view
- * instantly forever, offline included.
- *
- * The public API is unchanged from v1 — same two functions, same
- * signatures — so existing callers (PassageSummaryCard) work as-is.
+ * Track payloads are large files while the small LRU index lives in
+ * Preferences. Both layers include the immutable account owner. Historical
+ * v1/v2 cache data was globally keyed and carried no trustworthy owner, so it
+ * is deliberately not migrated: privacy wins over a one-time cache miss.
  */
 import { Preferences } from '@capacitor/preferences';
 import type { ShipLogEntry } from '../../types';
 import { saveLargeData, loadLargeData, deleteLargeData } from '../nativeStorage';
 import { createLogger } from '../../utils/createLogger';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from '../authIdentityScope';
 
 const log = createLogger('VoyageTrackCache');
 
-const LEGACY_KEY = 'thalassa_voyage_track_cache_v1';
-const INDEX_KEY = 'thalassa_voyage_track_index_v2';
+const INDEX_KEY = 'thalassa_voyage_track_index_v3';
+const CACHE_VERSION = 3;
 /** How many voyages' tracks to keep before evicting the least recently used. */
 export const MAX_CACHED_VOYAGES = 8;
 /** ~4 MB guard per voyage — skip pathologically large tracks. */
 const MAX_BYTES = 4_000_000;
 
 interface CachedTrack {
+    version: typeof CACHE_VERSION;
+    ownerKey: string;
+    ownerUserId: string | null;
     voyageId: string;
     at: number;
     entries: ShipLogEntry[];
@@ -44,9 +41,55 @@ interface IndexRow {
     points: number;
 }
 
-/** Filesystem key for a voyage's track payload (filename-safe). */
-function trackKey(voyageId: string): string {
-    return `thalassa_track_v2_${voyageId.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+interface CacheIndex {
+    version: typeof CACHE_VERSION;
+    ownerKey: string;
+    ownerUserId: string | null;
+    rows: IndexRow[];
+}
+
+const operationTails = new Map<string, Promise<void>>();
+
+/** Collision-free filename token using Unicode code points only. */
+function fileToken(value: string): string {
+    return Array.from(value, (char) => char.codePointAt(0)!.toString(16)).join('-');
+}
+
+/** Filesystem key for one account's voyage payload. */
+function trackKey(voyageId: string, scope: AuthIdentityScope): string {
+    return `thalassa_track_v3_${fileToken(scope.key)}_${fileToken(voyageId)}`;
+}
+
+function indexKey(scope: AuthIdentityScope): string {
+    return authScopedStorageKey(INDEX_KEY, scope);
+}
+
+function withScopeLock<T>(scope: AuthIdentityScope, staleValue: T, operation: () => Promise<T>): Promise<T> {
+    const prior = operationTails.get(scope.key) ?? Promise.resolve();
+    const result = prior.then(
+        () => (isAuthIdentityScopeCurrent(scope) ? operation() : staleValue),
+        () => (isAuthIdentityScopeCurrent(scope) ? operation() : staleValue),
+    );
+    operationTails.set(
+        scope.key,
+        result.then(
+            () => undefined,
+            () => undefined,
+        ),
+    );
+    return result;
+}
+
+function isOwnedTrack(value: unknown, voyageId: string, scope: AuthIdentityScope): value is CachedTrack {
+    if (!value || typeof value !== 'object') return false;
+    const track = value as Partial<CachedTrack>;
+    return (
+        track.version === CACHE_VERSION &&
+        track.ownerKey === scope.key &&
+        track.ownerUserId === scope.userId &&
+        track.voyageId === voyageId &&
+        Array.isArray(track.entries)
+    );
 }
 
 /**
@@ -58,116 +101,155 @@ export function shouldCacheTrack(entryCount: number, serializedBytes: number): b
 }
 
 /**
- * Pure: normalise entry ids for caching. `offline_*` ids are volatile
- * (mergeRecentEntries PURGES them on every refresh, so a cached track
- * carrying them would vanish from state at the next live poll) and
- * positional (two voyages' queues can both contain `offline_0`).
- * Missing ids break React keys. Both get stable per-voyage ids; real
- * DB ids pass through untouched.
+ * Pure: replace volatile/offline ids with stable per-voyage render ids.
  */
 export function normalizeCacheIds(entries: ShipLogEntry[], voyageId: string): ShipLogEntry[] {
-    return entries.map((e, i) =>
-        !e.id || e.id.startsWith('offline_') ? ({ ...e, id: `trkc_${voyageId}_${i}` } as ShipLogEntry) : e,
+    return entries.map((entry, index) =>
+        !entry.id || entry.id.startsWith('offline_')
+            ? ({ ...entry, id: `trkc_${voyageId}_${index}` } as ShipLogEntry)
+            : entry,
     );
 }
 
-/**
- * Pure: which voyageIds to evict so the index fits the cap after
- * `keepId` is inserted/refreshed. Oldest `at` first; `keepId` survives.
- */
+/** Pure LRU eviction plan. */
 export function evictionPlan(index: IndexRow[], keepId: string, max: number = MAX_CACHED_VOYAGES): string[] {
-    const others = index.filter((r) => r.voyageId !== keepId).sort((a, b) => a.at - b.at);
+    const others = index.filter((row) => row.voyageId !== keepId).sort((a, b) => a.at - b.at);
     const excess = others.length + 1 - max;
-    return excess > 0 ? others.slice(0, excess).map((r) => r.voyageId) : [];
+    return excess > 0 ? others.slice(0, excess).map((row) => row.voyageId) : [];
 }
 
-async function readIndex(): Promise<IndexRow[]> {
+async function readIndex(scope: AuthIdentityScope): Promise<IndexRow[]> {
+    const { value } = await Preferences.get({ key: indexKey(scope) });
+    if (!isAuthIdentityScopeCurrent(scope) || !value) return [];
     try {
-        const { value } = await Preferences.get({ key: INDEX_KEY });
-        if (!value) return [];
-        const rows = JSON.parse(value) as IndexRow[];
-        return Array.isArray(rows) ? rows : [];
+        const parsed = JSON.parse(value) as Partial<CacheIndex>;
+        if (
+            parsed.version !== CACHE_VERSION ||
+            parsed.ownerKey !== scope.key ||
+            parsed.ownerUserId !== scope.userId ||
+            !Array.isArray(parsed.rows)
+        ) {
+            return [];
+        }
+        return parsed.rows.filter(
+            (row): row is IndexRow =>
+                !!row &&
+                typeof row.voyageId === 'string' &&
+                typeof row.at === 'number' &&
+                typeof row.points === 'number',
+        );
     } catch {
         return [];
     }
 }
 
-async function writeIndex(rows: IndexRow[]): Promise<void> {
-    await Preferences.set({ key: INDEX_KEY, value: JSON.stringify(rows) });
+async function writeIndex(rows: IndexRow[], scope: AuthIdentityScope): Promise<void> {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    const payload: CacheIndex = {
+        version: CACHE_VERSION,
+        ownerKey: scope.key,
+        ownerUserId: scope.userId,
+        rows,
+    };
+    await Preferences.set({ key: indexKey(scope), value: JSON.stringify(payload) });
 }
 
-/** Read the cached track for a voyage, or null if none cached. */
-export async function getCachedVoyageTrack(voyageId: string | null | undefined): Promise<ShipLogEntry[] | null> {
-    if (!voyageId) return null;
-    try {
-        const data = (await loadLargeData(trackKey(voyageId))) as CachedTrack | null;
-        if (data && data.voyageId === voyageId && Array.isArray(data.entries)) {
-            // Touch the LRU timestamp (best effort, don't block the read).
-            void readIndex().then((rows) => {
-                const row = rows.find((r) => r.voyageId === voyageId);
-                if (row) {
-                    row.at = Date.now();
-                    return writeIndex(rows);
-                }
-            });
-            return data.entries;
-        }
+/** Read and LRU-touch one account's cached track. */
+export function getCachedVoyageTrack(
+    voyageId: string | null | undefined,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<ShipLogEntry[] | null> {
+    if (!voyageId) return Promise.resolve(null);
+    return withScopeLock(scope, null, async () => {
+        try {
+            const data = (await loadLargeData(trackKey(voyageId, scope))) as unknown;
+            if (!isAuthIdentityScopeCurrent(scope) || !isOwnedTrack(data, voyageId, scope)) return null;
 
-        // v1 migration: the old single-slot cache may still hold this
-        // voyage (e.g. the last track viewed before the update). Serve
-        // it and promote it into v2 on the way through.
-        const { value } = await Preferences.get({ key: LEGACY_KEY });
-        if (value) {
-            const legacy = JSON.parse(value) as CachedTrack;
-            if (legacy.voyageId === voyageId && Array.isArray(legacy.entries)) {
-                void setCachedVoyageTrack(voyageId, legacy.entries);
-                void Preferences.remove({ key: LEGACY_KEY });
-                return legacy.entries;
+            const rows = await readIndex(scope);
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            const row = rows.find((candidate) => candidate.voyageId === voyageId);
+            if (row) {
+                row.at = Date.now();
+                row.points = data.entries.length;
+            } else {
+                rows.push({ voyageId, at: Date.now(), points: data.entries.length });
             }
+            for (const evictId of evictionPlan(rows, voyageId)) {
+                if (!isAuthIdentityScopeCurrent(scope)) return null;
+                await deleteLargeData(trackKey(evictId, scope));
+                if (!isAuthIdentityScopeCurrent(scope)) return null;
+                const index = rows.findIndex((candidate) => candidate.voyageId === evictId);
+                if (index >= 0) rows.splice(index, 1);
+            }
+            await writeIndex(rows, scope);
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            return data.entries.map((entry) => ({ ...entry }));
+        } catch (error) {
+            log.warn('read failed', error);
+            return null;
         }
-        return null;
-    } catch (e) {
-        log.warn('read failed', e);
-        return null;
-    }
+    });
 }
 
-/** Persist a voyage's track. No-ops on empty/oversized tracks. */
-export async function setCachedVoyageTrack(
+/** Persist one account's track and enforce its independent LRU cap. */
+export function setCachedVoyageTrack(
     voyageId: string | null | undefined,
     entries: ShipLogEntry[],
+    scope: AuthIdentityScope = getAuthIdentityScope(),
 ): Promise<void> {
-    if (!voyageId) return;
-    try {
-        const normalized = normalizeCacheIds(entries, voyageId);
-        const payload: CachedTrack = { voyageId, at: Date.now(), entries: normalized };
-        const serialized = JSON.stringify(payload);
-        if (!shouldCacheTrack(normalized.length, serialized.length)) return;
+    if (!voyageId) return Promise.resolve();
+    const normalized = normalizeCacheIds(entries, voyageId).map((entry) => ({ ...entry }));
+    const payload: CachedTrack = {
+        version: CACHE_VERSION,
+        ownerKey: scope.key,
+        ownerUserId: scope.userId,
+        voyageId,
+        at: Date.now(),
+        entries: normalized,
+    };
+    const serialized = JSON.stringify(payload);
+    if (!shouldCacheTrack(normalized.length, serialized.length)) return Promise.resolve();
 
-        await saveLargeData(trackKey(voyageId), payload);
+    return withScopeLock(scope, undefined, async () => {
+        try {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            await saveLargeData(trackKey(voyageId, scope), payload);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
 
-        // Update the LRU index + evict the oldest tracks over the cap.
-        const rows = (await readIndex()).filter((r) => r.voyageId !== voyageId);
-        rows.push({ voyageId, at: Date.now(), points: normalized.length });
-        for (const evictId of evictionPlan(rows, voyageId)) {
-            await deleteLargeData(trackKey(evictId));
-            const i = rows.findIndex((r) => r.voyageId === evictId);
-            if (i >= 0) rows.splice(i, 1);
+            const rows = (await readIndex(scope)).filter((row) => row.voyageId !== voyageId);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            rows.push({ voyageId, at: Date.now(), points: normalized.length });
+
+            for (const evictId of evictionPlan(rows, voyageId)) {
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                await deleteLargeData(trackKey(evictId, scope));
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                const index = rows.findIndex((row) => row.voyageId === evictId);
+                if (index >= 0) rows.splice(index, 1);
+            }
+            await writeIndex(rows, scope);
+        } catch (error) {
+            log.warn('write failed', error);
         }
-        await writeIndex(rows);
-    } catch (e) {
-        log.warn('write failed', e);
-    }
+    });
 }
 
-/** Drop a voyage's cached track (e.g. after the voyage is deleted). */
-export async function clearCachedVoyageTrack(voyageId: string | null | undefined): Promise<void> {
-    if (!voyageId) return;
-    try {
-        await deleteLargeData(trackKey(voyageId));
-        const rows = (await readIndex()).filter((r) => r.voyageId !== voyageId);
-        await writeIndex(rows);
-    } catch (e) {
-        log.warn('clear failed', e);
-    }
+/** Drop only the current account's copy of a voyage track. */
+export function clearCachedVoyageTrack(
+    voyageId: string | null | undefined,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<void> {
+    if (!voyageId) return Promise.resolve();
+    return withScopeLock(scope, undefined, async () => {
+        try {
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            await deleteLargeData(trackKey(voyageId, scope));
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            const rows = (await readIndex(scope)).filter((row) => row.voyageId !== voyageId);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            await writeIndex(rows, scope);
+        } catch (error) {
+            log.warn('clear failed', error);
+        }
+    });
 }

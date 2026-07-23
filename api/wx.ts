@@ -22,33 +22,155 @@
 export const config = { runtime: 'edge' };
 
 const BASE = 'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/weather/status';
+const STORAGE_FETCH_TIMEOUT_MS = 8_000;
+const STORAGE_OBJECT_LIMITS = {
+    current: 512 * 1024,
+    history: 2 * 1024 * 1024,
+    forecast: 12 * 1024 * 1024,
+    report: 1024 * 1024,
+} as const;
+
+const COMMON_SECURITY_HEADERS = {
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'x-frame-options': 'DENY',
+    'cross-origin-opener-policy': 'same-origin',
+    'cross-origin-resource-policy': 'same-origin',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    'strict-transport-security': 'max-age=31536000',
+} as const;
+
+function createCspNonce(): string {
+    return crypto.randomUUID().replaceAll('-', '');
+}
+
+async function readBoundedJson(response: Response, maxBytes: number): Promise<unknown> {
+    const contentType = response.headers.get('content-type');
+    if (contentType && !contentType.toLowerCase().includes('json')) {
+        throw new Error('Weather storage returned a non-JSON response');
+    }
+
+    const declaredLength = response.headers.get('content-length');
+    if (declaredLength !== null) {
+        const bytes = Number(declaredLength);
+        if (Number.isFinite(bytes) && bytes > maxBytes) {
+            throw new Error('Weather storage response exceeded its size limit');
+        }
+    }
+    if (!response.body) throw new Error('Weather storage returned an empty response');
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            totalBytes += value.byteLength;
+            if (totalBytes > maxBytes) {
+                await reader.cancel('response too large');
+                throw new Error('Weather storage response exceeded its size limit');
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+
+    const body = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(body)) as unknown;
+}
+
+async function fetchStorageJson<T>(path: string, maxBytes: number, fallback: T): Promise<T> {
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), STORAGE_FETCH_TIMEOUT_MS);
+    try {
+        const response = await fetch(`${BASE}/${path}`, {
+            signal: controller.signal,
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) return fallback;
+        return (await readBoundedJson(response, maxBytes)) as T;
+    } catch {
+        return fallback;
+    } finally {
+        clearTimeout(deadline);
+    }
+}
+
+export function weatherPortalContentSecurityPolicy(nonce: string): string {
+    return [
+        "default-src 'none'",
+        `script-src 'nonce-${nonce}'`,
+        "script-src-attr 'none'",
+        `style-src-elem 'nonce-${nonce}'`,
+        "style-src-attr 'unsafe-inline'",
+        "connect-src 'self'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+        'upgrade-insecure-requests',
+    ].join('; ');
+}
+
+export function renderWeatherPortalPage(nonce: string): string {
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) throw new Error('Invalid CSP nonce');
+    return PAGE_TEMPLATE.replaceAll('__WX_CSP_NONCE__', nonce);
+}
 
 export default async function handler(req: Request): Promise<Response> {
-    const url = new URL(req.url);
-    if (url.searchParams.get('data')) {
-        const bust = `?t=${Math.floor(Date.now() / 30000)}`;
-        const [c, h, f, rp] = await Promise.all([
-            fetch(`${BASE}/current.json${bust}`).then((r) => (r.ok ? r.json() : null)),
-            fetch(`${BASE}/history.json${bust}`).then((r) => (r.ok ? r.json() : [])),
-            fetch(`${BASE}/forecast.json${bust}`).then((r) => (r.ok ? r.json() : null)),
-            fetch(`${BASE}/report.json${bust}`).then((r) => (r.ok ? r.json() : null)),
-        ]);
-        return new Response(JSON.stringify({ current: c, history: h, forecast: f, report: rp }), {
-            headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return new Response(null, {
+            status: 405,
+            headers: { ...COMMON_SECURITY_HEADERS, allow: 'GET, HEAD', 'cache-control': 'no-store' },
         });
     }
-    return new Response(PAGE, {
+    const url = new URL(req.url);
+    if (url.searchParams.has('data')) {
+        const responseHeaders = {
+            ...COMMON_SECURITY_HEADERS,
+            'content-type': 'application/json',
+            'cache-control': 'no-store',
+        };
+        if (req.method === 'HEAD') {
+            return new Response(null, { headers: responseHeaders });
+        }
+
+        const bust = `?t=${Math.floor(Date.now() / 30000)}`;
+        const [c, h, f, rp] = await Promise.all([
+            fetchStorageJson(`current.json${bust}`, STORAGE_OBJECT_LIMITS.current, null),
+            fetchStorageJson<unknown[]>(`history.json${bust}`, STORAGE_OBJECT_LIMITS.history, []),
+            fetchStorageJson(`forecast.json${bust}`, STORAGE_OBJECT_LIMITS.forecast, null),
+            fetchStorageJson(`report.json${bust}`, STORAGE_OBJECT_LIMITS.report, null),
+        ]);
+        return new Response(JSON.stringify({ current: c, history: h, forecast: f, report: rp }), {
+            headers: responseHeaders,
+        });
+    }
+    const nonce = createCspNonce();
+    return new Response(req.method === 'HEAD' ? null : renderWeatherPortalPage(nonce), {
         headers: {
+            ...COMMON_SECURITY_HEADERS,
             'content-type': 'text/html; charset=utf-8',
             'cache-control': 'public, max-age=300',
+            'content-security-policy': weatherPortalContentSecurityPolicy(nonce),
         },
     });
 }
 
-const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+const PAGE_TEMPLATE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>wx — weather & server</title>
-<style>
+<style nonce="__WX_CSP_NONCE__">
 :root{--paper:#F4F6F2;--ink:#12201A;--dim:#5A6B62;--rule:#D5DED6;--panel:#FFF;
 --ok:#0E7C55;--warn:#C4703A;--bad:#A33A2B;--curve:#E0A83C;--rain:#3E6E8E}
 @media(prefers-color-scheme:dark){:root{--paper:#0B1410;--ink:#DCE8E0;--dim:#7C8F85;
@@ -149,8 +271,17 @@ footer a{color:var(--ok)}
 <div class="charts" id="charts"></div>
 <table id="timers"></table>
 <footer id="foot"></footer>
-<script>
+<script nonce="__WX_CSP_NONCE__">
 const $=id=>document.getElementById(id);
+// Every string below originates in public pushed storage. CSP is the backstop;
+// E() is the primary defence against markup/style injection in innerHTML.
+function E(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+  .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+const S=(v,d)=>typeof v==='string'?v:(d==null?'':d);
+const A=v=>Array.isArray(v)?v:[];
+const O=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
+const N=v=>{if(v==null||v===''||typeof v==='boolean')return null;const n=Number(v);return Number.isFinite(n)?n:null};
+const FX=(v,d)=>{const n=N(v);return n==null?'—':n.toFixed(d)};
 const WMO={0:['☀️','🌙','Clear'],1:['🌤️','🌙','Mostly clear'],2:['⛅','☁️','Partly cloudy'],
 3:['☁️','☁️','Overcast'],45:['🌫️','🌫️','Fog'],48:['🌫️','🌫️','Rime fog'],
 51:['🌦️','🌧️','Drizzle'],53:['🌦️','🌧️','Drizzle'],55:['🌧️','🌧️','Drizzle'],
@@ -168,18 +299,19 @@ function ic(code,day,cloud,pr){
   return day?'☀️':'🌙'}
 const label=code=>(WMO[code]||['','','—'])[2];
 const arrow=d=>d==null?'':['↓','↙','←','↖','↑','↗','→','↘'][Math.round(((d+180)%360)/45)%8];
-const hh=t=>t.slice(11,13), dkey=t=>t.slice(0,10);
+const hh=t=>S(t).slice(11,13), dkey=t=>S(t).slice(0,10);
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const dow=t=>{const[y,m,d]=t.slice(0,10).split('-').map(Number);
-  return DOW[new Date(Date.UTC(y,m-1,d)).getUTCDay()]+' '+d};
+const dow=t=>{const[y,m,d]=S(t).slice(0,10).split('-').map(Number);
+  if(!Number.isInteger(y)||!Number.isInteger(m)||!Number.isInteger(d))return '—';
+  const dt=new Date(Date.UTC(y,m-1,d));return Number.isFinite(dt.getTime())?DOW[dt.getUTCDay()]+' '+d:'—'};
 
 let F=null,M=null,H=[],sel=localStorage.wxloc||'newport',
     mdl=localStorage.wxmdl||'',metric='temp';
 
 function sunMap(loc){const m={};const s=loc.sun||{};
-  (s.time||[]).forEach((d,i)=>{m[d]=[(s.sunrise||[])[i]||'',(s.sunset||[])[i]||'']});return m}
+  A(s.time).forEach((d,i)=>{const key=S(d);if(key)m[key]=[S(A(s.sunrise)[i]),S(A(s.sunset)[i])]});return m}
 function isDay(t,sm){const s=sm[dkey(t)];if(!s||!s[0])return true;
-  const x=t.slice(11,16);return x>=s[0].slice(11,16)&&x<s[1].slice(11,16)}
+  const x=S(t).slice(11,16);return x>=S(s[0]).slice(11,16)&&x<S(s[1]).slice(11,16)}
 
 const METRICS={
  temp:{title:'Temperature °C',key:'temperature_2m',kind:'line',cvar:'--curve'},
@@ -201,11 +333,12 @@ function drawHourly(loc,mo){
   const c=$('hourly'),dpr=devicePixelRatio||1,W=c.clientWidth,Hh=c.clientHeight;
   c.width=W*dpr;c.height=Hh*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
   const css=v=>getComputedStyle(document.body).getPropertyValue(v).trim();
-  const m=METRICS[metric],hr=mo.hourly,vals=(hr[m.key]||[]).map(v=>v==null?null:+v);
-  const t=hr.time||[],n=Math.min(vals.length,48);if(!n)return;
+  const m=METRICS[metric]||METRICS.temp,hr=mo&&mo.hourly||{},vals=A(hr[m.key]).map(N);
+  const t=A(hr.time),n=Math.min(vals.length,t.length,48);if(!n)return;
   const sm=sunMap(loc);
-  const v2=m.key2?(hr[m.key2]||[]):null;
-  const bmin=hr[m.key+'_min'],bmax=hr[m.key+'_max'];
+  const v2=m.key2?A(hr[m.key2]).map(N):null;
+  const bmin=Array.isArray(hr[m.key+'_min'])?hr[m.key+'_min'].map(N):null;
+  const bmax=Array.isArray(hr[m.key+'_max'])?hr[m.key+'_max'].map(N):null;
   const all=vals.slice(0,n).concat(v2?v2.slice(0,n).filter(v=>v!=null):[],
     bmin?bmin.slice(0,n).filter(v=>v!=null):[],
     bmax?bmax.slice(0,n).filter(v=>v!=null):[]).filter(v=>v!=null);
@@ -273,8 +406,8 @@ function drawHourly(loc,mo){
   x.fillStyle=css('--ink');x.font='10.5px ui-monospace,monospace';x.textAlign='center';
   for(let i=0;i<n;i+=3)vals[i]!=null&&x.fillText(Math.round(vals[i])+(metric==='temp'?'°':''),X(i),Y(vals[i])-6);
   x.font='13px ui-monospace';x.textBaseline='top';
-  for(let i=0;i<n;i+=4)x.fillText(ic((hr.weather_code||[])[i],isDay(t[i],sm),
-    (hr.cloud_cover||[])[i],(hr.precipitation||[])[i]),X(i),Hh-30);
+  for(let i=0;i<n;i+=4)x.fillText(ic(A(hr.weather_code)[i],isDay(t[i],sm),
+    A(hr.cloud_cover)[i],A(hr.precipitation)[i]),X(i),Hh-30);
   x.fillStyle=css('--dim');x.font='9.5px ui-monospace';
   for(let i=0;i<n;i+=4)x.fillText(hh(t[i]),X(i),Hh-12);
 
@@ -305,36 +438,41 @@ function drawHourly(loc,mo){
 }
 
 function renderForecast(){
-  const loc=F.locations[sel];if(!loc)return;
-  if(!loc.models[mdl])mdl=loc.models[F.primary]?F.primary:Object.keys(loc.models)[0];
-  const mo=loc.models[mdl];
-  $('picker').innerHTML=Object.entries(F.locations).map(([k,l])=>
-    '<button class="loc'+(k===sel?' sel':'')+'" data-k="'+k+'">'+l.name+'</button>').join('');
+  const locations=O(F&&F.locations),loc=O(locations[sel]);if(!Object.keys(loc).length)return;
+  const models=O(loc.models),primary=S(F&&F.primary);
+  if(!Object.prototype.hasOwnProperty.call(models,mdl))
+    mdl=Object.prototype.hasOwnProperty.call(models,primary)?primary:(Object.keys(models)[0]||'');
+  const mo=O(models[mdl]);if(!Object.keys(mo).length)return;
+  $('picker').innerHTML=Object.entries(locations).map(([k,l])=>
+    '<button class="loc'+(k===sel?' sel':'')+'" data-k="'+E(k)+'">'+E(O(l).name||k)+'</button>').join('');
   document.querySelectorAll('.loc[data-k]').forEach(b=>b.onclick=()=>{sel=b.dataset.k;
     localStorage.wxloc=sel;renderForecast()});
-  $('mdl').innerHTML=Object.entries(loc.models).map(([k,m])=>
-    '<option value="'+k+'"'+(k===mdl?' selected':'')+'>'+m.label+'</option>').join('');
+  $('mdl').innerHTML=Object.entries(models).map(([k,m])=>
+    '<option value="'+E(k)+'"'+(k===mdl?' selected':'')+'>'+E(O(m).label||k)+'</option>').join('');
   $('mdl').onchange=e=>{mdl=e.target.value;localStorage.wxmdl=mdl;renderForecast()};
-  $('cadence').textContent=mo.cadence+' · grid '+mo.grid.map(g=>(+g).toFixed(2)).join(', ');
-  const lo2=mo.current.wind_speed_10m_min,hi2=mo.current.wind_speed_10m_max;
+  $('cadence').textContent=S(mo.cadence,'—')+' · grid '+A(mo.grid).map(N).filter(v=>v!=null)
+    .map(v=>v.toFixed(2)).join(', ');
+  const current=O(mo.current),lo2=N(current.wind_speed_10m_min),hi2=N(current.wind_speed_10m_max);
   if(lo2!=null&&hi2!=null){const spread=hi2-lo2;
     $('agree').innerHTML=spread<=5
-      ?'<span class="pill ok">models agree · wind '+lo2+'–'+hi2+' kt</span>'
-      :'<span class="pill warn">models split · wind '+lo2+'–'+hi2+' kt — trust the band, not the line</span>';
+      ?'<span class="pill ok">models agree · wind '+E(lo2)+'–'+E(hi2)+' kt</span>'
+      :'<span class="pill warn">models split · wind '+E(lo2)+'–'+E(hi2)+' kt — trust the band, not the line</span>';
   } else $('agree').innerHTML='';
-  if(mo.weights){
-    $('wts').innerHTML='today&#39;s weights ('+(mo.weights_status||'')+'): '+
-      Object.entries(mo.weights).map(([k,w])=>
-        (mo.member_labels&&mo.member_labels[k]||k)+' '+(w*100).toFixed(0)+'%').join(' · ')+
-      '<br>'+(mo.weights_scope||'');
+  const weights=O(mo.weights),memberLabels=O(mo.member_labels);
+  if(Object.keys(weights).length){
+    $('wts').innerHTML='today&#39;s weights ('+E(mo.weights_status||'')+'): '+
+      Object.entries(weights).map(([k,w])=>{
+        const weight=N(w);return weight==null?'':E(memberLabels[k]||k)+' '+(weight*100).toFixed(0)+'%';
+      }).filter(Boolean).join(' · ')+
+      '<br>'+E(mo.weights_scope||'');
   } else $('wts').textContent='';
-  $('hTitle').textContent='Hourly · '+loc.name+' · '+mo.label+' ('+(loc.tz||'')+')';
+  $('hTitle').textContent='Hourly · '+S(loc.name,'Unknown')+' · '+S(mo.label,'Unknown')+' ('+S(loc.tz)+')';
   $('chips').innerHTML=Object.entries(METRICS).map(([k,m])=>
     '<button class="chip'+(k===metric?' sel':'')+'" data-m="'+k+'">'+m.title.split(' ')[0]+'</button>').join('');
   document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{metric=b.dataset.m;renderForecast()});
   drawHourly(loc,mo);
-  const c=mo.current,tile=(k,v,u)=>'<div class="tile"><div class="k">'+k+
-    '</div><div class="v">'+(v==null?'—':v)+' <span class="u">'+(u||'')+'</span></div></div>';
+  const c=current,tile=(k,v,u)=>'<div class="tile"><div class="k">'+E(k)+
+    '</div><div class="v">'+E(v==null?'—':v)+' <span class="u">'+E(u||'')+'</span></div></div>';
   $('curTiles').innerHTML=
     tile('Temperature',c.temperature_2m,'°C')+
     tile('Feels like*',c.feels_like,'°C')+
@@ -342,103 +480,117 @@ function renderForecast(){
     tile('Cloud',c.cloud_cover,'%')+
     tile('Wind '+arrow(c.wind_direction_10m),c.wind_speed_10m,'kt')+
     tile('Gusts',c.wind_gusts_10m,'kt')+
-    tile('Pressure',c.pressure_msl&&Math.round(c.pressure_msl),'hPa')+
+    tile('Pressure',N(c.pressure_msl)==null?'—':Math.round(N(c.pressure_msl)),'hPa')+
     tile('Humidity',c.relative_humidity_2m,'%')+
     tile('Dew point*',c.dew_point,'°C')+
     tile('Sky',ic(c.weather_code,true,c.cloud_cover,c.precipitation),
       c.weather_code!=null?label(c.weather_code):'derived');
-  const d=mo.daily;
-  $('daily').innerHTML=(d.time||[]).map((t,i)=>{
-    const mx=(d.temperature_2m_max||[])[i],mn=(d.temperature_2m_min||[])[i];
+  const d=O(mo.daily);
+  $('daily').innerHTML=A(d.time).map((t,i)=>{
+    const mx=N(A(d.temperature_2m_max)[i]),mn=N(A(d.temperature_2m_min)[i]);
     if(mx==null||mn==null)return '';
-    return '<div class="day"><div class="dow">'+dow(t)+'</div><div class="ico">'+
-    ic((d.weather_code||[])[i],true,null,((d.precipitation_sum||[])[i]||0)/24)+
+    const rain=N(A(d.precipitation_sum)[i])||0;
+    return '<div class="day"><div class="dow">'+E(dow(t))+'</div><div class="ico">'+
+    E(ic(A(d.weather_code)[i],true,null,rain/24))+
     '</div><div class="hi">'+Math.round(mx)+'°</div><div class="lo">'+Math.round(mn)+
-    '°</div><div class="pr">'+
-    (((d.precipitation_sum||[])[i]||0)>0.05?((d.precipitation_sum[i]).toFixed(1)+'mm'):'')+
+    '°</div><div class="pr">'+(rain>0.05?rain.toFixed(1)+'mm':'')+
     '</div></div>'}).join('');
-  const td=loc.tides;
-  if(td&&td.events&&td.events.length){
+  const td=O(loc.tides),events=A(td.events);
+  if(events.length){
     $('tidePanel').style.display='';
-    $('tideTitle').textContent='Tides · '+td.station+' gauge';
-    $('tides').innerHTML=td.events.slice(0,8).map(e=>
-      '<div class="tide '+(e.type==='high'?'hw':'lw')+'"><div class="tt">'+
-      e.time_local.slice(11,16)+'</div><div class="th"><b>'+e.type.toUpperCase()+
-      '</b> '+e.height_m.toFixed(2)+'m</div><div class="th">'+dow(e.time_local)+'</div></div>').join('');
-    $('tideNote').textContent=td.note+' · '+td.attribution;
+    $('tideTitle').textContent='Tides · '+S(td.station,'Unknown')+' gauge';
+    $('tides').innerHTML=events.slice(0,8).map(raw=>{const e=O(raw),type=e.type==='high'?'high':
+      e.type==='low'?'low':null,height=N(e.height_m),time=S(e.time_local);
+      if(!type||height==null||!time)return '';
+      return '<div class="tide '+(type==='high'?'hw':'lw')+'"><div class="tt">'+
+      E(time.slice(11,16))+'</div><div class="th"><b>'+type.toUpperCase()+
+      '</b> '+height.toFixed(2)+'m</div><div class="th">'+E(dow(time))+'</div></div>'}).join('');
+    $('tideNote').textContent=S(td.note)+' · '+S(td.attribution);
   } else if(td&&td.error){
     $('tidePanel').style.display='';
-    $('tideTitle').textContent='Tides · '+(td.station||'');
-    $('tides').innerHTML='<span class="bad">'+td.error+'</span>';$('tideNote').textContent='';
+    $('tideTitle').textContent='Tides · '+S(td.station);
+    $('tides').innerHTML='<span class="bad">'+E(td.error)+'</span>';$('tideNote').textContent='';
   } else $('tidePanel').style.display='none';
-  $('fcNote').textContent=F.model_note+' * feels-like and dew point are computed, not model output. '+F.attribution;
+  $('fcNote').textContent=S(F.model_note)+' * feels-like and dew point are computed, not model output. '+S(F.attribution);
 }
 
 function renderReport(rp){
   if(!rp){$('rpBody').textContent='no report yet — first one lands at 07:05 Brisbane';return}
-  $('rpDate').textContent='yesterday: '+rp.date_local+' · SPITFIRE skill review, Newport';
+  rp=O(rp);$('rpDate').textContent='yesterday: '+S(rp.date_local,'—')+' · SPITFIRE skill review, Newport';
   const L={dwd_icon:'ICON',ecmwf_ifs025:'IFS',ecmwf_aifs025_single:'AIFS',
     ukmo_global_deterministic_10km:'UKMO',jma_gsm:'JMA'};
   let h='';
-  const nc=rp.newport_nowcast||{};
-  if(nc.samples){
-    h+='<b>Wind at the beacons:</b> observed '+nc.obs_kt.min+'–'+nc.obs_kt.max+
-      ' kt (mean '+nc.obs_kt.mean+') across '+nc.samples+' half-hour checks.<br>';
-    const w=(rp.weights||{}).weights||{},dl=(rp.weights||{}).delta;
+  const nc=O(rp.newport_nowcast),samples=N(nc.samples),obs=O(nc.obs_kt);
+  if(samples!=null&&samples>0){
+    h+='<b>Wind at the beacons:</b> observed '+E(FX(obs.min,1))+'–'+E(FX(obs.max,1))+
+      ' kt (mean '+E(FX(obs.mean,1))+') across '+samples.toFixed(0)+' half-hour checks.<br>';
+    const weightBlock=O(rp.weights),w=O(weightBlock.weights),dl=O(weightBlock.delta);
+    const best=S(nc.best);
     h+='<table style="margin-top:8px"><tr><th>model</th><th>MAE kt</th><th>weight</th><th>Δ</th></tr>'+
-      Object.entries(nc.mae_kt||{}).sort((a,b)=>a[1]-b[1]).map(([m,e])=>{
-        const d=dl&&dl[m];
+      Object.entries(O(nc.mae_kt)).sort((a,b)=>(N(a[1])??Infinity)-(N(b[1])??Infinity)).map(([m,eRaw])=>{
+        const e=N(eRaw);if(e==null)return '';
+        const d=N(dl[m]);
         const arrow=d==null?'—':d>0.002?'<span class="ok">▲'+(d*100).toFixed(1)+'%</span>'
           :d<-0.002?'<span class="bad">▼'+(-d*100).toFixed(1)+'%</span>':'·';
-        return '<tr><td>'+(L[m]||m)+(m===nc.best?' <span class="ok">★ best</span>':'')+
-          '</td><td>'+e.toFixed(2)+'</td><td>'+((w[m]||0)*100).toFixed(0)+'%</td><td>'+arrow+'</td></tr>'}).join('')+
+        const weight=N(w[m])||0;
+        return '<tr><td>'+E(L[m]||m)+(m===best?' <span class="ok">★ best</span>':'')+
+          '</td><td>'+e.toFixed(2)+'</td><td>'+(weight*100).toFixed(0)+'%</td><td>'+arrow+'</td></tr>'}).join('')+
       '</table>';
-    if(nc.spitfire_mae_kt!=null)h+='<div style="margin-top:6px">SPITFIRE blend MAE: <b>'+
-      nc.spitfire_mae_kt.toFixed(2)+' kt</b>'+
-      (nc.mae_kt[nc.best]!=null?(nc.spitfire_mae_kt<=nc.mae_kt[nc.best]
+    const spitfire=N(nc.spitfire_mae_kt),bestMae=N(O(nc.mae_kt)[best]);
+    if(spitfire!=null)h+='<div style="margin-top:6px">SPITFIRE blend MAE: <b>'+
+      spitfire.toFixed(2)+' kt</b>'+
+      (bestMae!=null?(spitfire<=bestMae
         ?' — <span class="ok">beat every individual model</span>'
-        :' vs best single '+nc.mae_kt[nc.best].toFixed(2)+' ('+(L[nc.best]||nc.best)+')'):'')+'</div>';
-  } else h+='<b>Wind skill:</b> '+(nc.note||'no samples')+'<br>';
-  const f24=rp.newport_forecast24||{};
+        :' vs best single '+bestMae.toFixed(2)+' ('+E(L[best]||best)+')'):'')+'</div>';
+  } else h+='<b>Wind skill:</b> '+E(nc.note||'no samples')+'<br>';
+  const f24=O(rp.newport_forecast24);
   h+='<div style="margin-top:8px"><b>Day-ahead skill</b> (was the +24 h forecast right?): '+
-    (f24.available?('issued '+f24.issued+' — '+Object.entries(f24.mae_kt).sort((a,b)=>a[1]-b[1])
-      .map(([m,e])=>(L[m]||m)+' '+e.toFixed(1)+' kt').join(' · ')+
-      ' · best '+(L[f24.best]||f24.best)):(f24.note||''))+'</div>';
-  const sp=rp.model_spread||{};
-  if(sp.available&&sp.rows&&sp.rows.length){
-    h+='<div style="margin-top:8px"><b>Where the models argued</b> ('+sp.at+'):<br>'+
-      sp.rows.slice(0,6).map(r=>r.loc+' <span class="'+(r.spread_kt>8?'bad':r.spread_kt>4?'warn':'ok')+
-      '">'+r.min_kt+'–'+r.max_kt+' kt</span>').join(' · ')+'</div>';
-  } else if(sp.note) h+='<div style="margin-top:8px"><b>Model spread:</b> '+sp.note+'</div>';
-  h+='<div style="margin-top:8px;opacity:.8">'+(rp.truth_note||'')+'</div>';
+    (f24.available===true?('issued '+E(f24.issued)+' — '+Object.entries(O(f24.mae_kt))
+      .sort((a,b)=>(N(a[1])??Infinity)-(N(b[1])??Infinity)).map(([m,e])=>{
+        const mae=N(e);return mae==null?'':E(L[m]||m)+' '+mae.toFixed(1)+' kt'}).filter(Boolean).join(' · ')+
+      ' · best '+E(L[S(f24.best)]||S(f24.best))):E(f24.note||''))+'</div>';
+  const sp=O(rp.model_spread),rows=A(sp.rows);
+  if(sp.available===true&&rows.length){
+    h+='<div style="margin-top:8px"><b>Where the models argued</b> ('+E(sp.at)+'):<br>'+
+      rows.slice(0,6).map(raw=>{const r=O(raw),spread=N(r.spread_kt),min=N(r.min_kt),max=N(r.max_kt);
+        if(spread==null||min==null||max==null)return '';
+        return E(r.loc)+' <span class="'+(spread>8?'bad':spread>4?'warn':'ok')+
+      '">'+min.toFixed(1)+'–'+max.toFixed(1)+' kt</span>'}).filter(Boolean).join(' · ')+'</div>';
+  } else if(sp.note) h+='<div style="margin-top:8px"><b>Model spread:</b> '+E(sp.note)+'</div>';
+  h+='<div style="margin-top:8px;opacity:.8">'+E(rp.truth_note||'')+'</div>';
   $('rpBody').innerHTML=h;
 }
 
 function renderMonitor(){
-  const c=M;if(!c){$('asof').textContent='no server snapshot';return}
-  const age=(Date.now()-Date.parse(c.ts))/60000,b=$('banner');
-  if(age>5){b.textContent='SERVER SILENT — last snapshot '+age.toFixed(0)+
-    ' min ago. Everything below is history, not current state.';b.className='on'}
+  const c=O(M);if(!Object.keys(c).length){$('asof').textContent='no server snapshot';return}
+  const snapshotMs=Date.parse(S(c.ts)),age=Number.isFinite(snapshotMs)?(Date.now()-snapshotMs)/60000:Infinity,b=$('banner');
+  if(age>5){b.textContent=Number.isFinite(age)
+    ?'SERVER SILENT — last snapshot '+Math.max(0,age).toFixed(0)+' min ago. Everything below is history, not current state.'
+    :'SERVER SILENT — snapshot timestamp is invalid. Everything below may be stale.';b.className='on'}
   else b.className='';
-  $('asof').textContent='snapshot '+new Date(c.ts).toLocaleString()+' · '+age.toFixed(0)+' min ago';
-  const pill=(t,cl)=>'<span class="pill '+cl+'">'+t+'</span>';
-  const oh=c.om_health||{};
-  const fails=(c.failed_units||[]).filter(u=>u!=='systemd-networkd-wait-online.service'
+  $('asof').textContent=Number.isFinite(snapshotMs)
+    ?'snapshot '+new Date(snapshotMs).toLocaleString()+' · '+Math.max(0,age).toFixed(0)+' min ago'
+    :'snapshot timestamp invalid';
+  const pill=(t,cl)=>'<span class="pill '+cl+'">'+E(t)+'</span>';
+  const oh=O(c.om_health);
+  const fails=A(c.failed_units).filter(u=>u!=='systemd-networkd-wait-online.service'
     &&u!=='residual-gate.service');
   $('health').innerHTML=
     pill('data '+(oh.status||'?'),oh.status==='ok'?'ok':'bad')+
     pill('api '+c.docker_om_api,c.docker_om_api==='running'?'ok':'bad')+
     pill('residual '+c.residual_verdict,c.residual_verdict==='fresh'?'ok':'warn')+
     pill(fails.length?fails.length+' failed unit(s)':'units clean',fails.length?'bad':'ok');
-  const tile=(k,v,u)=>'<div class="tile"><div class="k">'+k+'</div><div class="v">'+
-    (v==null?'—':v)+' <span class="u">'+(u||'')+'</span></div></div>';
+  const tile=(k,v,u)=>'<div class="tile"><div class="k">'+E(k)+'</div><div class="v">'+
+    E(v==null?'—':v)+' <span class="u">'+E(u||'')+'</span></div></div>';
+  const load=A(c.load),disk=O(c.disk_weather),net=O(c.net);
   $('tiles').innerHTML=
-    tile('CPU',c.cpu_pct,'%')+tile('Load 1m',c.load&&c.load[0],'')+
+    tile('CPU',c.cpu_pct,'%')+tile('Load 1m',load[0],'')+
     tile('Memory',c.mem_used_pct,'%')+tile('CPU pkg',c.cpu_pkg_w,'W')+
-    tile('CPU temp',c.cpu_pkg_c,'°C')+tile('NVMe',c.nvme_c&&c.nvme_c.toFixed(0),'°C')+
-    tile('Disk wx',c.disk_weather&&c.disk_weather.used_gb,'/'+(c.disk_weather&&c.disk_weather.total_gb)+'G')+
+    tile('CPU temp',c.cpu_pkg_c,'°C')+tile('NVMe',N(c.nvme_c)==null?'—':N(c.nvme_c).toFixed(0),'°C')+
+    tile('Disk wx',disk.used_gb,'/'+(disk.total_gb==null?'—':disk.total_gb)+'G')+
     tile('Uptime',c.uptime_h,'h')+
-    Object.entries(c.net||{}).map(([i,n])=>tile(i+' ↓↑',n.rx_kbs+'/'+n.tx_kbs,'kB/s')).join('');
+    Object.entries(net).map(([i,n])=>{n=O(n);return tile(i+' ↓↑',
+      (n.rx_kbs==null?'—':n.rx_kbs)+'/'+(n.tx_kbs==null?'—':n.tx_kbs),'kB/s')}).join('');
   // Net traffic spans ~400,000x (idle 0.3 kB/s vs an 82 MB/s om-sync burst),
   // so on a linear axis ~87% of samples sit in the bottom pixel row and the
   // chart says nothing except "syncs happened". Net is drawn on a LOG axis
@@ -452,12 +604,13 @@ function renderMonitor(){
   // and the peak with the time it happened — the spike is only interesting if
   // you can line it up against the timer table below.
   const sub=specs.map(function(s){
-    const v=H.map(function(p){return p[s.k]}).filter(function(z){return z!=null});
+    const v=A(H).map(function(p){return N(O(p)[s.k])}).filter(function(z){return z!=null});
     if(!v.length)return '';
     const sorted=v.slice().sort(function(a,b){return a-b});
     const med=sorted[Math.floor(sorted.length/2)];
-    let pk=-1,pi=0;H.forEach(function(p,j){if(p[s.k]!=null&&p[s.k]>pk){pk=p[s.k];pi=j}});
-    const pt=H[pi]&&H[pi].t?new Date(H[pi].t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+    let pk=-1,pi=0;A(H).forEach(function(p,j){const value=N(O(p)[s.k]);if(value!=null&&value>pk){pk=value;pi=j}});
+    const point=O(A(H)[pi]),pointMs=Date.parse(S(point.t));
+    const pt=Number.isFinite(pointMs)?new Date(pointMs).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
     // Samples are 2 min apart, so kB/s * 120 = kB moved in that interval.
     const tot=v.reduce(function(a,b){return a+b},0)*120;
     return (s.vol?fmtB(tot)+' total · ':'')+'median '+med.toFixed(1)+
@@ -469,7 +622,7 @@ function renderMonitor(){
   specs.forEach(function(s,i){const cv=$('sp'+i);if(!cv)return;const dpr=devicePixelRatio||1;
     const w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
     const x=cv.getContext('2d');x.scale(dpr,dpr);
-    const pts=H.map(function(p){return p[s.k]}),vals=pts.filter(function(v){return v!=null});
+    const pts=A(H).map(function(p){return N(O(p)[s.k])}),vals=pts.filter(function(v){return v!=null});
     if(vals.length<2)return;
     // Log axis floors at 0.1 kB/s: log10(0) is -Infinity, and a genuinely idle
     // interface reports 0, which would otherwise blank the whole line.
@@ -500,24 +653,34 @@ function renderMonitor(){
     if(!s.log){x.fillStyle=dim;x.font='9px ui-monospace';
       x.fillText(hi.toFixed(1),2,9);x.fillText(lo.toFixed(1),2,h-2)}});
   $('timers').innerHTML='<tr><th>timer</th><th>last</th><th>result</th></tr>'+
-    Object.entries(c.timers||{}).map(([u,t])=>{
-      const bad=t.result&&t.result!=='success'&&u!=='residual-gate';
-      return '<tr><td>'+u+'</td><td>'+(t.last||'—').replace(/^\\w+ /,'')+
-      '</td><td class="'+(bad?'bad':'ok')+'">'+(t.result||'—')+'</td></tr>'}).join('');
-  $('foot').innerHTML=(c.power_note||'')+
+    Object.entries(O(c.timers)).map(([u,raw])=>{const t=O(raw),result=S(t.result,'—');
+      const bad=result!=='—'&&result!=='success'&&u!=='residual-gate';
+      return '<tr><td>'+E(u)+'</td><td>'+E(S(t.last,'—').replace(/^\\w+ /,''))+
+      '</td><td class="'+(bad?'bad':'ok')+'">'+E(result)+'</td></tr>'}).join('');
+  $('foot').innerHTML=E(c.power_note||'')+
     ' · Model spread scored side by side: <a href="/api/spread">/api/spread</a>.'+
     ' Read-only — the server pushes, this page renders.';
 }
 
 async function load(){
-  const r=await fetch('/api/wx?data=1');const d=await r.json();
-  M=d.current;H=d.history||[];F=d.forecast;renderReport(d.report);
-  if(F){const age=(Date.now()-Date.parse(F.generated_at))/60000;
-    $('fcAsof').textContent='forecast built '+age.toFixed(0)+' min ago · auto-refreshes';
-    if(!F.locations[sel])sel=Object.keys(F.locations)[0];
-    renderForecast()}
-  else $('fcAsof').textContent='no forecast payload found';
-  renderMonitor();
+  try{
+    const r=await fetch('/api/wx?data=1',{credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=O(await r.json());M=Object.keys(O(d.current)).length?O(d.current):null;
+    H=A(d.history);F=Object.keys(O(d.forecast)).length?O(d.forecast):null;renderReport(d.report);
+    if(F){const generatedMs=Date.parse(S(F.generated_at)),age=Number.isFinite(generatedMs)
+        ?Math.max(0,(Date.now()-generatedMs)/60000):null;
+      $('fcAsof').textContent=age==null?'forecast timestamp invalid':
+        'forecast built '+age.toFixed(0)+' min ago · auto-refreshes';
+      const locations=O(F.locations),keys=Object.keys(locations);
+      if(!Object.prototype.hasOwnProperty.call(locations,sel))sel=keys[0]||'';
+      if(sel)renderForecast()}
+    else $('fcAsof').textContent='no forecast payload found';
+    renderMonitor();
+  }catch(err){
+    $('fcAsof').textContent='weather data unavailable';
+    const banner=$('banner');banner.textContent='Could not refresh weather/server data. Showing the last successful view.';
+    banner.className='on';
+  }
 }
 load();setInterval(load,60000);
 addEventListener('resize',()=>{if(F)renderForecast()});

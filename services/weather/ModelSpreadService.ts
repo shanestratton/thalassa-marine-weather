@@ -16,8 +16,8 @@
  */
 import { CapacitorHttp } from '@capacitor/core';
 
-import { getOpenMeteoKey } from './keys';
 import { isWxServerAvailable, wxServerBase } from './wxServer';
+import { fetchOpenMeteoProxy } from './openMeteoProxy';
 import { SELECTABLE_MODELS, WAVE_SPREAD_MODELS } from './forecastModels';
 import { createLogger } from '../../utils/createLogger';
 
@@ -125,10 +125,6 @@ async function fetchSpread(
     hours: number,
 ): Promise<{ data: ModelSpreadResult; complete: boolean }> {
     const useWx = await isWxServerAvailable();
-    const apiKey = getOpenMeteoKey();
-
-    const atmosBase = useWx ? `${wxServerBase()}/v1/forecast` : 'https://customer-api.open-meteo.com/v1/forecast';
-    const marineBase = useWx ? `${wxServerBase()}/v1/marine` : 'https://customer-marine-api.open-meteo.com/v1/marine';
 
     const common = {
         latitude: lat.toFixed(4),
@@ -148,15 +144,19 @@ async function fetchSpread(
         hourly: MARINE_VARS.join(','),
         models: WAVE_SPREAD_MODELS.map((m) => m.id).join(','),
     });
-    if (!useWx && apiKey) {
-        atmosParams.append('apikey', apiKey);
-        marineParams.append('apikey', apiKey);
-    }
-
-    const [atmosRaw, marineRaw] = await Promise.all([
-        getJson(`${atmosBase}?${atmosParams}`),
-        getJson(`${marineBase}?${marineParams}`),
-    ]);
+    const [atmosRaw, marineRaw] = useWx
+        ? await Promise.all([
+              getJson(`${wxServerBase()}/v1/forecast?${atmosParams}`),
+              getJson(`${wxServerBase()}/v1/marine?${marineParams}`),
+          ])
+        : await Promise.all([
+              fetchOpenMeteoProxy<Record<string, unknown>>('forecast', Object.fromEntries(atmosParams.entries())).catch(
+                  () => null,
+              ),
+              fetchOpenMeteoProxy<Record<string, unknown>>('marine', Object.fromEntries(marineParams.entries())).catch(
+                  () => null,
+              ),
+          ]);
 
     return {
         // Both endpoints ANSWERED (a 200 with legitimately-empty data — e.g.

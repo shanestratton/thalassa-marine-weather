@@ -13,6 +13,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { DiaryService } from '../../services/DiaryService';
+import { SafeImage } from '../ui/SafeImage';
 
 interface DiaryPhotoProps {
     /** Photo reference — any scheme supported by DiaryService.resolvePhotoUrl */
@@ -56,5 +57,5 @@ export const DiaryPhoto: React.FC<DiaryPhotoProps> = ({ src, alt = '', className
         return <div className={className} onClick={onClick} aria-label={alt} />;
     }
 
-    return <img src={resolved} alt={alt} className={className} loading={loading} onClick={onClick} />;
+    return <SafeImage src={resolved} alt={alt} className={className} loading={loading} onClick={onClick} />;
 };

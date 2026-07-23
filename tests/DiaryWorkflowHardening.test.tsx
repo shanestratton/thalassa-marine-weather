@@ -1,8 +1,9 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DiaryEntry } from '../services/DiaryService';
 import { generateDiaryPDF } from '../utils/diaryExport';
 import { useDiaryState } from '../hooks/useDiaryState';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const pdfMocks = vi.hoisted(() => ({
     output: vi.fn(() => new Blob(['pdf'], { type: 'application/pdf' })),
@@ -40,23 +41,32 @@ vi.mock('jspdf', () => {
 
 const entry = {
     id: 'entry-1',
+    user_id: 'user-1',
     title: 'Across the bay',
     body: 'A clean reach in a steady breeze.',
     mood: 'good',
     photos: [],
+    audio_url: null,
     latitude: -27.4,
     longitude: 153.1,
     location_name: 'Moreton Bay',
     weather_summary: '15 kt SE',
     weather_data: null,
+    voyage_id: null,
+    tags: [],
+    is_public: false,
     created_at: '2026-07-23T08:00:00.000Z',
-} as DiaryEntry;
+    updated_at: '2026-07-23T08:00:00.000Z',
+} satisfies DiaryEntry;
 
 beforeEach(() => {
     vi.clearAllMocks();
+    setAuthIdentityScope('account-a');
 });
 
 afterEach(() => {
+    setAuthIdentityScope(null);
+    vi.unstubAllGlobals();
     Reflect.deleteProperty(navigator, 'share');
     Reflect.deleteProperty(navigator, 'canShare');
 });
@@ -102,5 +112,40 @@ describe('diary workflow hardening', () => {
 
         expect(share).toHaveBeenCalledOnce();
         expect(pdfMocks.save).not.toHaveBeenCalled();
+    });
+
+    it('does not deliver account-A diary content after the identity changes during photo loading', async () => {
+        let resolvePhoto!: (value: { ok: boolean; blob: () => Promise<Blob> }) => void;
+        const fetchMock = vi.fn(
+            () =>
+                new Promise<{ ok: boolean; blob: () => Promise<Blob> }>((resolve) => {
+                    resolvePhoto = resolve;
+                }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        const operationScope = getAuthIdentityScope();
+        const onSuccess = vi.fn();
+        const exportPromise = generateDiaryPDF(
+            [{ ...entry, photos: ['https://private.example/account-a.jpg'] }],
+            {
+                shouldContinue: () => isAuthIdentityScopeCurrent(operationScope),
+                onSuccess,
+            },
+            'Shane',
+            'download',
+        );
+
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+        act(() => {
+            setAuthIdentityScope('account-b');
+        });
+        resolvePhoto({
+            ok: true,
+            blob: () => Promise.resolve(new Blob(['photo'], { type: 'image/jpeg' })),
+        });
+        await exportPromise;
+
+        expect(pdfMocks.save).not.toHaveBeenCalled();
+        expect(onSuccess).not.toHaveBeenCalled();
     });
 });

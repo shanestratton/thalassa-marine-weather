@@ -7,6 +7,7 @@
 import React from 'react';
 import { CrewFinderState } from '../../hooks/useCrewFinderState';
 import { CrewCard } from '../../services/LonelyHeartsService';
+import { SafeImage } from '../ui/SafeImage';
 
 interface CrewDetailViewProps {
     selectedCard: CrewCard;
@@ -39,7 +40,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                 <div className="text-center mb-6">
                     <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
                         {selectedCard.avatar_url ? (
-                            <img
+                            <SafeImage
                                 src={selectedCard.avatar_url}
                                 loading="lazy"
                                 alt=""

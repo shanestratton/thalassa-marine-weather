@@ -21,6 +21,7 @@
 
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
 import { EnvironmentService } from './EnvironmentService';
@@ -36,6 +37,7 @@ import {
     saveTrackingState as _saveTrackingState,
     clearVoyageState as _clearVoyageState,
     decideInitTrackingAction,
+    suspendTrackingStateForIdentityChange,
     type TrackingState,
 } from './shiplog/TrackingStateStore';
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
@@ -47,13 +49,20 @@ import {
     captureLog as _captureLog,
     addManual as _addManual,
     flushBufferedTrack as _flushBufferedTrack,
+    drainBufferedTrackForHandoff,
     type CaptureContext,
     type CaptureLogOptions,
     type AddManualOptions,
+    type FlushBufferedTrackResult,
 } from './shiplog/CapturePipeline';
 import { getGpsStatus as _getGpsStatus, getGpsNavData as _getGpsNavData } from './shiplog/PositionResolver';
 import { setCaptureLocalOnly } from './shiplog/EntrySave';
-import { startLiveTrickle, stopLiveTrickle, purgeLiveTrack } from './shiplog/LiveTrickle';
+import {
+    startLiveTrickle,
+    stopLiveTrickle,
+    purgeLiveTrack,
+    disarmLiveTrickleForIdentityChange,
+} from './shiplog/LiveTrickle';
 import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
@@ -70,6 +79,7 @@ import {
     deleteVoyage as _deleteVoyage,
     deleteEntry as _deleteEntry,
     importGPXVoyage as _importGPXVoyage,
+    type ImportGPXOptions,
 } from './shiplog/EntryCrud';
 import {
     getVoyageSummaries as _getVoyageSummaries,
@@ -78,6 +88,13 @@ import {
     EMPTY_TRACK_NM,
     type VoyageSummary,
 } from './shiplog/VoyageSummary';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('ShipLog');
 
@@ -93,6 +110,21 @@ const TRACKING_INTERVAL_MS = 60 * 1000; // 60 seconds (fallback / offshore defau
 const RAPID_INTERVAL_MS = 10 * 1000; // 10 seconds for marina/shore navigation (manual override)
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
 const FAST_LOCK_MS = 30 * 1000; // cold-start fast-lock (distanceFilter:0) duration for a new voyage
+const CAPTURE_HANDOFF_KEY = 'ship_log_capture_handoff';
+const CAPTURE_HANDOFF_VERSION = 1;
+
+interface CaptureHandoffBatch {
+    id: string;
+    voyageId: string;
+    points: CachedPosition[];
+}
+
+interface CaptureHandoffStore {
+    version: typeof CAPTURE_HANDOFF_VERSION;
+    ownerKey: string;
+    ownerUserId: string | null;
+    batches: CaptureHandoffBatch[];
+}
 
 // --- MAIN SERVICE CLASS ---
 
@@ -118,6 +150,20 @@ class ShipLogServiceClass {
     // heartbeat all live in GpsSubscriptionManager.
     private gpsSubs = new GpsSubscriptionManager();
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
+    /** Exact auth generation that owns the visible/armed voyage. */
+    private trackingOwnerScope: AuthIdentityScope | null = null;
+    /** Invalidates overlapping start calls within one auth generation. */
+    private startAttempt = 0;
+    /** One ref-counted native GPS lease held by this service, if any. */
+    private nativeLeaseScope: AuthIdentityScope | null = null;
+    /** Serialises durable raw-fix handoffs independently per account. */
+    private captureHandoffTails = new Map<string, Promise<void>>();
+    /**
+     * In-memory copy retained until Preferences confirms the write. It is
+     * scoped by owner and never exposed through the live buffer of another
+     * account.
+     */
+    private pendingCaptureHandoffs = new Map<string, CaptureHandoffBatch[]>();
 
     // Cached water detection status — updated every 60s by environment polling.
     // Stamped onto every log entry so career totals can filter out land tracks.
@@ -149,7 +195,270 @@ class ShipLogServiceClass {
      * handlers, and restores persisted tracking state from Preferences.
      * Safe to call multiple times — subsequent calls are no-ops.
      */
-    private initialized = false;
+    private initializedGeneration: number | null = null;
+    private initialization: { scope: AuthIdentityScope; promise: Promise<void> } | null = null;
+    private lifecycleHandlersRegistered = false;
+    private initializeWasRequested = false;
+
+    constructor() {
+        subscribeAuthIdentityScope((next, previous) => {
+            this.handleIdentityTransition(next, previous);
+        });
+    }
+
+    private sameScope(left: AuthIdentityScope | null, right: AuthIdentityScope): boolean {
+        return left !== null && left.key === right.key && left.generation === right.generation;
+    }
+
+    private ownerIsCurrent(scope: AuthIdentityScope, state: TrackingState = this.trackingState): boolean {
+        return (
+            isAuthIdentityScopeCurrent(scope) &&
+            this.sameScope(this.trackingOwnerScope, scope) &&
+            state === this.trackingState
+        );
+    }
+
+    private captureHandoffStorageKey(scope: AuthIdentityScope): string {
+        return authScopedStorageKey(CAPTURE_HANDOFF_KEY, scope);
+    }
+
+    private parseCaptureHandoffStore(value: string | null, scope: AuthIdentityScope): CaptureHandoffStore {
+        if (!value) {
+            return {
+                version: CAPTURE_HANDOFF_VERSION,
+                ownerKey: scope.key,
+                ownerUserId: scope.userId,
+                batches: [],
+            };
+        }
+
+        const parsed = JSON.parse(value) as Partial<CaptureHandoffStore>;
+        if (
+            parsed.version !== CAPTURE_HANDOFF_VERSION ||
+            parsed.ownerKey !== scope.key ||
+            parsed.ownerUserId !== scope.userId ||
+            !Array.isArray(parsed.batches)
+        ) {
+            throw new Error('Ship-log capture handoff owner/version mismatch');
+        }
+
+        const batches: CaptureHandoffBatch[] = [];
+        for (const rawBatch of parsed.batches) {
+            if (
+                !rawBatch ||
+                typeof rawBatch.id !== 'string' ||
+                typeof rawBatch.voyageId !== 'string' ||
+                !Array.isArray(rawBatch.points)
+            ) {
+                throw new Error('Malformed ship-log capture handoff batch');
+            }
+            const points = rawBatch.points.filter(
+                (point) =>
+                    point &&
+                    Number.isFinite(point.latitude) &&
+                    Number.isFinite(point.longitude) &&
+                    Number.isFinite(point.timestamp) &&
+                    Number.isFinite(point.receivedAt),
+            );
+            if (points.length !== rawBatch.points.length) {
+                throw new Error('Malformed position in ship-log capture handoff');
+            }
+            batches.push({
+                id: rawBatch.id,
+                voyageId: rawBatch.voyageId,
+                points: points.map((point) => ({ ...point })),
+            });
+        }
+        return {
+            version: CAPTURE_HANDOFF_VERSION,
+            ownerKey: scope.key,
+            ownerUserId: scope.userId,
+            batches,
+        };
+    }
+
+    private async appendCaptureHandoffBatch(scope: AuthIdentityScope, batch: CaptureHandoffBatch): Promise<void> {
+        const key = this.captureHandoffStorageKey(scope);
+        const { value } = await Preferences.get({ key });
+        const store = this.parseCaptureHandoffStore(value, scope);
+        if (!store.batches.some((stored) => stored.id === batch.id)) {
+            store.batches.push({
+                ...batch,
+                points: batch.points.map((point) => ({ ...point })),
+            });
+            await Preferences.set({ key, value: JSON.stringify(store) });
+        }
+    }
+
+    /**
+     * Persist accepted raw fixes even after the auth generation has moved on.
+     * This is an explicit transition write under the previous owner's scoped
+     * key, equivalent to TrackingStateStore's paused-state handoff.
+     */
+    private queueCaptureHandoff(
+        scope: AuthIdentityScope,
+        voyageId: string | undefined,
+        points: CachedPosition[],
+    ): Promise<void> {
+        if (!voyageId || points.length === 0) return Promise.resolve();
+        const batch: CaptureHandoffBatch = {
+            id:
+                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                    ? crypto.randomUUID()
+                    : `capture_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            voyageId,
+            points: points.map((point) => ({ ...point })),
+        };
+        const pending = this.pendingCaptureHandoffs.get(scope.key) ?? [];
+        pending.push(batch);
+        this.pendingCaptureHandoffs.set(scope.key, pending);
+
+        const prior = this.captureHandoffTails.get(scope.key) ?? Promise.resolve();
+        const operation = prior
+            .catch(() => undefined)
+            .then(() => this.appendCaptureHandoffBatch(scope, batch))
+            .then(() => {
+                const current = this.pendingCaptureHandoffs.get(scope.key) ?? [];
+                const remaining = current.filter((candidate) => candidate.id !== batch.id);
+                if (remaining.length > 0) this.pendingCaptureHandoffs.set(scope.key, remaining);
+                else this.pendingCaptureHandoffs.delete(scope.key);
+            });
+        this.captureHandoffTails.set(scope.key, operation);
+        return operation;
+    }
+
+    private async retryPendingCaptureHandoffs(scope: AuthIdentityScope): Promise<void> {
+        const pending = [...(this.pendingCaptureHandoffs.get(scope.key) ?? [])];
+        for (const batch of pending) {
+            const prior = this.captureHandoffTails.get(scope.key) ?? Promise.resolve();
+            const operation = prior
+                .catch(() => undefined)
+                .then(() => this.appendCaptureHandoffBatch(scope, batch))
+                .then(() => {
+                    const current = this.pendingCaptureHandoffs.get(scope.key) ?? [];
+                    const remaining = current.filter((candidate) => candidate.id !== batch.id);
+                    if (remaining.length > 0) this.pendingCaptureHandoffs.set(scope.key, remaining);
+                    else this.pendingCaptureHandoffs.delete(scope.key);
+                });
+            this.captureHandoffTails.set(scope.key, operation);
+            await operation;
+        }
+    }
+
+    private async removeCaptureHandoffBatch(scope: AuthIdentityScope, batchId: string): Promise<void> {
+        const prior = this.captureHandoffTails.get(scope.key) ?? Promise.resolve();
+        const operation = prior
+            .catch(() => undefined)
+            .then(async () => {
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                const key = this.captureHandoffStorageKey(scope);
+                const { value } = await Preferences.get({ key });
+                if (!isAuthIdentityScopeCurrent(scope) || !value) return;
+                const store = this.parseCaptureHandoffStore(value, scope);
+                store.batches = store.batches.filter((batch) => batch.id !== batchId);
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (store.batches.length === 0) await Preferences.remove({ key });
+                else await Preferences.set({ key, value: JSON.stringify(store) });
+            });
+        this.captureHandoffTails.set(scope.key, operation);
+        await operation;
+    }
+
+    private async replayCaptureHandoffs(
+        scope: AuthIdentityScope,
+        state: TrackingState,
+        voyageId: string,
+    ): Promise<void> {
+        await this.retryPendingCaptureHandoffs(scope);
+        if (!this.ownerIsCurrent(scope, state)) return;
+
+        const { value } = await Preferences.get({ key: this.captureHandoffStorageKey(scope) });
+        if (!this.ownerIsCurrent(scope, state) || !value) return;
+        const store = this.parseCaptureHandoffStore(value, scope);
+        const batches = store.batches.filter((batch) => batch.voyageId === voyageId);
+
+        for (const batch of batches) {
+            if (!this.ownerIsCurrent(scope, state)) return;
+            const replayBuffer = new GpsTrackBuffer(Math.max(1200, batch.points.length));
+            for (const point of batch.points) replayBuffer.push(point);
+            const result = await _flushBufferedTrack({
+                ...this._captureCtx(scope),
+                trackBuffer: replayBuffer,
+            });
+            if (!this.ownerIsCurrent(scope, state) || result !== 'complete') return;
+            await this.removeCaptureHandoffBatch(scope, batch.id);
+            if (!this.ownerIsCurrent(scope, state)) return;
+        }
+    }
+
+    /**
+     * The auth fence invokes this synchronously before B is exposed to app
+     * state. Hide A immediately and tear down every callback that could emit a
+     * fix. A's voyage is persisted as paused under A's key; there is no Voyage
+     * End pin, upload, purge, or queue deletion on an account transition.
+     */
+    private handleIdentityTransition(next: AuthIdentityScope, previous: AuthIdentityScope): void {
+        const previousState = this.trackingState;
+        const ownedPrevious = this.sameScope(this.trackingOwnerScope, previous);
+        const releaseNativeLease = this.sameScope(this.nativeLeaseScope, previous);
+        this.startAttempt += 1;
+        if (releaseNativeLease) this.nativeLeaseScope = null;
+
+        this.scheduler.stop();
+        this.gpsSubs.stop();
+        this.courseDetector.stop();
+        this.courseDetector.reset();
+        this.envPoller.stop();
+        const acceptedPoints = drainBufferedTrackForHandoff(this.trackBuffer);
+        if (ownedPrevious && previousState.currentVoyageId && acceptedPoints.length > 0) {
+            void this.queueCaptureHandoff(previous, previousState.currentVoyageId, acceptedPoints).catch((error) => {
+                // The batch remains in pendingCaptureHandoffs and is retried
+                // when this owner returns; it is never exposed to `next`.
+                log.warn('failed to persist identity capture handoff:', error);
+            });
+        }
+        this.lastBgLocation = null;
+        this.lastWaterStatus = undefined;
+        if (this.rapidModeTimeoutId) {
+            clearTimeout(this.rapidModeTimeoutId);
+            this.rapidModeTimeoutId = undefined;
+        }
+        if (this.precisionModeTimeoutId) {
+            clearTimeout(this.precisionModeTimeoutId);
+            this.precisionModeTimeoutId = undefined;
+        }
+        this.clearFastLock();
+        setCaptureLocalOnly(false);
+        disarmLiveTrickleForIdentityChange(previous);
+        GpsPrecision.reset();
+
+        if (ownedPrevious && previousState.currentVoyageId) {
+            void suspendTrackingStateForIdentityChange({ ...previousState }, previous).catch((error) => {
+                log.warn('failed to persist identity-suspended voyage:', error);
+            });
+        }
+
+        this.trackingOwnerScope = null;
+        this.trackingState = { isTracking: false, isPaused: false, isRapidMode: false };
+        this.initializedGeneration = null;
+        this.initialization = null;
+        this.notifyTrackingChanged();
+
+        if (releaseNativeLease && this.isNative) {
+            // requestStop is ref-counted by BgGeoManager. This is a safety
+            // disarm only; it deliberately does not run stopTracking().
+            void BgGeoManager.requestStop().catch((error) => {
+                log.warn('native tracking stop on identity transition failed:', error);
+            });
+        }
+        void BgGeoManager.setSamplingMode('default').catch(() => {});
+
+        if (this.initializeWasRequested && isAuthIdentityScopeCurrent(next)) {
+            void this.initialize().catch((error) => {
+                log.warn('new-account ship-log hydration failed:', error);
+            });
+        }
+    }
 
     async initialize(): Promise<void> {
         // The docstring always promised idempotency; now it's true. Without
@@ -157,12 +466,27 @@ class ShipLogServiceClass {
         // re-awaited an offline-queue upload, and registered ANOTHER
         // appStateChange + visibilitychange listener — duplicate
         // checkMissedEntries captures on every foreground resume.
-        if (this.initialized) return;
-        this.initialized = true;
+        this.initializeWasRequested = true;
+        const scope = getAuthIdentityScope();
+        if (this.initializedGeneration === scope.generation) return;
+        if (this.initialization && this.sameScope(this.initialization.scope, scope)) {
+            return this.initialization.promise;
+        }
+
+        const promise = this.initializeForScope(scope);
+        this.initialization = { scope, promise };
+        await promise;
+        if (this.initialization?.promise === promise) this.initialization = null;
+    }
+
+    private async initializeForScope(scope: AuthIdentityScope): Promise<void> {
         try {
-            const persisted = await loadTrackingState();
+            const persisted = await loadTrackingState(scope);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
             if (persisted) {
                 this.trackingState = persisted;
+                this.trackingOwnerScope =
+                    persisted.currentVoyageId && (persisted.isTracking || persisted.isPaused) ? scope : null;
 
                 // Reconcile a persisted "tracking" state against this
                 // (possibly fresh) JS context. The decision is pure +
@@ -181,11 +505,13 @@ class ShipLogServiceClass {
                 // When navigating between pages within an active session the
                 // scheduler IS running, so the decision is 'none' and active
                 // tracking is untouched.
+                const nativeTrackingEnabled = await BgGeoManager.isNativeTrackingEnabled();
+                if (!isAuthIdentityScopeCurrent(scope)) return;
                 const decision = decideInitTrackingAction({
                     persistedIsTracking: this.trackingState.isTracking,
                     persistedIsPaused: this.trackingState.isPaused,
                     schedulerRunning: this.scheduler.isRunning(),
-                    nativeTrackingEnabled: await BgGeoManager.isNativeTrackingEnabled(),
+                    nativeTrackingEnabled,
                     currentVoyageId: this.trackingState.currentVoyageId,
                 });
 
@@ -198,7 +524,9 @@ class ShipLogServiceClass {
                         `[init] native GPS still live after JS reload — resuming voyage ${decision.voyageId.slice(0, 12)} in place (no stop, no new id)`,
                     );
                     this.trackingState.isTracking = false;
-                    await this.startTracking(true, decision.voyageId);
+                    this.trackingOwnerScope = null;
+                    await this.startTracking(true, decision.voyageId, scope);
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
                 } else if (decision.action === 'mark-stopped') {
                     // Genuine cold start / force-close — mark stopped so the
                     // Start button shows correctly; autoStartIfEnabled() will
@@ -212,7 +540,9 @@ class ShipLogServiceClass {
                         voyageStartTime: this.trackingState.voyageStartTime,
                         voyageEndTime: this.trackingState.voyageEndTime || new Date().toISOString(),
                     };
-                    await this.saveTrackingState();
+                    this.trackingOwnerScope = null;
+                    await _saveTrackingState(this.trackingState, scope);
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
                     this.notifyTrackingChanged();
                 }
                 // decision.action === 'none' → active in-session, leave as-is.
@@ -231,37 +561,55 @@ class ShipLogServiceClass {
             // own in-flight latch + live-voyage refusal, and the 2-minute
             // interval retries anything this pass doesn't land.
             if (!this.trackingState.isTracking && !this.trackingState.isPaused) {
-                void this.syncOfflineQueue().catch((e) => log.warn('initial queue sync failed (will retry):', e));
+                void this.syncOfflineQueueForScope(scope).catch((e) =>
+                    log.warn('initial queue sync failed (will retry):', e),
+                );
             }
 
-            // BACKGROUND RESUME HANDLER: Catch up on missed entries when app wakes up
-            // Uses Capacitor App listener for native iOS/Android
-            App.addListener('appStateChange', async ({ isActive }) => {
-                if (isActive && this.trackingState.isTracking && !this.trackingState.isPaused) {
-                    await this.checkMissedEntries();
-                }
-                // Backgrounding: force the debounced offline-queue cache to
-                // disk so an iOS suspend/kill can't cost the ~10 s window.
-                if (!isActive) {
-                    const { flushOfflineQueueToDisk } = await import('./shiplog/OfflineQueue');
-                    await flushOfflineQueueToDisk().catch(() => {});
-                }
-            });
-
-            // WEB FALLBACK: Also listen for browser visibility changes (for PWA/web)
-            if (typeof document !== 'undefined') {
-                document.addEventListener('visibilitychange', async () => {
-                    if (
-                        document.visibilityState === 'visible' &&
-                        this.trackingState.isTracking &&
-                        !this.trackingState.isPaused
-                    ) {
-                        await this.checkMissedEntries();
-                    }
-                });
-            }
+            this.registerLifecycleHandlers();
+            if (isAuthIdentityScopeCurrent(scope)) this.initializedGeneration = scope.generation;
         } catch (error) {
             log.error('initialize failed', error);
+        }
+    }
+
+    private registerLifecycleHandlers(): void {
+        if (this.lifecycleHandlersRegistered) return;
+        this.lifecycleHandlersRegistered = true;
+
+        App.addListener('appStateChange', async ({ isActive }) => {
+            const owner = this.trackingOwnerScope;
+            if (
+                isActive &&
+                owner &&
+                this.ownerIsCurrent(owner) &&
+                this.trackingState.isTracking &&
+                !this.trackingState.isPaused
+            ) {
+                await this.checkMissedEntries(owner);
+            }
+            if (!isActive) {
+                const scope = getAuthIdentityScope();
+                const { flushOfflineQueueToDisk } = await import('./shiplog/OfflineQueue');
+                if (isAuthIdentityScopeCurrent(scope)) {
+                    await flushOfflineQueueToDisk().catch(() => {});
+                }
+            }
+        });
+
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', async () => {
+                const owner = this.trackingOwnerScope;
+                if (
+                    document.visibilityState === 'visible' &&
+                    owner &&
+                    this.ownerIsCurrent(owner) &&
+                    this.trackingState.isTracking &&
+                    !this.trackingState.isPaused
+                ) {
+                    await this.checkMissedEntries(owner);
+                }
+            });
         }
     }
 
@@ -271,7 +619,9 @@ class ShipLogServiceClass {
      * @param autoTrackEnabled - Whether the user's settings allow auto-tracking
      */
     async autoStartIfEnabled(autoTrackEnabled: boolean): Promise<void> {
+        const scope = getAuthIdentityScope();
         if (!autoTrackEnabled) return;
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         if (this.trackingState.isTracking) return;
 
         const lastVoyageEnd = this.trackingState.voyageEndTime;
@@ -281,22 +631,24 @@ class ShipLogServiceClass {
             const elapsed = Date.now() - new Date(lastVoyageEnd).getTime();
             if (elapsed < VOYAGE_STALE_THRESHOLD_MS) {
                 // Recent voyage — resume it
-                await this.startTracking(true, lastVoyageId);
+                await this.startTracking(true, lastVoyageId, scope);
                 return;
             }
         }
 
         // No recent voyage or too stale — start fresh
-        await this.startTracking(false);
+        await this.startTracking(false, undefined, scope);
     }
 
     /**
      * Check if any quarter-hour entries were missed while backgrounded and catch up
      */
-    private async checkMissedEntries(): Promise<void> {
-        if (!this.trackingState.lastEntryTime) return;
+    private async checkMissedEntries(scope: AuthIdentityScope): Promise<void> {
+        const state = this.trackingState;
+        if (!this.ownerIsCurrent(scope, state)) return;
+        if (!state.lastEntryTime) return;
 
-        const lastEntry = new Date(this.trackingState.lastEntryTime);
+        const lastEntry = new Date(state.lastEntryTime);
         const now = new Date();
         const msSinceLast = now.getTime() - lastEntry.getTime();
 
@@ -308,6 +660,7 @@ class ShipLogServiceClass {
             // We don't backfill because GPS data from the past isn't available
             try {
                 const entry = await this.captureLogEntry();
+                if (!this.ownerIsCurrent(scope, state)) return;
                 if (entry) {
                     log.info('checkMissedEntries: catch-up entry saved');
                 }
@@ -317,7 +670,7 @@ class ShipLogServiceClass {
         }
 
         // Reschedule to next quarter-hour
-        this.rescheduleAdaptiveInterval();
+        void this.rescheduleAdaptiveInterval(scope, state);
     }
 
     /**
@@ -330,23 +683,28 @@ class ShipLogServiceClass {
      * This method just decides the new `intervalMs` and asks the
      * scheduler to align to it.
      */
-    private async rescheduleAdaptiveInterval(): Promise<void> {
+    private async rescheduleAdaptiveInterval(
+        scope: AuthIdentityScope | null = this.trackingOwnerScope,
+        state: TrackingState = this.trackingState,
+    ): Promise<void> {
+        if (!scope || !this.ownerIsCurrent(scope, state)) return;
         // Don't interfere with rapid mode
-        if (this.trackingState.isRapidMode) return;
-        if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
+        if (state.isRapidMode) return;
+        if (!state.isTracking || state.isPaused) return;
 
         // PRIMARY: Speed-adaptive interval (if we have GPS speed)
         const pos = this.lastBgLocation;
         if (pos && pos.speed != null && pos.speed >= 0) {
             const { interval } = getIntervalForSpeed(pos.speed);
-            const currentInterval = this.trackingState.currentIntervalMs;
+            const currentInterval = state.currentIntervalMs;
 
             // Only reschedule if interval actually changed
             if (interval !== currentInterval || !this.scheduler.isRunning()) {
-                this.trackingState.currentIntervalMs = interval;
-                this.trackingState.loggingZone = undefined; // Speed-based, not zone-based
-                await this.saveTrackingState();
-                this.scheduler.scheduleClockAligned(interval, () => this.flushBufferedTrack());
+                state.currentIntervalMs = interval;
+                state.loggingZone = undefined; // Speed-based, not zone-based
+                await this.saveTrackingState(scope);
+                if (!this.ownerIsCurrent(scope, state)) return;
+                this.scheduler.scheduleClockAligned(interval, () => this.flushBufferedTrack(scope, state));
             }
             return;
         }
@@ -354,18 +712,19 @@ class ShipLogServiceClass {
         // FALLBACK: Zone-based interval (no speed data yet — cold start)
         const newZone = determineLoggingZone();
         const newInterval = getIntervalForZone(newZone);
-        const oldZone = this.trackingState.loggingZone || 'offshore';
+        const oldZone = state.loggingZone || 'offshore';
 
         // Only reschedule if zone actually changed
         if (newZone === oldZone && this.scheduler.isRunning()) return;
 
         // Update state
-        this.trackingState.loggingZone = newZone;
-        this.trackingState.currentIntervalMs = newInterval;
-        await this.saveTrackingState();
+        state.loggingZone = newZone;
+        state.currentIntervalMs = newInterval;
+        await this.saveTrackingState(scope);
+        if (!this.ownerIsCurrent(scope, state)) return;
 
         // Use clock-aligned scheduling
-        this.scheduler.scheduleClockAligned(newInterval, () => this.flushBufferedTrack());
+        this.scheduler.scheduleClockAligned(newInterval, () => this.flushBufferedTrack(scope, state));
     }
 
     /**
@@ -376,18 +735,31 @@ class ShipLogServiceClass {
      * @param resume - If true, continues the current voyage rather than starting fresh
      * @param continueVoyageId - Optional voyage ID to resume (e.g. after app restart)
      */
-    async startTracking(resume: boolean = false, continueVoyageId?: string): Promise<void> {
+    async startTracking(
+        resume: boolean = false,
+        continueVoyageId?: string,
+        scope: AuthIdentityScope = getAuthIdentityScope(),
+    ): Promise<void> {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
         if (this.trackingState.isTracking) {
             return;
         }
+        const attempt = ++this.startAttempt;
+        const startIsCurrent = () => attempt === this.startAttempt && isAuthIdentityScopeCurrent(scope);
 
         // Initialize GPS engine (native-only: Transistorsoft BgGeo).
         // On web, GPS is started via navigator.geolocation in gpsSubs.start().
         if (this.isNative) {
             const tg = performance.now();
             await BgGeoManager.ensureReady();
+            if (!startIsCurrent()) return;
             const tReady = performance.now();
             await BgGeoManager.requestStart();
+            if (!startIsCurrent()) {
+                await BgGeoManager.requestStop().catch(() => {});
+                return;
+            }
+            this.nativeLeaseScope = scope;
             log.warn(
                 `[perf] startTracking GPS: ensureReady ${Math.round(tReady - tg)}ms + ` +
                     `requestStart ${Math.round(performance.now() - tReady)}ms`,
@@ -414,6 +786,7 @@ class ShipLogServiceClass {
         // removal was meant to kill).
         const isNewVoyage = !continueVoyageId && !(resume && this.trackingState.currentVoyageId);
 
+        this.trackingOwnerScope = scope;
         this.trackingState = {
             isTracking: true,
             isPaused: false,
@@ -433,18 +806,30 @@ class ShipLogServiceClass {
             voyageStartTime: resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
             lastMovementTime: new Date().toISOString(),
         };
+        const sessionState = this.trackingState;
 
-        await this.saveTrackingState();
+        await this.saveTrackingState(scope);
+        if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) return;
 
         // LOCAL-FIRST CAPTURE: while this voyage records, every entry is
         // written to the device only (offline queue) — zero network on the
         // capture path. The whole voyage uploads in the background at stop.
         setCaptureLocalOnly(true);
 
+        // If this account was switched away mid-fix, replay its transition
+        // batches before accepting fresh GPS points. A different account can
+        // never read this scoped store, and a different voyage never adopts it.
+        try {
+            await this.replayCaptureHandoffs(scope, sessionState, voyageId);
+        } catch (error) {
+            log.warn('capture handoff replay deferred:', error);
+        }
+        if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) return;
+
         // Live position sharing (public Voyage Log "live tail") — a
         // read-only shadow of the offline queue, gated on
         // settings.liveTrackShare. Never touches the capture path.
-        startLiveTrickle(this.trackingState.currentVoyageId ?? null);
+        startLiveTrickle(sessionState.currentVoyageId ?? null, scope);
 
         this.notifyTrackingChanged();
 
@@ -456,7 +841,7 @@ class ShipLogServiceClass {
         // steady 1 m filter after FAST_LOCK_MS. On resume / mid-voyage
         // reload we stay at the steady mode (no re-spike).
         if (this.isNative && isNewVoyage) {
-            this.armFastLock(voyageId);
+            this.armFastLock(voyageId, scope, sessionState);
         } else {
             BgGeoManager.setSamplingMode('default').catch((e) => {
                 log.warn('failed to set GPS sampling on track start:', e);
@@ -470,21 +855,26 @@ class ShipLogServiceClass {
         this.gpsSubs.start({
             isNative: this.isNative,
             trackBuffer: this.trackBuffer,
-            isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
-            isRapidMode: () => this.trackingState.isRapidMode === true,
-            isPrecisionMode: () => this.trackingState.isPrecisionMode === true,
-            getIntervalMs: () => this.trackingState.currentIntervalMs ?? TRACKING_INTERVAL_MS,
-            getLastEntryTime: () => this.trackingState.lastEntryTime,
+            isActive: () =>
+                this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
+            isRapidMode: () => this.ownerIsCurrent(scope, sessionState) && sessionState.isRapidMode === true,
+            isPrecisionMode: () => this.ownerIsCurrent(scope, sessionState) && sessionState.isPrecisionMode === true,
+            getIntervalMs: () =>
+                this.ownerIsCurrent(scope, sessionState)
+                    ? (sessionState.currentIntervalMs ?? TRACKING_INTERVAL_MS)
+                    : TRACKING_INTERVAL_MS,
+            getLastEntryTime: () => (this.ownerIsCurrent(scope, sessionState) ? sessionState.lastEntryTime : undefined),
             onFix: (pos) => {
+                if (!this.ownerIsCurrent(scope, sessionState)) return;
                 this.lastBgLocation = pos;
             },
             onSpeedTierChanged: () => {
-                this.rescheduleAdaptiveInterval().catch((e) => {
+                this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
                     log.warn(``, e);
                 });
             },
             onHeartbeatTick: () => {
-                this.flushBufferedTrack().catch((e) => {
+                this.flushBufferedTrack(scope, sessionState).catch((e) => {
                     log.warn(``, e);
                 });
             },
@@ -492,7 +882,7 @@ class ShipLogServiceClass {
 
         // IMMEDIATE ENTRY: Fire-and-forget — GPS acquisition runs in background
         // so the UI is not blocked by the 3s GPS warm-up loop.
-        this.captureImmediateEntry().catch((e) => {
+        this.captureImmediateEntry(undefined, 'Voyage Start', scope).catch((e) => {
             log.warn(``, e);
         });
 
@@ -526,15 +916,16 @@ class ShipLogServiceClass {
         // zone once weather-cache data is available (e.g. coastal → 2min, offshore → 15min).
         const initialZone: LoggingZone = 'nearshore';
         const initialInterval = getIntervalForZone(initialZone);
-        this.trackingState.loggingZone = initialZone;
-        this.trackingState.currentIntervalMs = initialInterval;
-        await this.saveTrackingState();
+        sessionState.loggingZone = initialZone;
+        sessionState.currentIntervalMs = initialInterval;
+        await this.saveTrackingState(scope);
+        if (!this.ownerIsCurrent(scope, sessionState)) return;
 
         // Schedule clock-aligned entries (30s → fires at xx:xx:00, xx:xx:30)
-        this.scheduler.scheduleClockAligned(initialInterval, () => this.flushBufferedTrack());
+        this.scheduler.scheduleClockAligned(initialInterval, () => this.flushBufferedTrack(scope, sessionState));
 
         // Kick off async zone refinement in the background — won't block UI
-        this.rescheduleAdaptiveInterval().catch((e) => {
+        this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
             log.warn(``, e);
         });
 
@@ -544,14 +935,16 @@ class ShipLogServiceClass {
         // (e.g. leaving marina → offshore, or driving from land to coast).
         this.envPoller.start({
             getPos: () => this.lastBgLocation,
-            isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
+            isActive: () =>
+                this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
             onWaterStatus: (isWater) => {
+                if (!this.ownerIsCurrent(scope, sessionState)) return;
                 // Cache for stamping onto subsequent log entries.
                 this.lastWaterStatus = isWater;
                 // Update EnvironmentService for UI consumers.
                 EnvironmentService.updateWaterStatus(isWater);
             },
-            onZoneRecheck: () => this.rescheduleAdaptiveInterval(),
+            onZoneRecheck: () => this.rescheduleAdaptiveInterval(scope, sessionState),
         });
     }
 
@@ -589,7 +982,7 @@ class ShipLogServiceClass {
      * iOS-throttled background timer, or a stop+new-start race) is a
      * clean no-op. The timer is also cleared in stop/pause.
      */
-    private armFastLock(voyageId: string): void {
+    private armFastLock(voyageId: string, scope: AuthIdentityScope, state: TrackingState): void {
         this.clearFastLock();
         this.fastLockArmedForVoyageId = voyageId;
         BgGeoManager.setSamplingMode('fastlock').catch((e) => {
@@ -597,7 +990,11 @@ class ShipLogServiceClass {
         });
         this.fastLockTimeoutId = setTimeout(() => {
             this.fastLockTimeoutId = undefined;
-            if (this.trackingState.isTracking && this.trackingState.currentVoyageId === this.fastLockArmedForVoyageId) {
+            if (
+                this.ownerIsCurrent(scope, state) &&
+                state.isTracking &&
+                state.currentVoyageId === this.fastLockArmedForVoyageId
+            ) {
                 BgGeoManager.setSamplingMode('default').catch((e) => {
                     log.warn('fast-lock revert failed:', e);
                 });
@@ -614,6 +1011,9 @@ class ShipLogServiceClass {
     }
 
     async pauseTracking(): Promise<void> {
+        const scope = this.trackingOwnerScope;
+        if (!scope || !this.ownerIsCurrent(scope)) return;
+        this.startAttempt += 1;
         this.scheduler.stop();
         this.clearFastLock();
 
@@ -629,7 +1029,15 @@ class ShipLogServiceClass {
 
         this.trackingState.isTracking = false;
         this.trackingState.isPaused = true;
-        await this.saveTrackingState();
+        await this.saveTrackingState(scope);
+        if (!this.ownerIsCurrent(scope)) return;
+        await stopLiveTrickle(false, scope);
+        if (!this.ownerIsCurrent(scope)) return;
+        if (this.isNative && this.sameScope(this.nativeLeaseScope, scope)) {
+            this.nativeLeaseScope = null;
+            await BgGeoManager.requestStop();
+            if (!this.ownerIsCurrent(scope)) return;
+        }
         this.notifyTrackingChanged();
     }
 
@@ -638,57 +1046,68 @@ class ShipLogServiceClass {
      * Responds instantly - final entry capture happens in background
      */
     async stopTracking(): Promise<void> {
+        const scope = this.trackingOwnerScope;
+        const activeState = this.trackingState;
+        if (!scope || !this.ownerIsCurrent(scope, activeState)) return;
+        const stopAttempt = ++this.startAttempt;
+        const stopIsCurrent = (state: TrackingState) =>
+            stopAttempt === this.startAttempt && this.ownerIsCurrent(scope, state);
+        const previousVoyageId = activeState.currentVoyageId;
         this.scheduler.stop();
 
-        // Flush any remaining buffered GPS points before stopping
+        // Flush before exposing a stopped state. If an older scheduler flush
+        // was invalidated by the stop token, its suffix goes to the durable
+        // owner-scoped handoff and is replayed here.
         try {
-            await this.flushBufferedTrack();
+            await this.flushBufferedTrack(scope, activeState);
         } catch (e) {
-            log.warn('[ShipLog] best effort:', e);
+            log.warn('[ShipLog] final buffer flush deferred to durable handoff:', e);
         }
-        this.trackBuffer.clear();
-        // Update state immediately so UI responds instantly
-        // IMPORTANT: Store end time now (before async ops) to ensure it's always recorded
-        const previousVoyageId = this.trackingState.currentVoyageId;
-        const voyageEndTime = new Date().toISOString();
+        if (!stopIsCurrent(activeState)) return;
+        if (previousVoyageId) {
+            await this.replayCaptureHandoffs(scope, activeState, previousVoyageId).catch((error) => {
+                log.warn('final capture handoff remains durable for later replay:', error);
+            });
+            if (!stopIsCurrent(activeState)) return;
+        }
 
-        this.trackingState = {
-            isTracking: false,
-            isPaused: false,
-            isRapidMode: false,
-            isPrecisionMode: false,
-            // Preserve voyage info for reference
-            currentVoyageId: previousVoyageId,
-            voyageStartTime: this.trackingState.voyageStartTime,
-            voyageEndTime: voyageEndTime,
-        };
-        await this.saveTrackingState();
-        this.notifyTrackingChanged();
-
-        // Reset course change detection + stop the timers
+        // No callback may append after the final drain.
+        this.gpsSubs.stop();
         this.courseDetector.stop();
         this.courseDetector.reset();
         this.envPoller.stop();
-
-        // Clear precision-mode + fast-lock timers, then revert GPS
-        // sampling rate so the next voyage starts in default mode.
-        // Otherwise a pending revert/auto-shutoff would fire on a stopped
-        // voyage and toggle sampling on a non-existent session.
         if (this.precisionModeTimeoutId) {
             clearTimeout(this.precisionModeTimeoutId);
             this.precisionModeTimeoutId = undefined;
         }
         this.clearFastLock();
-        await BgGeoManager.setSamplingMode('default');
 
-        // Reset precision GPS tracker for next voyage
+        // Pick up the tiny tail that may have arrived between the first flush
+        // and subscription teardown.
+        if (this.trackBuffer.length > 0) {
+            const finalFlush = await this.flushBufferedTrack(scope, activeState);
+            if (!stopIsCurrent(activeState)) return;
+            if (finalFlush !== 'complete' && this.trackBuffer.length > 0 && previousVoyageId) {
+                const retained = drainBufferedTrackForHandoff(this.trackBuffer);
+                await this.queueCaptureHandoff(scope, previousVoyageId, retained);
+                if (!stopIsCurrent(activeState)) return;
+            }
+        }
+
+        await BgGeoManager.setSamplingMode('default');
+        if (!stopIsCurrent(activeState)) return;
         GpsPrecision.reset();
 
-        // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
-        // GPS subscriptions are still alive here so getBestPosition() can use cached fix
-        await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err) => {
+        await this.captureImmediateEntry(previousVoyageId, 'Voyage End', scope).catch((err) => {
             log.warn(``, err);
         });
+        if (!stopIsCurrent(activeState)) return;
+
+        // Clear the old voyage anchor while a new same-account start is still
+        // blocked by activeState.isTracking. It can never erase a new
+        // voyage's first position.
+        await _clearVoyageState(scope);
+        if (!stopIsCurrent(activeState)) return;
 
         // EMPTY-VOYAGE DISCARD + LOCAL TRACK CACHE. The voyage's points are
         // still ONLY in the offline queue here (local-first capture never
@@ -702,10 +1121,16 @@ class ShipLogServiceClass {
         // "Empty" = never went anywhere (max cumulative < EMPTY_TRACK_NM,
         // i.e. the card's "0.0 NM") AND no deliberate manual entry.
         let voyageWasEmpty = false;
+        let voyageTrack: ShipLogEntry[] = [];
         if (previousVoyageId) {
             try {
                 const queued = await _getOfflineEntries();
-                const voyageTrack = queued.filter((e) => e.voyageId === previousVoyageId);
+                if (!stopIsCurrent(activeState)) return;
+                voyageTrack = queued.filter(
+                    (entry) =>
+                        entry.voyageId === previousVoyageId &&
+                        (entry as ShipLogEntry & { owner_user_id?: string }).owner_user_id === scope.userId,
+                );
                 const maxCumNM = voyageTrack.length
                     ? Math.max(0, ...voyageTrack.map((e) => e.cumulativeDistanceNM || 0))
                     : 0;
@@ -714,17 +1139,18 @@ class ShipLogServiceClass {
 
                 if (voyageWasEmpty) {
                     await _deleteVoyageFromOfflineQueue(previousVoyageId);
+                    if (!stopIsCurrent(activeState)) return;
                     // A discarded voyage never uploads to ship_logs, so any
                     // dock points it trickled to live_track would linger as a
                     // stale public "live" tail that nothing supersedes — pull
                     // them too. (Fire-and-forget; prune is the backstop.)
-                    void purgeLiveTrack().catch(() => {
+                    void purgeLiveTrack(scope).catch(() => {
                         /* best effort */
                     });
                     log.warn(`[ShipLog] empty voyage discarded at stop (${maxCumNM.toFixed(3)} NM) — not uploaded`);
                 } else {
                     // Cache the real track so viewing it is instant/offline.
-                    void setCachedVoyageTrack(previousVoyageId, voyageTrack).catch(() => {
+                    void setCachedVoyageTrack(previousVoyageId, voyageTrack, scope).catch(() => {
                         /* best effort */
                     });
                 }
@@ -733,35 +1159,44 @@ class ShipLogServiceClass {
             }
         }
 
-        // Live trickle: final flush so the public tail is complete while the
-        // whole-voyage upload below is still in flight, then disarm.
-        // Fire-and-forget — stopping the voyage must never wait on network.
-        void stopLiveTrickle(true).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
+        // Release exactly the lease owned by this stopping session before a
+        // same-account start can acquire its own lease.
+        if (this.isNative && this.sameScope(this.nativeLeaseScope, scope)) {
+            this.nativeLeaseScope = null;
+            await BgGeoManager.requestStop();
+            if (!stopIsCurrent(activeState)) return;
+        }
+
+        const stoppedState: TrackingState = {
+            isTracking: false,
+            isPaused: false,
+            isRapidMode: false,
+            isPrecisionMode: false,
+            currentVoyageId: previousVoyageId,
+            voyageStartTime: activeState.voyageStartTime,
+            voyageEndTime: new Date().toISOString(),
+        };
+        this.trackingState = stoppedState;
+        await this.saveTrackingState(scope);
+        if (!stopIsCurrent(stoppedState)) return;
+        this.notifyTrackingChanged();
+
+        void stopLiveTrickle(true, scope).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
 
         // Voyage complete → exit local-only capture and upload the whole
         // recorded voyage to Supabase in the background. Fire-and-forget:
         // the UI never waits on this, and if it fails (offshore, no link)
         // the 2-minute sync interval + app-launch sync retry until it lands.
         setCaptureLocalOnly(false);
-        void this.syncOfflineQueue()
+        void this.syncOfflineQueueForScope(scope)
             .then((n) => {
                 if (n > 0) {
                     log.warn(`[ShipLog] voyage upload complete: ${n} entries synced in background`);
-                    this.notifyTrackingChanged(); // nudge UI to refresh from cloud
+                    if (isAuthIdentityScopeCurrent(scope)) this.notifyTrackingChanged();
                 }
             })
             .catch((e) => log.warn('[ShipLog] background voyage upload failed (will retry on interval):', e));
-
-        // NOW clean up GPS stream subscriptions (after final entry has GPS)
-        this.gpsSubs.stop();
-
-        // Clear voyage-scoped persistence (last-position + legacy voyage-start key).
-        await _clearVoyageState();
-
-        // Stop Transistorsoft background tracking (ref-counted — only stops if no other consumer)
-        if (this.isNative) {
-            await BgGeoManager.requestStop();
-        }
+        if (stopIsCurrent(stoppedState)) this.trackingOwnerScope = null;
     }
 
     /**
@@ -772,8 +1207,10 @@ class ShipLogServiceClass {
     async captureImmediateEntry(
         voyageId?: string,
         waypointLabel: string = 'Voyage Start',
+        scope: AuthIdentityScope = this.trackingOwnerScope ?? getAuthIdentityScope(),
     ): Promise<ShipLogEntry | null> {
-        return _captureImmediate(this._captureCtx(), voyageId, waypointLabel);
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+        return _captureImmediate(this._captureCtx(scope), voyageId, waypointLabel);
     }
 
     /**
@@ -797,6 +1234,8 @@ class ShipLogServiceClass {
         voyageId?: string,
         skipDedup?: boolean,
     ): Promise<ShipLogEntry | null> {
+        const scope = this.trackingOwnerScope ?? getAuthIdentityScope();
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
         const opts: CaptureLogOptions = {
             entryType,
             notes,
@@ -806,7 +1245,7 @@ class ShipLogServiceClass {
             voyageId,
             skipDedup,
         };
-        return _captureLog(this._captureCtx(), opts);
+        return _captureLog(this._captureCtx(scope), opts);
     }
 
     /**
@@ -820,8 +1259,12 @@ class ShipLogServiceClass {
      * Falls back to standard captureLogEntry() when the buffer is empty
      * (e.g., heartbeat catch-up when backgrounded).
      */
-    private flushBufferedTrack(): Promise<void> {
-        return _flushBufferedTrack(this._captureCtx());
+    private flushBufferedTrack(
+        scope: AuthIdentityScope,
+        state: TrackingState = this.trackingState,
+    ): Promise<FlushBufferedTrackResult> {
+        if (!this.ownerIsCurrent(scope, state)) return Promise.resolve('stale');
+        return _flushBufferedTrack(this._captureCtx(scope));
     }
 
     /**
@@ -844,8 +1287,10 @@ class ShipLogServiceClass {
         engineStatus?: 'running' | 'stopped' | 'maneuvering',
         voyageId?: string,
     ): Promise<ShipLogEntry | null> {
+        const scope = this.trackingOwnerScope ?? getAuthIdentityScope();
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
         const opts: AddManualOptions = { notes, waypointName, eventCategory, engineStatus, voyageId };
-        return _addManual(this._captureCtx(), opts);
+        return _addManual(this._captureCtx(scope), opts);
     }
 
     /**
@@ -853,21 +1298,36 @@ class ShipLogServiceClass {
      * Lives on `this` so each capture-invocation gets the live state +
      * the right hooks; the pipeline mutates `trackingState` in place.
      */
-    private _captureCtx(): CaptureContext {
+    private _captureCtx(scope: AuthIdentityScope): CaptureContext {
+        const state = this.trackingState;
+        const sessionAttempt = this.startAttempt;
         return {
-            trackingState: this.trackingState,
-            saveTrackingState: () => this.saveTrackingState(),
+            identityScope: scope,
+            isSessionCurrent: () =>
+                isAuthIdentityScopeCurrent(scope) &&
+                sessionAttempt === this.startAttempt &&
+                state === this.trackingState &&
+                (!this.trackingOwnerScope || this.sameScope(this.trackingOwnerScope, scope)),
+            trackingState: state,
+            saveTrackingState: () => _saveTrackingState(state, scope),
             isNative: this.isNative,
             getCachedFix: () => this.lastBgLocation,
             setCachedFix: (pos) => {
+                if (!isAuthIdentityScopeCurrent(scope) || state !== this.trackingState) return;
                 this.lastBgLocation = pos;
             },
             trackBuffer: this.trackBuffer,
+            handoffBufferedPoints: (points) =>
+                this.queueCaptureHandoff(scope, state.currentVoyageId, points).catch((error) => {
+                    log.warn('failed to persist stale capture suffix:', error);
+                    throw error;
+                }),
             getLastWaterStatus: () => this.lastWaterStatus,
             setLastWaterStatus: (v) => {
+                if (!isAuthIdentityScopeCurrent(scope) || state !== this.trackingState) return;
                 this.lastWaterStatus = v;
             },
-            rescheduleAdaptiveInterval: () => this.rescheduleAdaptiveInterval(),
+            rescheduleAdaptiveInterval: () => this.rescheduleAdaptiveInterval(scope, state),
         };
     }
 
@@ -884,10 +1344,14 @@ class ShipLogServiceClass {
      * sail/motor split is real data, not a guess. No-op when not tracking.
      */
     async setEngineRunning(running: boolean): Promise<void> {
-        if (!this.trackingState.isTracking) return;
-        if (this.trackingState.engineRunning === running) return;
-        this.trackingState.engineRunning = running;
-        await this.saveTrackingState();
+        const scope = this.trackingOwnerScope;
+        const state = this.trackingState;
+        if (!scope || !this.ownerIsCurrent(scope, state)) return;
+        if (!state.isTracking) return;
+        if (state.engineRunning === running) return;
+        state.engineRunning = running;
+        await this.saveTrackingState(scope);
+        if (!this.ownerIsCurrent(scope, state)) return;
         this.notifyTrackingChanged();
     }
 
@@ -900,17 +1364,21 @@ class ShipLogServiceClass {
      * Activated by 3-second long-press on tracking indicator
      */
     async setRapidMode(enabled: boolean): Promise<void> {
-        if (!this.trackingState.isTracking) {
+        const scope = this.trackingOwnerScope;
+        const state = this.trackingState;
+        if (!scope || !this.ownerIsCurrent(scope, state)) return;
+        if (!state.isTracking) {
             return;
         }
 
-        if (this.trackingState.isRapidMode === enabled) {
+        if (state.isRapidMode === enabled) {
             return;
         }
 
         // Update state
-        this.trackingState.isRapidMode = enabled;
-        await this.saveTrackingState();
+        state.isRapidMode = enabled;
+        await this.saveTrackingState(scope);
+        if (!this.ownerIsCurrent(scope, state)) return;
 
         // Always stop the existing scheduler chain — both modes restart it.
         this.scheduler.stop();
@@ -927,6 +1395,7 @@ class ShipLogServiceClass {
             // AUTO-DISABLE: Set 15-minute timeout to revert to normal mode
             const RAPID_AUTO_DISABLE_MS = 15 * 60 * 1000; // 15 minutes
             this.rapidModeTimeoutId = setTimeout(async () => {
+                if (!this.ownerIsCurrent(scope, state)) return;
                 await this.setRapidMode(false);
             }, RAPID_AUTO_DISABLE_MS);
 
@@ -937,7 +1406,9 @@ class ShipLogServiceClass {
 
             // 5-second non-aligned cadence — marina navigation cares about
             // density, not clock marks.
-            this.scheduler.scheduleEvery(RAPID_INTERVAL_MS, () => this.captureLogEntry());
+            this.scheduler.scheduleEvery(RAPID_INTERVAL_MS, () =>
+                this.ownerIsCurrent(scope, state) ? this.captureLogEntry() : null,
+            );
         } else {
             // ADAPTIVE MODE: Restore zone-based intervals
 
@@ -948,7 +1419,7 @@ class ShipLogServiceClass {
             }
 
             // Re-evaluate zone and set adaptive interval
-            await this.rescheduleAdaptiveInterval();
+            await this.rescheduleAdaptiveInterval(scope, state);
         }
     }
 
@@ -976,14 +1447,19 @@ class ShipLogServiceClass {
      * voyage-scoped, not app-scoped.
      */
     async setPrecisionMode(enabled: boolean): Promise<void> {
-        if (!this.trackingState.isTracking) return;
-        if ((this.trackingState.isPrecisionMode === true) === enabled) return;
+        const scope = this.trackingOwnerScope;
+        const state = this.trackingState;
+        if (!scope || !this.ownerIsCurrent(scope, state)) return;
+        if (!state.isTracking) return;
+        if ((state.isPrecisionMode === true) === enabled) return;
 
-        this.trackingState.isPrecisionMode = enabled;
-        await this.saveTrackingState();
+        state.isPrecisionMode = enabled;
+        await this.saveTrackingState(scope);
+        if (!this.ownerIsCurrent(scope, state)) return;
 
         // Reconfigure Transistor BgGeo at runtime — no engine restart.
         await BgGeoManager.setSamplingMode(enabled ? 'precision' : 'default');
+        if (!this.ownerIsCurrent(scope, state)) return;
 
         // Clear any legacy auto-shutoff timer (preserved for crash-
         // recovery from older app versions where the timer may have
@@ -1059,8 +1535,11 @@ class ShipLogServiceClass {
         return _getLogEntries(limit);
     }
 
-    async importGPXVoyage(entries: Partial<ShipLogEntry>[]): Promise<{ voyageId: string; savedCount: number }> {
-        return _importGPXVoyage(entries);
+    async importGPXVoyage(
+        entries: Partial<ShipLogEntry>[],
+        options?: ImportGPXOptions,
+    ): Promise<{ voyageId: string; savedCount: number }> {
+        return _importGPXVoyage(entries, options);
     }
 
     async getArchivedEntries(limit?: number): Promise<ShipLogEntry[]> {
@@ -1103,34 +1582,44 @@ class ShipLogServiceClass {
     // calls getLastPosition / saveLastPosition directly from the same
     // module, so we no longer wrap them on the orchestrator.
 
-    private async saveTrackingState(): Promise<void> {
-        await _saveTrackingState(this.trackingState);
+    private async saveTrackingState(scope: AuthIdentityScope): Promise<void> {
+        const state = this.trackingState;
+        await _saveTrackingState(state, scope);
     }
 
     // --- DELEGATED OFFLINE QUEUE METHODS (implementation in ./shiplog/OfflineQueue.ts) ---
 
     async syncOfflineQueue(): Promise<number> {
-        return _syncOfflineQueue();
+        return this.syncOfflineQueueForScope(getAuthIdentityScope());
+    }
+
+    private async syncOfflineQueueForScope(scope: AuthIdentityScope): Promise<number> {
+        if (!isAuthIdentityScopeCurrent(scope)) return 0;
+        const count = await _syncOfflineQueue();
+        return isAuthIdentityScopeCurrent(scope) ? count : 0;
     }
 
     private startSyncInterval(): void {
         if (this.syncIntervalId) return;
         this.syncIntervalId = setInterval(
             () => {
+                const scope = getAuthIdentityScope();
                 // While a voyage is RECORDING (or paused mid-voyage) the
                 // queue is the live store (local-first capture) — don't
                 // upload an incomplete voyage. The flush happens at
                 // stopTracking; this interval is the retry net for
                 // completed voyages that failed to sync.
                 if (this.trackingState.isTracking || this.trackingState.isPaused) return;
-                this.syncOfflineQueue();
+                void this.syncOfflineQueueForScope(scope);
             },
             2 * 60 * 1000,
         );
     }
 
     async getOfflineQueueCount(): Promise<number> {
-        return _getOfflineQueueCount();
+        const scope = getAuthIdentityScope();
+        const count = await _getOfflineQueueCount();
+        return isAuthIdentityScopeCurrent(scope) ? count : 0;
     }
 
     /** Delegate to extracted module */
@@ -1139,7 +1628,9 @@ class ShipLogServiceClass {
     }
 
     async getOfflineEntries(): Promise<ShipLogEntry[]> {
-        return _getOfflineEntries();
+        const scope = getAuthIdentityScope();
+        const entries = await _getOfflineEntries();
+        return isAuthIdentityScopeCurrent(scope) ? entries : [];
     }
 }
 

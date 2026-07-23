@@ -7,7 +7,7 @@
  * Red → Green when skipper accepts a departure window.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import {
     WeatherWindowService,
     type WeatherWindowResult,
@@ -15,7 +15,13 @@ import {
 } from '../../services/WeatherWindowService';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
-import { useSingleCheckSync } from '../../hooks/useReadinessSync';
+import {
+    useReadinessIdentityScope,
+    useScopedReadinessStorageState,
+    useSingleCheckSync,
+    writeReadinessStorage,
+} from '../../hooks/useReadinessSync';
+import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 interface WeatherWindowCardProps {
     voyageId?: string;
@@ -67,6 +73,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     departureTime,
     onReviewedChange,
 }) => {
+    const identityScope = useReadinessIdentityScope();
     // Resolve the chosen departure date — priority order:
     //   1. The latest ISO captured from a `thalassa:departure-time-updated`
     //      event (live, fires the moment the form's date input changes
@@ -78,13 +85,21 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     //   3. The active voyage's departure_time (last-resort fallback).
     const [eventDepartureIso, setEventDepartureIso] = useState<string | null>(null);
     useEffect(() => {
+        const operationScope = identityScope;
         const handler = (e: Event) => {
-            const detail = (e as CustomEvent).detail as { iso?: string } | undefined;
-            if (typeof detail?.iso === 'string') setEventDepartureIso(detail.iso);
+            const detail = (e as CustomEvent).detail as { voyageId?: string; iso?: string } | undefined;
+            const iso = detail?.iso;
+            if (
+                isAuthIdentityScopeCurrent(operationScope) &&
+                detail?.voyageId === voyageId &&
+                typeof iso === 'string'
+            ) {
+                setEventDepartureIso(iso);
+            }
         };
         window.addEventListener('thalassa:departure-time-updated', handler);
         return () => window.removeEventListener('thalassa:departure-time-updated', handler);
-    }, []);
+    }, [identityScope, voyageId]);
 
     const chosenDepartureIso = eventDepartureIso ?? departureTime ?? _activeVoyage?.departure_time ?? null;
     const chosenDepartureMs = chosenDepartureIso ? Date.parse(chosenDepartureIso) : NaN;
@@ -92,32 +107,14 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     const [result, setResult] = useState<WeatherWindowResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    // Acceptance is voyage-scoped (different routes have different
-    // departure windows, so the skipper accepts one per voyage). Original
-    // storage was a single { voyageId, index } object — accepting voyage
-    // B silently un-accepted voyage A. Same bug pattern that bit
-    // OceanCurrentsCard until commit b34c2c7. Storing as
-    // Record<voyageId, index> here, with the legacy single-object shape
-    // honoured for back-compat.
-    const [acceptedIndex, setAcceptedIndex] = useState<number | null>(() => {
-        if (!voyageId) return null;
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const data = JSON.parse(stored);
-                // New map format: { [voyageId]: index }
-                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
-                    const v = data[voyageId];
-                    return typeof v === 'number' ? v : null;
-                }
-                // Legacy single-object format: { voyageId, index }
-                if (data.voyageId === voyageId) return data.index;
-            }
-        } catch {
-            /* ignore */
-        }
-        return null;
-    });
+    const lifecycleGenerationRef = useRef(0);
+    const analysisRequestRef = useRef(0);
+    const acceptanceMutationRef = useRef(0);
+    const [acceptedIndex, setAcceptedIndex] = useScopedReadinessStorageState<number | null>(
+        STORAGE_KEY,
+        voyageId,
+        null,
+    );
     const [showAll, setShowAll] = useState(false);
 
     // Determine departure coordinates
@@ -138,33 +135,25 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         courseBearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
     }
 
-    // Re-read acceptance when voyageId changes (e.g. switching active
-    // passage). useState initialiser only runs once on mount; without this,
-    // switching to a voyage that's already been accepted shows red.
-    useEffect(() => {
-        if (!voyageId) {
-            setAcceptedIndex(null);
-            return;
-        }
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const data = JSON.parse(stored);
-                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
-                    const v = data[voyageId];
-                    setAcceptedIndex(typeof v === 'number' ? v : null);
-                    return;
-                }
-                if (data.voyageId === voyageId) {
-                    setAcceptedIndex(typeof data.index === 'number' ? data.index : null);
-                    return;
-                }
-            }
-        } catch {
-            /* ignore */
-        }
-        setAcceptedIndex(null);
-    }, [voyageId]);
+    useLayoutEffect(() => {
+        lifecycleGenerationRef.current += 1;
+        analysisRequestRef.current += 1;
+        acceptanceMutationRef.current += 1;
+        setEventDepartureIso(null);
+        setResult(null);
+        setLoading(false);
+        setError(null);
+        setShowAll(false);
+    }, [identityScope, voyageId]);
+
+    useEffect(
+        () => () => {
+            lifecycleGenerationRef.current += 1;
+            analysisRequestRef.current += 1;
+            acceptanceMutationRef.current += 1;
+        },
+        [],
+    );
 
     // Supabase sync — acceptance is per-voyage so this is a single-check
     // sync (one row per voyage). On voyageId change, load from server and
@@ -173,9 +162,11 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     const { syncSingleCheck, loadSingleCheck } = useSingleCheckSync(voyageId, 'weather_window', 'accepted');
     useEffect(() => {
         if (!voyageId) return;
+        const operationScope = identityScope;
+        const mutationAtLoadStart = acceptanceMutationRef.current;
         let cancelled = false;
         void loadSingleCheck().then(async () => {
-            if (cancelled) return;
+            if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
             // The single-check service returns a bool; the actual window
             // index is in the metadata column. Fetch it directly to
             // recover which window was accepted.
@@ -183,32 +174,25 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                 const { ReadinessCheckService } = await import('../../services/ReadinessCheckService');
                 const checks = await ReadinessCheckService.loadCardChecks(voyageId, 'weather_window');
                 const acceptedCheck = checks['accepted'];
-                if (cancelled || !acceptedCheck?.checked) return;
+                if (
+                    cancelled ||
+                    !isAuthIdentityScopeCurrent(operationScope) ||
+                    acceptanceMutationRef.current !== mutationAtLoadStart ||
+                    !acceptedCheck?.checked
+                )
+                    return;
                 const idx = (acceptedCheck.metadata as { index?: number } | undefined)?.index;
                 if (typeof idx !== 'number') return;
                 setAcceptedIndex(idx);
-                // Mirror into localStorage so a future offline session
-                // sees the server-confirmed state without a round-trip.
-                try {
-                    const stored = localStorage.getItem(STORAGE_KEY);
-                    const map: Record<string, number> =
-                        stored && typeof JSON.parse(stored) === 'object' && !('voyageId' in JSON.parse(stored))
-                            ? JSON.parse(stored)
-                            : {};
-                    map[voyageId] = idx;
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-                } catch {
-                    /* ignore */
-                }
             } catch {
-                /* offline / no Supabase — localStorage path already
-                   populated by the useState initialiser. */
+                /* offline / no Supabase — the scoped local mirror is
+                   already visible. */
             }
         });
         return () => {
             cancelled = true;
         };
-    }, [voyageId, loadSingleCheck]);
+    }, [identityScope, voyageId, loadSingleCheck, setAcceptedIndex]);
 
     // Notify parent
     useEffect(() => {
@@ -216,6 +200,10 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     }, [acceptedIndex, onReviewedChange]);
 
     const analyse = useCallback(async () => {
+        const operationScope = identityScope;
+        const operationGeneration = ++analysisRequestRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) && analysisRequestRef.current === operationGeneration;
         if (lat == null || lon == null) {
             setError('No departure coordinates — plan a route first');
             return;
@@ -224,42 +212,31 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         setError(null);
         try {
             const data = await WeatherWindowService.analyse(lat, lon, voyageId, courseBearing);
+            if (!isOperationCurrent()) return;
             setResult(data);
-        } catch (err) {
-            setError('Failed to analyse weather windows');
+        } catch {
+            if (isOperationCurrent()) setError('Failed to analyse weather windows');
+        } finally {
+            if (isOperationCurrent()) setLoading(false);
         }
-        setLoading(false);
-    }, [lat, lon, voyageId, courseBearing]);
+    }, [identityScope, lat, lon, voyageId, courseBearing]);
 
     // Auto-analyse on mount
     useEffect(() => {
-        if (lat != null && lon != null) analyse();
-    }, [lat, lon]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (lat != null && lon != null) void analyse();
+    }, [lat, lon, analyse]);
 
     const acceptWindow = useCallback(
         (index: number) => {
+            const operationScope = identityScope;
+            const operationGeneration = lifecycleGenerationRef.current;
+            const isOperationCurrent = () =>
+                isAuthIdentityScopeCurrent(operationScope) && lifecycleGenerationRef.current === operationGeneration;
+            if (!isOperationCurrent()) return;
+            acceptanceMutationRef.current += 1;
             setAcceptedIndex(index);
             triggerHaptic('medium');
             if (voyageId) {
-                try {
-                    // Read existing map (or migrate from legacy
-                    // single-voyage shape), set this voyage's index,
-                    // write back.
-                    const stored = localStorage.getItem(STORAGE_KEY);
-                    let map: Record<string, number> = {};
-                    if (stored) {
-                        const data = JSON.parse(stored);
-                        if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
-                            map = data;
-                        } else if (typeof data?.voyageId === 'string' && typeof data?.index === 'number') {
-                            map = { [data.voyageId]: data.index };
-                        }
-                    }
-                    map[voyageId] = index;
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-                } catch {
-                    /* ignore */
-                }
                 // Mirror to Supabase so the acceptance follows the
                 // skipper to other devices. Index is carried in
                 // metadata; the boolean state is "accepted: true".
@@ -267,16 +244,13 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             }
 
             // ── Sync the accepted window's departure time into the
-            // canonical departure_time slot. Until 2026-05-05 this card
-            // wrote to a different localStorage key (thalassa_accepted_window)
-            // than the PassageSummaryCard read from
-            // (thalassa_passage_departure_time), so accepting a window
+            // canonical departure_time slot. These two pieces of state were
+            // once stored in unrelated global keys, so accepting a window
             // visibly green-checked the readiness card but the Passage
             // Summary still showed whatever time the user had typed in.
             //
-            // Fix: when accepting a window, also write to the summary's
-            // localStorage key (HH:MM only, matching the time-input
-            // shape) AND update the live voyage row's departure_time
+            // Also write to the summary's account/voyage-scoped mirror
+            // (HH:MM, matching the time input) and update the live voyage row
             // (full ISO) so the cross-screen ETA / departure cards
             // refresh on next render. Dispatch a window event so any
             // already-mounted PassageSummaryCard re-reads instantly
@@ -292,11 +266,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     const hh = String(winDate.getHours()).padStart(2, '0');
                     const mm = String(winDate.getMinutes()).padStart(2, '0');
                     const hhmm = `${hh}:${mm}`;
-                    try {
-                        localStorage.setItem('thalassa_passage_departure_time', hhmm);
-                    } catch {
-                        /* ignore */
-                    }
+                    writeReadinessStorage('thalassa_passage_departure_time', voyageId, hhmm, operationScope);
 
                     // Update the active voyage's departure_time +
                     // recompute ETA. Non-blocking — if the update fails
@@ -305,6 +275,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     if (voyageId) {
                         import('../../services/VoyageService')
                             .then(({ updateVoyage }) => {
+                                if (!isOperationCurrent()) return null;
                                 const newDepartureIso = winDate.toISOString();
                                 // Recompute ETA preserving the original
                                 // duration if we can derive it from the
@@ -334,18 +305,20 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     // Notify any open PassageSummaryCard / banner / etc.
                     // to re-read the new departure time.
                     try {
-                        window.dispatchEvent(
-                            new CustomEvent('thalassa:departure-time-updated', {
-                                detail: { voyageId, hhmm, iso: winDate.toISOString() },
-                            }),
-                        );
+                        if (isOperationCurrent()) {
+                            window.dispatchEvent(
+                                new CustomEvent('thalassa:departure-time-updated', {
+                                    detail: { voyageId, hhmm, iso: winDate.toISOString() },
+                                }),
+                            );
+                        }
                     } catch {
                         /* SSR safety */
                     }
                 }
             }
         },
-        [voyageId, result, _activeVoyage, syncSingleCheck],
+        [identityScope, voyageId, result, _activeVoyage, setAcceptedIndex, syncSingleCheck],
     );
 
     // Determine windows to show.

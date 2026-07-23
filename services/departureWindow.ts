@@ -18,9 +18,9 @@
  *   - Score each scenario: ETA (low = better), max wind, gale hours
  *   - Return ranked array
  *
- * Streaming: emits 'thalassa:departure-window-progress' on the window
- * after each scenario completes so the UI can show live ranking
- * updates rather than waiting for all N to finish.
+ * Streaming is caller-owned: an optional progress callback receives
+ * each partial ranking. Keeping it off the global window prevents a
+ * stale planner from publishing one account's route into another.
  */
 
 import { createLogger } from '../utils/createLogger';
@@ -86,6 +86,10 @@ export interface DepartureWindowOptions {
     windowHours?: number;
     /** Maximum scenarios to run (caps interval × window). Default: 14. */
     maxScenarios?: number;
+    /** Stop before starting or publishing more scenarios. */
+    shouldContinue?: () => boolean;
+    /** Operation-owned incremental progress sink. */
+    onProgress?: (progress: { completed: number; total: number; scenarios: readonly DepartureScenario[] }) => void;
 }
 
 /**
@@ -170,8 +174,8 @@ function verdictForMetrics(
  *
  * Each scenario takes ~10-30 seconds at default isochrone resolution.
  * Caller should expect a multi-minute total compute on a 14-scenario
- * window. UI receives 'thalassa:departure-window-progress' events
- * with the partial results so the user sees scenarios populating.
+ * window. The optional progress callback receives partial results so
+ * the UI can populate without a process-global event.
  */
 export async function planDepartureWindow(
     origin: { lat: number; lon: number },
@@ -204,6 +208,13 @@ export async function planDepartureWindow(
     const intervalHours = options.intervalHours ?? 12;
     const windowHours = options.windowHours ?? 168;
     const maxScenarios = options.maxScenarios ?? 14;
+    const canContinue = () => {
+        try {
+            return options.shouldContinue?.() ?? true;
+        } catch {
+            return false;
+        }
+    };
 
     const windowStartMs = new Date(windowStartIso).getTime();
     const stepCount = Math.min(maxScenarios, Math.floor(windowHours / intervalHours) + 1);
@@ -212,10 +223,13 @@ export async function planDepartureWindow(
         `planning ${stepCount} departures every ${intervalHours}h starting ${windowStartIso} (window: ${windowHours}h)`,
     );
 
+    if (!canContinue()) return [];
     const { computeIsochrones } = await import('./IsochroneRouter');
+    if (!canContinue()) return [];
     const scenarios: DepartureScenario[] = [];
 
     for (let i = 0; i < stepCount; i++) {
+        if (!canContinue()) return scenarios;
         const depMs = windowStartMs + i * intervalHours * 3600_000;
         const depIso = new Date(depMs).toISOString();
 
@@ -256,7 +270,9 @@ export async function planDepartureWindow(
                 exclusionField,
                 waveField,
             );
+            if (!canContinue()) return scenarios;
         } catch (e) {
+            if (!canContinue()) return scenarios;
             log.warn(`scenario ${i + 1}/${stepCount} (${depIso}) threw:`, e);
         }
 
@@ -291,19 +307,17 @@ export async function planDepartureWindow(
             });
         }
 
-        // Emit progress so the UI can update incrementally
+        // Report progress only to this invocation's owner.
+        if (!canContinue()) return scenarios;
         try {
-            window.dispatchEvent(
-                new CustomEvent('thalassa:departure-window-progress', {
-                    detail: { completed: i + 1, total: stepCount, scenarios: [...scenarios] },
-                }),
-            );
+            options.onProgress?.({ completed: i + 1, total: stepCount, scenarios: [...scenarios] });
         } catch (_) {
-            /* SSR safety */
+            /* UI progress must never fail route computation */
         }
 
         // Yield to UI — back-to-back isochrone runs will starve the main thread
         await new Promise((r) => setTimeout(r, 0));
+        if (!canContinue()) return scenarios;
     }
 
     // Sort: best (lowest score) first. no-go scenarios drop to the bottom.

@@ -17,7 +17,19 @@
  * chip into other surfaces (RoutePlanner, voyage detail page) without
  * duplicating the wiring.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
+import {
+    getAuthIdentityScope,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+import {
+    isPassageEnhancementTokenCurrent,
+    PASSAGE_ENHANCEMENT_END_EVENT,
+    PASSAGE_ENHANCEMENT_START_EVENT,
+    readPassageEnhancementToken,
+    type PassageEnhancementToken,
+} from '../../services/passageEnhancementEvents';
 
 const PHASES = [
     'Finding deep water',
@@ -27,23 +39,59 @@ const PHASES = [
     'Tidying the track',
 ];
 
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+
 export const RouteEnhancementChip: React.FC = () => {
-    const [active, setActive] = useState(false);
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
+    const [activeOperation, setActiveOperation] = useState<{
+        scope: AuthIdentityScope;
+        token: PassageEnhancementToken;
+    } | null>(null);
     const [phaseIdx, setPhaseIdx] = useState(0);
+    const active =
+        activeOperation !== null &&
+        activeOperation.scope.key === identityScope.key &&
+        activeOperation.scope.generation === identityScope.generation &&
+        isPassageEnhancementTokenCurrent(activeOperation.token, identityScope);
 
     useEffect(() => {
-        const onStart = () => {
-            setActive(true);
+        const onStart = (event: Event) => {
+            const token = readPassageEnhancementToken(event);
+            const eventScope = getAuthIdentityScope();
+            if (!token || !isPassageEnhancementTokenCurrent(token, eventScope)) return;
+            setActiveOperation({ scope: eventScope, token });
             setPhaseIdx(0);
         };
-        const onEnd = () => setActive(false);
-        window.addEventListener('thalassa:passage-enhancement-start', onStart);
-        window.addEventListener('thalassa:passage-enhancement-end', onEnd);
+        const onEnd = (event: Event) => {
+            const token = readPassageEnhancementToken(event);
+            if (!token || !isPassageEnhancementTokenCurrent(token)) return;
+            setActiveOperation((current) =>
+                current?.token.operationId === token.operationId &&
+                current.token.scopeKey === token.scopeKey &&
+                current.token.generation === token.generation
+                    ? null
+                    : current,
+            );
+        };
+        window.addEventListener(PASSAGE_ENHANCEMENT_START_EVENT, onStart);
+        window.addEventListener(PASSAGE_ENHANCEMENT_END_EVENT, onEnd);
         return () => {
-            window.removeEventListener('thalassa:passage-enhancement-start', onStart);
-            window.removeEventListener('thalassa:passage-enhancement-end', onEnd);
+            window.removeEventListener(PASSAGE_ENHANCEMENT_START_EVENT, onStart);
+            window.removeEventListener(PASSAGE_ENHANCEMENT_END_EVENT, onEnd);
         };
     }, []);
+
+    // Hide previous-account progress synchronously through the derived
+    // `active` value above, then release the retained token on commit.
+    useEffect(() => {
+        setActiveOperation((current) =>
+            current &&
+            (current.scope.key !== identityScope.key || current.scope.generation !== identityScope.generation)
+                ? null
+                : current,
+        );
+        setPhaseIdx(0);
+    }, [identityScope]);
 
     // Rotate the phrase so the chip doesn't feel frozen during the
     // longer steps. 2s cadence — slow enough to read, fast enough to
@@ -62,10 +110,21 @@ export const RouteEnhancementChip: React.FC = () => {
     // spinning forever. The normal end event flips `active` and the
     // cleanup clears the timer; ditto on unmount.
     useEffect(() => {
-        if (!active) return;
-        const id = setTimeout(() => setActive(false), 180_000);
+        if (!active || !activeOperation) return;
+        const ownedToken = activeOperation.token;
+        const id = setTimeout(
+            () =>
+                setActiveOperation((current) =>
+                    current?.token.operationId === ownedToken.operationId &&
+                    current.token.scopeKey === ownedToken.scopeKey &&
+                    current.token.generation === ownedToken.generation
+                        ? null
+                        : current,
+                ),
+            180_000,
+        );
         return () => clearTimeout(id);
-    }, [active]);
+    }, [active, activeOperation]);
 
     if (!active) return null;
 

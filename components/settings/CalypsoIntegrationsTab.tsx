@@ -20,10 +20,16 @@ import {
     beginAuthorization,
     clearGmailTokens,
     completeAuthorization,
-    extractAuthCodeFromCallbackUrl,
+    extractAuthCallbackFromUrl,
     getConnectedEmail,
     isGmailConfigured,
 } from '../../services/voice/integrations/gmail';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 import { AlertMonitorService } from '../../services/AlertMonitorService';
 import { CALYPSO_VOICE_PRESETS, DEFAULT_VOICE_PRESET_ID } from '../../services/voice/voicePresets';
 import { speak } from '../../services/voice/ttsClient';
@@ -41,10 +47,16 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
 
     const [gmailConfigured, setGmailConfigured] = useState<boolean | null>(null);
     const [busy, setBusy] = useState(false);
+    const [gmailOperation, setGmailOperation] = useState<'connect' | 'disconnect' | null>(null);
+    const [gmailError, setGmailError] = useState<string | null>(null);
+    const emailOperationInFlight = useRef<string | null>(null);
     /** Tracks whether we're currently mid-OAuth (browser is open, waiting
      *  for redirect). Lets us ignore stray appUrlOpen events that aren't
      *  ours, and lets us re-render the toggle as "Connecting…". */
-    const awaitingCallback = useRef(false);
+    const awaitingCallback = useRef<AuthIdentityScope | null>(null);
+    const releaseEmailOperation = useCallback((scope: AuthIdentityScope) => {
+        if (emailOperationInFlight.current === scope.key) emailOperationInFlight.current = null;
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -56,22 +68,71 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         };
     }, []);
 
-    // Sync the settings.calypsoEmailAccount field with what's actually
-    // stored in the Capacitor Preferences (source of truth for the
-    // OAuth-linked email). Keeps the UI honest if the user revokes
-    // access from Google's side and we lose the tokens silently.
+    // Sync the settings fields with this exact account's local OAuth
+    // envelope. This also turns off stale pre-v2 settings after unowned
+    // legacy credentials are quarantined. Remote Google revocation is only
+    // discovered when a token refresh is attempted.
     useEffect(() => {
         let cancelled = false;
+        const operationScope = getAuthIdentityScope();
         void getConnectedEmail().then((email) => {
-            if (cancelled) return;
-            if (email !== connectedEmail) {
-                onSave({ calypsoEmailAccount: email ?? undefined });
+            if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
+            if (email !== connectedEmail || (!email && emailEnabled)) {
+                onSave({
+                    calypsoEmailAccount: email ?? undefined,
+                    ...(!email && emailEnabled ? { calypsoEmailEnabled: false } : {}),
+                });
             }
         });
         return () => {
             cancelled = true;
         };
-    }, [connectedEmail, onSave]);
+    }, [connectedEmail, emailEnabled, onSave]);
+
+    // Never carry account A's in-progress browser flow or busy state into
+    // account B's settings UI. The service independently rejects the stale
+    // callback; this keeps the caller from mutating B's settings afterward.
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                const wasAwaitingGmail = awaitingCallback.current !== null;
+                awaitingCallback.current = null;
+                emailOperationInFlight.current = null;
+                setBusy(false);
+                setGmailOperation(null);
+                setGmailError(null);
+                if (wasAwaitingGmail) void Browser.close().catch(() => undefined);
+            }),
+        [],
+    );
+
+    // If the skipper closes Google's browser without completing OAuth,
+    // release the operation lock so the toggle can be tried again. The deep
+    // link handler clears awaitingCallback before it closes the browser, so a
+    // successful callback cannot be mistaken for a cancellation here.
+    useEffect(() => {
+        let cancelled = false;
+        let listenerHandle: { remove: () => Promise<void> } | undefined;
+        void Browser.addListener('browserFinished', () => {
+            const operationScope = awaitingCallback.current;
+            if (!operationScope) return;
+            awaitingCallback.current = null;
+            releaseEmailOperation(operationScope);
+            if (!cancelled && isAuthIdentityScopeCurrent(operationScope)) {
+                setBusy(false);
+                setGmailOperation(null);
+            }
+        })
+            .then(async (handle) => {
+                if (cancelled) await handle.remove();
+                else listenerHandle = handle;
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+            if (listenerHandle) void listenerHandle.remove();
+        };
+    }, [releaseEmailOperation]);
 
     /**
      * Register the appUrlOpen listener for the lifetime of this tab.
@@ -85,35 +146,61 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         let cancelled = false;
         const setup = async () => {
             const handle = await App.addListener('appUrlOpen', (event: URLOpenListenerEvent) => {
-                if (!awaitingCallback.current) return;
+                const operationScope = awaitingCallback.current;
+                if (!operationScope) return;
+                if (!isAuthIdentityScopeCurrent(operationScope)) {
+                    awaitingCallback.current = null;
+                    releaseEmailOperation(operationScope);
+                    void Browser.close().catch(() => undefined);
+                    return;
+                }
                 const url = event.url ?? '';
                 if (!url.startsWith('com.googleusercontent.apps.')) return;
-                const code = extractAuthCodeFromCallbackUrl(url);
-                awaitingCallback.current = false;
+                const callback = extractAuthCallbackFromUrl(url);
+                awaitingCallback.current = null;
                 // Close the in-app browser regardless — user has already
                 // returned to our app via the deep link.
                 void Browser.close().catch(() => undefined);
-                if (!code) {
+                if (!callback) {
                     onSave({ calypsoEmailEnabled: false });
+                    releaseEmailOperation(operationScope);
                     setBusy(false);
+                    setGmailOperation(null);
+                    setGmailError('Gmail returned an invalid authorisation response. Please try connecting again.');
                     return;
                 }
-                void completeAuthorization(code).then((email) => {
-                    if (cancelled) return;
-                    if (email) {
-                        onSave({
-                            calypsoEmailEnabled: true,
-                            calypsoEmailAccount: email,
-                        });
-                    } else {
+                void (async () => {
+                    try {
+                        const email = await completeAuthorization(callback.code, callback.state);
+                        if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
+                        if (email) {
+                            setGmailError(null);
+                            onSave({
+                                calypsoEmailEnabled: true,
+                                calypsoEmailAccount: email,
+                            });
+                        } else {
+                            onSave({ calypsoEmailEnabled: false });
+                            setGmailError(
+                                'Gmail authorisation failed. Try again. If it keeps failing, check that the OAuth client ID matches your iOS bundle ID in the Google Cloud console.',
+                            );
+                        }
+                    } catch (error) {
+                        if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
                         onSave({ calypsoEmailEnabled: false });
-
-                        alert(
-                            'Gmail authorisation failed. Try again — if it keeps failing, check that the OAuth client ID matches your iOS bundle ID in the Google Cloud console.',
+                        setGmailError(
+                            `Gmail authorisation failed: ${
+                                error instanceof Error ? error.message : 'unexpected OAuth error'
+                            }`,
                         );
+                    } finally {
+                        releaseEmailOperation(operationScope);
+                        if (!cancelled && isAuthIdentityScopeCurrent(operationScope)) {
+                            setBusy(false);
+                            setGmailOperation(null);
+                        }
                     }
-                    setBusy(false);
-                });
+                })();
             });
             if (cancelled) {
                 await handle.remove();
@@ -126,7 +213,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
             cancelled = true;
             if (listenerHandle) void listenerHandle.remove();
         };
-    }, [onSave]);
+    }, [onSave, releaseEmailOperation]);
 
     const handleAlertsToggle = useCallback(
         (next: boolean) => {
@@ -176,43 +263,73 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
 
     const handleEmailToggle = useCallback(
         async (next: boolean) => {
-            if (busy) return;
+            if (emailOperationInFlight.current !== null) return;
+            const operationScope = getAuthIdentityScope();
+            emailOperationInFlight.current = operationScope.key;
             setBusy(true);
+            setGmailOperation(next ? 'connect' : 'disconnect');
+            setGmailError(null);
             try {
                 if (next) {
                     const url = await beginAuthorization();
+                    if (!isAuthIdentityScopeCurrent(operationScope)) {
+                        releaseEmailOperation(operationScope);
+                        return;
+                    }
                     if (!url) {
                         onSave({ calypsoEmailEnabled: false });
-
-                        alert(
+                        setGmailError(
                             'Gmail integration is not configured. Add VITE_GOOGLE_OAUTH_CLIENT_ID to .env.local — ' +
                                 'see services/voice/integrations/gmail.ts for the Google Cloud setup steps.',
                         );
+                        releaseEmailOperation(operationScope);
                         setBusy(false);
+                        setGmailOperation(null);
                         return;
                     }
-                    awaitingCallback.current = true;
+                    awaitingCallback.current = operationScope;
                     // Open the OAuth consent URL in the in-app browser.
                     // We DON'T flip emailEnabled to true yet — that
                     // happens only after completeAuthorization() succeeds
                     // in the appUrlOpen handler. setBusy(false) likewise
                     // moves into that handler.
                     await Browser.open({ url, presentationStyle: 'popover' });
+                    if (!isAuthIdentityScopeCurrent(operationScope)) {
+                        awaitingCallback.current = null;
+                        releaseEmailOperation(operationScope);
+                        void Browser.close().catch(() => undefined);
+                    }
                 } else {
                     // Toggling OFF → clear stored tokens + email field
-                    await clearGmailTokens();
+                    awaitingCallback.current = null;
+                    const cleared = await clearGmailTokens();
+                    if (!isAuthIdentityScopeCurrent(operationScope)) {
+                        releaseEmailOperation(operationScope);
+                        return;
+                    }
+                    if (!cleared) {
+                        throw new Error('could not clear the account-scoped Gmail credentials');
+                    }
                     onSave({ calypsoEmailEnabled: false, calypsoEmailAccount: undefined });
+                    releaseEmailOperation(operationScope);
                     setBusy(false);
+                    setGmailOperation(null);
                 }
             } catch (err) {
-                awaitingCallback.current = false;
-                onSave({ calypsoEmailEnabled: false });
+                releaseEmailOperation(operationScope);
+                if (!isAuthIdentityScopeCurrent(operationScope)) return;
+                awaitingCallback.current = null;
+                if (next) onSave({ calypsoEmailEnabled: false });
                 setBusy(false);
-
-                alert(`Gmail authorisation failed: ${(err as Error).message}`);
+                setGmailOperation(null);
+                setGmailError(
+                    `${next ? 'Gmail authorisation' : 'Gmail disconnection'} failed: ${
+                        err instanceof Error ? err.message : 'unexpected integration error'
+                    }`,
+                );
             }
         },
-        [busy, onSave],
+        [onSave, releaseEmailOperation],
     );
 
     const handleOpenMusicPage = useCallback(() => {
@@ -417,6 +534,23 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
             </Section>
 
             <Section title="Gmail">
+                {gmailError && (
+                    <div
+                        role="alert"
+                        aria-live="assertive"
+                        className="flex items-start gap-3 border-b border-red-500/15 bg-red-500/[0.08] p-4"
+                    >
+                        <p className="flex-1 text-xs leading-relaxed text-red-200">{gmailError}</p>
+                        <button
+                            type="button"
+                            onClick={() => setGmailError(null)}
+                            aria-label="Dismiss Gmail error"
+                            className="min-h-11 min-w-11 rounded-lg text-lg text-red-200/70 hover:bg-white/5 hover:text-red-100"
+                        >
+                            ×
+                        </button>
+                    </div>
+                )}
                 {!canEmail ? (
                     <Row>
                         <div className="flex-1">
@@ -451,7 +585,9 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                 )}
                                 {busy && (
                                     <div className="text-xs text-sky-400 mt-2">
-                                        Connecting — finish signing in on Google's screen, then return to Thalassa.
+                                        {gmailOperation === 'disconnect'
+                                            ? 'Disconnecting Gmail…'
+                                            : "Connecting — finish signing in on Google's screen, then return to Thalassa."}
                                     </div>
                                 )}
                             </div>

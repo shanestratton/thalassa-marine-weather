@@ -15,6 +15,7 @@ import { ShipLogEntry } from '../types';
 import { exportVoyageAsGPX } from './gpxService';
 
 import { createLogger } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('TrackSharingService');
 
@@ -79,10 +80,36 @@ export interface BrowseFilters {
 
 // Table name
 const SHARED_TRACKS_TABLE = 'shared_tracks';
+const MAX_PAGE_SIZE = 100;
+const TRACK_METADATA_COLUMNS =
+    'id, user_id, voyage_id, title, description, tags, category, region, center_lat, center_lon, distance_nm, point_count, download_count, vessel_draft_m, tide_info, created_at';
+
+function cloneTrack(track: SharedTrack, includeGPX = false): SharedTrack {
+    const cloned = {
+        ...track,
+        tags: Array.isArray(track.tags) ? [...track.tags] : [],
+    };
+    if (!includeGPX) delete cloned.gpx_data;
+    return cloned;
+}
+
+function stripFilterSyntax(value: string): string {
+    return value.trim().slice(0, 120).replace(/[(),]/g, ' ');
+}
 
 // --- SERVICE ---
 
 class TrackSharingServiceClass {
+    private async getOwnerForScope(scope: AuthIdentityScope): Promise<string | null> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        if (error || !isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
+        return scope.userId;
+    }
+
     /**
      * Share a voyage track with the community.
      * Strips personal data (userId, vessel name, exact timestamps).
@@ -93,21 +120,24 @@ class TrackSharingServiceClass {
             return null;
         }
 
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) {
             throw new Error('Must be logged in to share tracks');
         }
 
-        if (entries.length === 0) {
+        const entriesSnapshot = entries.map((entry) => ({ ...entry }));
+        const metadataSnapshot: SharedTrackInput = {
+            ...metadata,
+            tags: [...metadata.tags],
+        };
+        if (entriesSnapshot.length === 0) {
             throw new Error('No entries to share');
         }
 
         // ── Provenance guard: only first-party device tracks can be shared ──
         // Prevents laundering imported GPX or community-downloaded tracks back
         // into the community pool under a different user's name.
-        const nonDeviceEntries = entries.filter((e) => e.source && e.source !== 'device');
+        const nonDeviceEntries = entriesSnapshot.filter((e) => e.source && e.source !== 'device');
         if (nonDeviceEntries.length > 0) {
             const source = nonDeviceEntries[0].source;
             if (source === 'community_download') {
@@ -121,49 +151,63 @@ class TrackSharingServiceClass {
             throw new Error('Cannot share tracks from external sources — only your own recorded voyages can be shared');
         }
 
+        const ownerId = await this.getOwnerForScope(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+        if (!ownerId) {
+            throw new Error('Must be logged in to share tracks');
+        }
+        if (entriesSnapshot.some((entry) => entry.userId !== ownerId)) {
+            throw new Error('Cannot share track entries owned by another account');
+        }
+
         // Generate GPX (uses voyage name, no vessel info for privacy)
-        const gpxData = exportVoyageAsGPX(entries, metadata.title);
+        const gpxData = exportVoyageAsGPX(entriesSnapshot, metadataSnapshot.title);
 
         // Calculate track center (average of all points)
-        const centerLat = entries.reduce((sum, e) => sum + e.latitude, 0) / entries.length;
-        const centerLon = entries.reduce((sum, e) => sum + e.longitude, 0) / entries.length;
+        const centerLat = entriesSnapshot.reduce((sum, e) => sum + e.latitude, 0) / entriesSnapshot.length;
+        const centerLon = entriesSnapshot.reduce((sum, e) => sum + e.longitude, 0) / entriesSnapshot.length;
 
         // Calculate total distance — prefer cumulative, fallback to sum of legs
-        const lastEntry = entries[entries.length - 1];
+        const lastEntry = entriesSnapshot[entriesSnapshot.length - 1];
         let distanceNM = lastEntry.cumulativeDistanceNM || 0;
         if (distanceNM === 0) {
             // Fallback: sum individual distanceNM from each entry
-            distanceNM = entries.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
+            distanceNM = entriesSnapshot.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const trackData: Record<string, any> = {
-            user_id: user.id,
-            voyage_id: entries[0]?.voyageId || null, // Link back to local voyage
-            title: metadata.title,
-            description: metadata.description,
-            tags: metadata.tags,
-            category: metadata.category,
-            region: metadata.region,
+            user_id: ownerId,
+            voyage_id: entriesSnapshot[0]?.voyageId || null, // Link back to local voyage
+            title: metadataSnapshot.title,
+            description: metadataSnapshot.description,
+            tags: metadataSnapshot.tags,
+            category: metadataSnapshot.category,
+            region: metadataSnapshot.region,
             center_lat: centerLat,
             center_lon: centerLon,
             distance_nm: Math.round(distanceNM * 10) / 10,
-            point_count: entries.length,
+            point_count: entriesSnapshot.length,
             download_count: 0,
             gpx_data: gpxData,
         };
 
         // Include vessel draft and tide info if provided
-        if (metadata.vessel_draft_m) trackData.vessel_draft_m = metadata.vessel_draft_m;
-        if (metadata.tide_info) trackData.tide_info = metadata.tide_info;
+        if (metadataSnapshot.vessel_draft_m) trackData.vessel_draft_m = metadataSnapshot.vessel_draft_m;
+        if (metadataSnapshot.tide_info) trackData.tide_info = metadataSnapshot.tide_info;
 
-        const { data, error } = await supabase.from(SHARED_TRACKS_TABLE).insert(trackData).select().single();
+        const { data, error } = await supabase
+            .from(SHARED_TRACKS_TABLE)
+            .insert(trackData)
+            .select(TRACK_METADATA_COLUMNS)
+            .single();
 
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
         if (error) {
             throw new Error(`Failed to share track: ${error.message}`);
         }
 
-        return data as SharedTrack;
+        return data ? cloneTrack(data as SharedTrack) : null;
     }
 
     /**
@@ -175,33 +219,37 @@ class TrackSharingServiceClass {
             return { tracks: [], total: 0 };
         }
 
+        const scope = getAuthIdentityScope();
         const { category, region, search, limit = 20, offset = 0, sortBy = 'created_at', sortOrder = 'desc' } = filters;
+        const safeLimit = Math.max(1, Math.min(MAX_PAGE_SIZE, Math.trunc(limit)));
+        const safeOffset = Math.max(0, Math.trunc(offset));
 
-        // Select all and strip GPX on client side (Supabase untyped table)
-        let query = supabase.from(SHARED_TRACKS_TABLE).select('*', { count: 'exact' });
+        // Never transfer GPX blobs through metadata/listing APIs.
+        let query = supabase.from(SHARED_TRACKS_TABLE).select(TRACK_METADATA_COLUMNS, { count: 'exact' });
 
         // Apply filters
         if (category) {
             query = query.eq('category', category);
         }
         if (region) {
-            query = query.ilike('region', `%${region}%`);
+            query = query.ilike('region', `%${stripFilterSyntax(region)}%`);
         }
         if (search) {
-            query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+            const safeSearch = stripFilterSyntax(search);
+            if (safeSearch) query = query.or(`title.ilike.%${safeSearch}%,description.ilike.%${safeSearch}%`);
         }
 
         // Sort and paginate
-        query = query.order(sortBy, { ascending: sortOrder === 'asc' }).range(offset, offset + limit - 1);
+        query = query.order(sortBy, { ascending: sortOrder === 'asc' }).range(safeOffset, safeOffset + safeLimit - 1);
 
         const { data, error, count } = await query;
 
-        if (error) {
+        if (error || !isAuthIdentityScopeCurrent(scope)) {
             return { tracks: [], total: 0 };
         }
 
         return {
-            tracks: ((data || []) as SharedTrack[]).map(({ gpx_data, ...rest }) => rest as SharedTrack),
+            tracks: ((data || []) as SharedTrack[]).map((track) => cloneTrack(track)),
             total: count || 0,
         };
     }
@@ -217,36 +265,48 @@ class TrackSharingServiceClass {
         if (!isProUser) {
             throw new Error('Pro subscription required to download community tracks');
         }
+        const normalizedTrackId = trackId.trim();
+        if (!normalizedTrackId) return null;
+        const scope = getAuthIdentityScope();
 
         // Fetch track metadata + GPX data
         const { data, error } = await supabase
             .from(SHARED_TRACKS_TABLE)
             .select('gpx_data, user_id')
-            .eq('id', trackId)
+            .eq('id', normalizedTrackId)
             .single();
 
-        if (error || !data) {
+        if (error || !data || !isAuthIdentityScopeCurrent(scope)) {
             return null;
         }
 
         // ── Self-import guard: can't download your own track ──
         const {
             data: { user },
+            error: authError,
         } = await supabase.auth.getUser();
+        if (
+            authError ||
+            !isAuthIdentityScopeCurrent(scope) ||
+            (scope.userId ? user?.id !== scope.userId : Boolean(user))
+        ) {
+            return null;
+        }
         if (user && data.user_id === user.id) {
             throw new Error('Cannot download your own shared track — you already have this data');
         }
 
-        // Increment download counter (fire-and-forget)
-        (async () => {
-            try {
-                await supabase.rpc('increment_download_count', { track_id: trackId });
-            } catch (e) {
-                log.warn('[TrackSharing] Fire-and-forget — counter miss is non-critical:', e);
+        // Count the immutable download target. A counter miss remains
+        // non-critical, but awaiting it lets an account switch fence the result.
+        try {
+            await supabase.rpc('increment_download_count', { track_id: normalizedTrackId });
+        } catch (e) {
+            if (isAuthIdentityScopeCurrent(scope)) {
+                log.warn('[TrackSharing] Counter miss is non-critical:', e);
             }
-        })();
+        }
 
-        return data.gpx_data;
+        return isAuthIdentityScopeCurrent(scope) ? data.gpx_data : null;
     }
 
     /**
@@ -254,15 +314,19 @@ class TrackSharingServiceClass {
      */
     async deleteSharedTrack(trackId: string): Promise<boolean> {
         if (!supabase) return false;
+        const normalizedTrackId = trackId.trim();
+        if (!normalizedTrackId) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getOwnerForScope(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
 
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return false;
+        const { error } = await supabase
+            .from(SHARED_TRACKS_TABLE)
+            .delete()
+            .eq('id', normalizedTrackId)
+            .eq('user_id', ownerId); // RLS also enforces this
 
-        const { error } = await supabase.from(SHARED_TRACKS_TABLE).delete().eq('id', trackId).eq('user_id', user.id); // RLS also enforces this
-
-        if (error) {
+        if (error || !isAuthIdentityScopeCurrent(scope)) {
             return false;
         }
 
@@ -274,40 +338,44 @@ class TrackSharingServiceClass {
      */
     async getMySharedTracks(): Promise<SharedTrack[]> {
         if (!supabase) return [];
-
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getOwnerForScope(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
 
         const { data, error } = await supabase
             .from(SHARED_TRACKS_TABLE)
-            .select('*')
-            .eq('user_id', user.id)
+            .select(TRACK_METADATA_COLUMNS)
+            .eq('user_id', ownerId)
             .order('created_at', { ascending: false });
 
-        if (error) {
+        if (error || !isAuthIdentityScopeCurrent(scope)) {
             return [];
         }
 
         // Strip GPX data from results (not needed for listing)
-        return ((data || []) as SharedTrack[]).map(({ gpx_data, ...rest }) => rest as SharedTrack);
+        return ((data || []) as SharedTrack[]).map((track) => cloneTrack(track));
     }
 
     async getTrackById(trackId: string, includeGPX: boolean = false): Promise<SharedTrack | null> {
         if (!supabase) return null;
+        // Kept for source compatibility. GPX access must go through
+        // downloadTrack so Pro and self-import checks cannot be bypassed.
+        void includeGPX;
+        const normalizedTrackId = trackId.trim();
+        if (!normalizedTrackId) return null;
+        const scope = getAuthIdentityScope();
 
-        const { data, error } = await supabase.from(SHARED_TRACKS_TABLE).select('*').eq('id', trackId).single();
+        const { data, error } = await supabase
+            .from(SHARED_TRACKS_TABLE)
+            .select(TRACK_METADATA_COLUMNS)
+            .eq('id', normalizedTrackId)
+            .single();
 
-        if (error) {
+        if (error || !data || !isAuthIdentityScopeCurrent(scope)) {
             return null;
         }
 
-        const track = data as unknown as SharedTrack;
-        if (!includeGPX) {
-            delete track.gpx_data;
-        }
-        return track;
+        return cloneTrack(data as unknown as SharedTrack);
     }
 
     /**
@@ -316,10 +384,11 @@ class TrackSharingServiceClass {
      */
     async getDistinctRegions(): Promise<string[]> {
         if (!supabase) return [];
+        const scope = getAuthIdentityScope();
 
         const { data, error } = await supabase.from(SHARED_TRACKS_TABLE).select('region');
 
-        if (error || !data) return [];
+        if (error || !data || !isAuthIdentityScopeCurrent(scope)) return [];
 
         // Extract unique non-empty regions, sorted alphabetically
         const regions = new Set<string>();
@@ -337,21 +406,21 @@ class TrackSharingServiceClass {
      * Returns matching shared track(s), or empty array if not shared.
      */
     async getSharedTracksByVoyageId(voyageId: string): Promise<SharedTrack[]> {
-        if (!supabase || !voyageId) return [];
-
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return [];
+        if (!supabase) return [];
+        const normalizedVoyageId = voyageId.trim();
+        if (!normalizedVoyageId) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getOwnerForScope(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
 
         const { data, error } = await supabase
             .from(SHARED_TRACKS_TABLE)
             .select('id, title, created_at, download_count, voyage_id')
-            .eq('user_id', user.id)
-            .eq('voyage_id', voyageId);
+            .eq('user_id', ownerId)
+            .eq('voyage_id', normalizedVoyageId);
 
-        if (error || !data) return [];
-        return data as SharedTrack[];
+        if (error || !data || !isAuthIdentityScopeCurrent(scope)) return [];
+        return (data as SharedTrack[]).map((track) => cloneTrack(track));
     }
 
     /**
@@ -359,20 +428,20 @@ class TrackSharingServiceClass {
      * Used when a user deletes a voyage from their logbook.
      */
     async deleteSharedTracksByVoyageId(voyageId: string): Promise<boolean> {
-        if (!supabase || !voyageId) return false;
-
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return false;
+        if (!supabase) return false;
+        const normalizedVoyageId = voyageId.trim();
+        if (!normalizedVoyageId) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getOwnerForScope(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
 
         const { error } = await supabase
             .from(SHARED_TRACKS_TABLE)
             .delete()
-            .eq('user_id', user.id)
-            .eq('voyage_id', voyageId);
+            .eq('user_id', ownerId)
+            .eq('voyage_id', normalizedVoyageId);
 
-        if (error) {
+        if (error || !isAuthIdentityScopeCurrent(scope)) {
             return false;
         }
         return true;

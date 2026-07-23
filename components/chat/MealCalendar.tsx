@@ -30,6 +30,8 @@ import { CaptainsTable } from './CaptainsTable';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
 import { createLogger } from '../../utils/createLogger';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { SafeImage } from '../ui/SafeImage';
 
 const log = createLogger('MealCalendar');
 
@@ -37,6 +39,8 @@ export interface MealCalendarProps {
     mealDays: MealDayInfo | null;
     crewCount: number;
     voyageId: string | null;
+    /** Authoritative skipper/owner for the selected voyage. */
+    ownerUserId: string | null;
     voyageName: string | null;
     activeMeals: MealPlan[];
     onMealsChanged: () => void;
@@ -51,6 +55,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
     mealDays,
     crewCount,
     voyageId,
+    ownerUserId,
     voyageName,
     activeMeals,
     onMealsChanged,
@@ -103,7 +108,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 ingredients: meal.ingredients,
             };
 
-            await scheduleMeal(galleyMeal, targetDate, meal.meal_slot, voyageId, meal.servings_planned);
+            await scheduleMeal(galleyMeal, targetDate, meal.meal_slot, voyageId, meal.servings_planned, ownerUserId);
 
             // If move, delete original
             if (isMove) {
@@ -115,7 +120,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             onMealsChanged();
             window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
         },
-        [contextMenu, voyageId, onMealsChanged],
+        [contextMenu, voyageId, ownerUserId, onMealsChanged],
     );
 
     // Long-press handlers
@@ -149,10 +154,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         void storesVersion; // reactive dep — re-compute when stores change
         if (!mealDays || activeMeals.length === 0) return [];
 
-        const storesAvail = getStoresAvailability();
+        const storesAvail = getStoresAvailability(voyageId, ownerUserId);
 
         // Build map of quantities already on the shopping list (unpurchased)
-        const shoppingNow = getShoppingList();
+        const shoppingNow = getShoppingList(voyageId, ownerUserId);
         const onListQty = new Map<string, number>();
         for (const zone of shoppingNow.zones) {
             for (const item of zone.items) {
@@ -208,7 +213,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             }
         }
         return out;
-    }, [mealDays, activeMeals, crewCount, storesVersion]);
+    }, [mealDays, activeMeals, crewCount, storesVersion, voyageId, ownerUserId]);
 
     const shortfallCount = shortfalls.length;
     const aggregateShortfallNames = useMemo(() => new Set(shortfalls.map((s) => s.name.toLowerCase())), [shortfalls]);
@@ -224,6 +229,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
 
     const handleAddToShoppingList = useCallback(async () => {
         if (!mealDays || activeMeals.length === 0) return;
+        if (voyageId && !ownerUserId) {
+            log.error('Refusing to add shared provisions without an authoritative voyage owner');
+            return;
+        }
         setProvisioning(true);
         setLastAddedCount(null);
         try {
@@ -236,6 +245,8 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     qty: sf.qty,
                     unit: sf.unit,
                     notes: 'Passage provision',
+                    voyageId,
+                    ownerUserId,
                 });
                 added++;
             }
@@ -249,7 +260,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             log.error('Add to shopping list error:', e);
         }
         setProvisioning(false);
-    }, [mealDays, activeMeals, onShoppingChanged, shortfalls]);
+    }, [mealDays, activeMeals, onShoppingChanged, ownerUserId, shortfalls, voyageId]);
 
     // No dates set — prompt user
     if (!mealDays) {
@@ -520,6 +531,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     slot={slotPicker.slot}
                     crewCount={crewCount}
                     voyageId={voyageId}
+                    ownerUserId={ownerUserId}
                     onScheduled={() => {
                         setSlotPicker(null);
                         onMealsChanged();
@@ -642,9 +654,10 @@ const SlotPicker: React.FC<{
     slot: MealSlot;
     crewCount: number;
     voyageId: string | null;
+    ownerUserId: string | null;
     onScheduled: () => void;
     onClose: () => void;
-}> = ({ date, slot, crewCount, voyageId, onScheduled, onClose }) => {
+}> = ({ date, slot, crewCount, voyageId, ownerUserId, onScheduled, onClose }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [results, setResults] = useState<GalleyMeal[]>([]);
     const [searching, setSearching] = useState(false);
@@ -755,7 +768,7 @@ const SlotPicker: React.FC<{
     const handleSelectRecipe = async (meal: GalleyMeal) => {
         setScheduling(true);
         try {
-            await scheduleMeal(meal, date, slot, voyageId, crewCount);
+            await scheduleMeal(meal, date, slot, voyageId, crewCount, ownerUserId);
             triggerHaptic('medium');
             onScheduled();
         } catch (e) {
@@ -777,7 +790,7 @@ const SlotPicker: React.FC<{
                 sourceUrl: '',
                 ingredients: [],
             };
-            await scheduleMeal(meal, date, slot, voyageId, crewCount);
+            await scheduleMeal(meal, date, slot, voyageId, crewCount, ownerUserId);
             triggerHaptic('medium');
             onScheduled();
         } catch (e) {
@@ -795,8 +808,8 @@ const SlotPicker: React.FC<{
 
     return (
         <>
-            <div
-                className={`fixed inset-0 z-[900] flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}
+            <OverlayPortal
+                className={`flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}
                 onClick={onClose}
                 role="presentation"
             >
@@ -952,7 +965,7 @@ const SlotPicker: React.FC<{
                                 aria-label={`${meal.title} — ${meal.readyInMinutes} minutes, ${meal.ingredients.length} ingredients`}
                             >
                                 {meal.image && !brokenImageIds.has(meal.id) ? (
-                                    <img
+                                    <SafeImage
                                         src={meal.image}
                                         alt=""
                                         className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
@@ -1048,7 +1061,7 @@ const SlotPicker: React.FC<{
                         </div>
                     </div>
                 </div>
-            </div>
+            </OverlayPortal>
 
             {/* Custom Recipe Form Modal */}
             {showRecipeForm && (
@@ -1063,12 +1076,13 @@ const SlotPicker: React.FC<{
 
             {/* Captain's Table — community recipe browser */}
             {showCaptainsTable && (
-                <div
+                <OverlayPortal
+                    layer="nested"
                     ref={recipeLibraryDialogRef}
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="recipe-library-title"
-                    className="fixed inset-0 z-[955] bg-slate-950 flex flex-col"
+                    className="bg-slate-950 flex flex-col"
                 >
                     <div
                         className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
@@ -1092,7 +1106,7 @@ const SlotPicker: React.FC<{
                     <div className="flex-1 overflow-y-auto">
                         <CaptainsTable fullPage />
                     </div>
-                </div>
+                </OverlayPortal>
             )}
         </>
     );

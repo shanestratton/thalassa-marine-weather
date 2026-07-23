@@ -38,7 +38,30 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const CACHE_DIR = process.env.CACHE_DIR || './cache';
 let SUPABASE_URL = process.env.SUPABASE_URL || '';
 let SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
-let OPEN_METEO_API_KEY = process.env.OPEN_METEO_API_KEY || '';
+const proxyConfig = {
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: SUPABASE_ANON_KEY,
+};
+
+// One-time upgrade hygiene: older builds persisted the commercial provider
+// key on the Pi. It is no longer consumed, so remove only that legacy line
+// while preserving every other skipper setting.
+const LEGACY_PROVIDER_ENV = 'OPEN_METEO_API_KEY';
+const legacyProviderLine = new RegExp(`^\\s*${LEGACY_PROVIDER_ENV}\\s*=`);
+try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+        const current = fs.readFileSync(envPath, 'utf8');
+        const lines = current.split(/\r?\n/);
+        if (lines.some((line) => legacyProviderLine.test(line))) {
+            const sanitized = lines.filter((line) => !legacyProviderLine.test(line)).join('\n');
+            fs.writeFileSync(envPath, sanitized.replace(/\n*$/, '\n'));
+        }
+    }
+} catch (err) {
+    console.warn('Could not retire legacy provider credential:', (err as Error).message);
+}
+delete process.env[LEGACY_PROVIDER_ENV];
 
 // ── Bootstrap ──
 
@@ -79,13 +102,13 @@ app.get('/status', (_req, res) => {
 // The skipper never touches a terminal. The app pushes config here.
 
 app.post('/api/configure', (req, res) => {
-    const { supabaseUrl, supabaseAnonKey, openMeteoApiKey, prefetchLat, prefetchLon, prefetchRadius, userId } =
-        req.body || {};
+    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius, userId } = req.body || {};
 
     // Update in-memory values if provided (empty strings = keep existing)
     if (supabaseUrl) SUPABASE_URL = supabaseUrl;
     if (supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
-    if (openMeteoApiKey) OPEN_METEO_API_KEY = openMeteoApiKey;
+    proxyConfig.supabaseUrl = SUPABASE_URL;
+    proxyConfig.supabaseAnonKey = SUPABASE_ANON_KEY;
 
     if (userId) process.env.PREFETCH_USER_ID = String(userId);
 
@@ -104,7 +127,6 @@ app.post('/api/configure', (req, res) => {
     ];
     if (SUPABASE_URL) envLines.push(`SUPABASE_URL=${SUPABASE_URL}`);
     if (SUPABASE_ANON_KEY) envLines.push(`SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}`);
-    if (OPEN_METEO_API_KEY) envLines.push(`OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY}`);
     if (process.env.PREFETCH_USER_ID) envLines.push(`PREFETCH_USER_ID=${process.env.PREFETCH_USER_ID}`);
     if (process.env.PREFETCH_LAT) {
         envLines.push(`PREFETCH_LAT=${process.env.PREFETCH_LAT}`);
@@ -122,11 +144,6 @@ app.post('/api/configure', (req, res) => {
 
     // Restart pre-fetch scheduler with updated config
     stopScheduler();
-    const proxyConfig = {
-        supabaseUrl: SUPABASE_URL,
-        supabaseAnonKey: SUPABASE_ANON_KEY,
-        openMeteoApiKey: OPEN_METEO_API_KEY,
-    };
     startScheduler(cache, proxyConfig);
 
     console.log(
@@ -183,12 +200,6 @@ app.get('/api/passthrough-tile', async (req, res) => {
 });
 
 // ── API Routes (for direct Pi endpoints — used by pre-fetch) ──
-
-const proxyConfig = {
-    supabaseUrl: SUPABASE_URL,
-    supabaseAnonKey: SUPABASE_ANON_KEY,
-    openMeteoApiKey: OPEN_METEO_API_KEY,
-};
 
 app.use('/api/weather', createWeatherRoutes(cache, proxyConfig));
 app.use('/api/tiles', createTileRoutes(cache, proxyConfig));

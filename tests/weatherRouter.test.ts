@@ -40,7 +40,7 @@ function payload(totalDurationHours = 27): SpatiotemporalPayload {
             total_duration_hours: totalDurationHours,
             cost_score: 17,
             computation_ms: 40,
-            routing_mode: 'stitched_spatiotemporal',
+            routing_mode: 'verified_weather_corridor',
             vessel_type: 'power',
             departure_time: '2026-07-23T00:00:00.000Z',
         },
@@ -52,7 +52,15 @@ function payload(totalDurationHours = 27): SpatiotemporalPayload {
                 time_offset_hours: 0,
                 name: 'Brisbane',
                 lateral_offset_nm: 0,
-                conditions: { depth_m: -8, wind_spd_kts: 12, wind_dir_deg: 90, wave_ht_m: 0.8, swell_period_s: 6 },
+                conditions: {
+                    depth_m: -8,
+                    wind_spd_kts: 12,
+                    wind_gust_kts: 16,
+                    wind_dir_deg: 90,
+                    wave_ht_m: 0.8,
+                    wave_dir_deg: 120,
+                    swell_period_s: 6,
+                },
             },
             {
                 coordinates: [153.2, -27.3],
@@ -60,7 +68,15 @@ function payload(totalDurationHours = 27): SpatiotemporalPayload {
                 time_offset_hours: 4,
                 name: '',
                 lateral_offset_nm: 0.2,
-                conditions: { depth_m: -4, wind_spd_kts: 14.4, wind_dir_deg: 100, wave_ht_m: 2, swell_period_s: 7 },
+                conditions: {
+                    depth_m: -4,
+                    wind_spd_kts: 14.4,
+                    wind_gust_kts: 18,
+                    wind_dir_deg: 100,
+                    wave_ht_m: 2,
+                    wave_dir_deg: 130,
+                    swell_period_s: 7,
+                },
             },
             {
                 coordinates: [153.36, -27.14],
@@ -68,16 +84,42 @@ function payload(totalDurationHours = 27): SpatiotemporalPayload {
                 time_offset_hours: totalDurationHours,
                 name: 'Moreton Island',
                 lateral_offset_nm: 0,
-                conditions: { depth_m: -6, wind_spd_kts: 10, wind_dir_deg: 110, wave_ht_m: 1, swell_period_s: 7 },
+                conditions: {
+                    depth_m: -6,
+                    wind_spd_kts: 10,
+                    wind_gust_kts: 14,
+                    wind_dir_deg: 110,
+                    wave_ht_m: 1,
+                    wave_dir_deg: 140,
+                    swell_period_s: 7,
+                },
             },
         ],
         mesh_stats: {
             total_nodes: 120,
-            rows: 3,
-            cols: 40,
+            rows: 24,
+            cols: 5,
             corridor_width_nm: 30,
             weather_grid_points: 80,
             forecast_hours: 48,
+        },
+        weather_sources: {
+            wind: {
+                model: 'Apple WeatherKit forecastHourly',
+                aligned_from: '2026-07-23T00:00:00.000Z',
+                horizon_hours: 48,
+            },
+            waves: {
+                model: 'NOAA WaveWatch III',
+                cycle: '2026072300',
+                valid_from: '2026-07-23T00:00:00.000Z',
+                valid_to: '2026-07-25T00:00:00.000Z',
+            },
+            land_mask: {
+                model: 'GEBCO',
+                max_cell_nm: 1.25,
+                minimum_safe_depth_m: 1 + 1.2 / 3.28084,
+            },
         },
     };
 }
@@ -140,6 +182,7 @@ describe('weatherRouter', () => {
                         cruising_speed_kts: 6,
                         max_wind_kts: 30,
                         max_wave_m: 3,
+                        draft_m: 1.2 / 3.28084,
                         polar_data: null,
                     },
                     corridor_width_nm: 30,
@@ -147,6 +190,38 @@ describe('weatherRouter', () => {
                 }),
             }),
         );
+    });
+
+    it('rejects malformed or oversized route responses instead of merging untrusted conditions', async () => {
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://thalassa.example');
+        vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
+        const malformed = payload(8);
+        malformed.track[1].time_offset_hours = 9;
+        const invalidBounds = payload(8);
+        invalidBounds.bounding_box = [153.04, -27.46, 153.35, -27.15];
+        const invalidSources = payload(8);
+        invalidSources.weather_sources!.waves.valid_to = '2026-07-23T12:00:00.000Z';
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify(malformed), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify(invalidBounds), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify(invalidSources), { status: 200 }))
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify(payload(8)), {
+                    status: 200,
+                    headers: { 'Content-Length': String(5 * 1024 * 1024) },
+                }),
+            );
+        vi.stubGlobal('fetch', fetchMock);
+
+        const centerline = [
+            { lat: -27.47, lon: 153.03 },
+            { lat: -27.14, lon: 153.36 },
+        ];
+        await expect(fetchWeatherRoute(centerline, '2026-07-23T00:00:00.000Z', vessel)).resolves.toBeNull();
+        await expect(fetchWeatherRoute(centerline, '2026-07-23T00:00:00.000Z', vessel)).resolves.toBeNull();
+        await expect(fetchWeatherRoute(centerline, '2026-07-23T00:00:00.000Z', vessel)).resolves.toBeNull();
+        await expect(fetchWeatherRoute(centerline, '2026-07-23T00:00:00.000Z', vessel)).resolves.toBeNull();
     });
 
     it('maps a weather route back to voyage UI fields without replacing either endpoint', () => {
@@ -168,21 +243,11 @@ describe('weatherRouter', () => {
         expect(voyagePlan.waypoints).toEqual([]);
     });
 
-    it('uses a useful local fallback for a direct plan with no named waypoints', async () => {
+    it('does not label a raw centerline with zeroed conditions as a weather route', async () => {
         const enhanced = await enhanceVoyagePlanWithWeather(voyagePlan, vessel, '2026-07-23T00:00:00.000Z');
-        const fallback = getSpatiotemporalPayload(enhanced);
 
-        expect(fallback).toEqual(
-            expect.objectContaining({
-                summary: expect.objectContaining({ routing_mode: 'fallback_centerline', vessel_type: 'power' }),
-                track: expect.arrayContaining([
-                    expect.objectContaining({ name: 'Brisbane', coordinates: [153.03, -27.47] }),
-                    expect.objectContaining({ name: 'Moreton Island', coordinates: [153.36, -27.14] }),
-                ]),
-            }),
-        );
-        expect(enhanced.distanceApprox).toMatch(/NM$/);
-        expect(enhanced.durationApprox).toMatch(/hours$/);
+        expect(enhanced).toBe(voyagePlan);
+        expect(getSpatiotemporalPayload(enhanced)).toBeNull();
     });
 
     it('leaves an unlocatable plan untouched instead of inventing a route', async () => {

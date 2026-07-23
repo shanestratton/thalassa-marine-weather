@@ -4,7 +4,7 @@
  * Wraps existing ChatPage (community) and a new MarketplaceInbox.
  * Segmented control at the top toggles between the two views.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ChatHub');
@@ -18,12 +18,21 @@ import { EmptyState } from './ui/EmptyState';
 import { timeAgo } from './chat/chatUtils';
 import { ChatIcon } from './Icons';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { useAuthStore } from '../stores/authStore';
+import { SafeImage } from './ui/SafeImage';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 // ── Types ──────────────────────────────────────────────────────
 
 type InboxTab = 'community' | 'marketplace';
 
 interface MarketplaceConversation {
+    threadKey: string;
     listing: MarketplaceListing;
     lastMessage: string | null;
     lastMessageAt: string | null;
@@ -31,89 +40,180 @@ interface MarketplaceConversation {
     otherPartyId: string;
 }
 
+interface MarketplaceMessageRow {
+    listing_id: string;
+    sender_id: string;
+    recipient_id: string;
+    content: string | null;
+    created_at: string;
+}
+
+const SAFE_POSTGREST_FILTER_TOKEN = /^[A-Za-z0-9_-]+$/;
+
+function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
+    return (
+        isAuthIdentityScopeCurrent(scope) && scope.userId === ownerId && useAuthStore.getState().user?.id === ownerId
+    );
+}
+
+async function remoteIdentityMatches(scope: AuthIdentityScope, ownerId: string): Promise<boolean> {
+    if (!supabase || !identityIsCurrent(scope, ownerId)) return false;
+    try {
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        return !error && user?.id === ownerId && identityIsCurrent(scope, ownerId);
+    } catch {
+        return false;
+    }
+}
+
 // ── Component ──────────────────────────────────────────────────
 
 export const ChatHub: React.FC = () => {
+    const authUserId = useAuthStore((state) => state.user?.id ?? null);
     const [activeTab, setActiveTab] = useState<InboxTab>('community');
-    const [conversations, setConversations] = useState<MarketplaceConversation[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [openThread, setOpenThread] = useState<{ listing: MarketplaceListing; otherPartyId: string } | null>(null);
+    const [conversationState, setConversationState] = useState<{
+        ownerId: string | null;
+        items: MarketplaceConversation[];
+    }>({ ownerId: authUserId, items: [] });
+    const [loadingState, setLoadingState] = useState<{ ownerId: string | null; loading: boolean }>({
+        ownerId: authUserId,
+        loading: false,
+    });
+    const [openThread, setOpenThread] = useState<{
+        ownerId: string;
+        listing: MarketplaceListing;
+        otherPartyId: string;
+    } | null>(null);
+    const requestVersionRef = useRef(0);
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        const unsubscribeIdentity = subscribeAuthIdentityScope((next) => {
+            requestVersionRef.current += 1;
+            setConversationState({ ownerId: next.userId, items: [] });
+            setLoadingState({ ownerId: next.userId, loading: false });
+            setOpenThread(null);
+        });
+        return () => {
+            mountedRef.current = false;
+            requestVersionRef.current += 1;
+            unsubscribeIdentity();
+        };
+    }, []);
 
     // ── Load marketplace conversations ──
     const loadConversations = useCallback(async () => {
-        if (!supabase) return;
-        setLoading(true);
+        const requestVersion = ++requestVersionRef.current;
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        const requestIsCurrent = () =>
+            mountedRef.current &&
+            requestVersionRef.current === requestVersion &&
+            !!ownerId &&
+            identityIsCurrent(scope, ownerId);
+
+        if (!supabase || !ownerId || !SAFE_POSTGREST_FILTER_TOKEN.test(ownerId) || !requestIsCurrent()) {
+            return;
+        }
+        setLoadingState({ ownerId, loading: true });
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (!user) return;
+            if (!(await remoteIdentityMatches(scope, ownerId)) || !requestIsCurrent()) return;
 
             // Get all marketplace messages grouped by listing
             const { data: threads, error } = await supabase
                 .from('marketplace_messages')
                 .select('listing_id, sender_id, recipient_id, content, created_at')
-                .or(`sender_id.eq.${user.id},recipient_id.eq.${user.id}`)
+                .or(`sender_id.eq.${ownerId},recipient_id.eq.${ownerId}`)
                 .order('created_at', { ascending: false });
 
+            if (!requestIsCurrent()) return;
             if (error || !threads) {
-                setConversations([]);
+                setConversationState({ ownerId, items: [] });
                 return;
             }
 
-            // Group by listing_id, keep latest message per listing
-            const grouped = new Map<string, (typeof threads)[0]>();
-            for (const msg of threads) {
-                if (!grouped.has(msg.listing_id)) {
-                    grouped.set(msg.listing_id, msg);
+            // A seller may negotiate with several buyers on the same item.
+            // Keep one latest message per exact listing/counterparty pair.
+            const grouped = new Map<string, { message: MarketplaceMessageRow; otherPartyId: string }>();
+            for (const msg of threads as MarketplaceMessageRow[]) {
+                if (
+                    !msg.listing_id ||
+                    !msg.sender_id ||
+                    !msg.recipient_id ||
+                    (msg.sender_id !== ownerId && msg.recipient_id !== ownerId)
+                ) {
+                    continue;
+                }
+                const otherPartyId: string = msg.sender_id === ownerId ? msg.recipient_id : msg.sender_id;
+                if (!otherPartyId || otherPartyId === ownerId) continue;
+                const threadKey = `${msg.listing_id}:${otherPartyId}`;
+                if (!grouped.has(threadKey)) {
+                    grouped.set(threadKey, { message: msg, otherPartyId });
                 }
             }
 
             // Fetch listing details in parallel — one round-trip instead of N
-            const fetched = await Promise.all(
-                Array.from(grouped.entries()).map(async ([listingId, lastMsg]) => {
+            const fetched: Array<MarketplaceConversation | null> = await Promise.all(
+                Array.from(grouped.entries()).map(async ([threadKey, { message: lastMsg, otherPartyId }]) => {
                     try {
-                        const listing = await MarketplaceService.getListing(listingId);
-                        if (!listing) return null;
-                        const otherPartyId = lastMsg.sender_id === user.id ? lastMsg.recipient_id : lastMsg.sender_id;
+                        const listing = await MarketplaceService.getListing(lastMsg.listing_id);
+                        if (!listing || !requestIsCurrent()) return null;
                         return {
+                            threadKey,
                             listing,
                             lastMessage: lastMsg.content,
                             lastMessageAt: lastMsg.created_at,
-                            otherPartyName: listing.seller_id === user.id ? 'Buyer' : listing.seller_name || 'Seller',
+                            otherPartyName: listing.seller_id === ownerId ? 'Buyer' : listing.seller_name || 'Seller',
                             otherPartyId,
                         } satisfies MarketplaceConversation;
                     } catch (e) {
-                        log.warn(e);
+                        if (requestIsCurrent()) log.warn(e);
                         return null;
                     }
                 }),
             );
             const convos = fetched.filter((c): c is MarketplaceConversation => c !== null);
 
-            setConversations(convos);
+            if (requestIsCurrent()) setConversationState({ ownerId, items: convos });
         } catch (e) {
-            log.error('Failed to load marketplace conversations:', e);
+            if (requestIsCurrent()) log.error('Failed to load marketplace conversations:', e);
         } finally {
-            setLoading(false);
+            if (requestIsCurrent()) setLoadingState({ ownerId, loading: false });
         }
-    }, []);
+    }, [authUserId]);
 
     useEffect(() => {
-        if (activeTab === 'marketplace') {
-            loadConversations();
+        // Render-time ownership checks below hide the old account immediately;
+        // this reset also releases its rows and open thread from memory.
+        requestVersionRef.current += 1;
+        setConversationState({ ownerId: authUserId, items: [] });
+        setLoadingState({ ownerId: authUserId, loading: false });
+        setOpenThread(null);
+    }, [authUserId]);
+
+    useEffect(() => {
+        if (activeTab === 'marketplace' && authUserId) {
+            void loadConversations();
         }
-    }, [activeTab, loadConversations]);
+    }, [activeTab, authUserId, loadConversations]);
+
+    const conversations = conversationState.ownerId === authUserId ? conversationState.items : [];
+    const loading = !!authUserId && loadingState.ownerId === authUserId && loadingState.loading;
+    const visibleThread = openThread?.ownerId === authUserId ? openThread : null;
 
     // ── If a marketplace thread is open, show it fullscreen ──
-    if (openThread) {
+    if (visibleThread) {
         return (
             <MarketplaceThread
-                listing={openThread.listing}
-                otherPartyId={openThread.otherPartyId}
+                listing={visibleThread.listing}
+                otherPartyId={visibleThread.otherPartyId}
                 onBack={() => {
                     setOpenThread(null);
-                    loadConversations(); // Refresh on return
+                    void loadConversations(); // Refresh on return
                 }}
             />
         );
@@ -216,10 +316,13 @@ export const ChatHub: React.FC = () => {
                                 {conversations.map((convo) => (
                                     <button
                                         aria-label="Open marketplace conversation"
-                                        key={convo.listing.id}
+                                        key={convo.threadKey}
                                         onClick={() => {
-                                            triggerHaptic('light');
+                                            const scope = getAuthIdentityScope();
+                                            if (!authUserId || !identityIsCurrent(scope, authUserId)) return;
+                                            void triggerHaptic('light');
                                             setOpenThread({
+                                                ownerId: authUserId,
                                                 listing: convo.listing,
                                                 otherPartyId: convo.otherPartyId,
                                             });
@@ -229,7 +332,7 @@ export const ChatHub: React.FC = () => {
                                         {/* Item thumbnail */}
                                         <div className="w-14 h-14 rounded-xl bg-white/[0.06] shrink-0 overflow-hidden">
                                             {convo.listing.images?.[0] ? (
-                                                <img
+                                                <SafeImage
                                                     src={convo.listing.images[0]}
                                                     alt=""
                                                     className="w-full h-full object-cover"

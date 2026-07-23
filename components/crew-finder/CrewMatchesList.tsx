@@ -7,6 +7,7 @@
 import React from 'react';
 import { SailorMatch } from '../../services/LonelyHeartsService';
 import { EmptyState } from '../ui/EmptyState';
+import { SafeImage } from '../ui/SafeImage';
 
 interface CompatResult {
     score: number;
@@ -61,7 +62,11 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                 >
                                     <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
                                         {match.avatar_url ? (
-                                            <img src={match.avatar_url} alt="" className="w-full h-full object-cover" />
+                                            <SafeImage
+                                                src={match.avatar_url}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                            />
                                         ) : (
                                             <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
                                                 <span className="text-xl">⛵</span>

@@ -12,6 +12,7 @@
 
 import { PassageLeg } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
+import { authScopedStorageKey } from './authIdentityScope';
 
 const log = createLogger('VoyageLegService');
 
@@ -21,7 +22,7 @@ const LEGS_KEY = 'thalassa_voyage_legs';
 
 function loadLegs(): PassageLeg[] {
     try {
-        const raw = localStorage.getItem(LEGS_KEY);
+        const raw = localStorage.getItem(authScopedStorageKey(LEGS_KEY));
         return raw ? JSON.parse(raw) : [];
     } catch {
         return [];
@@ -30,7 +31,7 @@ function loadLegs(): PassageLeg[] {
 
 function saveLegs(legs: PassageLeg[]): void {
     try {
-        localStorage.setItem(LEGS_KEY, JSON.stringify(legs));
+        localStorage.setItem(authScopedStorageKey(LEGS_KEY), JSON.stringify(legs));
     } catch {
         /* storage full */
     }

@@ -1,12 +1,11 @@
 /**
  * Toast — Global event-based toast notification tests.
  *
- * Tests the toast API (which is synchronous) and basic ToastPortal rendering.
- * We avoid fake timers to prevent interference with the event bus.
+ * Tests the toast API and the portal's full notification lifecycle.
  */
 import React from 'react';
-import { render, screen, act, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, renderHook, screen, act, fireEvent, waitFor } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 
 // Mock the typeScale module
 vi.mock('../styles/typeScale', () => ({
@@ -14,7 +13,14 @@ vi.mock('../styles/typeScale', () => ({
     SIZE: { xs: 12, sm: 14 },
 }));
 
-import { toast, ToastPortal } from '../components/Toast';
+import { toast, ToastPortal, useToast } from '../components/Toast';
+
+afterEach(() => {
+    act(() => {
+        toast.clear();
+    });
+    vi.useRealTimers();
+});
 
 describe('toast API', () => {
     it('toast.success returns a numeric id', () => {
@@ -79,5 +85,77 @@ describe('ToastPortal', () => {
             },
             { timeout: 1000 },
         );
+    });
+
+    it('dismisses an indefinite loading toast by id', () => {
+        render(<ToastPortal />);
+
+        let id = 0;
+        act(() => {
+            id = toast.loading('Plotting route…');
+        });
+        expect(screen.getByText('Plotting route…')).toBeInTheDocument();
+
+        act(() => {
+            toast.dismiss(id);
+        });
+        expect(screen.queryByText('Plotting route…')).not.toBeInTheDocument();
+    });
+
+    it('uses the action label as its accessible name and closes after one activation', () => {
+        vi.useFakeTimers();
+        const onUndo = vi.fn();
+        render(<ToastPortal />);
+
+        act(() => {
+            toast.success('Waypoint removed', { label: 'Undo', onClick: onUndo });
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(onUndo).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        expect(screen.queryByText('Waypoint removed')).not.toBeInTheDocument();
+    });
+
+    it('does not reset an existing toast timer when another toast arrives', () => {
+        vi.useFakeTimers();
+        render(<ToastPortal />);
+
+        act(() => {
+            toast.info('First message', 1000);
+        });
+        act(() => {
+            vi.advanceTimersByTime(500);
+        });
+        act(() => {
+            toast.info('Second message', 3000);
+        });
+        act(() => {
+            vi.advanceTimersByTime(800);
+        });
+
+        expect(screen.queryByText('First message')).not.toBeInTheDocument();
+        expect(screen.getByText('Second message')).toBeInTheDocument();
+    });
+});
+
+describe('useToast compatibility API', () => {
+    it('returns the emitted id and can hide the matching global toast', () => {
+        render(<ToastPortal />);
+        const { result } = renderHook(() => useToast());
+
+        let id = 0;
+        act(() => {
+            id = result.current.showToast('Legacy message');
+        });
+        expect(screen.getByText('Legacy message')).toBeInTheDocument();
+
+        act(() => {
+            result.current.hideToast(id);
+        });
+        expect(screen.queryByText('Legacy message')).not.toBeInTheDocument();
     });
 });

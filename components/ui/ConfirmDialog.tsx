@@ -10,6 +10,7 @@
  */
 import React, { useState, useCallback, useRef } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from './OverlayPortal';
 
 interface ConfirmDialogProps {
     /** Whether the dialog is visible */
@@ -63,8 +64,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         : 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500';
 
     return (
-        <div
-            className="fixed inset-0 z-[1001] flex items-center justify-center p-4"
+        <OverlayPortal
+            className="flex items-center justify-center p-4"
             onClick={onCancel}
             role="dialog"
             aria-modal="true"
@@ -139,6 +140,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

@@ -37,8 +37,8 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
     isActive: boolean,
     options: FocusTrapOptions = {},
-): RefObject<T | null> {
-    const containerRef = useRef<T | null>(null);
+): RefObject<T> {
+    const containerRef = useRef<T>(null);
     const previousFocusRef = useRef<HTMLElement | null>(null);
     const optionsRef = useRef(options);
     optionsRef.current = options;

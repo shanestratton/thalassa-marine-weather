@@ -19,6 +19,7 @@ import { CalypsoKnowledgeTab } from './settings/CalypsoKnowledgeTab';
 import { PiCacheTab } from './settings/PiCacheTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { authScopedStorageKey } from '../services/authIdentityScope';
 
 interface SettingsViewProps {
     settings: UserSettings;
@@ -446,9 +447,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             // shape as the existing `thalassa_settings_return_to`
             // hint used by the back-button logic.
             if (typeof window !== 'undefined') {
-                const deepLink = localStorage.getItem('thalassa_settings_initial_tab') as SettingsTab | null;
+                const deepLinkKey = authScopedStorageKey('thalassa_settings_initial_tab');
+                const deepLink = localStorage.getItem(deepLinkKey) as SettingsTab | null;
                 if (deepLink) {
-                    localStorage.removeItem('thalassa_settings_initial_tab');
+                    localStorage.removeItem(deepLinkKey);
                     return deepLink;
                 }
             }

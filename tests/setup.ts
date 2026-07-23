@@ -31,6 +31,8 @@ vi.mock('@capacitor/filesystem', () => ({
         writeFile: vi.fn().mockResolvedValue({ uri: 'mock://file' }),
         readFile: vi.fn().mockResolvedValue({ data: '' }),
         deleteFile: vi.fn().mockResolvedValue(undefined),
+        rename: vi.fn().mockResolvedValue(undefined),
+        copy: vi.fn().mockResolvedValue({ uri: 'mock://file' }),
         mkdir: vi.fn().mockResolvedValue(undefined),
         readdir: vi.fn().mockResolvedValue({ files: [] }),
         stat: vi.fn().mockResolvedValue({ type: 'file', size: 0, ctime: 0, mtime: 0, uri: '' }),
@@ -106,6 +108,8 @@ const mockSupabaseFrom = vi.fn().mockReturnValue({
 });
 
 vi.mock('../services/supabase', () => ({
+    supabaseUrl: 'https://test.supabase.co',
+    supabaseAnonKey: 'test-anon-key',
     supabase: {
         from: mockSupabaseFrom,
         rpc: vi.fn().mockResolvedValue({ data: null, error: null }),

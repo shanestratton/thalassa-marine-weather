@@ -7,7 +7,7 @@ import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitive
 import { CloudIcon, GearIcon, MapIcon, CompassIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
 import { useThalassa } from '../../context/ThalassaContext';
-import { checkStormglassStatus, isStormglassKeyPresent, getOpenMeteoKey } from '../../services/weather/keys';
+import { checkStormglassStatus, isStormglassKeyPresent } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
 
@@ -23,23 +23,10 @@ const isMapboxConfigured = () => {
     }
 };
 
-const isOpenMeteoConfigured = () => {
-    const key = getOpenMeteoKey();
-    return key && key.length > 5 && !key.includes('YOUR_');
-};
+const isOpenMeteoConfigured = () => isSupabaseConfigured();
 
-const getKeyPreview = (keyName: 'GEMINI' | 'STORMGLASS' | 'MAPBOX') => {
-    let val = '';
-    if (keyName === 'GEMINI') {
-        val =
-            process.env?.API_KEY ||
-            process.env?.GEMINI_API_KEY ||
-            (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY);
-    } else if (keyName === 'STORMGLASS') {
-        val = process.env?.STORMGLASS_API_KEY || (import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY);
-    } else if (keyName === 'MAPBOX') {
-        val = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
-    }
+const getMapboxKeyPreview = () => {
+    const val = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
     if (!val || val.length < 5 || val.includes('YOUR_')) return 'MISSING';
     return `Ends in ...${val.slice(-4)}`;
 };
@@ -323,7 +310,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         isConnected={isGeminiConfigured()}
                         details={isGeminiConfigured() ? 'Via Edge Function' : 'Not configured'}
                     />
-                    <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getKeyPreview('MAPBOX')} />
+                    <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getMapboxKeyPreview()} />
                     <StatusRow
                         label="Supabase"
                         isConnected={isSupabaseConfigured()}
@@ -332,7 +319,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <StatusRow
                         label="Open-Meteo"
                         isConnected={!!isOpenMeteoConfigured()}
-                        details={isOpenMeteoConfigured() ? 'Commercial API' : 'FREE MODE'}
+                        details={isOpenMeteoConfigured() ? 'Via Edge Function' : 'Not configured'}
                     />
                 </div>
             </Section>

@@ -6,6 +6,7 @@
  * Handles everything not covered by AMSA/USCG/Equasis.
  */
 import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const GFW_API_BASE = 'https://gateway.api.globalfishingwatch.org/v3';
 const GFW_API_KEY = Deno.env.get('GFW_API_KEY') ?? '';
@@ -40,7 +41,7 @@ async function queryGfw(mmsi: number): Promise<VesselMetadataRow | null> {
     if (!GFW_API_KEY) return null;
 
     try {
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
             `${GFW_API_BASE}/vessels/search?query=${mmsi}&datasets[0]=public-global-vessel-identity:latest`,
             {
                 headers: {
@@ -48,11 +49,14 @@ async function queryGfw(mmsi: number): Promise<VesselMetadataRow | null> {
                     'User-Agent': 'Thalassa-VesselScraper/1.0',
                 },
             },
+            6_000,
         );
 
         if (!resp.ok) return null;
 
-        const data = (await resp.json()) as {
+        const responseText = await readResponseTextLimited(resp, 1_000_000);
+        if (responseText === null) return null;
+        const data = JSON.parse(responseText) as {
             entries?: Array<{
                 selfReportedInfo?: Array<{
                     shipname?: string;
@@ -103,13 +107,18 @@ async function queryGfw(mmsi: number): Promise<VesselMetadataRow | null> {
 
 async function queryItuMars(mmsi: number): Promise<VesselMetadataRow | null> {
     try {
-        const resp = await fetch(`${ITU_MARS_URL}?is498=true&MmsiNo=${mmsi}`, {
-            headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
-        });
+        const resp = await fetchWithTimeout(
+            `${ITU_MARS_URL}?is498=true&MmsiNo=${mmsi}`,
+            {
+                headers: { 'User-Agent': 'Thalassa-VesselScraper/1.0' },
+            },
+            6_000,
+        );
 
         if (!resp.ok) return null;
 
-        const html = await resp.text();
+        const html = await readResponseTextLimited(resp, 2_000_000);
+        if (html === null) return null;
 
         const extract = (pattern: RegExp): string | undefined => {
             const m = html.match(pattern);

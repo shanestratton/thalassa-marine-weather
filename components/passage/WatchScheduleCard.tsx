@@ -6,13 +6,18 @@
  * before departure.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useLayoutEffect, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { useReadinessSync } from '../../hooks/useReadinessSync';
+import {
+    useReadinessIdentityScope,
+    useReadinessSync,
+    useScopedReadinessStorageState,
+} from '../../hooks/useReadinessSync';
 import { WatchAssignmentService, type WatchAssignment } from '../../services/WatchAssignmentService';
 import { getMyCrew, type CrewMember } from '../../services/CrewService';
 import { WatchAssignSheet } from './WatchAssignSheet';
 import { supabase } from '../../services/supabase';
+import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -30,8 +35,9 @@ interface WatchScheduleCardProps {
     onReviewedChange?: (reviewed: boolean) => void;
 }
 
-/** Default minutes-before for the pre-watch alarm. Stored per-user in
- *  localStorage so the choice persists across voyages. */
+/** Default minutes-before for the pre-watch alarm. This is deliberately a
+ *  device preference (notification ergonomics), so it persists across
+ *  accounts and voyages on this device. */
 const ALARM_LEAD_KEY = 'thalassa_watch_alarm_lead_min';
 const DEFAULT_ALARM_MIN = 15;
 const ALARM_LEAD_OPTIONS = [5, 10, 15, 30] as const;
@@ -154,14 +160,12 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     voyageName,
     onReviewedChange,
 }) => {
-    const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
-    });
+    const identityScope = useReadinessIdentityScope();
+    const [checkedItems, setCheckedItems] = useScopedReadinessStorageState<Record<string, boolean>>(
+        STORAGE_KEY,
+        voyageId,
+        {},
+    );
 
     const { syncCheck } = useReadinessSync(voyageId, 'watch_schedule', checkedItems, setCheckedItems, STORAGE_KEY);
 
@@ -180,22 +184,45 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const [crew, setCrew] = useState<CrewMember[]>([]);
     const [skipperEmail, setSkipperEmail] = useState<string | undefined>(undefined);
     const [assignSheetIndex, setAssignSheetIndex] = useState<number | null>(null);
+    const lifecycleGenerationRef = useRef(0);
+    const assignmentLoadGenerationRef = useRef(0);
+    const assignmentMutationRef = useRef(0);
+
+    useLayoutEffect(() => {
+        lifecycleGenerationRef.current += 1;
+        assignmentLoadGenerationRef.current += 1;
+        assignmentMutationRef.current += 1;
+        setAssignments(new Map());
+        setCrew([]);
+        setSkipperEmail(undefined);
+        setAssignSheetIndex(null);
+    }, [identityScope, voyageId]);
 
     // Load assignments + crew on mount / voyage change
     const reloadAssignments = useCallback(async () => {
+        const operationScope = identityScope;
+        const operationGeneration = lifecycleGenerationRef.current;
+        const loadGeneration = ++assignmentLoadGenerationRef.current;
+        const mutationAtLoadStart = assignmentMutationRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) &&
+            lifecycleGenerationRef.current === operationGeneration &&
+            assignmentLoadGenerationRef.current === loadGeneration &&
+            assignmentMutationRef.current === mutationAtLoadStart;
         if (!voyageId) {
             setAssignments(new Map());
             return;
         }
         try {
             const list = await WatchAssignmentService.list(voyageId);
+            if (!isOperationCurrent()) return;
             const map = new Map<number, WatchAssignment>();
             for (const a of list) map.set(a.watch_index, a);
             setAssignments(map);
         } catch {
             /* non-critical */
         }
-    }, [voyageId]);
+    }, [identityScope, voyageId]);
 
     useEffect(() => {
         if (!voyageId) {
@@ -203,6 +230,10 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             setCrew([]);
             return;
         }
+        const operationScope = identityScope;
+        const operationGeneration = lifecycleGenerationRef.current;
+        const loadGeneration = ++assignmentLoadGenerationRef.current;
+        const mutationAtLoadStart = assignmentMutationRef.current;
         let cancelled = false;
         (async () => {
             try {
@@ -211,12 +242,26 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     getMyCrew(voyageId),
                     supabase ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
                 ]);
-                if (cancelled) return;
-                const map = new Map<number, WatchAssignment>();
-                for (const a of list) map.set(a.watch_index, a);
-                setAssignments(map);
+                if (
+                    cancelled ||
+                    !isAuthIdentityScopeCurrent(operationScope) ||
+                    lifecycleGenerationRef.current !== operationGeneration
+                )
+                    return;
+                if (
+                    assignmentLoadGenerationRef.current === loadGeneration &&
+                    assignmentMutationRef.current === mutationAtLoadStart
+                ) {
+                    const map = new Map<number, WatchAssignment>();
+                    for (const a of list) map.set(a.watch_index, a);
+                    setAssignments(map);
+                }
                 setCrew(myCrew);
-                setSkipperEmail(userResp.data.user?.email ?? undefined);
+                setSkipperEmail(
+                    userResp.data.user?.id === operationScope.userId
+                        ? (userResp.data.user.email ?? undefined)
+                        : undefined,
+                );
             } catch {
                 /* non-critical — UI shows generic placeholders */
             }
@@ -224,7 +269,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [voyageId]);
+    }, [identityScope, voyageId]);
 
     // ── Realtime subscription ──
     // Crew members' clients subscribe to the voyage's watch-schedule
@@ -244,23 +289,47 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     // ("Schedule published to N crew member(s)") that fades out.
     const [publishing, setPublishing] = useState(false);
     const [publishedCount, setPublishedCount] = useState<number | null>(null);
+    const publishToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useLayoutEffect(() => {
+        setPublishing(false);
+        setPublishedCount(null);
+        if (publishToastTimerRef.current) clearTimeout(publishToastTimerRef.current);
+        publishToastTimerRef.current = null;
+    }, [identityScope, voyageId]);
+
+    useEffect(
+        () => () => {
+            lifecycleGenerationRef.current += 1;
+            if (publishToastTimerRef.current) clearTimeout(publishToastTimerRef.current);
+            publishToastTimerRef.current = null;
+        },
+        [],
+    );
 
     const handlePublish = useCallback(async () => {
         if (!voyageId || publishing) return;
+        const operationScope = identityScope;
+        const operationGeneration = lifecycleGenerationRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) && lifecycleGenerationRef.current === operationGeneration;
         setPublishing(true);
         setPublishedCount(null);
         try {
             const count = await WatchAssignmentService.publishToCrew(voyageId, voyageName ?? 'this passage');
+            if (!isOperationCurrent()) return;
             setPublishedCount(count);
             triggerHaptic('medium');
-            // Auto-clear toast after 4s
-            setTimeout(() => setPublishedCount(null), 4000);
+            if (publishToastTimerRef.current) clearTimeout(publishToastTimerRef.current);
+            publishToastTimerRef.current = setTimeout(() => {
+                if (isOperationCurrent()) setPublishedCount(null);
+            }, 4000);
         } catch {
             /* non-critical */
         } finally {
-            setPublishing(false);
+            if (isOperationCurrent()) setPublishing(false);
         }
-    }, [voyageId, voyageName, publishing]);
+    }, [identityScope, voyageId, voyageName, publishing]);
 
     // Count of slots currently assigned (excluding null assignments).
     // Drives the Publish button's enabled state — no point publishing
@@ -299,6 +368,10 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     }, [alarmLeadMin]);
 
     useEffect(() => {
+        const operationScope = identityScope;
+        const operationGeneration = lifecycleGenerationRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) && lifecycleGenerationRef.current === operationGeneration;
         if (!voyageId || !departureTimeIso || !alarmEnabled) {
             setAlarmCount(0);
             return;
@@ -310,9 +383,13 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                 // Request permission first (no-op if already granted).
                 // iOS shows the system prompt only the first time.
                 const granted = await WatchAlarmService.requestPermissions();
-                if (!granted || cancelled) return;
+                if (!granted || cancelled || !isOperationCurrent()) return;
                 const count = await WatchAlarmService.scheduleForVoyage(voyageId, departureTimeIso, alarmLeadMin);
-                if (!cancelled) setAlarmCount(count);
+                if (cancelled || !isOperationCurrent()) {
+                    await WatchAlarmService.cancelForVoyage(voyageId);
+                    return;
+                }
+                setAlarmCount(count);
             } catch {
                 /* non-critical — alarm is a nice-to-have */
             }
@@ -321,7 +398,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             cancelled = true;
         };
         // assignments-as-map dep — rebuild alarms when slots change
-    }, [voyageId, departureTimeIso, alarmEnabled, alarmLeadMin, assignments]);
+    }, [identityScope, voyageId, departureTimeIso, alarmEnabled, alarmLeadMin, assignments]);
 
     // Cancel alarms when component unmounts (e.g., user navigates away
     // from Crew Management) — keeps stale alarms from firing if the
@@ -344,37 +421,48 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const handleAssign = useCallback(
         async (email: string | null, name: string | null) => {
             if (!voyageId || assignSheetIndex == null) return;
+            const operationScope = identityScope;
+            const operationGeneration = lifecycleGenerationRef.current;
+            assignmentLoadGenerationRef.current += 1;
+            const mutationGeneration = ++assignmentMutationRef.current;
+            const isOperationCurrent = () =>
+                isAuthIdentityScopeCurrent(operationScope) &&
+                lifecycleGenerationRef.current === operationGeneration &&
+                assignmentMutationRef.current === mutationGeneration;
+            const operationIndex = assignSheetIndex;
             const slot = schedule.watches[assignSheetIndex];
             if (!slot) return;
 
             if (email == null) {
                 // Clear assignment
-                await WatchAssignmentService.clear(voyageId, assignSheetIndex);
+                await WatchAssignmentService.clear(voyageId, operationIndex);
+                if (!isOperationCurrent()) return;
                 setAssignments((prev) => {
                     const next = new Map(prev);
-                    next.delete(assignSheetIndex);
+                    next.delete(operationIndex);
                     return next;
                 });
             } else {
                 const updated = await WatchAssignmentService.assign(
                     voyageId,
-                    assignSheetIndex,
+                    operationIndex,
                     slot.label,
                     slot.time,
                     email,
                     name,
                 );
-                if (updated) {
+                if (updated && isOperationCurrent()) {
                     setAssignments((prev) => {
                         const next = new Map(prev);
-                        next.set(assignSheetIndex, updated);
+                        next.set(operationIndex, updated);
                         return next;
                     });
                 }
             }
+            if (!isOperationCurrent()) return;
             triggerHaptic('medium');
         },
-        [voyageId, assignSheetIndex, schedule.watches],
+        [identityScope, voyageId, assignSheetIndex, schedule.watches],
     );
 
     // ── Pattern detection + auto-fill ──
@@ -423,30 +511,27 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         return { cycleLength, cycle, remaining: total - contiguous, startFrom: contiguous };
     }, [assignments, schedule.watches.length]);
 
-    // Per-voyage "user dismissed the auto-fill banner" flag — keyed in
-    // localStorage so a refresh doesn't bring it back, and per-voyage so
-    // a new passage gets its own chance.
-    const dismissKey = voyageId ? `thalassa_watch_autofill_dismissed_${voyageId}` : null;
-    const [autofillDismissed, setAutofillDismissed] = useState<boolean>(() => {
-        if (!dismissKey) return false;
-        try {
-            return localStorage.getItem(dismissKey) === '1';
-        } catch {
-            return false;
-        }
-    });
-    useEffect(() => {
-        if (!dismissKey) return;
-        try {
-            setAutofillDismissed(localStorage.getItem(dismissKey) === '1');
-        } catch {
-            setAutofillDismissed(false);
-        }
-    }, [dismissKey]);
+    // Per-account + per-voyage dismissal: a refresh keeps it hidden without
+    // carrying one skipper's choice into another skipper or passage.
+    const [autofillDismissed, setAutofillDismissed] = useScopedReadinessStorageState<boolean>(
+        'thalassa_watch_autofill_dismissed',
+        voyageId,
+        false,
+    );
 
     const [autofilling, setAutofilling] = useState(false);
+    useLayoutEffect(() => setAutofilling(false), [identityScope, voyageId]);
+
     const handleAutofill = useCallback(async () => {
         if (!voyageId || !detectedPattern) return;
+        const operationScope = identityScope;
+        const operationGeneration = lifecycleGenerationRef.current;
+        assignmentLoadGenerationRef.current += 1;
+        const mutationGeneration = ++assignmentMutationRef.current;
+        const isOperationCurrent = () =>
+            isAuthIdentityScopeCurrent(operationScope) &&
+            lifecycleGenerationRef.current === operationGeneration &&
+            assignmentMutationRef.current === mutationGeneration;
         setAutofilling(true);
         try {
             const next = new Map(assignments);
@@ -463,25 +548,20 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     pick.email,
                     pick.name,
                 );
+                if (!isOperationCurrent()) return;
                 if (updated) next.set(i, updated);
             }
+            if (!isOperationCurrent()) return;
             setAssignments(next);
             triggerHaptic('medium');
         } finally {
-            setAutofilling(false);
+            if (isOperationCurrent()) setAutofilling(false);
         }
-    }, [voyageId, detectedPattern, assignments, schedule.watches]);
+    }, [identityScope, voyageId, detectedPattern, assignments, schedule.watches]);
 
     const handleDismissAutofill = useCallback(() => {
-        if (dismissKey) {
-            try {
-                localStorage.setItem(dismissKey, '1');
-            } catch {
-                /* ignore */
-            }
-        }
         setAutofillDismissed(true);
-    }, [dismissKey]);
+    }, [setAutofillDismissed]);
     const allChecked = CHECKLIST_ITEMS.every((item) => checkedItems[item.key]);
     const checkedCount = CHECKLIST_ITEMS.filter((item) => checkedItems[item.key]).length;
 
@@ -489,17 +569,12 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         (key: string) => {
             setCheckedItems((prev) => {
                 const next = { ...prev, [key]: !prev[key] };
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-                } catch {
-                    /* ignore */
-                }
                 syncCheck(key, next[key]);
                 return next;
             });
             triggerHaptic('light');
         },
-        [syncCheck],
+        [setCheckedItems, syncCheck],
     );
 
     useEffect(() => {

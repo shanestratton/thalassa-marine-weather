@@ -42,6 +42,13 @@ import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
 import { Capacitor } from '@capacitor/core';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 export const RoutePlanner: React.FC<{
     onTriggerUpgrade: () => void;
@@ -212,6 +219,7 @@ export const RoutePlanner: React.FC<{
         kind: 'voyage' | 'saved';
         loading: boolean;
         items: Array<{ key: string; title: string; sub: string; go: () => void }>;
+        scope: AuthIdentityScope;
     }>(null);
     const routePickerRequestRef = useRef(0);
     const routePickerCloseRef = useRef<HTMLButtonElement>(null);
@@ -223,13 +231,26 @@ export const RoutePlanner: React.FC<{
         initialFocusRef: routePickerCloseRef,
         onEscape: closeRoutePicker,
     });
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                routePickerRequestRef.current += 1;
+                setRoutePicker(null);
+            }),
+        [],
+    );
     const openRoutePicker = useCallback(
         async (kind: 'voyage' | 'saved') => {
+            const pickerScope = getAuthIdentityScope();
+            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
             const requestId = ++routePickerRequestRef.current;
-            setRoutePicker({ kind, loading: true, items: [] });
+            setRoutePicker({ kind, loading: true, items: [], scope: pickerScope });
             try {
                 if (kind === 'saved') {
                     const { loadSavedTraces } = await import('../services/routeTracer');
+                    if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
+                        return;
+                    }
                     const items = loadSavedTraces().map((t) => ({
                         key: t.id,
                         title: t.name,
@@ -238,31 +259,45 @@ export const RoutePlanner: React.FC<{
                             { day: 'numeric', month: 'short' },
                         )}`,
                         go: () => {
-                            requestTracerOpen({ kind: 'load-saved', id: t.id });
+                            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
+                            requestTracerOpen({ kind: 'load-saved', id: t.id }, pickerScope);
+                            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
                             setPage('map');
                         },
                     }));
-                    if (requestId !== routePickerRequestRef.current) return;
-                    setRoutePicker({ kind, loading: false, items });
+                    if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
+                        return;
+                    }
+                    setRoutePicker({ kind, loading: false, items, scope: pickerScope });
                 } else {
                     const { fetchSeaVoyageChoices } = await import('../services/shiplog/RoutesAndTracks');
+                    if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
+                        return;
+                    }
                     const choices = await fetchSeaVoyageChoices(8);
+                    if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
+                        return;
+                    }
                     const items = choices.map((c) => ({
                         key: c.voyageId,
                         title: c.label,
                         sub: c.sublabel,
                         go: () => {
-                            requestTracerOpen({ kind: 'load-voyage', choice: c });
+                            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
+                            requestTracerOpen({ kind: 'load-voyage', choice: c }, pickerScope);
+                            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
                             setPage('map');
                         },
                     }));
-                    if (requestId !== routePickerRequestRef.current) return;
-                    setRoutePicker({ kind, loading: false, items });
+                    if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
+                        return;
+                    }
+                    setRoutePicker({ kind, loading: false, items, scope: pickerScope });
                 }
             } catch (err) {
                 log.warn(`route picker load failed: ${err instanceof Error ? err.message : String(err)}`);
-                if (requestId !== routePickerRequestRef.current) return;
-                setRoutePicker({ kind, loading: false, items: [] });
+                if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) return;
+                setRoutePicker({ kind, loading: false, items: [], scope: pickerScope });
             }
         },
         [setPage],
@@ -326,6 +361,7 @@ export const RoutePlanner: React.FC<{
                 };
             }
             log.info('[AutoNav] Route calculated, switching to main map', { departureName, arrivalName });
+            const operationScope = getAuthIdentityScope();
             setPage('map');
             // requestPassageMode records a STICKY pending request as well as
             // dispatching the event — a MapHub whose lazy chunk is still
@@ -334,7 +370,7 @@ export const RoutePlanner: React.FC<{
             // 2026-07-09). The 300 ms delay stays for already-mounted maps
             // so the page transition starts before the compute kicks off.
             setTimeout(() => {
-                requestPassageMode(detail);
+                requestPassageMode(detail, operationScope);
             }, 300);
         }
         prevVoyagePlanRef.current = voyagePlan;
@@ -806,11 +842,12 @@ export const RoutePlanner: React.FC<{
                                             };
                                         }
                                         log.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
+                                        const operationScope = getAuthIdentityScope();
                                         setPage('map');
                                         // Sticky request — survives the map view's lazy mount
                                         // (see AutoNav above / services/passageHandoff).
                                         setTimeout(() => {
-                                            requestPassageMode(detail);
+                                            requestPassageMode(detail, operationScope);
                                         }, 200);
                                     }}
                                     className="ml-auto p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 transition-all"
@@ -882,7 +919,10 @@ export const RoutePlanner: React.FC<{
                                             // activeTab initialiser reads this key and
                                             // clears it on mount.
                                             try {
-                                                localStorage.setItem('thalassa_settings_initial_tab', 'vessel');
+                                                localStorage.setItem(
+                                                    authScopedStorageKey('thalassa_settings_initial_tab'),
+                                                    'vessel',
+                                                );
                                             } catch {
                                                 /* private-mode / quota — fall through */
                                             }
@@ -956,6 +996,7 @@ export const RoutePlanner: React.FC<{
 
             {/* ─── Route picker (front-door modal): tap a route → chart ─── */}
             {routePicker &&
+                isAuthIdentityScopeCurrent(routePicker.scope) &&
                 createPortal(
                     // CENTRED, not a bottom sheet (Shane 2026-07-19: "saved routes
                     // and from a past voyage both need to be modal screens centred

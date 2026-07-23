@@ -8,9 +8,9 @@
  * safety equipment, and passage plan communication.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -80,14 +80,11 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
     onAcknowledgedChange,
     allOtherCardsReady,
 }) => {
-    const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
-    });
+    const [checkedItems, setCheckedItems] = useScopedReadinessStorageState<Record<string, boolean>>(
+        STORAGE_KEY,
+        voyageId,
+        {},
+    );
 
     const { syncCheck } = useReadinessSync(voyageId, 'aid_to_navigation', checkedItems, setCheckedItems, STORAGE_KEY);
 
@@ -99,17 +96,12 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
         (key: string) => {
             setCheckedItems((prev) => {
                 const next = { ...prev, [key]: !prev[key] };
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-                } catch {
-                    /* ignore */
-                }
                 syncCheck(key, next[key]);
                 return next;
             });
             triggerHaptic('light');
         },
-        [syncCheck],
+        [setCheckedItems, syncCheck],
     );
 
     useEffect(() => {

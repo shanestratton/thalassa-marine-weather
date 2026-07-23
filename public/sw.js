@@ -519,12 +519,17 @@
 // the pinned hero.
 // v196: authenticated requests bypass CacheStorage and the data cache rotates
 // so previously cached user-scoped Edge responses are removed on activation.
-const CACHE_NAME = 'thalassa-v196-core';
+// v197: install only stable app-shell URLs. Vite fingerprints index.css and
+// manifest.json into /assets, so pre-caching their source paths either failed
+// SW installation or cached an HTML fallback under the wrong URL.
+const CACHE_NAME = 'thalassa-v197-core';
 const TILE_CACHE = 'thalassa-v195-tiles';
 const DATA_CACHE = 'thalassa-v196-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
-const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
+const ASSETS = ['/', '/index.html'];
+
+const isHostOrSubdomain = (hostname, domain) => hostname === domain || hostname.endsWith(`.${domain}`);
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
@@ -553,6 +558,7 @@ self.addEventListener('fetch', (event) => {
     // POST responses (Edge Functions, auth, AI) must never be replayed across
     // users or request bodies.
     if (event.request.method !== 'GET') return;
+    if (event.request.headers.has('authorization')) return;
 
     // ── DEV MODE BYPASS ──
     // On localhost, let ALL requests pass through to Vite dev server directly.
@@ -579,7 +585,11 @@ self.addEventListener('fetch', (event) => {
                     const fetchPromise = fetch(event.request)
                         .then((networkResponse) => {
                             if (networkResponse.ok) {
-                                cache.put(event.request, networkResponse.clone());
+                                event.waitUntil(
+                                    cache
+                                        .put(event.request, networkResponse.clone())
+                                        .catch((error) => console.warn('[SW] LAN tile cache write failed', error)),
+                                );
                             }
                             return networkResponse;
                         })
@@ -596,16 +606,20 @@ self.addEventListener('fetch', (event) => {
         );
         // Prune LAN tile cache every ~100 requests (max 2000 tiles ≈ 50–100 MB)
         if (Math.random() < 0.01) {
-            caches.open(LAN_TILE_CACHE).then((cache) => {
-                cache.keys().then((keys) => {
-                    if (keys.length > 2000) {
-                        const excess = keys.length - 2000;
-                        for (let i = 0; i < excess; i++) {
-                            cache.delete(keys[i]);
+            event.waitUntil(
+                caches
+                    .open(LAN_TILE_CACHE)
+                    .then(async (cache) => {
+                        const keys = await cache.keys();
+                        if (keys.length > 2000) {
+                            const excess = keys.length - 2000;
+                            await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
                         }
-                    }
-                });
-            });
+                    })
+                    .catch((error) => {
+                        console.warn('[SW] LAN tile cache prune failed', error);
+                    }),
+            );
         }
         return;
     }
@@ -613,10 +627,10 @@ self.addEventListener('fetch', (event) => {
     // 1. CHART TILES - CACHE FIRST (The Offline "Holy Grail")
     // We want tiles to stick around for a long time (e.g., 30 days) to support offshore usage.
     if (
-        url.hostname.includes('cartocdn.com') ||
-        url.hostname.includes('openstreetmap.org') ||
-        url.hostname.includes('openseamap.org') ||
-        url.hostname.includes('mapbox.com')
+        isHostOrSubdomain(url.hostname, 'cartocdn.com') ||
+        isHostOrSubdomain(url.hostname, 'openstreetmap.org') ||
+        isHostOrSubdomain(url.hostname, 'openseamap.org') ||
+        isHostOrSubdomain(url.hostname, 'mapbox.com')
     ) {
         event.respondWith(
             caches.open(TILE_CACHE).then((cache) => {
@@ -630,7 +644,11 @@ self.addEventListener('fetch', (event) => {
                         .then((networkResponse) => {
                             // Only cache valid responses
                             if (networkResponse.ok) {
-                                cache.put(event.request, networkResponse.clone());
+                                event.waitUntil(
+                                    cache
+                                        .put(event.request, networkResponse.clone())
+                                        .catch((error) => console.warn('[SW] chart tile cache write failed', error)),
+                                );
                             }
                             return networkResponse;
                         })
@@ -648,29 +666,32 @@ self.addEventListener('fetch', (event) => {
     // Covers public, credential-free weather APIs only. Supabase responses are
     // deliberately excluded because many are user-scoped or signed.
     if (
-        url.hostname.includes('open-meteo.com') ||
-        url.hostname.includes('stormglass.io') ||
-        url.hostname.includes('nomads.ncep.noaa.gov') ||
-        url.hostname.includes('gebco.net')
+        isHostOrSubdomain(url.hostname, 'open-meteo.com') ||
+        isHostOrSubdomain(url.hostname, 'stormglass.io') ||
+        isHostOrSubdomain(url.hostname, 'nomads.ncep.noaa.gov') ||
+        isHostOrSubdomain(url.hostname, 'gebco.net')
     ) {
         event.respondWith(
             fetch(event.request)
                 .then((response) => {
                     if (response.ok) {
                         const clone = response.clone();
-                        caches.open(DATA_CACHE).then((cache) => {
-                            cache.put(event.request, clone);
-                            // Prune data cache to max 50 entries (prevent unbounded growth)
-                            cache.keys().then((keys) => {
-                                if (keys.length > 50) {
-                                    // Remove oldest entries (first in = oldest)
-                                    const excess = keys.length - 50;
-                                    for (let i = 0; i < excess; i++) {
-                                        cache.delete(keys[i]);
+                        event.waitUntil(
+                            caches
+                                .open(DATA_CACHE)
+                                .then(async (cache) => {
+                                    await cache.put(event.request, clone);
+                                    // Prune data cache to max 50 entries (prevent unbounded growth)
+                                    const keys = await cache.keys();
+                                    if (keys.length > 50) {
+                                        const excess = keys.length - 50;
+                                        await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
                                     }
-                                }
-                            });
-                        });
+                                })
+                                .catch((error) => {
+                                    console.warn('[SW] public data cache write failed', error);
+                                }),
+                        );
                     }
                     return response;
                 })

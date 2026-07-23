@@ -39,23 +39,48 @@ import { CATEGORIES, TRIGGER_LABELS } from './maintenance/constants';
 import { ServiceLogSheet } from './maintenance/ServiceLogSheet';
 import { TaskFormModal } from './maintenance/TaskFormModal';
 import { SwipeableTaskCard, LIGHT_COLORS, PERIOD_DAYS } from './maintenance/SwipeableTaskCard';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
 
 interface MaintenanceHubProps {
     onBack: () => void;
+}
+
+interface ScopedMaintenanceTasks {
+    identity: AuthIdentityScope;
+    tasks: MaintenanceTask[];
+}
+
+interface ScopedMaintenanceHistory {
+    identity: AuthIdentityScope;
+    items: MaintenanceHistory[];
 }
 
 // ── Category config + SwipeableTaskCard — now in ./maintenance/ ──
 
 export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── State ──
-    const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
+    const [taskData, setTaskData] = useState<ScopedMaintenanceTasks>(() => ({
+        identity: getAuthIdentityScope(),
+        tasks: [],
+    }));
+    const taskDataIsCurrent = isAuthIdentityScopeCurrent(taskData.identity);
+    const tasks = useMemo(() => (taskDataIsCurrent ? taskData.tasks : []), [taskData.tasks, taskDataIsCurrent]);
     const [engineHours, setEngineHours] = useState<number>(0);
     const [engineHoursInput, setEngineHoursInput] = useState<string>('0');
     const [isEditingHours, setIsEditingHours] = useState(false);
+    const [engineHoursEditIdentity, setEngineHoursEditIdentity] = useState<AuthIdentityScope | null>(null);
     const [loading, setLoading] = useState(true);
 
     // Log Service sheet
-    const [sheetTask, setSheetTask] = useState<TaskWithStatus | null>(null);
+    const [sheetTask, setSheetTask] = useState<{ identity: AuthIdentityScope; task: TaskWithStatus } | null>(null);
     const [sheetNotes, setSheetNotes] = useState('');
     const [sheetSaving, setSheetSaving] = useState(false);
 
@@ -70,36 +95,54 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         populate: populateForm,
     } = useMaintenanceForm();
     const [showAddForm, setShowAddForm] = useState(false);
+    const [addFormIdentity, setAddFormIdentity] = useState<AuthIdentityScope | null>(null);
 
     // History
-    const [historyItems, setHistoryItems] = useState<MaintenanceHistory[]>([]);
+    const [historyData, setHistoryData] = useState<ScopedMaintenanceHistory>(() => ({
+        identity: getAuthIdentityScope(),
+        items: [],
+    }));
+    const historyItems = isAuthIdentityScopeCurrent(historyData.identity) ? historyData.items : [];
     const [showHistory, setShowHistory] = useState(false);
 
     // Edit task
     const [showEditForm, setShowEditForm] = useState(false);
-    const [editTask, setEditTask] = useState<TaskWithStatus | null>(null);
+    const [editTask, setEditTask] = useState<{ identity: AuthIdentityScope; task: TaskWithStatus } | null>(null);
 
     // Export
     const [showExportModal, setShowExportModal] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [exporting, setExporting] = useState(false);
+    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || 'Vessel');
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
+    const loadRequestRef = useRef(0);
     const { ref: listRef, flash } = useSuccessFlash();
 
     // ── Load ──
-    const loadTasks = useCallback(async () => {
+    const loadTasks = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope()) => {
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        const requestId = ++loadRequestRef.current;
+        const isCurrentRequest = () => requestId === loadRequestRef.current && isAuthIdentityScopeCurrent(identity);
         try {
             setLoading(true);
+            // Join the exact account file switch before LocalMaintenanceService
+            // performs its synchronous cache read.
+            await initLocalDatabase(identity.userId);
+            if (!isCurrentRequest()) return;
             const data = await MaintenanceService.getTasks();
+            if (!isCurrentRequest()) return;
 
             // Auto-seed defaults for first-time users
-            if (data.length === 0 && !localStorage.getItem('thalassa_maintenance_seeded')) {
+            const seedKey = authScopedStorageKey('thalassa_maintenance_seeded', identity);
+            if (data.length === 0 && !localStorage.getItem(seedKey)) {
                 try {
                     await MaintenanceService.seedDefaults();
-                    localStorage.setItem('thalassa_maintenance_seeded', '1');
+                    if (!isCurrentRequest()) return;
+                    localStorage.setItem(seedKey, '1');
                     const seeded = await MaintenanceService.getTasks();
-                    setTasks(seeded);
+                    if (!isCurrentRequest()) return;
+                    setTaskData({ identity, tasks: seeded });
                     toast.success('40 suggested tasks added — customise to suit your vessel');
                     return;
                 } catch (seedErr) {
@@ -108,23 +151,26 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 }
             }
 
-            setTasks(data);
+            if (isCurrentRequest()) setTaskData({ identity, tasks: data });
         } catch (e) {
             log.error('Failed to load tasks:', e);
-            toast.error('Failed to load maintenance tasks');
+            if (isCurrentRequest()) toast.error('Failed to load maintenance tasks');
         } finally {
-            setLoading(false);
+            if (isCurrentRequest()) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        loadTasks();
+        const identity = getAuthIdentityScope();
+        void loadTasks(identity);
         // Load saved engine hours from localStorage
-        const saved = localStorage.getItem('thalassa_engine_hours');
+        const saved = localStorage.getItem(authScopedStorageKey('thalassa_engine_hours', identity));
         if (saved) {
             const hrs = parseInt(saved, 10);
-            setEngineHours(hrs);
-            setEngineHoursInput(hrs.toLocaleString());
+            if (Number.isFinite(hrs) && hrs >= 0 && isAuthIdentityScopeCurrent(identity)) {
+                setEngineHours(hrs);
+                setEngineHoursInput(hrs.toLocaleString());
+            }
         }
     }, [loadTasks]);
 
@@ -133,16 +179,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // ── Engine Hours ──
     const saveEngineHours = useCallback(() => {
+        const identity = engineHoursEditIdentity;
+        if (!identity || !isAuthIdentityScopeCurrent(identity)) return;
         const parsed = parseInt(engineHoursInput.replace(/,/g, ''), 10);
         if (!isNaN(parsed) && parsed >= 0) {
             setEngineHours(parsed);
             setEngineHoursInput(parsed.toLocaleString());
-            localStorage.setItem('thalassa_engine_hours', String(parsed));
+            localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', identity), String(parsed));
         } else {
             setEngineHoursInput(engineHours.toLocaleString());
         }
         setIsEditingHours(false);
-    }, [engineHoursInput, engineHours]);
+        setEngineHoursEditIdentity(null);
+    }, [engineHoursInput, engineHours, engineHoursEditIdentity]);
 
     // Category display order: Repair first, then rest
     const CATEGORY_ORDER: MaintenanceCategory[] = ['Repair', 'Engine', 'Safety', 'Hull', 'Rigging', 'Routine'];
@@ -183,20 +232,27 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── Log Service ──
     const handleLogService = useCallback(async () => {
         if (!sheetTask) return;
+        const { identity, task } = sheetTask;
+        const taskId = task.id;
+        const hoursSnapshot = engineHours || null;
+        const notesSnapshot = sheetNotes.trim() || null;
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         setSheetSaving(true);
         try {
             triggerHaptic('medium');
-            await MaintenanceService.logService(sheetTask.id, engineHours || null, sheetNotes.trim() || null, null);
+            await MaintenanceService.logService(taskId, hoursSnapshot, notesSnapshot, null);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             setSheetTask(null);
             setSheetNotes('');
-            await loadTasks(); // Refresh list
+            await loadTasks(identity); // Refresh list
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             toast.success('Service logged');
             flash();
         } catch (e) {
             log.error('Failed to log service:', e);
-            toast.error('Failed to log service');
+            if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to log service');
         } finally {
-            setSheetSaving(false);
+            if (isAuthIdentityScopeCurrent(identity)) setSheetSaving(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sheetTask, engineHours, sheetNotes, loadTasks]);
@@ -204,6 +260,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── Add Task ──
     const handleAddTask = useCallback(async () => {
         if (!form.title.trim()) return;
+        const identity = addFormIdentity;
+        if (!identity || !isAuthIdentityScopeCurrent(identity)) return;
         try {
             triggerHaptic('medium');
 
@@ -239,66 +297,120 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 last_completed: null,
                 is_active: true,
             });
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowAddForm(false);
+            setAddFormIdentity(null);
+            resetForm();
+            await loadTasks(identity);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             toast.success('Task created');
             flash();
-            resetForm();
-            await loadTasks();
         } catch (e) {
             log.error('Failed to create task:', e);
-            toast.error('Failed to create task');
+            if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to create task');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [form, resetForm, loadTasks]);
+    }, [form, resetForm, loadTasks, addFormIdentity]);
 
     // ── Load History ──
-    const loadHistory = useCallback(async (taskId: string) => {
+    const loadHistory = useCallback(async (taskId: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
             const h = await MaintenanceService.getHistory(taskId);
-            setHistoryItems(h);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            setHistoryData({ identity, items: h });
             setShowHistory(true);
         } catch (e) {
             log.error('Failed to load history:', e);
             // The History sheet just wouldn't open with no explanation.
-            toast.error('Could not load service history — try again.');
+            if (isAuthIdentityScopeCurrent(identity)) {
+                toast.error('Could not load service history — try again.');
+            }
         }
     }, []);
 
     // ── Export PDF ──
     const handleExport = useCallback(
-        async (type: 'checklist' | 'history') => {
+        async (type: 'checklist' | 'history', identity: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            const engineHoursSnapshot = engineHours;
+            const vesselNameSnapshot = vesselName;
             setExporting(true);
             try {
                 triggerHaptic('medium');
-                const vesselName = localStorage.getItem('thalassa_vessel_name') || 'Vessel';
                 if (type === 'checklist') {
-                    await exportChecklist(engineHours, vesselName);
+                    await exportChecklist(engineHoursSnapshot, vesselNameSnapshot);
                 } else {
-                    await exportServiceHistory(vesselName);
+                    await exportServiceHistory(vesselNameSnapshot);
                 }
+                if (!isAuthIdentityScopeCurrent(identity)) return;
                 setShowExportModal(false);
             } catch (e) {
                 log.error('Failed to export PDF:', e);
-                toast.error('PDF export failed');
+                if (isAuthIdentityScopeCurrent(identity)) toast.error('PDF export failed');
             } finally {
-                setExporting(false);
+                if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
         },
-        [engineHours],
+        [engineHours, vesselName],
     );
 
-    const [deletedTask, setDeletedTask] = useState<MaintenanceTask | null>(null);
+    const [deletedTask, setDeletedTask] = useState<{
+        identity: AuthIdentityScope;
+        task: MaintenanceTask;
+    } | null>(null);
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope((next) => {
+                setTaskData({ identity: next, tasks: [] });
+                setHistoryData({ identity: next, items: [] });
+                setEngineHours(0);
+                setEngineHoursInput('0');
+                setIsEditingHours(false);
+                setEngineHoursEditIdentity(null);
+                setLoading(true);
+                setSheetTask(null);
+                setSheetNotes('');
+                setSheetSaving(false);
+                resetForm();
+                setShowAddForm(false);
+                setAddFormIdentity(null);
+                setShowHistory(false);
+                setShowEditForm(false);
+                setEditTask(null);
+                setShowExportModal(false);
+                setMenuOpen(false);
+                setExporting(false);
+                setDeletedTask(null);
+
+                const saved = localStorage.getItem(authScopedStorageKey('thalassa_engine_hours', next));
+                if (saved) {
+                    const hours = parseInt(saved, 10);
+                    if (Number.isFinite(hours) && hours >= 0) {
+                        setEngineHours(hours);
+                        setEngineHoursInput(hours.toLocaleString());
+                    }
+                }
+                void loadTasks(next);
+            }),
+        [loadTasks, resetForm],
+    );
 
     // ── Soft-delete with undo ──
     const handleDeleteTask = useCallback(
-        (taskId: string) => {
+        (taskId: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
             const task = tasks.find((t) => t.id === taskId);
-            if (!task) return;
+            if (!task || !isAuthIdentityScopeCurrent(identity)) return;
             triggerHaptic('medium');
             // Remove from UI immediately
-            setTasks((prev) => prev.filter((t) => t.id !== taskId));
+            setTaskData((previous) =>
+                previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                    ? { ...previous, tasks: previous.tasks.filter((candidate) => candidate.id !== taskId) }
+                    : previous,
+            );
             setSheetTask(null);
-            setDeletedTask(task);
+            setDeletedTask({ identity, task });
         },
         [tasks],
     );
@@ -306,20 +418,32 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // Called by UndoToast after 5s — performs the actual API delete
     const handleDismissDelete = useCallback(async () => {
         if (!deletedTask) return;
-        const task = deletedTask;
+        const { identity, task } = deletedTask;
         setDeletedTask(null);
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
             await MaintenanceService.deleteTask(task.id);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
         } catch (e) {
             log.warn(' delete failed:', e);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             toast.error('Failed to delete task');
-            setTasks((prev) => [...prev, task]);
+            setTaskData((previous) =>
+                previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                    ? { ...previous, tasks: [...previous.tasks, task] }
+                    : previous,
+            );
         }
     }, [deletedTask]);
 
     const handleUndoDelete = useCallback(() => {
-        if (deletedTask) {
-            setTasks((prev) => [...prev, deletedTask]);
+        if (deletedTask && isAuthIdentityScopeCurrent(deletedTask.identity)) {
+            const { identity, task } = deletedTask;
+            setTaskData((previous) =>
+                previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                    ? { ...previous, tasks: [...previous.tasks, task] }
+                    : previous,
+            );
             toast.success('Task restored');
         }
         setDeletedTask(null);
@@ -327,8 +451,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // ── Edit Task ──
     const openEditForm = useCallback(
-        (task: TaskWithStatus) => {
-            setEditTask(task);
+        (task: TaskWithStatus, identity: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            setEditTask({ identity, task });
             populateForm({
                 title: task.title,
                 category: task.category,
@@ -345,6 +470,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     const handleEditTask = useCallback(async () => {
         if (!editTask || !form.title.trim()) return;
+        const { identity, task } = editTask;
+        const taskId = task.id;
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
             triggerHaptic('medium');
             const periodDays = PERIOD_DAYS[form.trigger];
@@ -356,7 +484,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     : (periodDays ?? null);
             const dueDate = form.trigger === 'engine_hours' ? null : form.dueDate || null;
 
-            await MaintenanceService.updateTask(editTask.id, {
+            await MaintenanceService.updateTask(taskId, {
                 title: form.title.trim(),
                 description: form.description.trim() || null,
                 category: form.category,
@@ -365,15 +493,17 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 next_due_date: dueDate,
                 next_due_hours: form.trigger === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
             });
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowEditForm(false);
             setEditTask(null);
             setSheetTask(null);
-            await loadTasks();
+            await loadTasks(identity);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
             toast.success('Task updated');
             flash();
         } catch (e) {
             log.error('Failed to update task:', e);
-            toast.error('Failed to update task');
+            if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update task');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editTask, form, loadTasks]);
@@ -433,7 +563,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         <button
                                             aria-label="Export data"
                                             onClick={() => {
-                                                handleExport('checklist');
+                                                handleExport('checklist', taskData.identity);
                                                 setMenuOpen(false);
                                             }}
                                             className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
@@ -456,7 +586,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         <button
                                             aria-label="Export data"
                                             onClick={() => {
-                                                handleExport('history');
+                                                handleExport('history', taskData.identity);
                                                 setMenuOpen(false);
                                             }}
                                             className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
@@ -488,8 +618,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     <button
                         aria-label="Edit item details"
                         onClick={() => {
+                            const identity = getAuthIdentityScope();
+                            if (!isAuthIdentityScopeCurrent(identity)) return;
+                            setEngineHoursEditIdentity(identity);
                             setIsEditingHours(true);
-                            setTimeout(() => hoursInputRef.current?.focus(), 100);
+                            setTimeout(() => {
+                                if (isAuthIdentityScopeCurrent(identity)) hoursInputRef.current?.focus();
+                            }, 100);
                         }}
                         className="w-full bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
                     >
@@ -605,10 +740,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                 lightColors={LIGHT_COLORS}
                                                 triggerLabels={TRIGGER_LABELS}
                                                 onTap={() => {
+                                                    const identity = taskData.identity;
+                                                    if (!isAuthIdentityScopeCurrent(identity)) return;
                                                     triggerHaptic('light');
-                                                    setSheetTask(task);
+                                                    setSheetTask({ identity, task });
                                                 }}
-                                                onDelete={() => handleDeleteTask(task.id)}
+                                                onDelete={() => handleDeleteTask(task.id, taskData.identity)}
                                             />
                                         ))}
                                     </div>
@@ -637,7 +774,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </svg>
                         }
                         onConfirm={() => {
+                            const identity = taskData.identity;
+                            if (!isAuthIdentityScopeCurrent(identity)) return;
                             triggerHaptic('medium');
+                            setAddFormIdentity(identity);
                             setShowAddForm(true);
                         }}
                         theme="sky"
@@ -647,14 +787,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* ═══ LOG SERVICE SHEET ═══ */}
                 {sheetTask && (
                     <ServiceLogSheet
-                        task={sheetTask}
+                        task={sheetTask.task}
                         engineHours={engineHours}
                         notes={sheetNotes}
                         onNotesChange={setSheetNotes}
                         saving={sheetSaving}
                         onLog={handleLogService}
-                        onHistory={() => loadHistory(sheetTask.id)}
-                        onEdit={() => openEditForm(sheetTask)}
+                        onHistory={() => loadHistory(sheetTask.task.id, sheetTask.identity)}
+                        onEdit={() => openEditForm(sheetTask.task, sheetTask.identity)}
                         onClose={() => setSheetTask(null)}
                     />
                 )}
@@ -670,7 +810,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         setTrigger={setTrigger}
                         engineHours={engineHours}
                         onSubmit={handleAddTask}
-                        onClose={() => setShowAddForm(false)}
+                        onClose={() => {
+                            setShowAddForm(false);
+                            setAddFormIdentity(null);
+                        }}
                     />
                 )}
 
@@ -768,7 +911,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         {/* Option A: Blank Checklist */}
                         <button
                             aria-label="Export data"
-                            onClick={() => handleExport('checklist')}
+                            onClick={() => handleExport('checklist', taskData.identity)}
                             disabled={exporting}
                             className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
                         >
@@ -800,7 +943,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         {/* Option B: Service History */}
                         <button
                             aria-label="Export data"
-                            onClick={() => handleExport('history')}
+                            onClick={() => handleExport('history', taskData.identity)}
                             disabled={exporting}
                             className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
                         >
@@ -841,7 +984,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
             <UndoToast
                 isOpen={!!deletedTask}
-                message={`"${deletedTask?.title}" deleted`}
+                message={`"${deletedTask?.task.title}" deleted`}
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
             />

@@ -5,6 +5,15 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseForecastHours,
+    parseGeoBounds,
+    readJsonObject,
+    readResponseArrayBufferLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * fetch-precip-grid — NOAA GFS Precipitation Rate GRIB2 CORS Proxy
  *
@@ -139,21 +148,19 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
-    try {
-        const body: PrecipRequest = await req.json();
-        const { north, south, east, west } = body;
-        const hours = body.hours ?? DEFAULT_HOURS;
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'precip_grid', 60, 30, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
-        if (
-            typeof north !== 'number' ||
-            typeof south !== 'number' ||
-            typeof east !== 'number' ||
-            typeof west !== 'number'
-        ) {
-            return corsResponse(JSON.stringify({ error: 'Missing bounds (north, south, east, west)' }), 400, {
+    try {
+        const body = await readJsonObject(req, 4096);
+        const bounds = body ? parseGeoBounds(body) : null;
+        const hours = body ? parseForecastHours(body.hours, DEFAULT_HOURS, 10, 384) : null;
+        if (!bounds || !hours) {
+            return corsResponse(JSON.stringify({ error: 'Invalid precipitation-grid request bounds' }), 400, {
                 'Content-Type': 'application/json',
             });
         }
+        const { north, south, east, west } = bounds;
 
         // Convert longitudes to 0-360 for NOAA GFS
         const lonSpan = east - west;
@@ -210,12 +217,13 @@ Deno.serve(async (req: Request) => {
                 const url = `https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl?${params.toString()}`;
 
                 try {
-                    const resp = await fetch(url);
+                    const resp = await fetchWithTimeout(url, {}, 15_000);
                     if (!resp.ok) {
                         console.warn(`[fetch-precip-grid] HRRR f${fHour} failed: ${resp.status}`);
                         return null;
                     }
-                    const buf = await resp.arrayBuffer();
+                    const buf = await readResponseArrayBufferLimited(resp, 12_000_000);
+                    if (!buf) return null;
                     if (buf.byteLength < 100) return null;
                     return buf;
                 } catch (e) {
@@ -236,6 +244,11 @@ Deno.serve(async (req: Request) => {
             }
 
             const totalSize = validBuffers.reduce((sum, b) => sum + b.byteLength, 0);
+            if (totalSize > 60_000_000) {
+                return corsResponse(JSON.stringify({ error: 'Requested GRIB response is too large' }), 413, {
+                    'Content-Type': 'application/json',
+                });
+            }
             const combined = new Uint8Array(totalSize);
             let offset = 0;
             for (const buf of validBuffers) {
@@ -251,6 +264,7 @@ Deno.serve(async (req: Request) => {
                 'X-Frames': String(validBuffers.length),
                 'X-Model': 'HRRR',
                 'X-Hours': hrrrHours.filter((_, i) => results[i] !== null).join(','),
+                'Cache-Control': 'public, max-age=900',
             });
         }
 
@@ -283,12 +297,13 @@ Deno.serve(async (req: Request) => {
             const url = `https://nomads.ncep.noaa.gov/cgi-bin/${filter}?${params.toString()}`;
 
             try {
-                const resp = await fetch(url);
+                const resp = await fetchWithTimeout(url, {}, 15_000);
                 if (!resp.ok) {
                     console.warn(`[fetch-precip-grid] GFS f${fHour} failed: ${resp.status}`);
                     return null;
                 }
-                const buf = await resp.arrayBuffer();
+                const buf = await readResponseArrayBufferLimited(resp, 12_000_000);
+                if (!buf) return null;
                 if (buf.byteLength < 100) return null;
                 return buf;
             } catch (e) {
@@ -306,6 +321,11 @@ Deno.serve(async (req: Request) => {
         }
 
         const totalSize = validBuffers.reduce((sum, b) => sum + b.byteLength, 0);
+        if (totalSize > 60_000_000) {
+            return corsResponse(JSON.stringify({ error: 'Requested GRIB response is too large' }), 413, {
+                'Content-Type': 'application/json',
+            });
+        }
         const combined = new Uint8Array(totalSize);
         let offset = 0;
         for (const buf of validBuffers) {
@@ -321,10 +341,11 @@ Deno.serve(async (req: Request) => {
             'X-Frames': String(validBuffers.length),
             'X-Model': 'GFS',
             'X-Hours': gfsHours.filter((_, i) => results[i] !== null).join(','),
+            'Cache-Control': 'public, max-age=1800',
         });
     } catch (err: unknown) {
-        console.error('[fetch-precip-grid] Error:', err.message, err.stack);
-        return corsResponse(JSON.stringify({ error: err.message || String(err), stack: err.stack }), 500, {
+        console.error('[fetch-precip-grid] Error:', err);
+        return corsResponse(JSON.stringify({ error: 'Precipitation grid fetch failed' }), 502, {
             'Content-Type': 'application/json',
         });
     }

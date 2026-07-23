@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +23,7 @@ vi.mock('../services/ShoppingListService', () => ({
     unmarkPurchased: mocks.unmarkPurchased,
     addManualItem: mocks.addManualItem,
     getVoyageBudget: vi.fn(),
+    reconcileGroceryInventoryMirror: vi.fn(async () => ({ repaired: 0, errors: [] })),
 }));
 vi.mock('../services/PurchaseUnits', () => ({
     toPurchasable: (_name: string, qty: number, unit: string) => ({
@@ -36,6 +37,17 @@ vi.mock('../services/VoyageService', () => ({
 }));
 vi.mock('../hooks/useRealtimeSync', () => ({
     useRealtimeSync: vi.fn(),
+}));
+vi.mock('../hooks/usePermissions', () => ({
+    usePermissions: () => ({
+        loaded: true,
+        isSkipper: true,
+        canEditStores: true,
+        canViewGalley: true,
+        permissions: {
+            can_view_passage_meals: true,
+        },
+    }),
 }));
 vi.mock('../utils/equipmentPdfExport', () => ({
     exportEquipmentPdf: vi.fn(),
@@ -124,7 +136,7 @@ describe('vessel list dialog accessibility', () => {
         const dialog = screen.getByRole('dialog', { name: /Mark as Purchased/ });
         const price = within(dialog).getByRole('spinbutton', { name: 'Price (optional)' });
         expect(price).toHaveFocus();
-        expect(within(dialog).getByRole('textbox', { name: 'Store (optional)' })).toBeEnabled();
+        expect(within(dialog).getByRole('textbox', { name: 'Retailer (optional)' })).toBeEnabled();
         expect(within(dialog).getByRole('button', { name: 'Coles' })).toHaveAttribute('aria-pressed', 'false');
 
         fireEvent.keyDown(price, { key: 'Escape' });
@@ -136,7 +148,7 @@ describe('vessel list dialog accessibility', () => {
     it('labels the add-item form and restores its opener after Escape', async () => {
         render(<GroceryListPage onBack={vi.fn()} />);
         await screen.findByText('Tomatoes');
-        const opener = screen.getByRole('button', { name: 'Add item' });
+        const opener = screen.getByRole('button', { name: 'Add item to shopping list' });
         opener.focus();
         fireEvent.click(opener);
 
@@ -151,5 +163,87 @@ describe('vessel list dialog accessibility', () => {
         fireEvent.keyDown(name, { key: 'Escape' });
         expect(screen.queryByRole('dialog', { name: /Add to Shopping List/ })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
+    });
+
+    it('keeps the purchase dialog usable and reports a failed mutation', async () => {
+        mocks.markPurchased.mockRejectedValueOnce(new Error('disk unavailable'));
+        render(<GroceryListPage onBack={vi.fn()} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Mark Tomatoes as purchased' }));
+        const dialog = screen.getByRole('dialog', { name: /Mark as Purchased/ });
+        const confirm = within(dialog).getByRole('button', { name: 'Confirm purchase of Tomatoes' });
+        fireEvent.click(confirm);
+
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+            'Tomatoes could not be marked as purchased. Please try again.',
+        );
+        await waitFor(() => expect(confirm).toBeEnabled());
+        expect(dialog).toBeInTheDocument();
+        expect(mocks.markPurchased).toHaveBeenCalledOnce();
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel marking Tomatoes as purchased' }));
+        expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+    });
+
+    it('moves focus to a stable action when a purchased item leaves the active filter', async () => {
+        mocks.markPurchased.mockImplementationOnce(async () => {
+            mocks.getShoppingList.mockReturnValue({
+                total: 1,
+                purchased: 1,
+                remaining: 0,
+                totalCost: 0,
+                currency: 'AUD',
+                zones: [
+                    {
+                        zone: 'Produce',
+                        items: [
+                            {
+                                ...groceryItem,
+                                purchased: true,
+                                purchased_at: '2026-07-23T08:00:00.000Z',
+                            },
+                        ],
+                    },
+                ],
+            });
+        });
+        render(<GroceryListPage onBack={vi.fn()} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Mark Tomatoes as purchased' }));
+        fireEvent.click(
+            within(screen.getByRole('dialog', { name: /Mark as Purchased/ })).getByRole('button', {
+                name: 'Confirm purchase of Tomatoes',
+            }),
+        );
+
+        await waitFor(() => {
+            expect(screen.queryByRole('dialog', { name: /Mark as Purchased/ })).not.toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toHaveFocus();
+        });
+    });
+
+    it('preserves the manual-item form and reports a failed add', async () => {
+        mocks.addManualItem.mockRejectedValueOnce(new Error('disk unavailable'));
+        render(<GroceryListPage onBack={vi.fn()} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Add item to shopping list' }));
+        const dialog = screen.getByRole('dialog', { name: /Add to Shopping List/ });
+        const name = within(dialog).getByRole('textbox', { name: 'Item Name' });
+        fireEvent.change(name, { target: { value: 'Dish soap' } });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Add item to grocery list' }));
+
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+            'Dish soap could not be added. Please try again.',
+        );
+        await waitFor(() => expect(name).toBeEnabled());
+        expect(name).toHaveValue('Dish soap');
+        expect(mocks.addManualItem).toHaveBeenCalledWith({
+            name: 'Dish soap',
+            qty: 1,
+            unit: 'each',
+            zone: 'General',
+            voyageId: null,
+            ownerUserId: null,
+        });
     });
 });

@@ -372,7 +372,7 @@ const NOAA_CATALOG: ChartPackage[] = [
 // Requires user's LINZ API key for download.
 
 function buildLinzUrl(layerId: number, apiKey: string): string {
-    return `https://data.linz.govt.nz/services;key=${apiKey}/api/v1/layers/${layerId}/data/?format=image/tiff`;
+    return `https://data.linz.govt.nz/services;key=${encodeURIComponent(apiKey)}/api/v1/layers/${layerId}/data/?format=image/tiff`;
 }
 
 const LINZ_CATALOG_TEMPLATE: Omit<ChartPackage, 'url'>[] = [

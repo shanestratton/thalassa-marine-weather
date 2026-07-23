@@ -11,6 +11,12 @@
 import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -24,6 +30,33 @@ const PROFILES_TABLE = 'chat_profiles';
 const IMAGES_BUCKET = 'marketplace-images';
 const MAX_LISTING_IMAGES = 20;
 const _MAX_IMAGE_PX = 1200;
+
+function identityStillOwns(scope: AuthIdentityScope, ownerId: string | null = scope.userId): boolean {
+    return isAuthIdentityScopeCurrent(scope) && scope.userId === ownerId;
+}
+
+/**
+ * The process-local identity fence changes before React account state. Confirm
+ * that Supabase is using the same account before issuing any remote operation;
+ * otherwise a session-transition window could run an A-scoped action with B's
+ * token (or vice versa).
+ */
+async function remoteIdentityMatches(scope: AuthIdentityScope): Promise<boolean> {
+    if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
+    try {
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        // Supabase may report AuthSessionMissing for a legitimate anonymous
+        // browser. None still exactly matches the anonymous fence.
+        if (!scope.userId) return !user;
+        return !error && user?.id === scope.userId;
+    } catch {
+        return false;
+    }
+}
 
 // --- TYPES ---
 
@@ -175,21 +208,38 @@ export interface CreateListingInput {
 
 class MarketplaceServiceClass {
     private feedSubscription: RealtimeChannel | null = null;
-    private userId: string | null = null;
+    private feedCallback: ((listing: MarketplaceListing) => void) | null = null;
+    private feedScope: AuthIdentityScope | null = null;
+    private userId: string | null = getAuthIdentityScope().userId;
+
+    constructor() {
+        subscribeAuthIdentityScope((next) => {
+            // Hide the previous owner synchronously. Rebind the public feed so
+            // even an already-queued callback retains the generation it began
+            // under and cannot publish an A result into B's screen.
+            this.userId = next.userId;
+            const callback = this.feedCallback;
+            this.removeFeedChannel();
+            if (callback) this.startFeed(next, callback);
+        });
+    }
 
     /**
      * Initialize — resolve current user
      */
     async initialize(): Promise<void> {
+        const scope = getAuthIdentityScope();
+        this.userId = scope.userId;
         if (!supabase) return;
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        this.userId = user?.id || null;
+
+        const matches = await remoteIdentityMatches(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        // Fail closed if the synchronous fence and Supabase session disagree.
+        this.userId = matches ? scope.userId : null;
     }
 
     getCurrentUserId(): string | null {
-        return this.userId;
+        return this.userId === getAuthIdentityScope().userId ? this.userId : null;
     }
 
     // ────────────────────────── QUERIES ──────────────────────────
@@ -200,6 +250,8 @@ class MarketplaceServiceClass {
      */
     async getListings(category?: ListingCategory | null, limit = 30, offset = 0): Promise<MarketplaceListing[]> {
         if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        if (!(await remoteIdentityMatches(scope))) return [];
 
         let query = supabase
             .from(PUBLIC_LISTINGS_VIEW)
@@ -213,7 +265,7 @@ class MarketplaceServiceClass {
         }
 
         const { data, error } = await query;
-        if (error || !data) return [];
+        if (!isAuthIdentityScopeCurrent(scope) || error || !data) return [];
 
         // Also fetch recently-sold listings (48h) to show SOLD overlay
         let soldListings: Record<string, unknown>[] = [];
@@ -227,9 +279,10 @@ class MarketplaceServiceClass {
             .limit(10);
         if (category) soldQuery = soldQuery.eq('category', category);
         const { data: soldData } = await soldQuery;
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (soldData) soldListings = soldData;
 
-        return this.enrichWithProfiles([...data, ...soldListings]);
+        return this.enrichWithProfiles([...data, ...soldListings], scope);
     }
 
     /**
@@ -242,6 +295,8 @@ class MarketplaceServiceClass {
         category?: ListingCategory | null,
     ): Promise<MarketplaceListing[]> {
         if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        if (!(await remoteIdentityMatches(scope))) return [];
 
         const { data, error } = await supabase.rpc('get_listings_within_radius', {
             user_lat: lat,
@@ -251,9 +306,9 @@ class MarketplaceServiceClass {
             result_limit: 50,
         });
 
-        if (error || !data) return [];
+        if (!isAuthIdentityScopeCurrent(scope) || error || !data) return [];
 
-        return this.enrichWithProfiles(data);
+        return this.enrichWithProfiles(data, scope);
     }
 
     /**
@@ -261,12 +316,14 @@ class MarketplaceServiceClass {
      */
     async getListing(id: string): Promise<MarketplaceListing | null> {
         if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        if (!(await remoteIdentityMatches(scope))) return null;
 
         const { data } = await supabase.from(PUBLIC_LISTINGS_VIEW).select('*').eq('id', id).single();
 
-        if (!data) return null;
+        if (!isAuthIdentityScopeCurrent(scope) || !data) return null;
 
-        const enriched = await this.enrichWithProfiles([data]);
+        const enriched = await this.enrichWithProfiles([data], scope);
         return enriched[0] || null;
     }
 
@@ -274,16 +331,19 @@ class MarketplaceServiceClass {
      * Get listings by the current user (my listings).
      */
     async getMyListings(): Promise<MarketplaceListing[]> {
-        if (!supabase || !this.userId) return [];
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        if (!ownerId || !(await remoteIdentityMatches(scope))) return [];
 
         const { data } = await supabase
             .from(LISTINGS_TABLE)
             .select('*')
-            .eq('seller_id', this.userId)
+            .eq('seller_id', ownerId)
             .order('created_at', { ascending: false });
 
-        if (!data) return [];
-        return this.enrichWithProfiles(data);
+        if (!identityStillOwns(scope, ownerId) || !data) return [];
+        return this.enrichWithProfiles(data, scope);
     }
 
     // ────────────────────────── MUTATIONS ──────────────────────────
@@ -292,17 +352,25 @@ class MarketplaceServiceClass {
      * Create a new listing with image uploads.
      */
     async createListing(input: CreateListingInput): Promise<MarketplaceListing | null> {
-        if (!supabase || !this.userId) return null;
+        if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        if (!ownerId || !(await remoteIdentityMatches(scope))) return null;
 
         // Upload images first
         const imageUrls: string[] = [];
         if (input.images && input.images.length > 0) {
             const toUpload = input.images.slice(0, MAX_LISTING_IMAGES);
             for (const file of toUpload) {
-                const url = await this.uploadImage(file);
+                const url = await this.uploadImageForOwner(file, scope, ownerId);
+                if (!identityStillOwns(scope, ownerId)) return null;
                 if (url) imageUrls.push(url);
             }
         }
+
+        // Image compression/upload can take several seconds. Re-confirm the
+        // remote session immediately before the listing write.
+        if (!identityStillOwns(scope, ownerId) || !(await remoteIdentityMatches(scope))) return null;
 
         // Build PostGIS point if coordinates provided
         const locationValue =
@@ -313,7 +381,7 @@ class MarketplaceServiceClass {
         const { data, error } = await supabase
             .from(LISTINGS_TABLE)
             .insert({
-                seller_id: this.userId,
+                seller_id: ownerId,
                 title: input.title,
                 description: input.description || null,
                 price: input.price,
@@ -329,12 +397,13 @@ class MarketplaceServiceClass {
             .select()
             .single();
 
+        if (!identityStillOwns(scope, ownerId)) return null;
         if (error || !data) {
             log.error('[Marketplace] Create failed:', error?.message);
             return null;
         }
 
-        const enriched = await this.enrichWithProfiles([data]);
+        const enriched = await this.enrichWithProfiles([data], scope);
         return enriched[0] || null;
     }
 
@@ -351,10 +420,13 @@ class MarketplaceServiceClass {
         >,
     ): Promise<boolean> {
         if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        if (!ownerId || !(await remoteIdentityMatches(scope))) return false;
 
-        const { error } = await supabase.from(LISTINGS_TABLE).update(updates).eq('id', id);
+        const { error } = await supabase.from(LISTINGS_TABLE).update(updates).eq('id', id).eq('seller_id', ownerId);
 
-        return !error;
+        return identityStillOwns(scope, ownerId) && !error;
     }
 
     /**
@@ -362,11 +434,15 @@ class MarketplaceServiceClass {
      */
     async markSold(id: string): Promise<boolean> {
         if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        if (!ownerId || !(await remoteIdentityMatches(scope))) return false;
         const { error } = await supabase
             .from(LISTINGS_TABLE)
             .update({ status: 'sold', sold_at: new Date().toISOString() })
-            .eq('id', id);
-        return !error;
+            .eq('id', id)
+            .eq('seller_id', ownerId);
+        return identityStillOwns(scope, ownerId) && !error;
     }
 
     /**
@@ -374,10 +450,13 @@ class MarketplaceServiceClass {
      */
     async deleteListing(id: string): Promise<boolean> {
         if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        if (!ownerId || !(await remoteIdentityMatches(scope))) return false;
 
-        const { error } = await supabase.from(LISTINGS_TABLE).delete().eq('id', id);
+        const { error } = await supabase.from(LISTINGS_TABLE).delete().eq('id', id).eq('seller_id', ownerId);
 
-        return !error;
+        return identityStillOwns(scope, ownerId) && !error;
     }
 
     // ────────────────────────── IMAGES ──────────────────────────
@@ -386,14 +465,23 @@ class MarketplaceServiceClass {
      * Upload a single listing image. Returns the public URL.
      */
     async uploadImage(file: File): Promise<string | null> {
-        if (!supabase || !this.userId) return null;
+        if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        const ownerId = scope.userId;
+        if (!ownerId) return null;
+        return this.uploadImageForOwner(file, scope, ownerId);
+    }
 
+    private async uploadImageForOwner(file: File, scope: AuthIdentityScope, ownerId: string): Promise<string | null> {
+        const client = supabase;
+        if (!client) return null;
         try {
             // Compress to reasonable listing photo size
             const compressed = await compressImage(file);
-            const fileName = `${this.userId}/listing-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
+            if (!identityStillOwns(scope, ownerId) || !(await remoteIdentityMatches(scope))) return null;
+            const fileName = `${ownerId}/listing-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
 
-            const { error: uploadError } = await supabase.storage.from(IMAGES_BUCKET).upload(fileName, compressed, {
+            const { error: uploadError } = await client.storage.from(IMAGES_BUCKET).upload(fileName, compressed, {
                 contentType: 'image/jpeg',
                 upsert: false,
             });
@@ -402,8 +490,9 @@ class MarketplaceServiceClass {
                 log.error('[Marketplace] Image upload failed:', uploadError.message);
                 return null;
             }
+            if (!identityStillOwns(scope, ownerId)) return null;
 
-            const { data: urlData } = supabase.storage.from(IMAGES_BUCKET).getPublicUrl(fileName);
+            const { data: urlData } = client.storage.from(IMAGES_BUCKET).getPublicUrl(fileName);
 
             return urlData?.publicUrl || null;
         } catch (e) {
@@ -423,9 +512,19 @@ class MarketplaceServiceClass {
 
         // Clean up existing subscription
         this.unsubscribeFeed();
+        this.feedCallback = onListing;
+        this.startFeed(getAuthIdentityScope(), onListing);
 
+        return () => {
+            if (this.feedCallback === onListing) this.unsubscribeFeed();
+        };
+    }
+
+    private startFeed(scope: AuthIdentityScope, onListing: (listing: MarketplaceListing) => void): void {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return;
+        this.feedScope = scope;
         this.feedSubscription = supabase
-            .channel('marketplace-feed')
+            .channel(`marketplace-feed-${scope.generation}`)
             .on(
                 'postgres_changes',
                 {
@@ -434,25 +533,33 @@ class MarketplaceServiceClass {
                     table: LISTINGS_TABLE,
                 },
                 async (payload) => {
+                    if (!isAuthIdentityScopeCurrent(scope) || this.feedScope !== scope) return;
                     if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-                        const enriched = await this.enrichWithProfiles([payload.new]);
-                        if (enriched[0]) onListing(enriched[0]);
+                        if (!(await remoteIdentityMatches(scope))) return;
+                        const enriched = await this.enrichWithProfiles([payload.new], scope);
+                        if (enriched[0] && isAuthIdentityScopeCurrent(scope) && this.feedScope === scope) {
+                            onListing(enriched[0]);
+                        }
                     }
                 },
             )
             .subscribe();
-
-        return () => this.unsubscribeFeed();
     }
 
     /**
      * Unsubscribe from the feed.
      */
     unsubscribeFeed(): void {
+        this.feedCallback = null;
+        this.removeFeedChannel();
+    }
+
+    private removeFeedChannel(): void {
         if (this.feedSubscription) {
             supabase?.removeChannel(this.feedSubscription);
             this.feedSubscription = null;
         }
+        this.feedScope = null;
     }
 
     // ────────────────────────── HELPERS ──────────────────────────
@@ -460,8 +567,11 @@ class MarketplaceServiceClass {
     /**
      * Enrich listing rows with seller profile data (display name, avatar, vessel).
      */
-    private async enrichWithProfiles(rows: Record<string, unknown>[]): Promise<MarketplaceListing[]> {
-        if (!supabase || rows.length === 0) return [];
+    private async enrichWithProfiles(
+        rows: Record<string, unknown>[],
+        scope: AuthIdentityScope,
+    ): Promise<MarketplaceListing[]> {
+        if (!supabase || rows.length === 0 || !isAuthIdentityScopeCurrent(scope)) return [];
 
         const sellerIds = [...new Set(rows.map((r) => r.seller_id).filter(Boolean))];
 
@@ -477,6 +587,7 @@ class MarketplaceServiceClass {
                 .select('user_id, display_name, avatar_url, vessel_name')
                 .in('user_id', sellerIds);
 
+            if (!isAuthIdentityScopeCurrent(scope)) return [];
             if (profiles) {
                 for (const p of profiles) {
                     profileMap.set(p.user_id, {

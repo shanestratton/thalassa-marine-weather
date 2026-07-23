@@ -14,6 +14,12 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+    fetchWithTimeout,
+    jsonResponse,
+    readResponseJsonObjectLimited,
+    requireServiceRolePost,
+} from '../_shared/http-security.ts';
 
 // ── Open-Meteo weather variables we need ──
 const WEATHER_VARS = [
@@ -24,6 +30,15 @@ const WEATHER_VARS = [
     'visibility',
     'uv_index',
 ].join(',');
+const WEATHER_KEYS = [
+    'weather_code',
+    'temperature_2m',
+    'wind_speed_10m',
+    'wind_gusts_10m',
+    'visibility',
+    'uv_index',
+] as const;
+const MAX_WEATHER_RESPONSE_BYTES = 128_000;
 
 // ── Alert type configurations ──
 interface AlertCheck {
@@ -135,6 +150,24 @@ function weatherCodeToDescription(code: number): string {
     return 'Unknown';
 }
 
+function parseWeatherCurrent(value: Record<string, unknown>): Record<string, number | null> | null {
+    const current = value.current;
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+
+    const result: Record<string, number | null> = {};
+    for (const key of WEATHER_KEYS) {
+        const field = (current as Record<string, unknown>)[key];
+        if (field === null) {
+            result[key] = null;
+        } else if (typeof field === 'number' && Number.isFinite(field)) {
+            result[key] = field;
+        } else {
+            return null;
+        }
+    }
+    return result;
+}
+
 // ── Batch weather fetch from Open-Meteo ──
 // Groups nearby locations to minimize API calls
 async function fetchWeather(lat: number, lon: number): Promise<Record<string, number | null> | null> {
@@ -146,15 +179,16 @@ async function fetchWeather(lat: number, lon: number): Promise<Record<string, nu
             : 'https://api.open-meteo.com/v1/forecast';
         const keyParam = apiKey ? `&apikey=${apiKey}` : '';
         const url = `${base}?latitude=${lat}&longitude=${lon}&current=${WEATHER_VARS}&wind_speed_unit=kmh&timezone=auto${keyParam}`;
-        const res = await fetch(url);
+        const res = await fetchWithTimeout(url, {}, 10_000);
         if (!res.ok) {
             console.warn(`Open-Meteo error: ${res.status}`);
+            await res.body?.cancel().catch(() => undefined);
             return null;
         }
-        const data = await res.json();
-        return data?.current || null;
-    } catch (err) {
-        console.error('Weather fetch failed:', err);
+        const data = await readResponseJsonObjectLimited(res, MAX_WEATHER_RESPONSE_BYTES);
+        return data ? parseWeatherCurrent(data) : null;
+    } catch {
+        console.error('Weather fetch failed');
         return null;
     }
 }
@@ -166,20 +200,29 @@ function roundCoord(v: number): number {
 
 serve(async (req: Request) => {
     const startTime = Date.now();
+    const authorizationFailure = requireServiceRolePost(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+    if (authorizationFailure) return authorizationFailure;
 
     try {
-        const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!supabaseUrl || !serviceRoleKey) {
+            return jsonResponse({ error: 'Server database is not configured' }, 500);
+        }
+        const supabase = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+        });
 
         // ── 1. Get all users with at least one alert enabled ──
         const { data: profiles, error: profilesError } = await supabase.from('profiles').select('id, settings');
 
         if (profilesError) {
             console.error('Failed to fetch profiles:', profilesError);
-            return new Response(JSON.stringify({ error: 'Profile fetch failed' }), { status: 500 });
+            return jsonResponse({ error: 'Profile fetch failed' }, 500);
         }
 
         if (!profiles || profiles.length === 0) {
-            return new Response(JSON.stringify({ checked: 0, message: 'No profiles' }), { status: 200 });
+            return jsonResponse({ checked: 0, message: 'No profiles' });
         }
 
         // Filter to users with ≥1 alert enabled AND a location
@@ -238,9 +281,7 @@ serve(async (req: Request) => {
         }
 
         if (usersToCheck.length === 0) {
-            return new Response(JSON.stringify({ checked: 0, message: 'No users with alerts + location' }), {
-                status: 200,
-            });
+            return jsonResponse({ checked: 0, message: 'No users with alerts + location' });
         }
 
         // ── 2. Deduplicate weather fetches by rounded coord ──
@@ -369,20 +410,14 @@ serve(async (req: Request) => {
             `Weather check complete: ${usersChecked} users, ${weatherCache.size} locations, ${alertsQueued} alerts in ${elapsed}ms`,
         );
 
-        return new Response(
-            JSON.stringify({
-                checked: usersChecked,
-                locations: weatherCache.size,
-                alerts: alertsQueued,
-                elapsed_ms: elapsed,
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-    } catch (error) {
-        console.error('check-weather-alerts error:', error);
-        return new Response(JSON.stringify({ error: String(error) }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
+        return jsonResponse({
+            checked: usersChecked,
+            locations: weatherCache.size,
+            alerts: alertsQueued,
+            elapsed_ms: elapsed,
         });
+    } catch {
+        console.error('check-weather-alerts failed');
+        return jsonResponse({ error: 'Weather alert check failed' }, 500);
     }
 });

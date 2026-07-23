@@ -91,22 +91,29 @@ describe('OnboardingWizard', () => {
 
     beforeEach(() => vi.clearAllMocks());
 
-    it('renders without crashing', () => {
+    it('renders as a labelled body-level modal above app chrome', () => {
         const { container } = render(<OnboardingWizard onComplete={mockOnComplete} />);
-        expect(container).toBeDefined();
+        const dialog = screen.getByRole('dialog', { name: 'Set up Thalassa' });
+        const overlay = dialog.closest('[data-overlay-layer="modal"]');
+
+        expect(overlay?.parentElement).toBe(document.body);
+        expect(overlay).toHaveStyle({ zIndex: '1100' });
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(container).not.toContainElement(dialog);
     });
 
     it('renders content (not empty)', () => {
-        const { container } = render(<OnboardingWizard onComplete={mockOnComplete} />);
-        expect(container.textContent!.length).toBeGreaterThan(0);
+        render(<OnboardingWizard onComplete={mockOnComplete} />);
+        expect(screen.getByRole('dialog', { name: 'Set up Thalassa' }).textContent!.length).toBeGreaterThan(0);
     });
 
     it('starts on step 1 with visible content', () => {
-        const { container } = render(<OnboardingWizard onComplete={mockOnComplete} />);
-        const text = container.textContent || '';
+        render(<OnboardingWizard onComplete={mockOnComplete} />);
+        const dialog = screen.getByRole('dialog', { name: 'Set up Thalassa' });
+        const text = dialog.textContent || '';
         expect(text.length).toBeGreaterThan(0);
         // Step indicator dots should be present
-        expect(container.querySelector('[class*="rounded-full"]')).toBeDefined();
+        expect(dialog.querySelector('[class*="rounded-full"]')).not.toBeNull();
     });
 
     it('renders navigation buttons', () => {
@@ -135,5 +142,36 @@ describe('OnboardingWizard', () => {
     it('does not call onComplete on initial render', () => {
         render(<OnboardingWizard onComplete={mockOnComplete} />);
         expect(mockOnComplete).not.toHaveBeenCalled();
+    });
+
+    it('contains keyboard focus and restores the launcher when unmounted', () => {
+        const { rerender } = render(<button type="button">Launch setup</button>);
+        const launcher = screen.getByRole('button', { name: 'Launch setup' });
+        launcher.focus();
+
+        rerender(
+            <>
+                <button type="button">Launch setup</button>
+                <OnboardingWizard onComplete={mockOnComplete} />
+            </>,
+        );
+
+        const firstAction = screen.getByRole('button', { name: 'Get started' });
+        expect(firstAction).toHaveFocus();
+        fireEvent.click(firstAction);
+
+        expect(screen.getByRole('group', { name: 'Setup step 2 of 7' })).toHaveFocus();
+        const firstFocusable = screen.getByRole('button', { name: 'Go back' });
+        const lastFocusable = screen.getByRole('button', { name: 'Pick home port on map' });
+
+        lastFocusable.focus();
+        fireEvent.keyDown(lastFocusable, { key: 'Tab' });
+        expect(firstFocusable).toHaveFocus();
+
+        fireEvent.keyDown(firstFocusable, { key: 'Tab', shiftKey: true });
+        expect(lastFocusable).toHaveFocus();
+
+        rerender(<button type="button">Launch setup</button>);
+        expect(screen.getByRole('button', { name: 'Launch setup' })).toHaveFocus();
     });
 });

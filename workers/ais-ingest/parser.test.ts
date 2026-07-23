@@ -5,7 +5,7 @@
  * message types from the AISStream.io WebSocket format.
  */
 import { describe, it, expect } from 'vitest';
-import { parseAisStreamMessage } from './parser';
+import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser';
 
 describe('parseAisStreamMessage — PositionReport', () => {
     it('should parse a valid PositionReport', () => {
@@ -103,6 +103,55 @@ describe('parseAisStreamMessage — PositionReport', () => {
 
         expect(parseAisStreamMessage(msg)).toBeNull();
     });
+
+    it.each([
+        ['short', 12345678],
+        ['long', 1234567890],
+        ['fractional', 123456789.5],
+        ['string', '123456789'],
+    ])('rejects a %s MMSI instead of coercing it', (_label, UserID) => {
+        const msg = JSON.stringify({
+            MessageType: 'PositionReport',
+            Message: {
+                PositionReport: {
+                    Valid: true,
+                    UserID,
+                    Latitude: -27.4698,
+                    Longitude: 153.0251,
+                },
+            },
+        });
+
+        expect(parseAisStreamMessage(msg)).toBeNull();
+    });
+
+    it('omits AIS movement sentinel and malformed optional values', () => {
+        const msg = JSON.stringify({
+            MessageType: 'PositionReport',
+            Message: {
+                PositionReport: {
+                    Valid: true,
+                    UserID: 123456789,
+                    Latitude: -27.4698,
+                    Longitude: 153.0251,
+                    Cog: 360,
+                    Sog: 102.3,
+                    TrueHeading: 511,
+                    NavigationalStatus: 99,
+                },
+            },
+        });
+
+        expect(parseAisStreamMessage(msg)).toEqual({
+            mmsi: 123456789,
+            lat: -27.4698,
+            lon: 153.0251,
+            cog: undefined,
+            sog: undefined,
+            heading: undefined,
+            nav_status: undefined,
+        });
+    });
 });
 
 describe('parseAisStreamMessage — ShipStaticData', () => {
@@ -168,6 +217,39 @@ describe('parseAisStreamMessage — ShipStaticData', () => {
 
         expect(parseAisStreamMessage(msg)).toBeNull();
     });
+
+    it('bounds and strips static text and drops out-of-range numeric fields', () => {
+        const msg = JSON.stringify({
+            MessageType: 'ShipStaticData',
+            Message: {
+                ShipStaticData: {
+                    Valid: true,
+                    UserID: 987654321,
+                    Name: `VESSEL\u0000${'X'.repeat(40)}@@@@`,
+                    CallSign: 'TOO-LONG-CALLSIGN',
+                    Type: 120,
+                    Destination: `PORT\u0007${'Y'.repeat(40)}`,
+                    ImoNumber: 12,
+                    Dimension: { A: 900, B: -1, C: 64, D: '12' },
+                },
+            },
+        });
+
+        const result = parseAisStreamMessage(msg);
+        expect(result).not.toBeNull();
+        expect(result?.name).toHaveLength(20);
+        expect(result?.name).not.toContain('\u0000');
+        expect(result?.call_sign).toBe('TOO-LON');
+        expect(result?.destination).toHaveLength(20);
+        expect(result?.destination).not.toContain('\u0007');
+        expect(result).toMatchObject({ mmsi: 987654321 });
+        expect(result?.ship_type).toBeUndefined();
+        expect(result?.imo_number).toBeUndefined();
+        expect(result?.dimension_a).toBeUndefined();
+        expect(result?.dimension_b).toBeUndefined();
+        expect(result?.dimension_c).toBeUndefined();
+        expect(result?.dimension_d).toBeUndefined();
+    });
 });
 
 describe('parseAisStreamMessage — StandardClassBPositionReport', () => {
@@ -210,6 +292,29 @@ describe('parseAisStreamMessage — StandardClassBPositionReport', () => {
 
         expect(parseAisStreamMessage(msg)).toBeNull();
     });
+
+    it.each([
+        [90.0001, 153],
+        [-90.0001, 153],
+        [-27, 180.0001],
+        [-27, -180.0001],
+        ['-27', 153],
+        [-27, null],
+    ])('rejects malformed or out-of-range Class B coordinates (%j, %j)', (Latitude, Longitude) => {
+        const msg = JSON.stringify({
+            MessageType: 'StandardClassBPositionReport',
+            Message: {
+                StandardClassBPositionReport: {
+                    Valid: true,
+                    UserID: 444555666,
+                    Latitude,
+                    Longitude,
+                },
+            },
+        });
+
+        expect(parseAisStreamMessage(msg)).toBeNull();
+    });
 });
 
 describe('parseAisStreamMessage — edge cases', () => {
@@ -217,6 +322,28 @@ describe('parseAisStreamMessage — edge cases', () => {
         expect(parseAisStreamMessage('not json at all')).toBeNull();
         expect(parseAisStreamMessage('{')).toBeNull();
         expect(parseAisStreamMessage('')).toBeNull();
+    });
+
+    it('rejects non-object JSON and oversized frames before traversal', () => {
+        expect(parseAisStreamMessage('null')).toBeNull();
+        expect(parseAisStreamMessage('[]')).toBeNull();
+        expect(parseAisStreamMessage('"PositionReport"')).toBeNull();
+        expect(parseAisStreamMessage('x'.repeat(MAX_AIS_MESSAGE_CHARS + 1))).toBeNull();
+    });
+
+    it('requires a literal boolean Valid flag', () => {
+        const msg = JSON.stringify({
+            MessageType: 'PositionReport',
+            Message: {
+                PositionReport: {
+                    Valid: 'false',
+                    UserID: 123456789,
+                    Latitude: -27.4698,
+                    Longitude: 153.0251,
+                },
+            },
+        });
+        expect(parseAisStreamMessage(msg)).toBeNull();
     });
 
     it('should return null for unknown message types', () => {

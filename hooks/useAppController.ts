@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('useAppController');
@@ -16,6 +16,14 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
 import { crumb } from '../utils/flightRecorder';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+import { writeScopedNativeDiagnostic } from '../services/nativeDiagnostic';
 // Sample/dummy location data removed 2026-05-17 — painting Sydney
 // weather for a Brisbane user (or Newport for a Boston user) is
 // actively misleading on a marine app, where mistaking demo
@@ -37,6 +45,30 @@ const DEFAULT_BACKGROUNDS = {
 // How long a name-only favourite pick may wait for its weather report
 // before the deferred LocationStore claim is abandoned.
 const PENDING_FAVORITE_CLAIM_MS = 60_000;
+const ONBOARDED_KEY = 'thalassa_v3_onboarded';
+const TUTORIAL_COMPLETED_KEY = 'thalassa_tutorial_completed';
+const INTRO_COMPLETED_KEY = 'thalassa_onboarding_complete';
+const GLASS_TUTORIAL_SEEN_KEY = 'thalassa_glass_tutorial_seen';
+
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
+function hasScopedFlag(key: string, scope: AuthIdentityScope): boolean {
+    try {
+        return localStorage.getItem(authScopedStorageKey(key, scope)) !== null;
+    } catch {
+        return false;
+    }
+}
+
+function setScopedFlag(key: string, scope: AuthIdentityScope, value = 'true'): void {
+    try {
+        localStorage.setItem(authScopedStorageKey(key, scope), value);
+    } catch {
+        // Storage can be unavailable in private mode. The cloud vessel check
+        // still prevents duplicate setup for authenticated returning users.
+    }
+}
 
 const mapConditionToKey = (cond: string): WeatherConditionKey => {
     if (!cond) return 'default';
@@ -56,10 +88,23 @@ export const useAppController = () => {
     const { setPage, isOffline, currentView } = useUI();
     const authedUser = useAuthStore((s) => s.user);
     const authChecked = useAuthStore((s) => s.authChecked);
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
 
     const [query, setQuery] = useState('');
     const [bgImage, setBgImage] = useState(DEFAULT_BACKGROUNDS.default);
-    const [showOnboarding, setShowOnboarding] = useState(false);
+    const [onboardingVisibility, setOnboardingVisibility] = useState<{
+        scope: AuthIdentityScope;
+        visible: boolean;
+    }>(() => ({ scope: identityScope, visible: false }));
+    const showOnboarding =
+        onboardingVisibility.visible &&
+        onboardingVisibility.scope.key === identityScope.key &&
+        onboardingVisibility.scope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(onboardingVisibility.scope);
+    const setShowOnboardingForScope = useCallback((scope: AuthIdentityScope, visible: boolean) => {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        setOnboardingVisibility({ scope, visible });
+    }, []);
 
     // UI Local State
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,7 +113,7 @@ export const useAppController = () => {
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
     const [isMobileLandscape, setIsMobileLandscape] = useState(false);
 
-    const gpsBootRan = React.useRef(false);
+    const gpsBootScopeRef = React.useRef<string | null>(null);
 
     // 1. Initial Load
     //
@@ -87,6 +132,7 @@ export const useAppController = () => {
     // identity already had a boat.
     useEffect(() => {
         let cancelled = false;
+        const actionScope = identityScope;
 
         (async () => {
             // Auth still resolving on cold boot — wait. Setting
@@ -98,11 +144,11 @@ export const useAppController = () => {
             // authChecked to flip true before making any decision.
             if (!authChecked) return;
 
-            const flag = localStorage.getItem('thalassa_v3_onboarded');
+            const flag = hasScopedFlag(ONBOARDED_KEY, actionScope);
 
             if (flag) {
                 // Fast path — flag means we've done this dance before.
-                if (!cancelled) setShowOnboarding(false);
+                if (!cancelled) setShowOnboardingForScope(actionScope, false);
                 if (!weatherData && !loading && settings.defaultLocation) {
                     setPage('dashboard');
                     // Pass the saved coords if we have them —
@@ -121,14 +167,14 @@ export const useAppController = () => {
             // No local flag. Are we authed AND do we have a cloud
             // boat row? If yes, this is a re-install of an existing
             // user — back-fill flag, skip onboarding.
-            if (authedUser && supabase) {
+            if (authedUser?.id === actionScope.userId && supabase) {
                 try {
                     const { data: boat, error } = await supabase
                         .from('boats')
                         .select('id')
-                        .eq('owner_id', authedUser.id)
+                        .eq('owner_id', actionScope.userId)
                         .maybeSingle();
-                    if (cancelled) return;
+                    if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
                     if (error) {
                         // Don't swallow this silently — RLS, network,
                         // or a typo in a policy will all surface here
@@ -148,17 +194,17 @@ export const useAppController = () => {
                         // be set before the overlay's initial render,
                         // so they can flash briefly on first sign-in.
                         // Worst case the user dismisses them once.)
-                        localStorage.setItem('thalassa_v3_onboarded', 'true');
-                        localStorage.setItem('thalassa_tutorial_completed', 'true');
-                        localStorage.setItem('thalassa_onboarding_complete', 'true');
-                        localStorage.setItem('thalassa_glass_tutorial_seen', 'true');
+                        setScopedFlag(ONBOARDED_KEY, actionScope);
+                        setScopedFlag(TUTORIAL_COMPLETED_KEY, actionScope);
+                        setScopedFlag(INTRO_COMPLETED_KEY, actionScope);
+                        setScopedFlag(GLASS_TUTORIAL_SEEN_KEY, actionScope);
                         // CRITICAL: explicitly hide the wizard. Without
                         // this, a previous render that set showOnboarding
                         // true (before auth resolved) leaves the wizard
                         // on screen even though we now know they have a
                         // boat. This was the "Apple sign-in but wizard
                         // ran anyway" bug.
-                        if (!cancelled) setShowOnboarding(false);
+                        if (!cancelled) setShowOnboardingForScope(actionScope, false);
                         // Returning users skip onboarding's "Locate Me"
                         // step, so iOS never sees a location request
                         // until something happens to need GPS — leaves
@@ -212,8 +258,13 @@ export const useAppController = () => {
             // the user signs in at a save point and we land back here
             // with authedUser populated. (Deferred-sign-in flow,
             // 2026-05-17.)
-            if (!cancelled && authedUser) {
-                setShowOnboarding(true);
+            if (
+                !cancelled &&
+                authedUser?.id === actionScope.userId &&
+                actionScope.userId &&
+                isAuthIdentityScopeCurrent(actionScope)
+            ) {
+                setShowOnboardingForScope(actionScope, true);
             }
             // Un-authed user, no flag, no defaultLocation: fall
             // through to the Dashboard's empty state (handled in
@@ -226,7 +277,7 @@ export const useAppController = () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settings.defaultLocation, authedUser, authChecked]);
+    }, [settings.defaultLocation, authedUser, authChecked, identityScope, setShowOnboardingForScope]);
 
     // 1b. CHARTPLOTTER DEFAULT — every open re-centres on the live position
     // and enters GPS-follow mode (2026-06-16, Shane: "when I open the app it
@@ -245,14 +296,19 @@ export const useAppController = () => {
     // rule — that was what let a stray named place from a weekend trip stick
     // on open instead of re-centring to where you actually are.)
     useEffect(() => {
-        if (gpsBootRan.current) return;
-        const onboarded = localStorage.getItem('thalassa_v3_onboarded');
+        if (!authChecked) return;
+        const actionScope = identityScope;
+        const scopeRunKey = `${actionScope.key}:${actionScope.generation}`;
+        if (gpsBootScopeRef.current === scopeRunKey) return;
+        const onboarded = hasScopedFlag(ONBOARDED_KEY, actionScope);
         if (!onboarded) return; // don't run during onboarding
 
-        gpsBootRan.current = true;
+        gpsBootScopeRef.current = scopeRunKey;
+        let cancelled = false;
 
         // Fire GPS check in background — non-blocking.
         GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 }).then((pos) => {
+            if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
             if (!pos) return; // GPS denied or timed out — keep the saved location 1a painted
 
             // Already following GPS → the WeatherContext follower owns it
@@ -268,8 +324,11 @@ export const useAppController = () => {
             log.info(`GPS boot: entering follow mode at ${pos.latitude.toFixed(2)}, ${pos.longitude.toFixed(2)}`);
             selectLocation('Current Location', { lat: pos.latitude, lon: pos.longitude }).catch(() => {});
         });
+        return () => {
+            cancelled = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [authChecked, identityScope]);
 
     // 1c. Reverse-geocode "Current Location" to a friendly place name
     //
@@ -390,30 +449,42 @@ export const useAppController = () => {
     };
 
     const handleLocate = () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (isOffline) {
             toast.error('GPS requires network.');
             return;
         }
         setQuery('Locating...');
-        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 15 }).then(async (pos) => {
-            if (!pos) {
+        void (async () => {
+            try {
+                const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 15 });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                if (!pos) {
+                    showToast('GPS Error: Unable to get position');
+                    setQuery('');
+                    return;
+                }
+                const { latitude, longitude } = pos;
+                const coordStr = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                let searchTarget = coordStr;
+                try {
+                    const name = await reverseGeocode(latitude, longitude);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (name) searchTarget = name;
+                } catch {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    // Silently ignored — non-critical failure
+                }
+                setQuery(searchTarget);
+                setPage('dashboard');
+                void selectLocation(searchTarget, { lat: latitude, lon: longitude });
+            } catch {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 showToast('GPS Error: Unable to get position');
                 setQuery('');
-                return;
             }
-            const { latitude, longitude } = pos;
-            const coordStr = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-            let searchTarget = coordStr;
-            try {
-                const name = await reverseGeocode(latitude, longitude);
-                if (name) searchTarget = name;
-            } catch (e) {
-                // Silently ignored — non-critical failure
-            }
-            setQuery(searchTarget);
-            setPage('dashboard');
-            selectLocation(searchTarget, { lat: latitude, lon: longitude });
-        });
+        })();
     };
 
     /**
@@ -435,12 +506,15 @@ export const useAppController = () => {
      * not boot-time overload.
      */
     const handleLocateLite = useCallback(async () => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         if (isOffline) {
             toast.error('GPS requires network.');
             return;
         }
         try {
             const perms = await Geolocation.requestPermissions();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (perms.location !== 'granted' && perms.coarseLocation !== 'granted') {
                 toast.error('Location denied. Try the map picker instead.');
                 return;
@@ -450,33 +524,42 @@ export const useAppController = () => {
                 timeout: 12_000,
                 maximumAge: 30_000,
             });
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             const { latitude, longitude } = pos.coords;
             let searchTarget = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
             try {
                 const name = await reverseGeocode(latitude, longitude);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 if (name) searchTarget = name;
             } catch {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 // Silent — the coord string fallback is fine
             }
             setQuery(searchTarget);
             setPage('dashboard');
             selectLocation(searchTarget, { lat: latitude, lon: longitude });
         } catch (e) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('handleLocateLite failed:', e);
             toast.error("Couldn't get your location. Try the map picker instead.");
         }
-    }, [isOffline, selectLocation, setPage]);
+    }, [identityScope, isOffline, selectLocation, setPage]);
 
     const handleOnboardingComplete = (newSettings: Partial<UserSettings>) => {
+        const actionScope = identityScope;
+        if (!isAuthIdentityScopeCurrent(actionScope)) return;
         updateSettings(newSettings);
-        setShowOnboarding(false);
+        setShowOnboardingForScope(actionScope, false);
         if (newSettings.defaultLocation) {
             setQuery(newSettings.defaultLocation);
             // Pass coords — the onboarding wizard now saves them alongside
             // the name. Forward-geocoding 'Newport, QLD, AU' returns UK
             // Newport as a top match; bypassing parseLocation with the
             // authoritative coords from the wizard kills that bug.
-            setTimeout(() => fetchWeather(newSettings.defaultLocation!, true, newSettings.defaultLocationCoords), 100);
+            setTimeout(() => {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                void fetchWeather(newSettings.defaultLocation!, true, newSettings.defaultLocationCoords);
+            }, 100);
         }
     };
 
@@ -497,6 +580,8 @@ export const useAppController = () => {
 
     const handleMapTargetSelect = useCallback(
         async (lat: number, lon: number, name?: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             // Normalize Longitude (-180 to 180)
             // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
             let normalizedLon = lon;
@@ -510,8 +595,10 @@ export const useAppController = () => {
             if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
                 try {
                     const geoName = await reverseGeocode(lat, normalizedLon);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     if (geoName) locationQuery = geoName;
                 } catch (e) {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     log.warn(e);
                     // Geocode failed — fall through
                 }
@@ -557,38 +644,49 @@ export const useAppController = () => {
             // Xcode on every pick is what makes that visible.
             void import('@capacitor/preferences')
                 .then(({ Preferences }) =>
-                    Preferences.set({ key: 'PICK_RESULT', value: `[PICK] ${locationQuery} @${nm}nm — fetching` }),
+                    writeScopedNativeDiagnostic(
+                        Preferences,
+                        'PICK_RESULT',
+                        `[PICK] request @${nm}nm — fetching`,
+                        actionScope,
+                    ),
                 )
                 .catch(() => {});
             selectLocation(locationQuery, finalCoords)
                 .then(() => {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     crumb('pick:fetch-ok');
                     void import('@capacitor/preferences')
                         .then(({ Preferences }) =>
-                            Preferences.set({ key: 'PICK_RESULT', value: `[PICK] ${locationQuery} — OK` }),
+                            writeScopedNativeDiagnostic(Preferences, 'PICK_RESULT', '[PICK] request — OK', actionScope),
                         )
                         .catch(() => {});
                 })
                 .catch((e) => {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     crumb('pick:fetch-fail', String(e).slice(0, 60));
                     void import('@capacitor/preferences')
                         .then(({ Preferences }) =>
-                            Preferences.set({
-                                key: 'PICK_RESULT',
-                                value: `[PICK] ${locationQuery} — FAILED: ${String(e).slice(0, 200)}`,
-                            }),
+                            writeScopedNativeDiagnostic(
+                                Preferences,
+                                'PICK_RESULT',
+                                `[PICK] request — FAILED (${e instanceof Error ? e.name : 'unknown error'})`,
+                                actionScope,
+                            ),
                         )
                         .catch(() => {});
                     showToast('Location update failed, check network.');
                 });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [setQuery, selectLocation, setPage, showToast],
+        [identityScope, setQuery, selectLocation, setPage, showToast],
     );
 
     // Same as handleMapTargetSelect but stays on the current page (for Map tab — user must press back chevron)
     const handleMapStaySelect = useCallback(
         async (lat: number, lon: number, name?: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             let normalizedLon = lon;
             while (normalizedLon > 180) normalizedLon -= 360;
             while (normalizedLon < -180) normalizedLon += 360;
@@ -598,8 +696,10 @@ export const useAppController = () => {
             if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
                 try {
                     const geoName = await reverseGeocode(lat, normalizedLon);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     if (geoName) locationQuery = geoName;
                 } catch (e) {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     log.warn(e);
                 }
             }
@@ -612,10 +712,11 @@ export const useAppController = () => {
             updateSettings({ dashboardMode: 'full' });
             // Don't navigate — stay on map
             selectLocation(locationQuery, finalCoords).catch((e) => {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 showToast('Location update failed, check network.');
             });
         },
-        [setQuery, selectLocation, showToast, updateSettings],
+        [identityScope, setQuery, selectLocation, showToast, updateSettings],
     );
 
     // Favourite picks must CLAIM LocationStore (same defect the map picker
@@ -633,11 +734,20 @@ export const useAppController = () => {
     // effect below claims when the report for THAT name lands. Time-boxed
     // so an abandoned pick (fetch died, user moved on) can't ambush a
     // same-named report much later and freeze GPS tracking.
-    const pendingFavoriteClaimRef = React.useRef<{ name: string; at: number } | null>(null);
+    const pendingFavoriteClaimRef = React.useRef<{
+        name: string;
+        at: number;
+        scope: AuthIdentityScope;
+    } | null>(null);
 
     useEffect(() => {
         const pending = pendingFavoriteClaimRef.current;
-        if (!pending || !weatherData) return;
+        if (!pending) return;
+        if (!isAuthIdentityScopeCurrent(pending.scope)) {
+            pendingFavoriteClaimRef.current = null;
+            return;
+        }
+        if (!weatherData) return;
         if (Date.now() - pending.at > PENDING_FAVORITE_CLAIM_MS) {
             pendingFavoriteClaimRef.current = null;
             return;
@@ -648,10 +758,12 @@ export const useAppController = () => {
         if (!coords || (coords.lat === 0 && coords.lon === 0)) return;
         pendingFavoriteClaimRef.current = null;
         LocationStore.setFromFavorite(coords.lat, coords.lon, weatherData.locationName);
-    }, [weatherData]);
+    }, [identityScope, weatherData]);
 
     const handleFavoriteSelect = useCallback(
         (loc: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
             setQuery(loc);
             const oceanMatch = loc.match(/Ocean Point\s+(\d+\.\d+)([NS])\s+(\d+\.\d+)([EW])/);
             if (oceanMatch) {
@@ -664,12 +776,12 @@ export const useAppController = () => {
                 LocationStore.setFromFavorite(lat, lon, loc);
                 selectLocation(loc, { lat, lon });
             } else {
-                pendingFavoriteClaimRef.current = { name: loc, at: Date.now() };
+                pendingFavoriteClaimRef.current = { name: loc, at: Date.now(), scope: actionScope };
                 selectLocation(loc);
             }
             setPage('dashboard');
         },
-        [setQuery, selectLocation, setPage],
+        [identityScope, setQuery, selectLocation, setPage],
     );
 
     // Navigation Handlers (Encapsulate DOM/Window logic)
@@ -717,7 +829,6 @@ export const useAppController = () => {
         setQuery,
         bgImage,
         showOnboarding,
-        setShowOnboarding,
         showToast,
         handleSearchSubmit,
         handleLocate,

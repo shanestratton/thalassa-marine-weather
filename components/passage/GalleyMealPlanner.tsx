@@ -18,6 +18,8 @@ import {
 } from '../../services/GalleyRecipeService';
 import { calculateProvisions, type ProvisionSummary } from '../../services/PassageProvisionsService';
 import { triggerHaptic } from '../../utils/system';
+import { safeExternalHttpUrl, safeImageUrl } from '../../utils/safeUrl';
+import { SafeImage } from '../ui/SafeImage';
 
 interface GalleyMealPlannerProps {
     days: number;
@@ -244,58 +246,68 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
 const MEAL_LABELS = ['Breakfast', 'Lunch', 'Dinner'] as const;
 const MEAL_EMOJIS = ['🌅', '☀️', '🌙'] as const;
 
-const DayCard: React.FC<{ day: GalleyDayPlan; crew: number }> = ({ day, crew }) => (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 relative z-10">
-        {day.meals.map((meal, i) => (
-            <div key={meal.id} className="bg-black/20 rounded-xl overflow-hidden border border-white/5 group">
-                {/* Recipe image */}
-                <div className="relative h-28 overflow-hidden">
-                    <img
-                        src={meal.image}
-                        alt={meal.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold text-amber-300 uppercase tracking-wider">
-                        {MEAL_EMOJIS[i]} {MEAL_LABELS[i]}
-                    </div>
-                    <div
-                        className={`absolute top-2 right-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold ${
-                            meal.readyInMinutes >= 120 ? 'text-red-400' : 'text-gray-300'
-                        }`}
-                    >
-                        {meal.readyInMinutes >= 120
-                            ? `🔥 ${Math.round(meal.readyInMinutes / 60)}hr ${meal.readyInMinutes % 60}m`
-                            : `⏱ ${meal.readyInMinutes}min`}
-                    </div>
-                </div>
-
-                {/* Recipe info */}
-                <div className="p-3 space-y-1.5">
-                    <h5 className="text-xs font-bold text-white leading-tight line-clamp-2">{meal.title}</h5>
-                    <div className="flex items-center justify-between text-[11px] text-gray-400">
-                        <span>× {crew} serves</span>
-                        {meal.sourceUrl && (
-                            <a
-                                href={meal.sourceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-amber-400/60 hover:text-amber-300 transition-colors"
-                                onClick={(e) => e.stopPropagation()}
+const DayCard: React.FC<{ day: GalleyDayPlan; crew: number }> = ({ day, crew }) => {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+    return (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 relative z-10">
+            {day.meals.map((meal, i) => {
+                const imageUrl = safeImageUrl(meal.image, currentOrigin);
+                const sourceUrl = safeExternalHttpUrl(meal.sourceUrl, true);
+                return (
+                    <div key={meal.id} className="bg-black/20 rounded-xl overflow-hidden border border-white/5 group">
+                        {/* Recipe image */}
+                        <div className="relative h-28 overflow-hidden">
+                            {imageUrl && (
+                                <SafeImage
+                                    src={imageUrl}
+                                    alt={meal.title}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).style.display = 'none';
+                                    }}
+                                />
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                            <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold text-amber-300 uppercase tracking-wider">
+                                {MEAL_EMOJIS[i]} {MEAL_LABELS[i]}
+                            </div>
+                            <div
+                                className={`absolute top-2 right-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold ${
+                                    meal.readyInMinutes >= 120 ? 'text-red-400' : 'text-gray-300'
+                                }`}
                             >
-                                Recipe →
-                            </a>
-                        )}
+                                {meal.readyInMinutes >= 120
+                                    ? `🔥 ${Math.round(meal.readyInMinutes / 60)}hr ${meal.readyInMinutes % 60}m`
+                                    : `⏱ ${meal.readyInMinutes}min`}
+                            </div>
+                        </div>
+
+                        {/* Recipe info */}
+                        <div className="p-3 space-y-1.5">
+                            <h5 className="text-xs font-bold text-white leading-tight line-clamp-2">{meal.title}</h5>
+                            <div className="flex items-center justify-between text-[11px] text-gray-400">
+                                <span>× {crew} serves</span>
+                                {sourceUrl && (
+                                    <a
+                                        href={sourceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        referrerPolicy="no-referrer"
+                                        className="text-amber-400/60 hover:text-amber-300 transition-colors"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        Recipe →
+                                    </a>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-        ))}
-    </div>
-);
+                );
+            })}
+        </div>
+    );
+};
 
 // ── Shopping List View ─────────────────────────────────────────────────────
 

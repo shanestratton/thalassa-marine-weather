@@ -19,9 +19,15 @@
  * fresh local tick beats the stale cloud row (and vice-versa). See
  * utils/mergeByUpdatedAt for the full rationale.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { DATA_EVENTS } from '../utils/dataChangeEvents';
 import { mergeByUpdatedAt } from '../utils/mergeByUpdatedAt';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 /** Expiry look-ahead window for docs + equipment warranty badges. */
 const EXPIRY_WINDOW_MS = 30 * 86_400_000; // 30 days
@@ -32,21 +38,41 @@ export interface VesselReadinessCounts {
     expiringEquipCount: number;
 }
 
+const EMPTY_COUNTS: VesselReadinessCounts = {
+    overdueCount: 0,
+    expiringDocsCount: 0,
+    expiringEquipCount: 0,
+};
+const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
+const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
+
 export function useVesselReadinessCounts(): VesselReadinessCounts {
-    const [overdueCount, setOverdueCount] = useState(0);
-    const [expiringDocsCount, setExpiringDocsCount] = useState(0);
-    const [expiringEquipCount, setExpiringEquipCount] = useState(0);
+    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+    const [scopedCounts, setScopedCounts] = useState<{
+        scope: AuthIdentityScope;
+        counts: VesselReadinessCounts;
+    }>(() => ({ scope: identityScope, counts: EMPTY_COUNTS }));
+    const countsBelongToCurrentIdentity =
+        scopedCounts.scope.key === identityScope.key &&
+        scopedCounts.scope.generation === identityScope.generation &&
+        isAuthIdentityScopeCurrent(scopedCounts.scope);
 
     useEffect(() => {
         let cancelled = false;
+        const actionScope = identityScope;
+        let maintenanceEpoch = 0;
+        let documentsEpoch = 0;
+        let equipmentEpoch = 0;
+        setScopedCounts({ scope: actionScope, counts: EMPTY_COUNTS });
 
         const refetchMaintenance = async () => {
+            const requestEpoch = ++maintenanceEpoch;
             try {
                 const [{ LocalMaintenanceService }, { MaintenanceService }] = await Promise.all([
                     import('../services/vessel/LocalMaintenanceService'),
                     import('../services/MaintenanceService'),
                 ]);
-                if (cancelled) return;
+                if (cancelled || requestEpoch !== maintenanceEpoch || !isAuthIdentityScopeCurrent(actionScope)) return;
 
                 const localTasks = LocalMaintenanceService.getTasks();
                 let cloudTasks: typeof localTasks = [];
@@ -55,7 +81,7 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
                 } catch {
                     /* offline — local-only count */
                 }
-                if (cancelled) return;
+                if (cancelled || requestEpoch !== maintenanceEpoch || !isAuthIdentityScopeCurrent(actionScope)) return;
 
                 // Newest-wins merge so a fresh local tick isn't clobbered
                 // by a stale cloud row (the original "1 Overdue" bug).
@@ -64,33 +90,57 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
                 const overdue = merged.filter(
                     (t) => t.is_active && t.next_due_date && Date.parse(t.next_due_date) < now,
                 ).length;
-                setOverdueCount(overdue);
+                setScopedCounts((current) => ({
+                    scope: actionScope,
+                    counts: {
+                        ...(current.scope === actionScope ? current.counts : EMPTY_COUNTS),
+                        overdueCount: overdue,
+                    },
+                }));
             } catch {
                 /* both sources unavailable — leave previous count */
             }
         };
 
         const refetchDocs = async () => {
+            const requestEpoch = ++documentsEpoch;
             try {
                 const { LocalDocumentService } = await import('../services/vessel/LocalDocumentService');
                 const docs = LocalDocumentService.getAll();
-                if (cancelled) return;
+                if (cancelled || requestEpoch !== documentsEpoch || !isAuthIdentityScopeCurrent(actionScope)) return;
                 const cutoff = Date.now() + EXPIRY_WINDOW_MS;
-                setExpiringDocsCount(docs.filter((d) => d.expiry_date && Date.parse(d.expiry_date) <= cutoff).length);
+                const expiringDocsCount = docs.filter(
+                    (d) => d.expiry_date && Date.parse(d.expiry_date) <= cutoff,
+                ).length;
+                setScopedCounts((current) => ({
+                    scope: actionScope,
+                    counts: {
+                        ...(current.scope === actionScope ? current.counts : EMPTY_COUNTS),
+                        expiringDocsCount,
+                    },
+                }));
             } catch {
                 /* offline — no badge */
             }
         };
 
         const refetchEquip = async () => {
+            const requestEpoch = ++equipmentEpoch;
             try {
                 const { LocalEquipmentService } = await import('../services/vessel/LocalEquipmentService');
                 const items = LocalEquipmentService.getAll();
-                if (cancelled) return;
+                if (cancelled || requestEpoch !== equipmentEpoch || !isAuthIdentityScopeCurrent(actionScope)) return;
                 const cutoff = Date.now() + EXPIRY_WINDOW_MS;
-                setExpiringEquipCount(
-                    items.filter((e) => e.warranty_expiry && Date.parse(e.warranty_expiry) <= cutoff).length,
-                );
+                const expiringEquipCount = items.filter(
+                    (e) => e.warranty_expiry && Date.parse(e.warranty_expiry) <= cutoff,
+                ).length;
+                setScopedCounts((current) => ({
+                    scope: actionScope,
+                    counts: {
+                        ...(current.scope === actionScope ? current.counts : EMPTY_COUNTS),
+                        expiringEquipCount,
+                    },
+                }));
             } catch {
                 /* offline — no badge */
             }
@@ -123,6 +173,9 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
         }
         return () => {
             cancelled = true;
+            maintenanceEpoch++;
+            documentsEpoch++;
+            equipmentEpoch++;
             if (typeof window !== 'undefined') {
                 window.removeEventListener(DATA_EVENTS.MAINTENANCE, onMaintenance);
                 window.removeEventListener(DATA_EVENTS.DOCUMENTS, onDocs);
@@ -130,7 +183,7 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
                 document.removeEventListener('visibilitychange', onVisibility);
             }
         };
-    }, []);
+    }, [identityScope]);
 
-    return { overdueCount, expiringDocsCount, expiringEquipCount };
+    return countsBelongToCurrentIdentity ? scopedCounts.counts : EMPTY_COUNTS;
 }

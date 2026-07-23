@@ -26,6 +26,8 @@ import { Capacitor } from '@capacitor/core';
 import { haversineNm, getConditionColor, MAX_PHOTOS } from './helpers';
 import { sanitizeText, validateListingTitle, validatePrice, validateDescription } from '../../utils/inputValidation';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
+import { SafeImage } from '../ui/SafeImage';
 
 interface CreateListingModalProps {
     isOpen: boolean;
@@ -383,11 +385,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const scrollPadBottom = keyboardHeight > 0 ? `${keyboardHeight}px` : '0px';
 
     return (
-        <div
-            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
-            onClick={dismiss}
-            role="presentation"
-        >
+        <OverlayPortal className="flex items-end justify-center bg-black/70" onClick={dismiss} role="presentation">
             <div
                 ref={dialogRef}
                 role="dialog"
@@ -905,7 +903,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     key={i}
                                     className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10"
                                 >
-                                    <img src={url} className="w-full h-full object-cover" alt="" />
+                                    <SafeImage src={url} className="w-full h-full object-cover" alt="" />
                                     <button
                                         aria-label="Upload listing image"
                                         onClick={() => removeImage(i)}
@@ -956,7 +954,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };
 

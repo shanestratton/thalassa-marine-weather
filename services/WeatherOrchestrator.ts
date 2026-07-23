@@ -19,7 +19,6 @@ import { EnvironmentService } from './EnvironmentService';
 import { getErrorMessage } from '../utils/createLogger';
 import { GpsService } from './GpsService';
 import {
-    saveLargeData as _saveLargeData,
     saveLargeDataImmediate,
     loadLargeData,
     loadLargeDataSync,
@@ -33,6 +32,12 @@ import {
 import { getUpdateInterval, alignToNextInterval, AI_UPDATE_INTERVAL } from './WeatherScheduler';
 import { addBreadcrumb, captureException } from './sentry';
 import { isPremiumUser } from '../managers/SubscriptionManager';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 const log = createLogger('WxOrch');
 
 // ── Types ──────────────────────────────────────────────────────
@@ -58,6 +63,43 @@ export const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
  */
 export const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 min — refetch trigger
 const BLUR_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 h — UI blur trigger
+export const NEXT_UPDATE_CACHE_KEY = 'thalassa_next_update';
+const CACHE_VERSION_STORAGE_KEY = 'thalassa_weather_cache_schema';
+
+export interface WeatherCacheKeys {
+    data: string;
+    voyage: string;
+    history: string;
+    nextUpdate: string;
+    version: string;
+}
+
+/** Resolve every location-bearing weather cache into one exact auth namespace. */
+export function weatherCacheKeysForScope(scope: AuthIdentityScope = getAuthIdentityScope()): WeatherCacheKeys {
+    return {
+        data: authScopedStorageKey(DATA_CACHE_KEY, scope),
+        voyage: authScopedStorageKey(VOYAGE_CACHE_KEY, scope),
+        history: authScopedStorageKey(HISTORY_CACHE_KEY, scope),
+        nextUpdate: authScopedStorageKey(NEXT_UPDATE_CACHE_KEY, scope),
+        version: authScopedStorageKey(CACHE_VERSION_STORAGE_KEY, scope),
+    };
+}
+
+/**
+ * Safe first-paint cache lookup. Legacy unscoped weather can only belong to
+ * the public anonymous experience; authenticated accounts fail closed.
+ */
+export function loadWeatherCacheSyncForScope(scope: AuthIdentityScope): MarineWeatherReport | null {
+    if (!isAuthIdentityScopeCurrent(scope)) return null;
+    const scopedKey = weatherCacheKeysForScope(scope).data;
+    const scoped = loadLargeDataSync(scopedKey) as MarineWeatherReport | null;
+    if (scoped?.locationName) return scoped;
+    if (scope.userId !== null) return null;
+
+    const legacy = loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
+    if (!legacy?.locationName) return null;
+    return legacy;
+}
 
 export interface Coords {
     lat: number;
@@ -104,20 +146,98 @@ export interface OrchestratorCallbacks {
 
 // ── Service ────────────────────────────────────────────────────
 
-export class WeatherOrchestrator {
-    private cb: OrchestratorCallbacks;
+class StaleWeatherOperationError extends Error {
+    constructor() {
+        super('Weather operation belongs to an inactive identity');
+        this.name = 'StaleWeatherOperationError';
+    }
+}
 
-    constructor(callbacks: OrchestratorCallbacks) {
+export class WeatherOrchestrator {
+    private readonly cb: OrchestratorCallbacks;
+    private readonly scope: AuthIdentityScope;
+    private readonly cacheKeys: WeatherCacheKeys;
+    private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+    private disposed = false;
+    private fetchEpoch = 0;
+    private adviceEpoch = 0;
+    private liveMetricsEpoch = 0;
+
+    constructor(callbacks: OrchestratorCallbacks, scope: AuthIdentityScope = getAuthIdentityScope()) {
         this.cb = callbacks;
+        this.scope = scope;
+        this.cacheKeys = weatherCacheKeysForScope(scope);
+    }
+
+    /** Stop timers and fence every promise created by this instance. */
+    dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        this.fetchEpoch += 1;
+        this.adviceEpoch += 1;
+        this.liveMetricsEpoch += 1;
+        for (const timer of this.timers) clearTimeout(timer);
+        this.timers.clear();
+    }
+
+    isCurrentIdentity(): boolean {
+        return !this.disposed && isAuthIdentityScopeCurrent(this.scope);
+    }
+
+    private isFetchCurrent(epoch: number): boolean {
+        return this.isCurrentIdentity() && epoch === this.fetchEpoch;
+    }
+
+    private assertCurrent(epoch?: number): void {
+        if (!this.isCurrentIdentity() || (epoch !== undefined && epoch !== this.fetchEpoch)) {
+            throw new StaleWeatherOperationError();
+        }
+    }
+
+    private isStaleOperation(error: unknown): boolean {
+        return error instanceof StaleWeatherOperationError || !this.isCurrentIdentity();
+    }
+
+    private schedule(callback: () => void, delayMs: number): void {
+        if (!this.isCurrentIdentity()) return;
+        const timer = setTimeout(() => {
+            this.timers.delete(timer);
+            if (this.isCurrentIdentity()) callback();
+        }, delayMs);
+        this.timers.add(timer);
+    }
+
+    private async loadScopedCache<T>(scopedKey: string, legacyKey: string): Promise<T | null> {
+        const scoped = (await loadLargeData(scopedKey)) as T | null;
+        this.assertCurrent();
+        if (scoped !== null) return scoped;
+        if (this.scope.userId !== null) return null;
+
+        // Unscoped caches pre-date account isolation. They have no trustworthy
+        // owner, so only the deliberately public anonymous scope may adopt them.
+        const legacy = (await loadLargeData(legacyKey)) as T | null;
+        this.assertCurrent();
+        if (legacy !== null) await saveLargeDataImmediate(scopedKey, legacy);
+        this.assertCurrent();
+        return legacy;
     }
 
     // ── Cache Version Check ────────────────────────────────────
 
     async checkCacheVersion(): Promise<void> {
+        if (!this.isCurrentIdentity()) return;
         log.info('Version check starting...');
         addBreadcrumb({ category: 'weather', message: 'Cache version check', level: 'info' });
         try {
-            const ver = await readCacheVersion();
+            let ver = (await loadLargeData(this.cacheKeys.version)) as string | null;
+            this.assertCurrent();
+            if (ver === null && this.scope.userId === null) {
+                // Anonymous users may retain the pre-account-isolation schema
+                // marker. Signed-in users must never inherit it.
+                ver = await readCacheVersion();
+                this.assertCurrent();
+            }
+            this.assertCurrent();
             log.info(`Cached version: ${ver}, expected: ${CACHE_VERSION}`);
             if (ver !== CACHE_VERSION) {
                 log.info('Version mismatch — clearing caches');
@@ -127,34 +247,58 @@ export class WeatherOrchestrator {
                     level: 'warning',
                     data: { cachedVersion: ver, expectedVersion: CACHE_VERSION },
                 });
-                deleteLargeData(DATA_CACHE_KEY);
-                deleteLargeData(HISTORY_CACHE_KEY);
-                deleteLargeData(VOYAGE_CACHE_KEY);
-                localStorage.removeItem(DATA_CACHE_KEY);
-                await writeCacheVersion(CACHE_VERSION);
+                await Promise.all([
+                    deleteLargeData(this.cacheKeys.data),
+                    deleteLargeData(this.cacheKeys.history),
+                    deleteLargeData(this.cacheKeys.voyage),
+                ]);
+                this.assertCurrent();
+                localStorage.removeItem(this.cacheKeys.nextUpdate);
+                if (this.scope.userId === null) {
+                    // Legacy weather was never attributable to a signed-in
+                    // owner. It is safe to retire only while anonymous.
+                    await Promise.all([
+                        deleteLargeData(DATA_CACHE_KEY),
+                        deleteLargeData(HISTORY_CACHE_KEY),
+                        deleteLargeData(VOYAGE_CACHE_KEY),
+                    ]);
+                    localStorage.removeItem(NEXT_UPDATE_CACHE_KEY);
+                    this.assertCurrent();
+                }
+                await saveLargeDataImmediate(this.cacheKeys.version, CACHE_VERSION);
+                if (this.scope.userId === null) await writeCacheVersion(CACHE_VERSION);
+                this.assertCurrent();
                 this.cb.setWeatherData(null);
                 this.cb.setHistoryCache(() => ({}));
             } else {
-                const cachedNextUpdate = localStorage.getItem('thalassa_next_update');
+                if (loadLargeDataSync(this.cacheKeys.version) === null) {
+                    await saveLargeDataImmediate(this.cacheKeys.version, CACHE_VERSION);
+                    this.assertCurrent();
+                }
+                const cachedNextUpdate = localStorage.getItem(this.cacheKeys.nextUpdate);
                 if (cachedNextUpdate) {
-                    const nu = parseInt(cachedNextUpdate);
+                    const nu = Number.parseInt(cachedNextUpdate, 10);
                     if (nu > Date.now()) this.cb.setNextUpdate(nu);
                 }
             }
         } catch (e) {
+            if (this.isStaleOperation(e)) return;
             log.warn('Version check failed:', e);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             captureException(e, { tags: { operation: 'checkCacheVersion' } } as any);
         } finally {
-            this.cb.setVersionChecked(true);
-            log.info('Version check complete');
+            if (this.isCurrentIdentity()) {
+                this.cb.setVersionChecked(true);
+                log.info('Version check complete');
+            }
         }
     }
 
     // ── Synchronous Cache Pre-read ─────────────────────────────
 
     loadInstantCache(): MarineWeatherReport | null {
-        const syncCached = loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
+        if (!this.isCurrentIdentity()) return null;
+        const syncCached = loadWeatherCacheSyncForScope(this.scope);
         if (syncCached && syncCached.locationName) {
             log.info(`Instant display: ${syncCached.locationName}`);
             addBreadcrumb({
@@ -171,6 +315,7 @@ export class WeatherOrchestrator {
     // ── Async Cache Load + Init Fetch ──────────────────────────
 
     async loadCacheAndInit(): Promise<void> {
+        if (!this.isCurrentIdentity()) return;
         let hasCachedData = false;
 
         try {
@@ -190,11 +335,13 @@ export class WeatherOrchestrator {
                 });
             }
             keysToDelete.forEach((key) => localStorage.removeItem(key));
+            this.assertCurrent();
 
             // Load cached weather data
             log.info('Loading cached weather data...');
             addBreadcrumb({ category: 'weather', message: 'Loading cached weather data', level: 'info' });
-            const cached = await loadLargeData(DATA_CACHE_KEY);
+            const cached = await this.loadScopedCache<MarineWeatherReport>(this.cacheKeys.data, DATA_CACHE_KEY);
+            this.assertCurrent();
             if (cached && cached.locationName) {
                 log.info(`[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`);
                 addBreadcrumb({
@@ -212,7 +359,11 @@ export class WeatherOrchestrator {
             }
 
             // Load history
-            const h = await loadLargeData(HISTORY_CACHE_KEY);
+            const h = await this.loadScopedCache<Record<string, MarineWeatherReport>>(
+                this.cacheKeys.history,
+                HISTORY_CACHE_KEY,
+            );
+            this.assertCurrent();
             if (h) {
                 this.cb.setHistoryCache(() => h);
                 addBreadcrumb({
@@ -226,6 +377,7 @@ export class WeatherOrchestrator {
                 addBreadcrumb({ category: 'weather', message: 'History cache empty', level: 'info' });
             }
         } catch (e) {
+            if (this.isStaleOperation(e)) return;
             log.warn('Cache load failed:', e);
             addBreadcrumb({
                 category: 'weather',
@@ -237,11 +389,12 @@ export class WeatherOrchestrator {
             captureException(e, { tags: { operation: 'loadCacheAndInit' } } as any);
             this.cb.setLoading(false);
         } finally {
-            this.triggerInitialFetch(hasCachedData);
+            if (this.isCurrentIdentity()) this.triggerInitialFetch(hasCachedData);
         }
     }
 
     private triggerInitialFetch(hasCachedData: boolean): void {
+        if (!this.isCurrentIdentity()) return;
         const settings = this.cb.getSettings();
         if (!settings.defaultLocation) {
             log.info('No default location set');
@@ -296,6 +449,7 @@ export class WeatherOrchestrator {
             log.info('Requesting GPS position...');
             addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
             GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                if (!this.isCurrentIdentity()) return;
                 if (pos) {
                     log.info(`GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
                     addBreadcrumb({
@@ -359,8 +513,8 @@ export class WeatherOrchestrator {
             // Newport, QLD). The saved coords were captured at pick-time
             // so they're authoritative.
             const savedCoords = settings.defaultLocationCoords as Coords | undefined;
-            setTimeout(() => {
-                this.fetchWeather(loc, {
+            this.schedule(() => {
+                void this.fetchWeather(loc, {
                     force: !hasCachedData,
                     coords: savedCoords,
                     showOverlay: false,
@@ -372,7 +526,8 @@ export class WeatherOrchestrator {
 
     // ── Location Resolution ────────────────────────────────────
 
-    async resolveLocation(location: string, coords?: Coords): Promise<ResolvedLocation> {
+    async resolveLocation(location: string, coords?: Coords, fetchEpoch?: number): Promise<ResolvedLocation> {
+        this.assertCurrent(fetchEpoch);
         addBreadcrumb({
             category: 'location',
             message: `Resolving location: ${location}`,
@@ -388,6 +543,7 @@ export class WeatherOrchestrator {
             if (location === 'Current Location') {
                 this.cb.setLoadingMessage('Getting GPS Location...');
                 const pos = await GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 15 });
+                this.assertCurrent(fetchEpoch);
                 if (pos) {
                     addBreadcrumb({
                         category: 'location',
@@ -426,6 +582,7 @@ export class WeatherOrchestrator {
 
             try {
                 const parsed = await parseLocation(location);
+                this.assertCurrent(fetchEpoch);
                 if (parsed.lat !== 0 || parsed.lon !== 0) {
                     resolvedCoords = { lat: parsed.lat, lon: parsed.lon };
                     if (parsed.name && parsed.name !== location && parsed.name !== 'Invalid Location') {
@@ -440,6 +597,7 @@ export class WeatherOrchestrator {
                     });
                 }
             } catch (e) {
+                if (this.isStaleOperation(e)) throw e;
                 addBreadcrumb({
                     category: 'location',
                     message: `Failed to parse location name: ${location}`,
@@ -461,6 +619,7 @@ export class WeatherOrchestrator {
         ) {
             try {
                 const name = await reverseGeocode(resolvedCoords.lat, resolvedCoords.lon);
+                this.assertCurrent(fetchEpoch);
                 if (name) {
                     resolvedLocation = name;
                     addBreadcrumb({
@@ -479,6 +638,7 @@ export class WeatherOrchestrator {
                     });
                 }
             } catch (e) {
+                if (this.isStaleOperation(e)) throw e;
                 resolvedLocation = this.formatCoords(resolvedCoords);
                 addBreadcrumb({
                     category: 'location',
@@ -494,6 +654,7 @@ export class WeatherOrchestrator {
             level: 'info',
             data: { finalCoords: resolvedCoords, timezone: resolvedTimezone },
         });
+        this.assertCurrent(fetchEpoch);
         return { name: resolvedLocation, coords: resolvedCoords, timezone: resolvedTimezone };
     }
 
@@ -508,7 +669,7 @@ export class WeatherOrchestrator {
     async fetchWeather(location: string, options: FetchWeatherOptions = {}): Promise<void> {
         const { force = false, coords, showOverlay: _showOverlay = false, silent = false } = options;
 
-        if (!location) return;
+        if (!location || !this.isCurrentIdentity()) return;
 
         addBreadcrumb({
             category: 'weather',
@@ -527,6 +688,11 @@ export class WeatherOrchestrator {
             });
             return;
         }
+        const fetchEpoch = ++this.fetchEpoch;
+        // A live patch or manual advice generation that started against the
+        // previous report may not be applied after this location fetch begins.
+        this.liveMetricsEpoch += 1;
+        this.adviceEpoch += 1;
         this.cb.setIsFetching(true);
 
         // Offline check
@@ -551,8 +717,10 @@ export class WeatherOrchestrator {
                     data: { location },
                 });
             }
-            this.cb.setLoading(false);
-            this.cb.setIsFetching(false);
+            if (this.isFetchCurrent(fetchEpoch)) {
+                this.cb.setLoading(false);
+                this.cb.setIsFetching(false);
+            }
             return;
         }
 
@@ -588,7 +756,7 @@ export class WeatherOrchestrator {
             let resolved: ResolvedLocation;
             if (coords && location === 'Current Location') {
                 // GPS coords already provided — just need reverse geocode
-                resolved = await this.resolveLocation(location, coords);
+                resolved = await this.resolveLocation(location, coords, fetchEpoch);
                 addBreadcrumb({
                     category: 'weather',
                     message: 'Resolved location using provided GPS coords for Current Location',
@@ -604,7 +772,7 @@ export class WeatherOrchestrator {
                     data: { location, coords },
                 });
             } else {
-                resolved = await this.resolveLocation(location);
+                resolved = await this.resolveLocation(location, undefined, fetchEpoch);
                 addBreadcrumb({
                     category: 'weather',
                     message: 'Resolved location from name',
@@ -612,6 +780,7 @@ export class WeatherOrchestrator {
                     data: { location },
                 });
             }
+            this.assertCurrent(fetchEpoch);
 
             if (!resolved.coords) {
                 addBreadcrumb({
@@ -623,7 +792,13 @@ export class WeatherOrchestrator {
             }
 
             // Fetch weather via strategy orchestrator
-            let currentReport = await this.fetchFromStrategy(resolved.coords.lat, resolved.coords.lon, resolved.name);
+            let currentReport = await this.fetchFromStrategy(
+                resolved.coords.lat,
+                resolved.coords.lon,
+                resolved.name,
+                fetchEpoch,
+            );
+            this.assertCurrent(fetchEpoch);
             addBreadcrumb({
                 category: 'weather',
                 message: 'Fetched weather from strategy',
@@ -650,7 +825,7 @@ export class WeatherOrchestrator {
             if (currentReport) {
                 this.cb.setWeatherData(currentReport);
                 this.cb.setHistoryCache((prev) => ({ ...prev, [location]: currentReport! }));
-                saveLargeDataImmediate(DATA_CACHE_KEY, currentReport);
+                void saveLargeDataImmediate(this.cacheKeys.data, currentReport);
                 addBreadcrumb({
                     category: 'weather',
                     message: 'Weather data updated and cached',
@@ -672,11 +847,12 @@ export class WeatherOrchestrator {
             // at the outer level so fire-and-forget doesn't leak promise
             // rejections.
             if (currentReport) {
-                void this.scheduleNextAndEnrich(currentReport, location, settings, force).catch((e) => {
-                    log.warn('scheduleNextAndEnrich (post-render):', e);
+                void this.scheduleNextAndEnrich(currentReport, location, settings, force, fetchEpoch).catch((e) => {
+                    if (!this.isStaleOperation(e)) log.warn('scheduleNextAndEnrich (post-render):', e);
                 });
             }
         } catch (err: unknown) {
+            if (!this.isFetchCurrent(fetchEpoch) || this.isStaleOperation(err)) return;
             const currentData2 = this.cb.getWeatherData();
             const historyCache2 = this.cb.getHistoryCache();
             if (!navigator.onLine && (currentData2 || historyCache2[location])) {
@@ -716,7 +892,7 @@ export class WeatherOrchestrator {
             // Reschedule on failure
             const retryTs = Date.now() + 2 * 60 * 1000;
             this.cb.setNextUpdate(retryTs);
-            localStorage.setItem('thalassa_next_update', retryTs.toString());
+            localStorage.setItem(this.cacheKeys.nextUpdate, retryTs.toString());
             addBreadcrumb({
                 category: 'weather',
                 message: `Rescheduling fetch due to error for ${location}`,
@@ -724,14 +900,21 @@ export class WeatherOrchestrator {
                 data: { retryTime: new Date(retryTs).toISOString() },
             });
         } finally {
-            this.cb.setIsFetching(false);
-            this.cb.setBackgroundUpdating(false);
-            this.cb.setStaleRefresh(false);
-            this.cb.setLoading(false);
+            if (this.isFetchCurrent(fetchEpoch)) {
+                this.cb.setIsFetching(false);
+                this.cb.setBackgroundUpdating(false);
+                this.cb.setStaleRefresh(false);
+                this.cb.setLoading(false);
+            }
         }
     }
 
-    private async fetchFromStrategy(lat: number, lon: number, name: string): Promise<MarineWeatherReport | null> {
+    private async fetchFromStrategy(
+        lat: number,
+        lon: number,
+        name: string,
+        fetchEpoch: number,
+    ): Promise<MarineWeatherReport | null> {
         // --- SUBSCRIPTION TIER ROUTING ---
         // Premium users get the full multi-source pipeline (WeatherKit + StormGlass + GRIB).
         // Free/expired users get standard resolution only (OpenMeteo GFS).
@@ -742,19 +925,26 @@ export class WeatherOrchestrator {
             // If subscription check fails, don't block weather — give full pipeline
             log.warn('Subscription check failed, defaulting to premium pipeline');
         }
+        this.assertCurrent(fetchEpoch);
 
         try {
             const report = await fetchWeatherByStrategy(lat, lon, name, undefined);
+            this.assertCurrent(fetchEpoch);
             this.cb.incrementQuota();
             return report;
         } catch (e: unknown) {
+            this.assertCurrent(fetchEpoch);
+            if (this.isStaleOperation(e)) throw e;
             // Premium fallback: try StormGlass high-res if available
             if (premium && isStormglassKeyPresent()) {
                 try {
                     const report = await fetchPrecisionWeather(name, { lat, lon }, false, undefined);
+                    this.assertCurrent(fetchEpoch);
                     this.cb.incrementQuota();
                     return report;
-                } catch {
+                } catch (fallbackError) {
+                    this.assertCurrent(fetchEpoch);
+                    if (this.isStaleOperation(fallbackError)) throw fallbackError;
                     throw e;
                 }
             }
@@ -768,7 +958,9 @@ export class WeatherOrchestrator {
         location: string,
         settings: Record<string, unknown>,
         force: boolean,
+        fetchEpoch: number,
     ): Promise<void> {
+        this.assertCurrent(fetchEpoch);
         const locationType = report.locationType || 'coastal';
         const isCurrentLoc = this.cb.getLocationMode() === 'gps';
         const interval = getUpdateInterval(
@@ -779,7 +971,7 @@ export class WeatherOrchestrator {
         );
         const nextTs = alignToNextInterval(interval);
         this.cb.setNextUpdate(nextTs);
-        localStorage.setItem('thalassa_next_update', nextTs.toString());
+        localStorage.setItem(this.cacheKeys.nextUpdate, nextTs.toString());
 
         // AI enrichment
         const currentData = this.cb.getWeatherData();
@@ -790,6 +982,7 @@ export class WeatherOrchestrator {
         if (timeExpired || force || locationChanged || !currentData?.boatingAdvice) {
             try {
                 const { enrichMarineWeather } = await import('./geminiService');
+                this.assertCurrent(fetchEpoch);
                 const enriched = await enrichMarineWeather(
                     report,
                     settings.vessel as VesselProfile | undefined,
@@ -797,10 +990,12 @@ export class WeatherOrchestrator {
                     settings.vesselUnits as VesselDimensionUnits | undefined,
                     settings.aiPersona as number | undefined,
                 );
+                this.assertCurrent(fetchEpoch);
                 this.cb.setWeatherData(enriched);
                 this.cb.setHistoryCache((prev) => ({ ...prev, [location]: enriched }));
-                saveLargeDataImmediate(DATA_CACHE_KEY, enriched);
+                void saveLargeDataImmediate(this.cacheKeys.data, enriched);
             } catch (e) {
+                if (this.isStaleOperation(e)) throw e;
                 log.warn('AI enrichment non-critical:', e);
             }
         } else {
@@ -811,8 +1006,9 @@ export class WeatherOrchestrator {
                     boatingAdvice: currentData.boatingAdvice,
                     aiGeneratedAt: currentData.aiGeneratedAt,
                 };
+                this.assertCurrent(fetchEpoch);
                 this.cb.setWeatherData(withAdvice);
-                saveLargeDataImmediate(DATA_CACHE_KEY, withAdvice);
+                void saveLargeDataImmediate(this.cacheKeys.data, withAdvice);
             }
         }
     }
@@ -820,6 +1016,8 @@ export class WeatherOrchestrator {
     // ── Live Metrics Patch (WeatherKit Realtime) ───────────────
 
     async patchLiveMetrics(): Promise<void> {
+        if (!this.isCurrentIdentity()) return;
+        const liveMetricsEpoch = ++this.liveMetricsEpoch;
         const report = this.cb.getWeatherData();
         if (!report?.coordinates) return;
         if (report.locationType === 'offshore') return;
@@ -827,10 +1025,19 @@ export class WeatherOrchestrator {
         const { lat, lon } = report.coordinates;
         try {
             const obs = await fetchWeatherKitRealtime(lat, lon);
+            if (!this.isCurrentIdentity() || liveMetricsEpoch !== this.liveMetricsEpoch) return;
             if (!obs || obs.temperature === null) return;
 
             const current = this.cb.getWeatherData();
             if (!current) return;
+            if (
+                current.generatedAt !== report.generatedAt ||
+                current.locationName !== report.locationName ||
+                current.coordinates?.lat !== lat ||
+                current.coordinates?.lon !== lon
+            ) {
+                return;
+            }
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const patched = { ...current.current } as any;
@@ -899,15 +1106,21 @@ export class WeatherOrchestrator {
             }
 
             patched.sources = sources;
-            this.cb.setWeatherData({ ...current, current: patched });
+            if (this.isCurrentIdentity() && liveMetricsEpoch === this.liveMetricsEpoch) {
+                this.cb.setWeatherData({ ...current, current: patched });
+            }
         } catch (e) {
-            log.warn('Live metrics patch failed:', e);
+            if (this.isCurrentIdentity() && liveMetricsEpoch === this.liveMetricsEpoch) {
+                log.warn('Live metrics patch failed:', e);
+            }
         }
     }
 
     // ── AI Enrichment ──────────────────────────────────────────
 
     async regenerateAdvice(): Promise<void> {
+        if (!this.isCurrentIdentity()) return;
+        const adviceEpoch = ++this.adviceEpoch;
         const currentData = this.cb.getWeatherData();
         const settings = this.cb.getSettings();
         if (!currentData) return;
@@ -915,6 +1128,7 @@ export class WeatherOrchestrator {
         this.cb.setBackgroundUpdating(true);
         try {
             const { enrichMarineWeather } = await import('./geminiService');
+            if (!this.isCurrentIdentity() || adviceEpoch !== this.adviceEpoch) return;
             const enriched = await enrichMarineWeather(
                 currentData,
                 settings.vessel,
@@ -922,15 +1136,25 @@ export class WeatherOrchestrator {
                 settings.vesselUnits,
                 settings.aiPersona,
             );
+            if (!this.isCurrentIdentity() || adviceEpoch !== this.adviceEpoch) return;
+            const stillCurrent = this.cb.getWeatherData();
+            if (
+                stillCurrent?.generatedAt !== currentData.generatedAt ||
+                stillCurrent.locationName !== currentData.locationName
+            ) {
+                return;
+            }
             this.cb.setWeatherData(enriched);
-            saveLargeDataImmediate(DATA_CACHE_KEY, enriched);
+            void saveLargeDataImmediate(this.cacheKeys.data, enriched);
             if (enriched.locationName) {
                 this.cb.setHistoryCache((prev) => ({ ...prev, [enriched.locationName]: enriched }));
             }
         } catch {
             // Non-critical
         } finally {
-            this.cb.setBackgroundUpdating(false);
+            if (this.isCurrentIdentity() && adviceEpoch === this.adviceEpoch) {
+                this.cb.setBackgroundUpdating(false);
+            }
         }
     }
 

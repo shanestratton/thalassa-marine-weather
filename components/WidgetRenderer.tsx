@@ -165,30 +165,6 @@ export const WidgetRenderer: React.FC<{ id: string; context: DashboardWidgetCont
     ({ id, context }) => {
         const renderFn = WIDGET_REGISTRY[id];
         if (!renderFn) return null;
-        return (
-            <>
-                {renderFn(context)}
-                {/* DEBUG VERSION LABEL - REMOVE LATER */}
-                {id === 'dashboard' && (
-                    <div
-                        style={{
-                            position: 'fixed',
-                            bottom: 85,
-                            left: 10,
-                            background: 'red',
-                            color: 'white',
-                            padding: '2px 6px',
-                            zIndex: 9999,
-                            fontSize: '10px',
-                            borderRadius: '4px',
-                            fontWeight: 'bold',
-                            pointerEvents: 'none',
-                        }}
-                    >
-                        v1.3.28
-                    </div>
-                )}
-            </>
-        );
+        return renderFn(context);
     },
 );

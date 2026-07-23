@@ -19,7 +19,7 @@
 import 'dotenv/config';
 import http from 'node:http';
 import WebSocket from 'ws';
-import { parseAisStreamMessage } from './parser.js';
+import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
 import { startWatchdog } from './watchdog.js';
 
@@ -68,7 +68,12 @@ function connect(): void {
 
     console.log(`[WS] Bounding boxes: ${JSON.stringify(BOUNDING_BOXES)}`);
 
-    ws = new WebSocket(AISSTREAM_URL);
+    ws = new WebSocket(AISSTREAM_URL, {
+        // A normal decoded AIS envelope is only a few kilobytes. Bounding the
+        // frame at the socket prevents an upstream/proxy fault from allocating
+        // an arbitrarily large Buffer before the parser can reject it.
+        maxPayload: MAX_AIS_MESSAGE_CHARS,
+    });
 
     ws.on('open', () => {
         console.log('[WS] Connected! Sending subscription...');

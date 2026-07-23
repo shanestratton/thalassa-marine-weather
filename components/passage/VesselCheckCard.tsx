@@ -6,9 +6,9 @@
  * directly inside the card — no separate checklist card needed.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -131,16 +131,19 @@ const CHECK_SECTIONS: CheckSection[] = [
 const ALL_ITEMS = CHECK_SECTIONS.flatMap((s) => s.items);
 
 export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onReviewedChange }) => {
-    const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch {
-            return {};
-        }
-    });
+    const [checkedItems, setCheckedItems] = useScopedReadinessStorageState<Record<string, boolean>>(
+        STORAGE_KEY,
+        voyageId,
+        {},
+    );
 
-    const { syncCheck } = useReadinessSync(voyageId, 'vessel_check', checkedItems, setCheckedItems, STORAGE_KEY);
+    const { syncCheck, clearChecks } = useReadinessSync(
+        voyageId,
+        'vessel_check',
+        checkedItems,
+        setCheckedItems,
+        STORAGE_KEY,
+    );
 
     const totalItems = ALL_ITEMS.length;
     const checkedCount = ALL_ITEMS.filter((i) => checkedItems[i.key]).length;
@@ -151,28 +154,18 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
         (key: string) => {
             setCheckedItems((prev) => {
                 const next = { ...prev, [key]: !prev[key] };
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-                } catch {
-                    /* ignore */
-                }
                 syncCheck(key, next[key]);
                 return next;
             });
             triggerHaptic('light');
         },
-        [syncCheck],
+        [setCheckedItems, syncCheck],
     );
 
     const resetAll = useCallback(() => {
-        setCheckedItems({});
-        try {
-            localStorage.removeItem(STORAGE_KEY);
-        } catch {
-            /* ignore */
-        }
+        clearChecks();
         triggerHaptic('medium');
-    }, []);
+    }, [clearChecks]);
 
     useEffect(() => {
         onReviewedChange?.(allChecked);

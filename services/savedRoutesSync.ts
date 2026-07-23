@@ -12,23 +12,31 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { loadSavedTraces, type SavedTrace, type TracePoint } from './routeTracer';
 import { createLogger } from '../utils/createLogger';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('savedRoutesSync');
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
 
-function writeLocal(all: SavedTrace[]): void {
+function writeLocal(all: SavedTrace[], scope: AuthIdentityScope): void {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
-        localStorage.setItem(TRACES_KEY, JSON.stringify(all.slice(0, 50)));
+        localStorage.setItem(authScopedStorageKey(TRACES_KEY, scope), JSON.stringify(all.slice(0, 50)));
     } catch {
         /* quota — local set unchanged */
     }
 }
 
-async function signedIn(): Promise<boolean> {
-    if (!isSupabaseConfigured() || !supabase) return false;
+async function signedIn(scope: AuthIdentityScope): Promise<boolean> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope) || !isSupabaseConfigured() || !supabase) return false;
     try {
-        return !!(await supabase.auth.getUser()).data.user;
+        const user = (await supabase.auth.getUser()).data.user;
+        return isAuthIdentityScopeCurrent(scope) && user?.id === scope.userId;
     } catch {
         return false;
     }
@@ -36,11 +44,18 @@ async function signedIn(): Promise<boolean> {
 
 /** Outcome of a push — surfaced in the tracer's save flash so a route
  *  that only landed on THIS device never silently poses as synced. */
-export type PushResult = 'ok' | 'signedout' | 'toolarge' | 'error';
+export type PushResult = 'ok' | 'signedout' | 'toolarge' | 'error' | 'stale';
 
 /** Push one trace to the account. Fire-and-forget from saveTrace. */
-export async function pushSavedRoute(trace: SavedTrace): Promise<PushResult> {
-    if (!(await signedIn())) return 'signedout';
+export async function pushSavedRoute(
+    trace: SavedTrace,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<PushResult> {
+    if (!scope.userId) return 'signedout';
+    if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+    if (!(await signedIn(scope))) {
+        return isAuthIdentityScopeCurrent(scope) ? 'signedout' : 'stale';
+    }
     // The saved_routes points column carries a 2..200-element check
     // constraint; an over-long trace would fail server-side with only a
     // log.warn to show for it. Truncating a route is a safety lie, so
@@ -51,12 +66,16 @@ export async function pushSavedRoute(trace: SavedTrace): Promise<PushResult> {
     }
     const { error } = await supabase!.from('saved_routes').upsert({
         id: trace.id,
+        // Explicit ownership makes a concurrent auth-token transition fail
+        // RLS instead of silently defaulting the row to the next account.
+        user_id: scope.userId,
         name: trace.name,
         points: trace.points.map((p) => [p.lat, p.lon]),
         created_at: trace.createdAt,
         updated_at: trace.updatedAt ?? new Date().toISOString(),
         deleted: false,
     });
+    if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
     if (error) {
         log.warn(`push failed for ${trace.id}: ${error.message}`);
         return 'error';
@@ -65,10 +84,14 @@ export async function pushSavedRoute(trace: SavedTrace): Promise<PushResult> {
 }
 
 /** Tombstone a deleted trace on the account. Fire-and-forget. */
-export async function pushSavedRouteDelete(id: string): Promise<void> {
-    if (!(await signedIn())) return;
+export async function pushSavedRouteDelete(
+    id: string,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<void> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope) || !(await signedIn(scope))) return;
     const { error } = await supabase!.from('saved_routes').upsert({
         id,
+        user_id: scope.userId,
         name: '(deleted)',
         points: [
             [0, 0],
@@ -77,6 +100,7 @@ export async function pushSavedRouteDelete(id: string): Promise<void> {
         deleted: true,
         updated_at: new Date().toISOString(),
     });
+    if (!isAuthIdentityScopeCurrent(scope)) return;
     if (error) log.warn(`delete push failed for ${id}: ${error.message}`);
 }
 
@@ -86,14 +110,19 @@ export async function pushSavedRouteDelete(id: string): Promise<void> {
  * offline catches the account up). Returns the merged list.
  */
 export async function syncSavedRoutes(): Promise<SavedTrace[]> {
-    const local = loadSavedTraces();
-    if (!(await signedIn())) return local;
+    const scope = getAuthIdentityScope();
+    const local = loadSavedTraces(scope);
+    if (!scope.userId) return local;
+    if (!(await signedIn(scope))) {
+        return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();
+    }
     try {
         const { data, error } = await supabase!
             .from('saved_routes')
             .select('id, name, points, created_at, updated_at, deleted')
             .order('updated_at', { ascending: false })
             .limit(100);
+        if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
         if (error) throw new Error(error.message);
         const rows = data ?? [];
         const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
@@ -120,15 +149,15 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             return !!r && stamp(t) > stamp(r);
         });
         // Catch the account up with offline saves, best-effort.
-        for (const t of [...localOnly, ...localNewer]) void pushSavedRoute(t);
+        for (const t of [...localOnly, ...localNewer]) void pushSavedRoute(t, scope);
         const localWins = new Set(localNewer.map((t) => t.id));
         const merged = [...localOnly, ...localNewer, ...remote.filter((t) => !localWins.has(t.id))].sort(
             (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
-        writeLocal(merged);
-        return merged;
+        writeLocal(merged, scope);
+        return isAuthIdentityScopeCurrent(scope) ? merged : loadSavedTraces();
     } catch (err) {
         log.warn(`sync failed: ${err instanceof Error ? err.message : String(err)}`);
-        return local;
+        return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();
     }
 }

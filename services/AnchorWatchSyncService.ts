@@ -16,6 +16,13 @@ import { supabase, isSupabaseConfigured } from './supabase';
 import { PushNotificationService } from './PushNotificationService';
 import type { AnchorPosition, VesselPosition, AnchorWatchConfig } from './AnchorWatchService';
 import { createLogger } from '../utils/createLogger';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('SyncService');
 
@@ -58,10 +65,13 @@ export type BroadcastListener = (data: SyncBroadcast) => void;
 
 // ------- PERSISTENCE -------
 const SYNC_SESSION_KEY = 'thalassa_anchor_sync_session';
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_SESSION_CODE_ATTEMPTS = 5;
 
 interface PersistedSyncSession {
     sessionCode: string;
     role: SyncRole;
+    userId: string;
     savedAt: number;
 }
 
@@ -76,11 +86,25 @@ function generateSessionCode(): string {
     return Array.from(random, (byte) => SESSION_CODE_ALPHABET[byte % SESSION_CODE_ALPHABET.length]).join('');
 }
 
+function isValidSessionCode(value: unknown): value is string {
+    return typeof value === 'string' && /^[A-HJ-NP-Z2-9]{12}$/.test(value);
+}
+
+function isDuplicateSessionCodeError(error: { code?: string; message?: string } | null): boolean {
+    if (!error) return false;
+    return (
+        error.code === '23505' ||
+        (error.message?.toLowerCase().includes('duplicate') === true &&
+            error.message.toLowerCase().includes('session') === true)
+    );
+}
+
 // ------- SERVICE -------
 
 class AnchorWatchSyncServiceClass {
     private role: SyncRole = 'vessel';
     private sessionCode: string | null = null;
+    private sessionScope: AuthIdentityScope | null = null;
     private connected = false;
     private peerConnected = false;
     private lastPeerUpdate: number | null = null;
@@ -93,15 +117,28 @@ class AnchorWatchSyncServiceClass {
     private peerTimeoutInterval: ReturnType<typeof setInterval> | null = null;
     private reconnectAttempts = 0;
     private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    private pendingJoinResolvers = new Set<(status: string) => void>();
+    /** Invalidates overlapping create/join/leave operations. */
+    private operationEpoch = 0;
+    /** Invalidates callbacks, promises, and timers belonging to an old channel. */
+    private connectionEpoch = 0;
     // One-shot guard so prolonged peer silence forces a single rejoin per
     // disconnection episode (re-armed when the peer is heard again).
     private rejoinedOnSilence = false;
 
     constructor() {
+        // authStore advances this fence synchronously before exposing another
+        // account to React. Tear down cloud state in the same turn so account
+        // B can never inherit account A's channel, timers, or session code.
+        subscribeAuthIdentityScope(() => {
+            this.operationEpoch++;
+            this.resetRuntimeSession(true);
+        });
+
         // Auto-reconnect when app returns to foreground
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && !this.connected && this.sessionCode) {
+                if (document.visibilityState === 'visible' && !this.connected && this.hasCurrentSession()) {
                     log.info('App foregrounded — attempting reconnect');
                     this.reconnectAttempts = 0; // Reset backoff on foreground
                     this.scheduleReconnect();
@@ -111,7 +148,7 @@ class AnchorWatchSyncServiceClass {
         // Auto-reconnect when network is restored
         if (typeof window !== 'undefined') {
             window.addEventListener('online', () => {
-                if (!this.connected && this.sessionCode) {
+                if (!this.connected && this.hasCurrentSession()) {
                     log.info('Network restored — attempting reconnect');
                     this.reconnectAttempts = 0;
                     this.scheduleReconnect();
@@ -124,7 +161,7 @@ class AnchorWatchSyncServiceClass {
         // why a backgrounded follower silently lost the share and had to
         // re-enter the code.
         void App.addListener('appStateChange', ({ isActive }) => {
-            if (isActive && !this.connected && this.sessionCode) {
+            if (isActive && !this.connected && this.hasCurrentSession()) {
                 log.info('App active (native) — attempting reconnect');
                 this.reconnectAttempts = 0;
                 this.scheduleReconnect();
@@ -151,6 +188,18 @@ class AnchorWatchSyncServiceClass {
 
     /** Get current sync state */
     getState(): SyncState {
+        // Defensive fail-closed check in case a caller reads state during an
+        // unusual auth bootstrap before the synchronous subscriber runs.
+        if (this.sessionScope && !isAuthIdentityScopeCurrent(this.sessionScope)) {
+            return {
+                connected: false,
+                role: 'vessel',
+                sessionCode: null,
+                peerConnected: false,
+                lastPeerUpdate: null,
+                peerDisconnectedAt: null,
+            };
+        }
         return {
             connected: this.connected,
             role: this.role,
@@ -168,15 +217,8 @@ class AnchorWatchSyncServiceClass {
      * the connection ever drops and doesn't auto-recover.
      */
     getLastSessionCode(): string | null {
-        if (this.sessionCode) return this.sessionCode;
-        try {
-            const raw = localStorage.getItem(SYNC_SESSION_KEY);
-            if (!raw) return null;
-            const persisted = JSON.parse(raw) as PersistedSyncSession;
-            return persisted.sessionCode || null;
-        } catch {
-            return null;
-        }
+        if (this.hasCurrentSession()) return this.sessionCode;
+        return this.readPersistedSession(getAuthIdentityScope())?.sessionCode ?? null;
     }
 
     /**
@@ -186,38 +228,37 @@ class AnchorWatchSyncServiceClass {
      */
     async restoreSession(): Promise<boolean> {
         if (!isSupabaseConfigured() || !supabase) return false;
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return false;
 
         // Idempotent: restore is now called both on app startup AND on
         // Anchor Watch page mount. If we're already live on a session,
         // there's nothing to do — don't tear down / re-join.
-        if (this.connected && this.sessionCode) return true;
+        if (this.connected && this.hasCurrentSession()) return true;
+
+        const operationEpoch = ++this.operationEpoch;
 
         try {
-            const raw = localStorage.getItem(SYNC_SESSION_KEY);
-            if (!raw) return false;
-
-            const persisted: PersistedSyncSession = JSON.parse(raw);
-
-            // Validate persisted data (genuinely corrupt → clear).
-            if (!persisted.sessionCode || !persisted.role) {
-                this.clearPersistedSession();
-                return false;
-            }
-
-            // Restore the code/role up front so it's available to the UI
-            // (getLastSessionCode → one-tap reconnect, code display) even if
-            // we don't auto-reconnect right now.
-            this.role = persisted.role;
-            this.sessionCode = persisted.sessionCode;
+            const persisted = this.readPersistedSession(scope, true);
+            if (!persisted) return false;
 
             // Don't AUTO-rejoin a very old session, but KEEP the code so the
             // user can still one-tap reconnect manually from the UI.
             const ageMs = Date.now() - (persisted.savedAt || 0);
-            if (ageMs > 24 * 60 * 60 * 1000) {
+            if (ageMs > SESSION_TTL_MS) {
                 return false;
             }
 
+            // The local identity fence and the actual Supabase session must
+            // agree before a private channel is restored.
+            const { data: authData } = await supabase.auth.getUser();
+            if (!this.isOperationCurrent(scope, operationEpoch) || authData.user?.id !== scope.userId) {
+                return false;
+            }
+
+            this.installSession(scope, persisted.role, persisted.sessionCode);
             const joined = await this.joinChannel();
+            if (!this.isOperationCurrent(scope, operationEpoch)) return false;
             if (!joined) {
                 // Transient failure (e.g. no comms this instant). joinChannel
                 // has already scheduled a backoff retry — KEEP the session so
@@ -233,12 +274,14 @@ class AnchorWatchSyncServiceClass {
 
             // Re-register push token for shore devices
             if (this.role === 'shore') {
-                this.registerPushToken(persisted.sessionCode);
+                void this.registerPushToken(persisted.sessionCode, scope);
             }
 
             return true;
-        } catch (err) {
-            this.clearPersistedSession();
+        } catch {
+            if (this.isOperationCurrent(scope, operationEpoch)) {
+                this.resetRuntimeSession(true);
+            }
             return false;
         }
     }
@@ -252,32 +295,45 @@ class AnchorWatchSyncServiceClass {
         if (!isSupabaseConfigured() || !supabase) {
             return null;
         }
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return null;
+        const operationEpoch = ++this.operationEpoch;
 
         const { data: authData } = await supabase.auth.getUser();
-        if (!authData.user) return null;
-
-        this.role = 'vessel';
-        this.sessionCode = generateSessionCode();
-
-        const { error: sessionError } = await supabase.rpc('create_anchor_watch_session', {
-            p_session_code: this.sessionCode,
-        });
-        if (sessionError) {
-            log.warn('createSession: secure session creation failed', sessionError.message);
-            this.sessionCode = null;
+        if (!this.isOperationCurrent(scope, operationEpoch) || authData.user?.id !== scope.userId) {
             return null;
         }
 
+        // A 60-bit code collision is extremely unlikely, but the database is
+        // authoritative. Retry uniqueness conflicts instead of leaving the UI
+        // with a mysteriously failed pairing attempt.
+        let sessionCode: string | null = null;
+        for (let attempt = 0; attempt < MAX_SESSION_CODE_ATTEMPTS; attempt++) {
+            const candidate = generateSessionCode();
+            const { error: sessionError } = await supabase.rpc('create_anchor_watch_session', {
+                p_session_code: candidate,
+            });
+            if (!this.isOperationCurrent(scope, operationEpoch)) return null;
+            if (!sessionError) {
+                sessionCode = candidate;
+                break;
+            }
+            if (!isDuplicateSessionCodeError(sessionError) || attempt === MAX_SESSION_CODE_ATTEMPTS - 1) {
+                log.warn('createSession: secure session creation failed', sessionError.message);
+                return null;
+            }
+        }
+        if (!sessionCode) return null;
+
+        this.installSession(scope, 'vessel', sessionCode);
+        // Persist immediately after the server accepts the session. A
+        // transient realtime failure can then recover via the normal backoff
+        // instead of orphaning the server-side session.
+        this.persistSession(scope);
         const joined = await this.joinChannel();
-        if (!joined) {
-            this.sessionCode = null;
-            return null;
-        }
-
-        // Persist session for crash recovery
-        this.persistSession();
-
-        return this.sessionCode;
+        if (!this.isOperationCurrent(scope, operationEpoch)) return null;
+        if (!joined) log.warn('createSession: channel join deferred to reconnect backoff');
+        return sessionCode;
     }
 
     /**
@@ -294,25 +350,28 @@ class AnchorWatchSyncServiceClass {
         if (!/^[A-HJ-NP-Z2-9]{12}$/.test(normalizedCode)) {
             return false;
         }
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return false;
+        const operationEpoch = ++this.operationEpoch;
 
         const { data: authData } = await supabase.auth.getUser();
-        if (!authData.user) return false;
+        if (!this.isOperationCurrent(scope, operationEpoch) || authData.user?.id !== scope.userId) {
+            return false;
+        }
 
         const { data: sessionJoined, error: joinError } = await supabase.rpc('join_anchor_watch_session', {
             p_session_code: normalizedCode,
         });
-        if (joinError || !sessionJoined) return false;
+        if (!this.isOperationCurrent(scope, operationEpoch) || joinError || !sessionJoined) return false;
 
-        this.role = 'shore';
-        this.sessionCode = normalizedCode;
-
+        this.installSession(scope, 'shore', normalizedCode);
+        this.persistSession(scope);
         const joined = await this.joinChannel();
+        if (!this.isOperationCurrent(scope, operationEpoch)) return false;
 
         if (joined) {
-            // Persist session for crash recovery
-            this.persistSession();
             // Register push token for alarm notifications
-            this.registerPushToken(normalizedCode);
+            void this.registerPushToken(normalizedCode, scope);
         }
 
         return joined;
@@ -320,51 +379,36 @@ class AnchorWatchSyncServiceClass {
 
     /** Leave the current session and clear persisted state */
     async leaveSession(): Promise<void> {
-        // Clear reconnect timer
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = null;
-        }
-        this.reconnectAttempts = 0;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        const role = this.role;
+        if (!scope || !sessionCode || !isAuthIdentityScopeCurrent(scope)) return;
 
-        // Remove push token from Supabase
-        if (this.role === 'shore' && this.sessionCode && supabase) {
-            const token = PushNotificationService.getToken();
-            if (token) {
-                try {
-                    await supabase
-                        .from('anchor_alarm_tokens')
-                        .delete()
-                        .eq('session_code', this.sessionCode)
-                        .eq('device_token', token);
-                } catch (err) {
-                    // Silently ignored — non-critical failure
-                }
-            }
-        }
+        // This is the linearization point for an explicit leave. Disconnect
+        // synchronously before any network await so a later account cannot be
+        // torn down by the completion of this account's request.
+        ++this.operationEpoch;
+        this.clearPersistedSession(scope);
+        this.resetRuntimeSession(true);
 
-        if (this.channel && supabase) {
-            supabase.removeChannel(this.channel);
+        // Remove only the captured account's token. The explicit user_id
+        // predicate makes the request harmless if Supabase's auth token
+        // changes in the narrow window after the identity check.
+        if (role !== 'shore' || !supabase) return;
+        const token = PushNotificationService.getToken();
+        if (!token || !isAuthIdentityScopeCurrent(scope)) return;
+        try {
+            const { data: authData } = await supabase.auth.getUser();
+            if (!isAuthIdentityScopeCurrent(scope) || authData.user?.id !== scope.userId) return;
+            await supabase
+                .from('anchor_alarm_tokens')
+                .delete()
+                .eq('session_code', sessionCode)
+                .eq('device_token', token)
+                .eq('user_id', scope.userId);
+        } catch {
+            // Best effort — the session expires server-side after 24 hours.
         }
-        this.channel = null;
-        this.connected = false;
-        this.peerConnected = false;
-        this.sessionCode = null;
-        this.lastPeerUpdate = null;
-
-        if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-        }
-        if (this.peerTimeoutInterval) {
-            clearInterval(this.peerTimeoutInterval);
-            this.peerTimeoutInterval = null;
-        }
-
-        // Clear persisted session — this is an explicit user action
-        this.clearPersistedSession();
-
-        this.notifyState();
     }
 
     /**
@@ -379,12 +423,19 @@ class AnchorWatchSyncServiceClass {
         vesselLat?: number;
         vesselLon?: number;
     }): Promise<void> {
-        if (!supabase || !this.sessionCode || this.role !== 'vessel') return;
+        if (!supabase || !this.sessionCode || this.role !== 'vessel' || !this.sessionScope) return;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        if (!this.isSessionCurrent(scope, sessionCode, 'vessel')) return;
 
         try {
+            const { data: authData } = await supabase.auth.getUser();
+            if (!this.isSessionCurrent(scope, sessionCode, 'vessel') || authData.user?.id !== scope.userId) {
+                return;
+            }
             const { error } = await supabase.from('anchor_alarm_events').insert({
-                session_code: this.sessionCode,
-                user_id: (await supabase.auth.getUser()).data.user?.id,
+                session_code: sessionCode,
+                user_id: scope.userId,
                 distance_m: data.distance,
                 swing_radius_m: data.swingRadius,
                 vessel_lat: data.vesselLat ?? null,
@@ -401,7 +452,19 @@ class AnchorWatchSyncServiceClass {
 
     /** Broadcast position + state (called by vessel device) */
     broadcastPosition(data: Omit<PositionBroadcast, 'type' | 'timestamp'>): void {
-        if (!this.channel || this.role !== 'vessel') return;
+        if (
+            !this.channel ||
+            this.role !== 'vessel' ||
+            !this.sessionScope ||
+            !this.sessionCode ||
+            !this.isSessionCurrent(this.sessionScope, this.sessionCode, 'vessel')
+        ) {
+            return;
+        }
+        const channel = this.channel;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        const connectionEpoch = this.connectionEpoch;
 
         const payload = {
             ...data,
@@ -409,7 +472,7 @@ class AnchorWatchSyncServiceClass {
             timestamp: Date.now(),
         };
 
-        this.channel
+        channel
             .send({
                 type: 'broadcast',
                 event: 'position',
@@ -417,23 +480,43 @@ class AnchorWatchSyncServiceClass {
             })
             .then((_status: string) => {})
             .catch((_err) => {
-                log.warn(`[AnchorWatchSyncService]`, _err);
+                if (this.isConnectionCurrent(scope, sessionCode, 'vessel', connectionEpoch, channel)) {
+                    log.warn(`[AnchorWatchSyncService]`, _err);
+                }
             });
     }
 
     /** Broadcast alarm state change (called by vessel device) */
     broadcastAlarm(data: Omit<AlarmBroadcast, 'type' | 'timestamp'>): void {
-        if (!this.channel || this.role !== 'vessel') return;
+        if (
+            !this.channel ||
+            this.role !== 'vessel' ||
+            !this.sessionScope ||
+            !this.sessionCode ||
+            !this.isSessionCurrent(this.sessionScope, this.sessionCode, 'vessel')
+        ) {
+            return;
+        }
+        const channel = this.channel;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        const connectionEpoch = this.connectionEpoch;
 
-        this.channel.send({
-            type: 'broadcast',
-            event: 'alarm',
-            payload: {
-                ...data,
-                type: 'alarm' as const,
-                timestamp: Date.now(),
-            },
-        });
+        void channel
+            .send({
+                type: 'broadcast',
+                event: 'alarm',
+                payload: {
+                    ...data,
+                    type: 'alarm' as const,
+                    timestamp: Date.now(),
+                },
+            })
+            .catch((error) => {
+                if (this.isConnectionCurrent(scope, sessionCode, 'vessel', connectionEpoch, channel)) {
+                    log.warn('broadcastAlarm failed', error);
+                }
+            });
     }
 
     /**
@@ -441,109 +524,240 @@ class AnchorWatchSyncServiceClass {
      * Used by UI to show reconnection state.
      */
     hasPersistedSession(): boolean {
-        try {
-            const raw = localStorage.getItem(SYNC_SESSION_KEY);
-            if (!raw) return false;
-            const persisted: PersistedSyncSession = JSON.parse(raw);
-            const ageMs = Date.now() - (persisted.savedAt || 0);
-            return ageMs < 24 * 60 * 60 * 1000 && !!persisted.sessionCode;
-        } catch (e) {
-            log.warn('[AnchorWatchSync]', e);
-            /* Corrupted localStorage JSON — treat as no session */
-            return false;
-        }
+        const persisted = this.readPersistedSession(getAuthIdentityScope());
+        if (!persisted) return false;
+        const ageMs = Date.now() - (persisted.savedAt || 0);
+        return ageMs < SESSION_TTL_MS;
     }
 
     /**
      * Get the persisted session info without restoring.
      */
     getPersistedSession(): PersistedSyncSession | null {
-        try {
-            const raw = localStorage.getItem(SYNC_SESSION_KEY);
-            if (!raw) return null;
-            return JSON.parse(raw);
-        } catch (e) {
-            log.warn('[AnchorWatchSync]', e);
-            /* Corrupted localStorage JSON — treat as no session */
-            return null;
-        }
+        return this.readPersistedSession(getAuthIdentityScope());
     }
 
     // ---- PRIVATE ----
 
-    /** Persist current session to localStorage for crash recovery */
-    private persistSession(): void {
-        if (!this.sessionCode || !this.role) return;
+    /**
+     * Read only the current account's session namespace. The historic global
+     * key is deliberately not adopted: it contains no trustworthy owner and
+     * could otherwise reconnect account B to account A's private watch.
+     */
+    private readPersistedSession(scope: AuthIdentityScope, clearInvalid = false): PersistedSyncSession | null {
+        if (!scope.userId) return null;
+        const key = authScopedStorageKey(SYNC_SESSION_KEY, scope);
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            const value = JSON.parse(raw) as Partial<PersistedSyncSession>;
+            if (
+                !isValidSessionCode(value.sessionCode) ||
+                (value.role !== 'vessel' && value.role !== 'shore') ||
+                value.userId !== scope.userId ||
+                typeof value.savedAt !== 'number' ||
+                !Number.isFinite(value.savedAt)
+            ) {
+                if (clearInvalid) localStorage.removeItem(key);
+                return null;
+            }
+            return value as PersistedSyncSession;
+        } catch (e) {
+            log.warn('[AnchorWatchSync]', e);
+            if (clearInvalid) {
+                try {
+                    localStorage.removeItem(key);
+                } catch {
+                    // Storage is unavailable; treating it as empty is enough.
+                }
+            }
+            return null;
+        }
+    }
+
+    /** Persist current session to its immutable account namespace. */
+    private persistSession(scope: AuthIdentityScope): void {
+        if (!scope.userId || !this.sessionCode || !this.isSessionCurrent(scope, this.sessionCode, this.role)) {
+            return;
+        }
         try {
             const data: PersistedSyncSession = {
                 sessionCode: this.sessionCode,
                 role: this.role,
+                userId: scope.userId,
                 savedAt: Date.now(),
             };
-            localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(data));
+            localStorage.setItem(authScopedStorageKey(SYNC_SESSION_KEY, scope), JSON.stringify(data));
         } catch (e) {
             log.warn('[AnchorWatchSync]', e);
-            // localStorage might fail in some contexts — non-critical
+            // localStorage might fail in some contexts — realtime still works.
         }
     }
 
-    /** Clear persisted session state */
-    private clearPersistedSession(): void {
+    /** Clear persisted session state for an explicit captured identity. */
+    private clearPersistedSession(scope: AuthIdentityScope): void {
+        if (!scope.userId) return;
         try {
-            localStorage.removeItem(SYNC_SESSION_KEY);
+            localStorage.removeItem(authScopedStorageKey(SYNC_SESSION_KEY, scope));
         } catch (e) {
             log.warn('[AnchorWatchSync]', e);
             // Non-critical
         }
     }
 
+    private isOperationCurrent(scope: AuthIdentityScope, operationEpoch: number): boolean {
+        return this.operationEpoch === operationEpoch && !!scope.userId && isAuthIdentityScopeCurrent(scope);
+    }
+
+    private hasCurrentSession(): boolean {
+        return (
+            !!this.sessionScope &&
+            !!this.sessionCode &&
+            this.isSessionCurrent(this.sessionScope, this.sessionCode, this.role)
+        );
+    }
+
+    private isSessionCurrent(scope: AuthIdentityScope, sessionCode: string, role: SyncRole): boolean {
+        return (
+            !!scope.userId &&
+            isAuthIdentityScopeCurrent(scope) &&
+            this.sessionScope === scope &&
+            this.sessionCode === sessionCode &&
+            this.role === role
+        );
+    }
+
+    private isConnectionCurrent(
+        scope: AuthIdentityScope,
+        sessionCode: string,
+        role: SyncRole,
+        connectionEpoch: number,
+        channel: ReturnType<NonNullable<typeof supabase>['channel']>,
+    ): boolean {
+        return (
+            this.connectionEpoch === connectionEpoch &&
+            this.channel === channel &&
+            this.isSessionCurrent(scope, sessionCode, role)
+        );
+    }
+
+    /** Replace the active cloud session without touching either account's persisted copy. */
+    private installSession(scope: AuthIdentityScope, role: SyncRole, sessionCode: string): void {
+        this.resetRuntimeSession(false);
+        this.sessionScope = scope;
+        this.role = role;
+        this.sessionCode = sessionCode;
+    }
+
+    /**
+     * Synchronously invalidate all channel work. removeChannel itself is
+     * asynchronous, but callbacks are already fenced out before it can settle.
+     */
+    private resetRuntimeSession(notify: boolean): void {
+        this.connectionEpoch++;
+        this.pendingJoinResolvers.forEach((resolve) => resolve('STALE'));
+        this.pendingJoinResolvers.clear();
+        if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+        if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+        if (this.peerTimeoutInterval) clearInterval(this.peerTimeoutInterval);
+        this.reconnectTimeout = null;
+        this.heartbeatInterval = null;
+        this.peerTimeoutInterval = null;
+        this.reconnectAttempts = 0;
+        this.rejoinedOnSilence = false;
+
+        const oldChannel = this.channel;
+        this.channel = null;
+        if (oldChannel && supabase) {
+            try {
+                void Promise.resolve(supabase.removeChannel(oldChannel)).catch(() => {});
+            } catch {
+                // The callback fences above already made this channel inert.
+            }
+        }
+
+        this.sessionScope = null;
+        this.role = 'vessel';
+        this.sessionCode = null;
+        this.connected = false;
+        this.peerConnected = false;
+        this.lastPeerUpdate = null;
+        this.peerDisconnectedAt = null;
+        if (notify) this.notifyState();
+    }
+
     private async joinChannel(): Promise<boolean> {
-        if (!supabase || !this.sessionCode) return false;
+        if (!supabase || !this.sessionCode || !this.sessionScope) return false;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        const role = this.role;
+        if (!this.isSessionCurrent(scope, sessionCode, role)) return false;
 
         try {
-            const channelName = `anchor-watch-${this.sessionCode}`;
+            const channelName = `anchor-watch-${sessionCode}`;
 
-            // Tear down any prior channel + timers first, so a reconnect
-            // doesn't leak intervals or leave a dead half-open channel behind.
-            if (this.heartbeatInterval) {
-                clearInterval(this.heartbeatInterval);
-                this.heartbeatInterval = null;
-            }
-            if (this.peerTimeoutInterval) {
-                clearInterval(this.peerTimeoutInterval);
-                this.peerTimeoutInterval = null;
-            }
-            if (this.channel) {
+            // Tear down a prior connection synchronously while retaining the
+            // immutable account/session identity used by reconnect.
+            this.connectionEpoch++;
+            this.pendingJoinResolvers.forEach((resolve) => resolve('STALE'));
+            this.pendingJoinResolvers.clear();
+            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+            if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+            if (this.peerTimeoutInterval) clearInterval(this.peerTimeoutInterval);
+            this.reconnectTimeout = null;
+            this.heartbeatInterval = null;
+            this.peerTimeoutInterval = null;
+            const oldChannel = this.channel;
+            this.channel = null;
+            this.connected = false;
+            if (oldChannel) {
                 try {
-                    await supabase.removeChannel(this.channel);
+                    void Promise.resolve(supabase.removeChannel(oldChannel)).catch(() => {});
                 } catch {
-                    /* best effort — old channel may already be dead */
+                    /* callback fences already made the old channel inert */
                 }
-                this.channel = null;
             }
 
-            this.channel = supabase.channel(channelName, {
+            if (!this.isSessionCurrent(scope, sessionCode, role)) return false;
+            const connectionEpoch = this.connectionEpoch;
+            const channel = supabase.channel(channelName, {
                 config: {
                     private: true,
                     broadcast: { self: false, ack: true },
-                    presence: { key: this.role },
+                    presence: { key: role },
                 },
             });
+            this.channel = channel;
 
             // Listen for position broadcasts
-            this.channel.on('broadcast', { event: 'position' }, ({ payload }: { payload: PositionBroadcast }) => {
+            channel.on('broadcast', { event: 'position' }, ({ payload }: { payload: PositionBroadcast }) => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 this.lastPeerUpdate = Date.now();
-                this.broadcastListeners.forEach((l) => l(payload as PositionBroadcast));
+                this.broadcastListeners.forEach((listener) => {
+                    try {
+                        listener(payload);
+                    } catch {
+                        // One UI listener must not starve the others.
+                    }
+                });
             });
 
             // Listen for alarm broadcasts
-            this.channel.on('broadcast', { event: 'alarm' }, ({ payload }: { payload: AlarmBroadcast }) => {
+            channel.on('broadcast', { event: 'alarm' }, ({ payload }: { payload: AlarmBroadcast }) => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 this.lastPeerUpdate = Date.now();
-                this.broadcastListeners.forEach((l) => l(payload as AlarmBroadcast));
+                this.broadcastListeners.forEach((listener) => {
+                    try {
+                        listener(payload);
+                    } catch {
+                        // One UI listener must not starve the others.
+                    }
+                });
             });
 
             // Listen for heartbeats
-            this.channel.on('broadcast', { event: 'heartbeat' }, () => {
+            channel.on('broadcast', { event: 'heartbeat' }, () => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 this.lastPeerUpdate = Date.now();
                 if (!this.peerConnected) {
                     this.peerConnected = true;
@@ -553,8 +767,9 @@ class AnchorWatchSyncServiceClass {
             });
 
             // Track presence
-            this.channel.on('presence', { event: 'join' }, ({ key }: { key: string }) => {
-                if (key !== this.role) {
+            channel.on('presence', { event: 'join' }, ({ key }: { key: string }) => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
+                if (key !== role) {
                     this.peerConnected = true;
                     this.peerDisconnectedAt = null;
                     this.lastPeerUpdate = Date.now();
@@ -563,8 +778,9 @@ class AnchorWatchSyncServiceClass {
                 }
             });
 
-            this.channel.on('presence', { event: 'leave' }, ({ key }: { key: string }) => {
-                if (key !== this.role) {
+            channel.on('presence', { event: 'leave' }, ({ key }: { key: string }) => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
+                if (key !== role) {
                     this.peerConnected = false;
                     this.peerDisconnectedAt = Date.now();
                     log.info('Peer left:', key);
@@ -574,30 +790,73 @@ class AnchorWatchSyncServiceClass {
 
             // Subscribe to channel
             const status = await new Promise<string>((resolve) => {
-                this.channel!.subscribe((status: string) => {
-                    resolve(status);
+                let settled = false;
+                const finish = (nextStatus: string) => {
+                    if (settled) return;
+                    settled = true;
+                    this.pendingJoinResolvers.delete(finish);
+                    resolve(nextStatus);
+                };
+                this.pendingJoinResolvers.add(finish);
+                channel.subscribe((nextStatus: string) => {
+                    finish(
+                        this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)
+                            ? nextStatus
+                            : 'STALE',
+                    );
                 });
             });
 
+            if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return false;
             if (status !== 'SUBSCRIBED') {
                 // If subscription failed and we have a persisted session, try reconnecting
                 this.scheduleReconnect();
                 return false;
             }
 
-            // Track our presence
-            await this.channel.track({ role: this.role, joinedAt: Date.now() });
+            // Track our presence. Race this network promise against the same
+            // synchronous invalidator used by subscription so an auth switch
+            // cannot leave create/join hanging forever.
+            const trackStatus = await new Promise<'TRACKED' | 'ERROR' | 'STALE'>((resolve) => {
+                let settled = false;
+                const finish = (nextStatus: 'TRACKED' | 'ERROR' | 'STALE') => {
+                    if (settled) return;
+                    settled = true;
+                    this.pendingJoinResolvers.delete(invalidate);
+                    resolve(nextStatus);
+                };
+                const invalidate = () => finish('STALE');
+                this.pendingJoinResolvers.add(invalidate);
+                try {
+                    void Promise.resolve(channel.track({ role, joinedAt: Date.now() })).then(
+                        () => finish('TRACKED'),
+                        () => finish('ERROR'),
+                    );
+                } catch {
+                    finish('ERROR');
+                }
+            });
+            if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return false;
+            if (trackStatus !== 'TRACKED') {
+                this.scheduleReconnect();
+                return false;
+            }
 
             this.connected = true;
             this.reconnectAttempts = 0; // Reset on successful connection
 
             // Start heartbeat (every 10s)
             this.heartbeatInterval = setInterval(() => {
-                this.channel?.send({
-                    type: 'broadcast',
-                    event: 'heartbeat',
-                    payload: { role: this.role, timestamp: Date.now() },
-                });
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
+                void channel
+                    .send({
+                        type: 'broadcast',
+                        event: 'heartbeat',
+                        payload: { role, timestamp: Date.now() },
+                    })
+                    .catch(() => {
+                        // Peer-timeout/reconnect logic handles a dead socket.
+                    });
             }, 10000);
 
             // Monitor peer liveness. Heartbeats arrive every 10s, so silence
@@ -612,6 +871,7 @@ class AnchorWatchSyncServiceClass {
             //     30s UI-disconnect makes a quick handoff often seamless.
             //   • 30s → flag the peer disconnected in the UI.
             this.peerTimeoutInterval = setInterval(() => {
+                if (!this.isConnectionCurrent(scope, sessionCode, role, connectionEpoch, channel)) return;
                 const silentMs = this.lastPeerUpdate ? Date.now() - this.lastPeerUpdate : 0;
                 if (!this.lastPeerUpdate) return;
 
@@ -640,9 +900,9 @@ class AnchorWatchSyncServiceClass {
 
             this.notifyState();
             return true;
-        } catch (error) {
+        } catch {
             // On connection error, schedule reconnect if we have persisted session
-            this.scheduleReconnect();
+            if (this.isSessionCurrent(scope, sessionCode, role)) this.scheduleReconnect();
             return false;
         }
     }
@@ -652,7 +912,11 @@ class AnchorWatchSyncServiceClass {
      * Only reconnects if there's a persisted session to restore.
      */
     private scheduleReconnect(): void {
-        if (!this.sessionCode) return;
+        if (!this.sessionCode || !this.sessionScope) return;
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        const role = this.role;
+        if (!this.isSessionCurrent(scope, sessionCode, role)) return;
         // Clear any pending reconnect
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
@@ -665,11 +929,9 @@ class AnchorWatchSyncServiceClass {
         log.info(`Reconnect attempt ${this.reconnectAttempts} in ${delayMs / 1000}s`);
 
         this.reconnectTimeout = setTimeout(async () => {
-            if (!this.connected && this.sessionCode) {
-                const joined = await this.joinChannel();
-                if (!joined) {
-                    this.scheduleReconnect(); // Keep trying forever
-                }
+            this.reconnectTimeout = null;
+            if (!this.connected && this.isSessionCurrent(scope, sessionCode, role)) {
+                await this.joinChannel();
             }
         }, delayMs);
     }
@@ -689,24 +951,26 @@ class AnchorWatchSyncServiceClass {
      * Register push token for alarm notifications.
      * Called when shore device joins a session.
      */
-    private async registerPushToken(sessionCode: string): Promise<void> {
-        if (!supabase) return;
+    private async registerPushToken(sessionCode: string, scope: AuthIdentityScope): Promise<void> {
+        if (!supabase || !this.isSessionCurrent(scope, sessionCode, 'shore')) return;
 
         try {
             // Request permission and get token
             const token = await PushNotificationService.requestPermissionAndRegister();
-            if (!token) {
+            if (!token || !this.isSessionCurrent(scope, sessionCode, 'shore')) {
                 return;
             }
 
             // Register token to Supabase
             const { data: authData } = await supabase.auth.getUser();
-            if (!authData.user) return;
+            if (!this.isSessionCurrent(scope, sessionCode, 'shore') || authData.user?.id !== scope.userId) {
+                return;
+            }
 
             const { error } = await supabase.from('anchor_alarm_tokens').upsert(
                 {
                     session_code: sessionCode,
-                    user_id: authData.user.id,
+                    user_id: scope.userId,
                     device_token: token,
                     platform: 'ios',
                 },

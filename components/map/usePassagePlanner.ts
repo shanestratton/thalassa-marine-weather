@@ -42,10 +42,14 @@ import { SmartPolarStore } from '../../services/SmartPolarStore';
 
 import { WindStore } from '../../stores/WindStore';
 import { PassageStore, type PassageLeg } from '../../stores/PassageStore';
+import {
+    getAuthIdentityScope,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
-import { Preferences } from '@capacitor/preferences';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
 import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
@@ -92,6 +96,7 @@ function pushToPassageStore(
     analysis: RouteAnalysis,
     depTime: string,
     speedKts: number,
+    expectedScope: AuthIdentityScope,
 ) {
     const routeMaxWindKt = analysis.maxWindSpeed ?? 0;
     const routeMaxWaveM = analysis.maxWaveHeight ?? 0;
@@ -121,36 +126,39 @@ function pushToPassageStore(
         });
     }
 
-    PassageStore.setFromRoute({
-        routeName: `${dep.name} \u2192 ${arr.name}`,
-        departPort: dep.name,
-        destPort: arr.name,
-        departLat: dep.lat,
-        departLon: dep.lon,
-        arriveLat: arr.lat,
-        arriveLon: arr.lon,
-        routeCoordinates: isoResult.routeCoordinates,
-        turnWaypoints: wps.map((wp) => ({
-            id: wp.id,
-            name: wp.id === 'DEP' ? dep.name : wp.id === 'ARR' ? arr.name : `Turn ${wp.id.replace('WP', '')}`,
-            lat: wp.lat,
-            lon: wp.lon,
-            bearing: wp.bearing,
-            distanceNM: wp.distanceNM,
-            timeHours: wp.timeHours,
-            eta: wp.eta,
-            tws: wp.tws,
-            twa: wp.twa,
-        })),
-        legs,
-        totalDistanceNM: isoResult.totalDistanceNM,
-        totalDurationHours: isoResult.totalDurationHours,
-        departureTime: depTime,
-        arrivalTime: isoResult.arrivalTime,
-        maxWindKt: analysis.maxWindSpeed,
-        maxWaveM: analysis.maxWaveHeight,
-        avgSpeedKts: analysis.averageSpeed || speedKts,
-    });
+    PassageStore.setFromRoute(
+        {
+            routeName: `${dep.name} \u2192 ${arr.name}`,
+            departPort: dep.name,
+            destPort: arr.name,
+            departLat: dep.lat,
+            departLon: dep.lon,
+            arriveLat: arr.lat,
+            arriveLon: arr.lon,
+            routeCoordinates: isoResult.routeCoordinates,
+            turnWaypoints: wps.map((wp) => ({
+                id: wp.id,
+                name: wp.id === 'DEP' ? dep.name : wp.id === 'ARR' ? arr.name : `Turn ${wp.id.replace('WP', '')}`,
+                lat: wp.lat,
+                lon: wp.lon,
+                bearing: wp.bearing,
+                distanceNM: wp.distanceNM,
+                timeHours: wp.timeHours,
+                eta: wp.eta,
+                tws: wp.tws,
+                twa: wp.twa,
+            })),
+            legs,
+            totalDistanceNM: isoResult.totalDistanceNM,
+            totalDurationHours: isoResult.totalDurationHours,
+            departureTime: depTime,
+            arrivalTime: isoResult.arrivalTime,
+            maxWindKt: analysis.maxWindSpeed,
+            maxWaveM: analysis.maxWaveHeight,
+            avgSpeedKts: analysis.averageSpeed || speedKts,
+        },
+        expectedScope,
+    );
 
     log.info(
         `[PassageStore] Pushed route: ${dep.name} \u2192 ${arr.name}, ${isoResult.totalDistanceNM}NM, ${wps.length} waypoints, ${legs.length} legs`,
@@ -177,6 +185,38 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         for (const m of tideChipMarkersRef.current) m.remove();
         tideChipMarkersRef.current = [];
     }, []);
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                // The map hook can outlive AuthGate transitions. Invalidate
+                // every delayed router callback and erase account A's route
+                // layers synchronously before account B is rendered.
+                computeGenRef.current += 1;
+                isoResultRef.current = null;
+                turnWaypointsRef.current = [];
+                setDeparture(null);
+                setArrival(null);
+                setViaWaypoints([]);
+                setDepartureTime('');
+                setRouteAnalysis(null);
+                setSettingPoint(null);
+                setShowPassage(false);
+                clearTideChips();
+                dispatchPassageNotice(null);
+
+                const map = mapRef.current;
+                const empty: GeoJSON.FeatureCollection = {
+                    type: 'FeatureCollection',
+                    features: [],
+                };
+                const routeSource = map?.getSource('route-line') as mapboxgl.GeoJSONSource | undefined;
+                routeSource?.setData(empty);
+                const waypointSource = map?.getSource('waypoints') as mapboxgl.GeoJSONSource | undefined;
+                waypointSource?.setData(empty);
+            }),
+        [clearTideChips, mapRef],
+    );
 
     // ── Passage mode activation (from Ship's Office / RoutePlanner → MAP tab) ──
     useEffect(() => {
@@ -262,6 +302,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // ── Passage Route Computation ──
     const computePassage = useCallback(async () => {
         if (!departure || !arrival) return;
+        const operationScope = getAuthIdentityScope();
         triggerHaptic('medium');
 
         // Increment generation — invalidates any previous in-flight computation
@@ -1483,6 +1524,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         updatedResultShort,
                         depTimeStr,
                         cruisingKt,
+                        operationScope,
                     );
 
                     window.dispatchEvent(
@@ -1545,6 +1587,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             updatedResult2,
                             departureTime || new Date().toISOString(),
                             speed,
+                            operationScope,
                         );
 
                         try {
@@ -1752,15 +1795,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // ── Read comfort params from persisted settings ──
                 let comfortParams: ComfortParams | undefined;
                 try {
-                    const { value } = await Preferences.get({ key: 'thalassa_settings' });
-                    if (value) {
-                        const parsed = JSON.parse(value);
-                        if (parsed.comfortParams && hasActiveComfortLimits(parsed.comfortParams)) {
-                            comfortParams = parsed.comfortParams;
-                            log.info(
-                                `[Isochrone BG] Comfort Zone active — wind:${comfortParams!.maxWindKts ?? 'off'} wave:${comfortParams!.maxWaveM ?? 'off'} gust:${comfortParams!.maxGustKts ?? 'off'}`,
-                            );
-                        }
+                    const persistedComfort = useSettingsStore.getState().settings.comfortParams;
+                    if (persistedComfort && hasActiveComfortLimits(persistedComfort)) {
+                        comfortParams = persistedComfort;
+                        log.info(
+                            `[Isochrone BG] Comfort Zone active — wind:${comfortParams.maxWindKts ?? 'off'} wave:${comfortParams.maxWaveM ?? 'off'} gust:${comfortParams.maxGustKts ?? 'off'}`,
+                        );
                     }
                 } catch {
                     /* Settings read failed — proceed without comfort limits */
@@ -1903,6 +1943,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         updatedResult,
                         departureTime || new Date().toISOString(),
                         speed,
+                        operationScope,
                     );
 
                     // ── Render Decision Fan (isochrone wavefront rings) ──
@@ -2384,6 +2425,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 updatedResult,
                                 multiDepTime,
                                 speed,
+                                operationScope,
                             );
                         }
                         try {

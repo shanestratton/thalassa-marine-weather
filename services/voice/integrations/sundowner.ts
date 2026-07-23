@@ -24,6 +24,12 @@
 
 import { dispatchAlert } from '../../AlertNotifier';
 import type { AlertEvent } from '../../../types/alerts';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../authIdentityScope';
 
 /** Currently-pending sundowner timer. We only allow one at a time —
  *  scheduling a new one cancels the previous (skipper presumably
@@ -31,6 +37,22 @@ import type { AlertEvent } from '../../../types/alerts';
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingFireAt: number | null = null;
 let pendingMessage: string | null = null;
+let pendingOwner: AuthIdentityScope | null = null;
+
+function clearPendingReminder(): void {
+    if (pendingTimer) clearTimeout(pendingTimer);
+    pendingTimer = null;
+    pendingFireAt = null;
+    pendingMessage = null;
+    pendingOwner = null;
+}
+
+// A foreground setTimeout can retain both the previous skipper's message and
+// the authority to raise an alert. Auth cutover therefore cancels the slot
+// synchronously; reminders never migrate between accounts.
+subscribeAuthIdentityScope(() => {
+    clearPendingReminder();
+});
 
 /**
  * Schedule a reminder to fire `minutesBefore` ahead of `sunsetIso`.
@@ -43,6 +65,7 @@ export async function setSundownerReminder(
     minutesBefore: number,
     customMessage?: string,
 ): Promise<{ content: string; isError: boolean }> {
+    const owner = getAuthIdentityScope();
     const sunsetMs = new Date(sunsetIso).getTime();
     if (!isFinite(sunsetMs)) {
         return { content: `ERROR: invalid sunset time '${sunsetIso}'`, isError: true };
@@ -64,10 +87,7 @@ export async function setSundownerReminder(
     const delay = Math.max(0, fireAt - now);
 
     // Cancel any pending one — single-slot reminder.
-    if (pendingTimer) {
-        clearTimeout(pendingTimer);
-        pendingTimer = null;
-    }
+    clearPendingReminder();
 
     const message =
         customMessage?.trim() ||
@@ -75,7 +95,11 @@ export async function setSundownerReminder(
 
     pendingFireAt = fireAt;
     pendingMessage = message;
-    pendingTimer = setTimeout(() => {
+    pendingOwner = owner;
+    const timer = setTimeout(() => {
+        // The timer may already be queued when an auth transition clears it.
+        // Re-check both the slot and the captured identity before alerting.
+        if (pendingTimer !== timer || pendingOwner !== owner || !isAuthIdentityScopeCurrent(owner)) return;
         const now2 = Date.now();
         const event: AlertEvent = {
             ruleId: 'sundowner',
@@ -86,10 +110,9 @@ export async function setSundownerReminder(
             firedAt: now2,
         };
         void dispatchAlert(event);
-        pendingTimer = null;
-        pendingFireAt = null;
-        pendingMessage = null;
+        clearPendingReminder();
     }, delay);
+    pendingTimer = timer;
 
     return {
         content: JSON.stringify({
@@ -109,16 +132,14 @@ export async function setSundownerReminder(
  * that sundowner" follow-ups.
  */
 export async function cancelSundownerReminder(): Promise<{ content: string; isError: boolean }> {
-    if (!pendingTimer) {
+    const scope = getAuthIdentityScope();
+    if (!pendingTimer || !pendingOwner || pendingOwner !== scope || !isAuthIdentityScopeCurrent(pendingOwner)) {
         return {
             content: JSON.stringify({ status: 'no_pending' }),
             isError: false,
         };
     }
-    clearTimeout(pendingTimer);
-    pendingTimer = null;
-    pendingFireAt = null;
-    pendingMessage = null;
+    clearPendingReminder();
     return {
         content: JSON.stringify({ status: 'cancelled' }),
         isError: false,
@@ -127,7 +148,14 @@ export async function cancelSundownerReminder(): Promise<{ content: string; isEr
 
 /** Read the currently-scheduled reminder, if any. */
 export async function getPendingSundowner(): Promise<{ content: string; isError: boolean }> {
-    if (!pendingTimer || !pendingFireAt) {
+    const scope = getAuthIdentityScope();
+    if (
+        !pendingTimer ||
+        !pendingFireAt ||
+        !pendingOwner ||
+        pendingOwner !== scope ||
+        !isAuthIdentityScopeCurrent(pendingOwner)
+    ) {
         return {
             content: JSON.stringify({ status: 'no_pending' }),
             isError: false,

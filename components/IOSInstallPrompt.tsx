@@ -50,10 +50,12 @@ export const IOSInstallPrompt = () => {
                 <div className="flex gap-4">
                     <div className="w-12 h-12 bg-sky-500 rounded-xl flex items-center justify-center shadow-lg shrink-0">
                         <img
-                            src="https://cdn-icons-png.flaticon.com/512/567/567055.png"
-                            alt="App Icon"
-                            className="w-8 h-8 invert brightness-0"
+                            src="/thalassa-icon-128.webp"
+                            alt=""
+                            aria-hidden="true"
+                            className="w-10 h-10 rounded-lg"
                             loading="lazy"
+                            decoding="async"
                         />
                     </div>
                     <div className="flex-1">

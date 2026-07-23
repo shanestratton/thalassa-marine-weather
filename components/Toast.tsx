@@ -13,7 +13,7 @@
  * Mount <ToastPortal /> once in App.tsx.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FONT, SIZE } from '../styles/typeScale';
 import { triggerHaptic } from '../utils/system';
 
@@ -30,7 +30,9 @@ interface ToastItem {
 
 // ── Global Event Bus ───────────────────────────────────────────────
 type Listener = (item: ToastItem) => void;
+type DismissListener = (id?: number) => void;
 const listeners: Set<Listener> = new Set();
+const dismissListeners: Set<DismissListener> = new Set();
 let nextId = 1;
 
 function emit(
@@ -51,6 +53,8 @@ export const toast = {
     error: (msg: string, duration = 4000) => emit(msg, 'error', duration),
     info: (msg: string, duration = 3000) => emit(msg, 'info', duration),
     loading: (msg: string) => emit(msg, 'loading', 0),
+    dismiss: (id: number) => dismissListeners.forEach((fn) => fn(id)),
+    clear: () => dismissListeners.forEach((fn) => fn()),
 };
 
 // ── Single Toast Component ─────────────────────────────────────────
@@ -84,13 +88,22 @@ const COLORS: Record<ToastType, { bg: string; border: string; glow: string }> = 
     },
 };
 
-const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item, onClose }) => {
+const SingleToast: React.FC<{ item: ToastItem; onClose: (id: number) => void }> = ({ item, onClose }) => {
     const [visible, setVisible] = useState(false);
     const [exiting, setExiting] = useState(false);
+    const closingRef = useRef(false);
+    const removeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const beginClose = useCallback(() => {
+        if (closingRef.current) return;
+        closingRef.current = true;
+        setExiting(true);
+        removeTimerRef.current = setTimeout(() => onClose(item.id), 300);
+    }, [item.id, onClose]);
 
     useEffect(() => {
         // Animate in
-        requestAnimationFrame(() => setVisible(true));
+        const frame = requestAnimationFrame(() => setVisible(true));
         // Physical feedback on arrival — light for the good/neutral news,
         // medium for errors. Loading toasts stay silent (they resolve into
         // one of the others).
@@ -99,25 +112,28 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
         } else if (item.type === 'error') {
             triggerHaptic('medium');
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: type never changes per toast instance
-    }, []);
+        return () => cancelAnimationFrame(frame);
+    }, [item.type]);
 
     useEffect(() => {
-        if (item.duration > 0) {
-            const timer = setTimeout(() => {
-                setExiting(true);
-                setTimeout(onClose, 300);
-            }, item.duration);
-            return () => clearTimeout(timer);
-        }
-    }, [item.duration, onClose]);
+        if (item.duration <= 0) return;
+        const timer = setTimeout(beginClose, item.duration);
+        return () => clearTimeout(timer);
+    }, [beginClose, item.duration]);
+
+    useEffect(
+        () => () => {
+            if (removeTimerRef.current) clearTimeout(removeTimerRef.current);
+        },
+        [],
+    );
 
     const colors = COLORS[item.type];
 
     return (
         <div
-            role="alert"
-            aria-live="assertive"
+            role={item.type === 'error' ? 'alert' : 'status'}
+            aria-live={item.type === 'error' ? 'assertive' : 'polite'}
             style={{
                 transform: visible && !exiting ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.95)',
                 opacity: visible && !exiting ? 1 : 0,
@@ -137,6 +153,7 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
             }}
         >
             <span
+                aria-hidden="true"
                 style={{
                     fontSize: 16,
                     flexShrink: 0,
@@ -161,11 +178,13 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
             </span>
             {item.action && (
                 <button
-                    aria-label="Select this option"
+                    aria-label={item.action.label}
                     onClick={() => {
-                        item.action!.onClick();
-                        setExiting(true);
-                        setTimeout(onClose, 300);
+                        try {
+                            item.action!.onClick();
+                        } finally {
+                            beginClose();
+                        }
                     }}
                     style={{
                         background: 'rgba(255,255,255,0.15)',
@@ -201,8 +220,13 @@ export const ToastPortal: React.FC = () => {
             setToasts((prev) => [...prev.slice(-4), item]); // Keep max 5
         };
         listeners.add(handler);
+        const dismissHandler: DismissListener = (id) => {
+            setToasts((prev) => (id === undefined ? [] : prev.filter((item) => item.id !== id)));
+        };
+        dismissListeners.add(dismissHandler);
         return () => {
             listeners.delete(handler);
+            dismissListeners.delete(dismissHandler);
         };
     }, []);
 
@@ -228,7 +252,7 @@ export const ToastPortal: React.FC = () => {
             }}
         >
             {toasts.map((t) => (
-                <SingleToast key={t.id} item={t} onClose={() => removeToast(t.id)} />
+                <SingleToast key={t.id} item={t} onClose={removeToast} />
             ))}
         </div>
     );
@@ -236,18 +260,12 @@ export const ToastPortal: React.FC = () => {
 
 // ── Legacy useToast hook (backwards-compatible) ────────────────────
 export const useToast = () => {
-    const [_toasts, setToasts] = useState<ToastItem[]>([]);
-
     const showToast = (message: string, type: ToastType = 'info', duration?: number) => {
-        const id = nextId++;
-        setToasts((prev) => [...prev, { id, message, type, duration: duration ?? 3000 }]);
-        // Also emit globally
-        emit(message, type, duration ?? 3000);
-        return id;
+        return emit(message, type, duration ?? 3000);
     };
 
     const hideToast = (id: number) => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
+        toast.dismiss(id);
     };
 
     const ToastContainer = () => null; // Now handled by ToastPortal

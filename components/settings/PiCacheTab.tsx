@@ -10,7 +10,7 @@
  *
  * No math required.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import {
     LockIcon,
@@ -34,13 +34,17 @@ import {
 import { BoatNetworkService, useBoatNetwork } from '../../services/BoatNetworkService';
 import { useAuthStore } from '../../stores/authStore';
 import { triggerHaptic } from '../../utils/system';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY =
     (typeof import.meta !== 'undefined' &&
         (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
     '';
-const OPEN_METEO_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPEN_METEO_API_KEY) || '';
 
 // ── Phase display config ──────────────────────────────────────
 
@@ -76,7 +80,49 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
     const [provisionDone, setProvisionDone] = useState<{ success: boolean; message: string } | null>(null);
 
     const boatNetwork = useBoatNetwork();
-    const authUser = useAuthStore((s) => s.user);
+    const authUserId = useAuthStore((s) => s.user?.id ?? null);
+    const renderIdentityScope = getAuthIdentityScope();
+    const [privateStateOwnerKey, setPrivateStateOwnerKey] = useState(renderIdentityScope.key);
+    const mountedRef = useRef(true);
+    const activeAuthUserIdRef = useRef(authUserId);
+    activeAuthUserIdRef.current = authUserId;
+    const privateStateBelongsToIdentity =
+        privateStateOwnerKey === renderIdentityScope.key && renderIdentityScope.userId === authUserId;
+    const visibleDiscovering = privateStateBelongsToIdentity && discovering;
+    const visibleTesting = privateStateBelongsToIdentity && testing;
+    const visibleTestResult = privateStateBelongsToIdentity ? testResult : null;
+    const visiblePurging = privateStateBelongsToIdentity && purging;
+    const visiblePurgeResult = privateStateBelongsToIdentity ? purgeResult : null;
+
+    const operationIsCurrent = useCallback(
+        (scope: AuthIdentityScope) =>
+            mountedRef.current && isAuthIdentityScopeCurrent(scope) && activeAuthUserIdRef.current === scope.userId,
+        [],
+    );
+
+    useEffect(
+        () => () => {
+            mountedRef.current = false;
+        },
+        [],
+    );
+
+    useEffect(() => {
+        // Passwords, progress, and operation results belong to the account
+        // that opened this tab. Hide them synchronously via the owner tag
+        // above, then clear the actual state before exposing the new scope.
+        setPrivateStateOwnerKey(renderIdentityScope.key);
+        setDiscovering(false);
+        setPurging(false);
+        setPurgeResult(null);
+        setTesting(false);
+        setTestResult(null);
+        setShowInstall(false);
+        setSshPass('');
+        setProvisioning(false);
+        setProvisionProgress(null);
+        setProvisionDone(null);
+    }, [authUserId, renderIdentityScope.key]);
 
     const isSkipper = canAccess(settings.subscriptionTier, 'piCache');
     const isEnabled = settings.piCacheEnabled ?? false;
@@ -101,9 +147,12 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
     /** Unified discovery: find Pi, probe all services, configure everything */
     const runUnifiedDiscovery = useCallback(
         async (preferredHost?: string) => {
+            const operationScope = getAuthIdentityScope();
+            if (operationScope.userId !== authUserId || !operationIsCurrent(operationScope)) return;
             setDiscovering(true);
             try {
                 const piHost = await BoatNetworkService.scan(preferredHost);
+                if (!operationIsCurrent(operationScope)) return;
                 if (piHost) {
                     // Auto-configure ALL services from one discovery
                     BoatNetworkService.applyToServices({
@@ -116,30 +165,30 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     // Push Supabase config so Pi can pre-fetch weather
                     if (SUPABASE_URL && SUPABASE_KEY) {
                         const loc = LocationStore.getState();
-                        piCache.pushConfig({
+                        await piCache.pushConfig({
                             supabaseUrl: SUPABASE_URL,
                             supabaseAnonKey: SUPABASE_KEY,
-                            openMeteoApiKey: OPEN_METEO_KEY || undefined,
                             prefetchLat: loc.lat,
                             prefetchLon: loc.lon,
                             prefetchRadius: 5,
-                            userId: authUser?.id,
+                            userId: operationScope.userId ?? undefined,
                         });
+                        if (!operationIsCurrent(operationScope)) return;
                     }
 
                     // Update Pi Cache status display
                     const piStatus = await piCache.discover();
-                    setStatus(piStatus);
+                    if (operationIsCurrent(operationScope)) setStatus(piStatus);
                 } else {
                     // Nothing found — update Pi Cache status
                     const piStatus = await piCache.discover();
-                    setStatus(piStatus);
+                    if (operationIsCurrent(operationScope)) setStatus(piStatus);
                 }
             } finally {
-                setDiscovering(false);
+                if (operationIsCurrent(operationScope)) setDiscovering(false);
             }
         },
-        [onSave, authUser?.id],
+        [authUserId, onSave, operationIsCurrent],
     );
 
     // Auto-discover when toggle is enabled
@@ -158,6 +207,8 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
     }, [runUnifiedDiscovery]);
 
     const handleTest = useCallback(async () => {
+        const operationScope = getAuthIdentityScope();
+        if (operationScope.userId !== authUserId || !operationIsCurrent(operationScope)) return;
         setTesting(true);
         setTestResult(null);
         try {
@@ -167,38 +218,49 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 { lat: '-36.84', lon: '174.76' },
                 async () => ({ test: 'direct-fallback' }),
             );
+            if (!operationIsCurrent(operationScope)) return;
             setTestResult({
                 ok: result.source !== 'direct',
                 ms: Date.now() - start,
                 source: result.source,
             });
         } catch {
-            setTestResult({ ok: false, ms: 0, source: 'error' });
+            if (operationIsCurrent(operationScope)) {
+                setTestResult({ ok: false, ms: 0, source: 'error' });
+            }
         } finally {
-            setTesting(false);
+            if (operationIsCurrent(operationScope)) setTesting(false);
         }
-    }, []);
+    }, [authUserId, operationIsCurrent]);
 
     const handlePurge = useCallback(async () => {
+        const operationScope = getAuthIdentityScope();
+        if (operationScope.userId !== authUserId || !operationIsCurrent(operationScope)) return;
         setPurging(true);
         setPurgeResult(null);
         try {
             const result = await piCache.purgeCache();
+            if (!operationIsCurrent(operationScope)) return;
             if (result) {
                 setPurgeResult(`Purged ${result.kvDeleted} API + ${result.tileDeleted} tile entries`);
                 const newStatus = await piCache.ping();
-                setStatus(newStatus);
+                if (operationIsCurrent(operationScope)) setStatus(newStatus);
             } else {
                 setPurgeResult('Could not reach Pi');
             }
         } finally {
-            setPurging(false);
+            if (operationIsCurrent(operationScope)) setPurging(false);
         }
-    }, []);
+    }, [authUserId, operationIsCurrent]);
 
     // ── SSH Provisioning ──
     const handleProvision = useCallback(async () => {
         if (!sshHost || !sshPass) return;
+        const operationScope = getAuthIdentityScope();
+        if (operationScope.userId !== authUserId || !operationIsCurrent(operationScope)) return;
+        const provisionHost = sshHost;
+        const provisionUser = sshUser || DEFAULT_USERNAME;
+        const provisionPassword = sshPass;
 
         setProvisioning(true);
         setProvisionDone(null);
@@ -213,13 +275,16 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
 
         try {
             const result = await PiProvisionService.provision(
-                sshHost,
-                sshUser || DEFAULT_USERNAME,
-                sshPass,
-                (progress) => setProvisionProgress(progress),
+                provisionHost,
+                provisionUser,
+                provisionPassword,
+                (progress) => {
+                    if (operationIsCurrent(operationScope)) setProvisionProgress(progress);
+                },
                 supabaseConfig,
             );
 
+            if (!operationIsCurrent(operationScope)) return;
             setProvisionDone({ success: result.success, message: result.message });
 
             if (result.success) {
@@ -231,16 +296,20 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 triggerHaptic('medium');
             }
         } catch (err) {
-            setProvisionDone({
-                success: false,
-                message: err instanceof Error ? err.message : 'Unknown error',
-            });
-            triggerHaptic('medium');
+            if (operationIsCurrent(operationScope)) {
+                setProvisionDone({
+                    success: false,
+                    message: err instanceof Error ? err.message : 'Unknown error',
+                });
+                triggerHaptic('medium');
+            }
         } finally {
-            setProvisioning(false);
-            setSshPass(''); // Clear password from memory
+            if (operationIsCurrent(operationScope)) {
+                setProvisioning(false);
+                setSshPass(''); // Clear password from memory
+            }
         }
-    }, [sshHost, sshUser, sshPass, runUnifiedDiscovery]);
+    }, [authUserId, operationIsCurrent, runUnifiedDiscovery, sshHost, sshPass, sshUser]);
 
     // ── Skipper-only gate ──
     if (!isSkipper) {
@@ -294,7 +363,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <div className="flex-1">
                         <label className="text-sm text-white font-medium block">Use Pi Cache</label>
                         <p className="text-xs text-gray-400 mt-0.5">
-                            {discovering ? 'Scanning your network...' : 'Route data through your Raspberry Pi'}
+                            {visibleDiscovering ? 'Scanning your network...' : 'Route data through your Raspberry Pi'}
                         </p>
                     </div>
                     <Toggle checked={isEnabled} onChange={handleEnable} label="Enable Pi Cache" />
@@ -303,7 +372,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 {/* Discovery / status result */}
                 {isEnabled && (
                     <div className="p-4 border-t border-white/5">
-                        {discovering ? (
+                        {visibleDiscovering ? (
                             <div className="flex items-center gap-3 text-sky-300 text-xs">
                                 <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
                                 <span>Looking for your Pi on the network...</span>
@@ -356,18 +425,18 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 )}
                                 <button
                                     onClick={handleTest}
-                                    disabled={testing}
+                                    disabled={visibleTesting}
                                     className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 active:scale-[0.98] transition-all disabled:opacity-50"
                                 >
-                                    {testing ? 'Testing...' : 'Test Data Fetch'}
+                                    {visibleTesting ? 'Testing...' : 'Test Data Fetch'}
                                 </button>
-                                {testResult && (
+                                {visibleTestResult && (
                                     <div
-                                        className={`p-2 rounded-lg text-[11px] text-center font-mono ${testResult.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}
+                                        className={`p-2 rounded-lg text-[11px] text-center font-mono ${visibleTestResult.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}
                                     >
-                                        {testResult.ok
-                                            ? `Weather fetched from Pi in ${testResult.ms}ms (${testResult.source})`
-                                            : `Fell back to direct API (${testResult.ms}ms) — Pi may need Supabase config`}
+                                        {visibleTestResult.ok
+                                            ? `Weather fetched from Pi in ${visibleTestResult.ms}ms (${visibleTestResult.source})`
+                                            : `Fell back to direct API (${visibleTestResult.ms}ms) — Pi may need Supabase config`}
                                     </div>
                                 )}
                             </div>
@@ -444,7 +513,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             </Section>
 
             {/* ── One-Tap Install (SSH Provisioning) ── */}
-            {isEnabled && showInstall && !status?.reachable && (
+            {isEnabled && privateStateBelongsToIdentity && showInstall && !status?.reachable && (
                 <Section title="Install on Pi">
                     {!provisionDone ? (
                         <div className="p-4 space-y-3">
@@ -604,16 +673,18 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <div className="px-4 pb-4">
                         <button
                             onClick={handlePurge}
-                            disabled={purging}
+                            disabled={visiblePurging}
                             className={`w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all ${
-                                purging
+                                visiblePurging
                                     ? 'bg-white/5 text-gray-500 cursor-wait'
                                     : 'bg-white/5 text-gray-400 hover:bg-white/10 active:scale-[0.98]'
                             }`}
                         >
-                            {purging ? 'Cleaning...' : 'Clean Expired Data'}
+                            {visiblePurging ? 'Cleaning...' : 'Clean Expired Data'}
                         </button>
-                        {purgeResult && <p className="text-[11px] text-gray-500 mt-2 text-center">{purgeResult}</p>}
+                        {visiblePurgeResult && (
+                            <p className="text-[11px] text-gray-500 mt-2 text-center">{visiblePurgeResult}</p>
+                        )}
                     </div>
                 </Section>
             )}

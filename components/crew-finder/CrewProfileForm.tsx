@@ -22,6 +22,7 @@ import {
     INTEREST_OPTIONS,
 } from '../../services/LonelyHeartsService';
 import { COUNTRIES, getStatesForCountry } from '../../data/locationData';
+import { SafeImage } from '../ui/SafeImage';
 
 // ── Helper functions (used in preview and date fields) ──
 
@@ -636,7 +637,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         </div>
                                     ) : url ? (
                                         <>
-                                            <img
+                                            <SafeImage
                                                 src={url}
                                                 loading="lazy"
                                                 alt=""
@@ -699,7 +700,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         <div className="text-center mb-6">
                             <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
                                 {editPhotos[0] ? (
-                                    <img
+                                    <SafeImage
                                         src={editPhotos[0]}
                                         loading="lazy"
                                         alt=""

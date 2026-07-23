@@ -30,11 +30,25 @@
  */
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
+import { authScopedStorageKey } from './authIdentityScope';
 
 const log = createLogger('skipperDevice');
 
 const DEVICE_ID_KEY = 'thalassa_device_id';
 const DEVICE_NAME_KEY = 'thalassa_device_name';
+let ephemeralDeviceId: string | null = null;
+
+function createDeviceId(): string {
+    if (globalThis.crypto?.randomUUID) return `dev-${globalThis.crypto.randomUUID()}`;
+    if (globalThis.crypto?.getRandomValues) {
+        const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+        return `dev-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+    }
+    // Last-resort compatibility for obsolete/private WebViews. The timestamp
+    // prevents the old constant "ephemeral" ID from making two devices appear
+    // to hold the same exclusive publishing claim.
+    return `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 export interface SkipperClaim {
     /** Device that currently speaks for the boat. */
@@ -48,18 +62,18 @@ export interface SkipperClaim {
 /** Stable per-install id. Survives sign-out; dies with the app's storage. */
 export function getDeviceId(): string {
     try {
-        const existing = localStorage.getItem(DEVICE_ID_KEY);
+        const existing = localStorage.getItem(DEVICE_ID_KEY)?.trim();
         if (existing) return existing;
-        // Not crypto-sensitive — it only has to be distinct between a skipper's
-        // own handful of devices.
-        const id = `dev-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+        const id = ephemeralDeviceId ?? createDeviceId();
         localStorage.setItem(DEVICE_ID_KEY, id);
+        ephemeralDeviceId = id;
         return id;
     } catch {
         // Private mode / storage disabled: a per-session id still keeps two
         // devices apart for as long as the app is open, which is the case that
         // matters underway.
-        return 'dev-ephemeral';
+        ephemeralDeviceId ??= createDeviceId();
+        return ephemeralDeviceId;
     }
 }
 
@@ -136,7 +150,7 @@ const HELD_MEMO_KEY = 'thalassa_skipper_held';
  *  that is the likely case: the other device takes over between passages. */
 export function rememberHeld(held: boolean): void {
     try {
-        localStorage.setItem(HELD_MEMO_KEY, held ? '1' : '0');
+        localStorage.setItem(authScopedStorageKey(HELD_MEMO_KEY), held ? '1' : '0');
     } catch {
         /* storage unavailable — in-session detection still works */
     }
@@ -144,7 +158,7 @@ export function rememberHeld(held: boolean): void {
 
 export function readRememberedHeld(): boolean {
     try {
-        return localStorage.getItem(HELD_MEMO_KEY) === '1';
+        return localStorage.getItem(authScopedStorageKey(HELD_MEMO_KEY)) === '1';
     } catch {
         return false;
     }

@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
     getMealsByStatus,
-    completeMeal,
-    startCooking,
     calculateMealDays,
     getCrewCount,
     type MealPlan,
@@ -10,9 +9,9 @@ import {
 } from '../../services/MealPlanService';
 import { getShoppingList, markPurchased, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
-import { getCachedActiveVoyage, getActiveVoyage, getDraftVoyages, type Voyage } from '../../services/VoyageService';
+import { getCachedActiveVoyage, getVoyageById, type Voyage } from '../../services/VoyageService';
 import { toPurchasable } from '../../services/PurchaseUnits';
-import { type PassageStatus, getActivePassageId } from '../../services/PassagePlanService';
+import { type PassageStatus } from '../../services/PassagePlanService';
 import { ChildCard } from './ChildCard';
 import { MealCalendar } from './MealCalendar';
 import { CaptainsTable } from './CaptainsTable';
@@ -20,10 +19,50 @@ import { ZONE_EMOJI } from './galleyTokens';
 import { useCrewCount } from '../../contexts/CrewCountContext';
 import { DelegationBadge } from '../crew/DelegationBadge';
 import { type CrewMember } from '../../services/CrewService';
+import { GalleyCookingMode } from '../passage/GalleyCookingMode';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../../services/authIdentityScope';
+
+const provisionedStorageKey = (voyageId: string, scope?: AuthIdentityScope): string =>
+    authScopedStorageKey(`thalassa_provisioned:${voyageId}`, scope);
+const galleyCrewCountStorageKey = (voyageId: string, scope?: AuthIdentityScope): string =>
+    authScopedStorageKey(`thalassa_galley_crew_count:${voyageId}`, scope);
+
+function readProvisioned(voyageId: string): boolean {
+    try {
+        return localStorage.getItem(provisionedStorageKey(voyageId)) === 'true';
+    } catch {
+        return false;
+    }
+}
+
+function readGalleyCrewCount(voyageId: string): number | null {
+    try {
+        const raw = localStorage.getItem(galleyCrewCountStorageKey(voyageId));
+        if (!raw) return null;
+        const parsed = parseInt(raw, 10);
+        return Number.isFinite(parsed) ? Math.max(1, Math.min(20, parsed)) : null;
+    } catch {
+        return null;
+    }
+}
+
+function writeGalleyCrewCount(voyageId: string, count: number, scope?: AuthIdentityScope): void {
+    try {
+        localStorage.setItem(galleyCrewCountStorageKey(voyageId, scope), String(count));
+    } catch {
+        /* storage unavailable */
+    }
+}
 
 interface GalleyCardProps {
     onOpenCookingMode?: (meal: MealPlan) => void;
-    /** Passage permissions — if omitted, all child cards are visible (owner mode) */
+    /** Passage permissions — omission fails closed until the caller verifies access. */
     passageStatus?: PassageStatus;
     /** Outer wrapper className override */
     className?: string;
@@ -48,228 +87,201 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     onAssignCard,
     crewList,
 }) => {
-    // Default: owner sees everything
+    // A selected passage ID is navigation state, not proof of ownership.
+    // Direct/legacy callsites therefore fail closed until their parent passes
+    // the verified PassageStatus.
     const perms = passageStatus ?? {
-        visible: true,
-        isOwner: true,
-        canViewMeals: true,
-        canViewChat: true,
-        canViewRoute: true,
-        canViewChecklist: true,
+        visible: false,
+        voyageId: null,
+        ownerUserId: null,
+        isOwner: false,
+        canEditStores: false,
+        canViewMeals: false,
+        canViewChat: false,
+        canViewRoute: false,
+        canViewChecklist: false,
     };
+    const hasMealAccess = perms.visible && perms.canViewMeals;
+    const canRecordPurchase = hasMealAccess && perms.canEditStores;
     const [expanded, setExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState<'' | 'food' | 'shopping' | 'recipes'>('');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [cookingMealId, setCookingMealId] = useState<string | null>(null);
-    const [provisioned, setProvisioned] = useState(() => {
-        try {
-            return localStorage.getItem('thalassa_provisioned') === 'true';
-        } catch {
-            return false;
-        }
-    });
+    const [activeCookingMeal, setActiveCookingMeal] = useState<MealPlan | null>(null);
+    const [purchasingItemId, setPurchasingItemId] = useState<string | null>(null);
+    const [shoppingActionError, setShoppingActionError] = useState<string | null>(null);
+    const [provisioned, setProvisioned] = useState(false);
+    const [identityKey, setIdentityKey] = useState(() => getAuthIdentityScope().key);
 
     // ── Voyage context for meal calendar ──
     const [voyage, setVoyage] = useState<Voyage | null>(null);
     const [mealDays, setMealDays] = useState<MealDayInfo | null>(null);
+    const [voyageCrewCount, setVoyageCrewCount] = useState<number | null>(null);
     const { crewCount, setCrewCount: handleSetCrewCount } = useCrewCount();
 
     // Effective crew count: max(settings count, registered crew + 1 captain)
+    const plannedCrewCount = voyageCrewCount ?? crewCount;
     const effectiveCrewCount =
         registeredCrewCount !== undefined && registeredCrewCount > 0
-            ? Math.max(crewCount, registeredCrewCount + 1)
-            : crewCount;
+            ? Math.max(plannedCrewCount, registeredCrewCount + 1)
+            : plannedCrewCount;
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope((next) => {
+                setIdentityKey(next.key);
+            }),
+        [],
+    );
+
+    useEffect(() => {
+        if (!hasMealAccess || !perms.voyageId) {
+            setProvisioned(false);
+            setVoyageCrewCount(null);
+            return;
+        }
+        setProvisioned(readProvisioned(perms.voyageId));
+        setVoyageCrewCount(readGalleyCrewCount(perms.voyageId));
+    }, [hasMealAccess, identityKey, perms.voyageId]);
+
+    const handleVoyageCrewCountChange = useCallback(
+        (count: number) => {
+            if (getAuthIdentityScope().key !== identityKey) return;
+            const clamped = Math.max(1, Math.min(20, count));
+            if (perms.voyageId) {
+                setVoyageCrewCount(clamped);
+                writeGalleyCrewCount(perms.voyageId, clamped);
+                return;
+            }
+            handleSetCrewCount(clamped);
+        },
+        [handleSetCrewCount, identityKey, perms.voyageId],
+    );
 
     // Load voyage data and compute calendar dimensions
     useEffect(() => {
-        if (!expanded) return;
+        if (!hasMealAccess || !expanded || !perms.voyageId || !perms.ownerUserId) {
+            setVoyage(null);
+            setMealDays(null);
+            return;
+        }
+
+        let disposed = false;
+        let generation = 0;
+        const selectedVoyageId = perms.voyageId;
+        const selectedOwnerUserId = perms.ownerUserId;
 
         const loadVoyage = async () => {
-            // 1. Try cached first for instant render
-            let v: Voyage | null = getCachedActiveVoyage();
+            const requestGeneration = ++generation;
+            const requestIdentity = getAuthIdentityScope();
+            const cached = getCachedActiveVoyage();
+            let selected: Voyage | null =
+                cached?.id === selectedVoyageId && cached.user_id === selectedOwnerUserId ? cached : null;
 
-            // 2. Then try fetching active voyage from Supabase (also updates cache)
             try {
-                const active = await getActiveVoyage();
-                if (active) v = active;
+                const fetched = await getVoyageById(selectedVoyageId);
+                if (fetched?.id === selectedVoyageId && fetched.user_id === selectedOwnerUserId) {
+                    selected = fetched;
+                }
             } catch {
-                /* offline — use cached */
+                /* offline — retain only an exact, owner-matching cache */
             }
 
-            // 3. If no active voyage from supabase (the user hasn't
-            // hit "Cast Off" yet — voyage is still status:planning),
-            // resolve via the Passage Planning dropdown selection.
-            // PassagePlanService.getActivePassageId() returns the
-            // voyageId the user picked in CrewManagement; we find that
-            // exact draft instead of grabbing whatever first draft has
-            // dates. Without this, accumulated phantom drafts from
-            // earlier test sessions stole the selection.
-            //
-            // 3b. ORPHAN AUTO-HEAL: if the resolved voyage has no
-            //     matching route in the logbook (= the user deleted
-            //     the route or renamed it, or the voyage was created
-            //     via a non-standard flow like manual Cast Off), and
-            //     there IS another draft whose name matches a real
-            //     logbook route, switch to that one and update the
-            //     active-passage cache. This rescues users who see a
-            //     stale voyage stuck as active even after they've
-            //     made a fresh route. Without this, the meal planner
-            //     keeps reading whatever was activated weeks ago even
-            //     if its underlying route is long gone.
-            if (!v || (!v.departure_time && !v.eta)) {
-                try {
-                    const drafts = await getDraftVoyages();
-                    const activeId = getActivePassageId();
-                    const selected = activeId ? drafts.find((d) => d.id === activeId) : undefined;
-                    if (selected) {
-                        v = selected;
-                    } else {
-                        // Last-resort fallback — older sessions / no
-                        // explicit selection. Pick the first draft
-                        // with both dates.
-                        const withDates = drafts.find((d) => d.departure_time && d.eta);
-                        if (withDates) v = withDates;
-                    }
-                } catch {
-                    /* offline */
-                }
+            if (disposed || requestGeneration !== generation || !isAuthIdentityScopeCurrent(requestIdentity)) return;
+            if (!selected) {
+                setVoyage(null);
+                setMealDays(null);
+                return;
             }
 
-            // Orphan auto-heal: check if v has a matching logbook
-            // route. If not, look for ANY voyage that does, and
-            // switch to it. Updates getActivePassageId so the rest of
-            // the app follows along.
-            if (v) {
+            let effectiveDeparture = selected.departure_time;
+            let effectiveEta = selected.eta;
+            if (!effectiveDeparture || !effectiveEta) {
                 try {
                     const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
-                    const ra = await fetchRoutesAndTracks();
-                    const norm = (s: string) => s.trim().toLowerCase();
-                    const currentMatches = ra.routes.some((r) => norm(r.label) === norm(v!.voyage_name));
-                    if (!currentMatches && ra.routes.length > 0) {
-                        const drafts = await getDraftVoyages();
-                        const draftWithRoute = drafts.find((d) =>
-                            ra.routes.some((r) => norm(r.label) === norm(d.voyage_name)),
-                        );
-                        if (draftWithRoute && draftWithRoute.id !== v.id) {
-                            console.warn(
-                                `[GalleyCard] orphan auto-heal: "${v.voyage_name}" has no logbook route, switching to "${draftWithRoute.voyage_name}"`,
-                            );
-                            v = draftWithRoute;
-                            // Persist the switch so the rest of the
-                            // app sees the corrected active passage.
-                            try {
-                                const { setActivePassage } = await import('../../services/PassagePlanService');
-                                setActivePassage(draftWithRoute.id);
-                            } catch (e) {
-                                console.warn('[GalleyCard] failed to persist auto-heal', e);
-                            }
+                    const routeData = await fetchRoutesAndTracks();
+                    const normalizedName = selected.voyage_name.trim().toLowerCase();
+                    const matchingRoute = routeData.routes.find(
+                        (route) => route.label.trim().toLowerCase() === normalizedName,
+                    );
+                    if (matchingRoute) {
+                        if (!effectiveDeparture && matchingRoute.timestamp) {
+                            effectiveDeparture = new Date(matchingRoute.timestamp).toISOString();
                         }
-                    }
-                } catch (e) {
-                    console.warn('[GalleyCard] orphan check failed', e);
-                }
-            }
-
-            // The voyages table doesn't always have both dates set:
-            //   - departure_time: set when user picks date in dropdown
-            //   - eta: set by the dropdown backfill, IF durationHours
-            //     was on the row (which depends on the route having
-            //     well-spread entry timestamps)
-            // The meal planner needs both to render. Strategy: fall
-            // back through three sources to get a working pair:
-            //   1. voyage.departure_time / voyage.eta (DB-persisted)
-            //   2. Derive eta from route durationHours when departure
-            //      is known but eta isn't
-            //   3. If no departure_time at all, use the matching
-            //      route's first entry timestamp as a stand-in (= the
-            //      planned departureDate the user typed at save time)
-            // Final fallback: 7-day default passage, so we always
-            // render rather than block on missing dates.
-            let effectiveDeparture: string | null = v?.departure_time || null;
-            let effectiveEta: string | null = v?.eta || null;
-
-            if (v && (!effectiveDeparture || !effectiveEta)) {
-                try {
-                    const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
-                    const ra = await fetchRoutesAndTracks();
-                    const norm = (s: string) => s.trim().toLowerCase();
-                    const match = ra.routes.find((r) => norm(r.label) === norm(v!.voyage_name));
-                    if (match) {
-                        if (!effectiveDeparture && match.timestamp) {
-                            effectiveDeparture = new Date(match.timestamp).toISOString();
-                        }
-                        if (effectiveDeparture && !effectiveEta && match.durationHours && match.durationHours > 0) {
+                        if (
+                            effectiveDeparture &&
+                            !effectiveEta &&
+                            matchingRoute.durationHours &&
+                            matchingRoute.durationHours > 0
+                        ) {
                             effectiveEta = new Date(
-                                Date.parse(effectiveDeparture) + match.durationHours * 3_600_000,
+                                Date.parse(effectiveDeparture) + matchingRoute.durationHours * 3_600_000,
                             ).toISOString();
                         }
                     }
-                } catch (e) {
-                    console.warn('[GalleyCard] route lookup failed', e);
+                } catch {
+                    /* route cache unavailable */
                 }
             }
 
-            // Voyage has departure but no route to derive duration from
-            // — default to a 7-day passage. The user can refine via
-            // the dropdown date picker if they want it exact.
-            const DEFAULT_PASSAGE_DAYS = 7;
             if (effectiveDeparture && !effectiveEta) {
-                effectiveEta = new Date(
-                    Date.parse(effectiveDeparture) + DEFAULT_PASSAGE_DAYS * 24 * 3_600_000,
-                ).toISOString();
+                effectiveEta = new Date(Date.parse(effectiveDeparture) + 7 * 24 * 3_600_000).toISOString();
             }
 
-            // Hand the voyage to React; if we computed dates on the
-            // fly, splice them onto the voyage object so downstream
-            // components see a complete passage even without a DB
-            // write.
+            if (disposed || requestGeneration !== generation || !isAuthIdentityScopeCurrent(requestIdentity)) return;
             const voyageWithDates =
-                v && (effectiveDeparture !== v.departure_time || effectiveEta !== v.eta)
-                    ? { ...v, departure_time: effectiveDeparture, eta: effectiveEta }
-                    : v;
+                effectiveDeparture !== selected.departure_time || effectiveEta !== selected.eta
+                    ? { ...selected, departure_time: effectiveDeparture, eta: effectiveEta }
+                    : selected;
             setVoyage(voyageWithDates);
-            if (effectiveDeparture && effectiveEta) {
-                setMealDays(calculateMealDays(effectiveDeparture, effectiveEta));
-            }
+            setMealDays(
+                effectiveDeparture && effectiveEta ? calculateMealDays(effectiveDeparture, effectiveEta) : null,
+            );
 
-            // If no stored crew count, try loading from Supabase
-            if (!localStorage.getItem('thalassa_crew_count') && v?.id) {
-                getCrewCount(v.id)
+            if (readGalleyCrewCount(selectedVoyageId) === null) {
+                void getCrewCount(selectedVoyageId)
                     .then((count) => {
-                        handleSetCrewCount(count);
+                        if (
+                            !disposed &&
+                            requestGeneration === generation &&
+                            isAuthIdentityScopeCurrent(requestIdentity)
+                        ) {
+                            const clamped = Math.max(1, Math.min(20, count));
+                            setVoyageCrewCount(clamped);
+                            writeGalleyCrewCount(selectedVoyageId, clamped, requestIdentity);
+                        }
                     })
                     .catch(() => {
-                        /* supabase unavailable */
+                        /* unavailable */
                     });
             }
         };
 
-        loadVoyage();
-
-        // Refresh when the user picks a different passage in the
-        // CrewManagement dropdown (PassagePlanService dispatches this
-        // from setActivePassage), or when a fresh save lands while
-        // GalleyCard is expanded. Without these listeners, the meal
-        // calendar stays bound to whatever voyage was active at the
-        // moment GalleyCard expanded.
-        const onPassageChange = () => loadVoyage();
+        void loadVoyage();
+        const onPassageChange = () => void loadVoyage();
         window.addEventListener('thalassa:passage-changed', onPassageChange);
         window.addEventListener('thalassa:passage-plan-saved', onPassageChange);
         return () => {
+            disposed = true;
+            generation += 1;
             window.removeEventListener('thalassa:passage-changed', onPassageChange);
             window.removeEventListener('thalassa:passage-plan-saved', onPassageChange);
         };
-    }, [expanded, handleSetCrewCount]);
+    }, [expanded, hasMealAccess, identityKey, perms.ownerUserId, perms.voyageId]);
+
+    const refreshActiveMeals = useCallback(() => {
+        const reserved = getMealsByStatus('reserved', perms.voyageId ?? undefined);
+        const cooking = getMealsByStatus('cooking', perms.voyageId ?? undefined);
+        setActiveMeals([...cooking, ...reserved]);
+    }, [perms.voyageId]);
 
     // Load active meals and shopping status
     useEffect(() => {
-        if (!expanded) return;
-        const reserved = getMealsByStatus('reserved');
-        const cooking = getMealsByStatus('cooking');
-        setActiveMeals([...cooking, ...reserved]);
-        setShoppingSummary(getShoppingList());
-    }, [expanded]);
+        if (!hasMealAccess || !expanded) return;
+        refreshActiveMeals();
+        setShoppingSummary(getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId));
+    }, [expanded, hasMealAccess, perms.ownerUserId, perms.voyageId, refreshActiveMeals]);
 
     const handleToggle = useCallback(() => {
         setExpanded((v) => !v);
@@ -277,25 +289,47 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     }, []);
 
     const handleCookNow = useCallback(
-        async (meal: MealPlan) => {
+        (meal: MealPlan) => {
             setCookingMealId(meal.id);
             triggerHaptic('medium');
 
             if (onOpenCookingMode) {
                 onOpenCookingMode(meal);
+                setCookingMealId(null);
             } else {
-                await startCooking(meal.id);
-                await completeMeal(meal.id);
+                setActiveCookingMeal(meal);
             }
-            setCookingMealId(null);
-
-            // Refresh
-            const reserved = getMealsByStatus('reserved');
-            const cooking = getMealsByStatus('cooking');
-            setActiveMeals([...cooking, ...reserved]);
         },
         [onOpenCookingMode],
     );
+
+    const closeCookingMode = useCallback(() => {
+        setActiveCookingMeal(null);
+        setCookingMealId(null);
+        refreshActiveMeals();
+    }, [refreshActiveMeals]);
+
+    const handleQuickPurchase = useCallback(
+        async (itemId: string) => {
+            if (!canRecordPurchase || purchasingItemId) return;
+
+            setPurchasingItemId(itemId);
+            setShoppingActionError(null);
+            triggerHaptic('medium');
+            try {
+                await markPurchased(itemId, undefined, undefined, perms.voyageId, perms.ownerUserId);
+                setShoppingSummary(getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId));
+                window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+            } catch {
+                setShoppingActionError('That purchase could not be recorded. Your shopping list was left unchanged.');
+            } finally {
+                setPurchasingItemId(null);
+            }
+        },
+        [canRecordPurchase, perms.ownerUserId, perms.voyageId, purchasingItemId],
+    );
+
+    if (!hasMealAccess) return null;
 
     return (
         <div className={className ?? 'mx-4 mt-3 mb-2'}>
@@ -371,19 +405,24 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                 <MealCalendar
                                     mealDays={mealDays}
                                     crewCount={effectiveCrewCount}
-                                    voyageId={voyage?.id || null}
-                                    voyageName={voyage?.voyage_name || null}
+                                    voyageId={perms.voyageId}
+                                    ownerUserId={perms.ownerUserId}
+                                    voyageName={voyage?.id === perms.voyageId ? voyage.voyage_name : null}
                                     activeMeals={activeMeals}
                                     onMealsChanged={() => {
-                                        const reserved = getMealsByStatus('reserved');
-                                        const cooking = getMealsByStatus('cooking');
+                                        const reserved = getMealsByStatus('reserved', perms.voyageId ?? undefined);
+                                        const cooking = getMealsByStatus('cooking', perms.voyageId ?? undefined);
                                         setActiveMeals([...cooking, ...reserved]);
                                     }}
                                     cookingMealId={cookingMealId}
                                     onCookNow={handleCookNow}
                                     shoppingSummary={shoppingSummary}
-                                    onCrewCountChange={handleSetCrewCount}
-                                    onShoppingChanged={() => setShoppingSummary(getShoppingList())}
+                                    onCrewCountChange={handleVoyageCrewCountChange}
+                                    onShoppingChanged={() =>
+                                        setShoppingSummary(
+                                            getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId),
+                                        )
+                                    }
                                 />
                             </div>
                         </ChildCard>
@@ -400,6 +439,25 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                             isOpen={activeTab === 'shopping'}
                         >
                             <div className="p-3 space-y-3">
+                                {!canRecordPurchase && (
+                                    <p
+                                        id="galley-shopping-permission-note"
+                                        role="note"
+                                        className="rounded-lg border border-sky-500/20 bg-sky-500/[0.08] px-3 py-2 text-[11px] font-semibold text-sky-100"
+                                    >
+                                        Ship&apos;s Stores are read-only. Open the Grocery List to review what is
+                                        needed.
+                                    </p>
+                                )}
+                                {shoppingActionError && (
+                                    <p
+                                        role="alert"
+                                        className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] font-semibold text-red-200"
+                                    >
+                                        {shoppingActionError}
+                                    </p>
+                                )}
+
                                 {/* Progress bar */}
                                 <div className="space-y-1">
                                     <div className="flex justify-between text-[11px] font-bold">
@@ -444,16 +502,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                                         );
                                                         return (
                                                             <button
+                                                                type="button"
                                                                 key={item.id}
-                                                                onClick={async () => {
-                                                                    triggerHaptic('medium');
-                                                                    await markPurchased(item.id);
-                                                                    setShoppingSummary(getShoppingList());
-                                                                    window.dispatchEvent(
-                                                                        new CustomEvent('thalassa:stores-changed'),
-                                                                    );
-                                                                }}
-                                                                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-emerald-500/[0.06] hover:border-emerald-500/20 transition-all active:scale-[0.98] text-left"
+                                                                onClick={() => void handleQuickPurchase(item.id)}
+                                                                disabled={
+                                                                    !canRecordPurchase || purchasingItemId !== null
+                                                                }
+                                                                aria-describedby={
+                                                                    canRecordPurchase
+                                                                        ? undefined
+                                                                        : 'galley-shopping-permission-note'
+                                                                }
+                                                                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-emerald-500/[0.06] hover:border-emerald-500/20 transition-all active:scale-[0.98] text-left disabled:cursor-not-allowed disabled:opacity-50"
                                                                 aria-label={`Mark ${item.ingredient_name} as purchased`}
                                                             >
                                                                 <div className="w-5 h-5 rounded-md border-2 border-gray-600 flex items-center justify-center flex-shrink-0" />
@@ -498,11 +558,15 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
 
                     {/* ── Provisioned Toggle ── */}
                     <button
+                        type="button"
                         onClick={() => {
+                            if (getAuthIdentityScope().key !== identityKey) return;
                             const next = !provisioned;
                             setProvisioned(next);
                             try {
-                                localStorage.setItem('thalassa_provisioned', String(next));
+                                if (perms.voyageId) {
+                                    localStorage.setItem(provisionedStorageKey(perms.voyageId), String(next));
+                                }
                             } catch {
                                 /* ignore */
                             }
@@ -537,6 +601,16 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                     </button>
                 </div>
             )}
+            {activeCookingMeal &&
+                typeof document !== 'undefined' &&
+                createPortal(
+                    <GalleyCookingMode
+                        meal={activeCookingMeal}
+                        onClose={closeCookingMode}
+                        onComplete={closeCookingMode}
+                    />,
+                    document.body,
+                )}
         </div>
     );
 };

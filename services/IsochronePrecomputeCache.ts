@@ -10,9 +10,16 @@
 
 import { createLogger } from '../utils/createLogger';
 import type { IsochroneResult } from './IsochroneRouter';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 const log = createLogger('IsoCache');
 
 interface PrecomputedRoute {
+    scope: AuthIdentityScope;
     depLat: number;
     depLon: number;
     arrLat: number;
@@ -25,6 +32,16 @@ let _cache: PrecomputedRoute | null = null;
 let _computing = false;
 let _abortGen = 0;
 
+function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
+    return left.key === right.key && left.generation === right.generation;
+}
+
+subscribeAuthIdentityScope(() => {
+    _abortGen += 1;
+    _cache = null;
+    _computing = false;
+});
+
 /**
  * Check if a pre-computed route matches the requested departure/arrival.
  * Returns the cached result if within 0.01° and fresher than 5 minutes.
@@ -34,8 +51,14 @@ export function getPrecomputedRoute(
     depLon: number,
     arrLat: number,
     arrLon: number,
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
 ): IsochroneResult | null {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return null;
     if (!_cache) return null;
+    if (!sameScope(_cache.scope, expectedScope)) {
+        _cache = null;
+        return null;
+    }
     const MAX_AGE_MS = 5 * 60_000; // 5 minutes
     if (Date.now() - _cache.computedAt > MAX_AGE_MS) {
         _cache = null;
@@ -63,9 +86,12 @@ export async function precomputeIsochrone(
     dep: { lat: number; lon: number },
     arr: { lat: number; lon: number },
     departureTime: string,
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
 ): Promise<void> {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
     // Increment generation to abort any previous precomputation
     const gen = ++_abortGen;
+    const isCurrent = () => gen === _abortGen && isAuthIdentityScopeCurrent(expectedScope);
     _computing = true;
     _cache = null;
 
@@ -82,7 +108,7 @@ export async function precomputeIsochrone(
         const { preloadBathymetry } = await import('./BathymetryCache');
         const { computeIsochrones } = await import('./IsochroneRouter');
 
-        if (gen !== _abortGen) return; // aborted
+        if (!isCurrent()) return; // aborted
 
         const windGrid = WindStore.getState().grid;
         if (!windGrid) {
@@ -106,11 +132,11 @@ export async function precomputeIsochrone(
         const depGate = dep;
         const arrGate = arr;
 
-        if (gen !== _abortGen) return;
+        if (!isCurrent()) return;
 
         // 3. Preload bathymetry
         const bathyGrid = await preloadBathymetry(depGate, arrGate);
-        if (gen !== _abortGen) return;
+        if (!isCurrent()) return;
 
         // 4. Run isochrone
         const minDepthM = isShortRoute ? 3.5 : null; // draft+1m for coastal
@@ -124,10 +150,11 @@ export async function precomputeIsochrone(
             bathyGrid,
         );
 
-        if (gen !== _abortGen) return;
+        if (!isCurrent()) return;
 
         if (isoResult && isoResult.routeCoordinates.length >= 2) {
             _cache = {
+                scope: expectedScope,
                 depLat: depGate.lat,
                 depLon: depGate.lon,
                 arrLat: arrGate.lat,
@@ -140,7 +167,7 @@ export async function precomputeIsochrone(
             log.info('[Precompute] No route found');
         }
     } catch (err) {
-        log.warn('[Precompute] Background isochrone failed:', err);
+        if (isCurrent()) log.warn('[Precompute] Background isochrone failed:', err);
     } finally {
         if (gen === _abortGen) _computing = false;
     }

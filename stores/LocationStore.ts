@@ -12,6 +12,16 @@
  *   LocationStore.getState() — snapshot
  */
 
+import { useState as useReactState, useEffect } from 'react';
+import { createLogger } from '../utils/createLogger';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../services/authIdentityScope';
+
+const log = createLogger('LocationStore');
+
 // ── Types ──────────────────────────────────────────────────────
 
 export interface LocationState {
@@ -40,17 +50,26 @@ const DEFAULT_STATE: LocationState = {
 
 let state: LocationState = { ...DEFAULT_STATE };
 const listeners = new Set<Listener>();
+let locationMutationGeneration = 0;
 
 function notify() {
-    listeners.forEach((fn) => fn(state));
+    const snapshot = { ...state };
+    listeners.forEach((fn) => {
+        try {
+            fn(snapshot);
+        } catch (error) {
+            log.warn('[LocationStore] Isolated listener error:', error);
+        }
+    });
 }
 
 export const LocationStore = {
     getState(): LocationState {
-        return state;
+        return { ...state };
     },
 
     setState(partial: Partial<LocationState>) {
+        locationMutationGeneration += 1;
         state = { ...state, ...partial, timestamp: Date.now() };
         notify();
     },
@@ -62,6 +81,8 @@ export const LocationStore = {
      * same coordinate twice is a wasted Mapbox call.
      */
     async setFromMapPin(lat: number, lon: number, name?: string) {
+        const identity = getAuthIdentityScope();
+        const mutationGeneration = ++locationMutationGeneration;
         // Immediately update coords (UI feels instant)
         state = {
             ...state,
@@ -80,16 +101,33 @@ export const LocationStore = {
 
         // Reverse geocode
         try {
-            const name = await reverseGeocode(lat, lon);
-            if (name) {
-                state = { ...state, name, isReversGeocoding: false };
-                notify();
-            } else {
-                state = { ...state, isReversGeocoding: false };
-                notify();
+            const resolvedName = await reverseGeocode(lat, lon);
+            if (
+                mutationGeneration !== locationMutationGeneration ||
+                !isAuthIdentityScopeCurrent(identity) ||
+                state.source !== 'map_pin' ||
+                state.lat !== lat ||
+                state.lon !== lon
+            ) {
+                return;
             }
+            state = {
+                ...state,
+                ...(resolvedName ? { name: resolvedName } : {}),
+                isReversGeocoding: false,
+            };
+            notify();
         } catch (e) {
             log.warn('[LocationStore]', e);
+            if (
+                mutationGeneration !== locationMutationGeneration ||
+                !isAuthIdentityScopeCurrent(identity) ||
+                state.source !== 'map_pin' ||
+                state.lat !== lat ||
+                state.lon !== lon
+            ) {
+                return;
+            }
             state = { ...state, isReversGeocoding: false };
             notify();
         }
@@ -99,6 +137,7 @@ export const LocationStore = {
      * Set location from GPS.
      */
     setFromGPS(lat: number, lon: number, name?: string) {
+        locationMutationGeneration += 1;
         state = {
             ...state,
             lat,
@@ -121,6 +160,7 @@ export const LocationStore = {
      * WeatherContext boot placeholder the first GPS fix should replace.)
      */
     setFromFavorite(lat: number, lon: number, name: string) {
+        locationMutationGeneration += 1;
         state = {
             ...state,
             lat,
@@ -141,12 +181,6 @@ export const LocationStore = {
 
 // ── React Hook ─────────────────────────────────────────────────
 
-import { useState as useReactState, useEffect } from 'react';
-
-import { createLogger } from '../utils/createLogger';
-
-const log = createLogger('LocationStore');
-
 export function useLocationStore(): LocationState {
     const [s, setS] = useReactState(LocationStore.getState());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,6 +192,18 @@ export function useLocationCoords(): { lat: number; lon: number } {
     const { lat, lon } = useLocationStore();
     return { lat, lon };
 }
+
+// A map pin, search, or favourite is an account-level selection. Drop it
+// synchronously on auth changes so the next account cannot inherit a private
+// destination. A live GPS fix is physical device state and remains valid.
+subscribeAuthIdentityScope(() => {
+    locationMutationGeneration += 1;
+    state =
+        state.source === 'gps'
+            ? { ...state, isReversGeocoding: false, timestamp: Date.now() }
+            : { ...DEFAULT_STATE, timestamp: Date.now() };
+    notify();
+});
 
 // ── Reverse Geocoding ──────────────────────────────────────────
 

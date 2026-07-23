@@ -115,7 +115,9 @@ describe('safety-critical dialog accessibility', () => {
             <DepartureSweepSheet open onClose={closeSweep} voyagePlan={null} vessel={null} onAccept={vi.fn()} />,
         );
         const sweepClose = screen.getByRole('button', { name: 'Close' });
-        expect(screen.getByRole('dialog', { name: 'Inshore Departure Sweep' })).toContainElement(sweepClose);
+        const sweepDialog = screen.getByRole('dialog', { name: 'Inshore Departure Sweep' });
+        expect(sweepDialog).toContainElement(sweepClose);
+        expect(sweepDialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(sweepClose).toHaveFocus();
         fireEvent.keyDown(sweepClose, { key: 'Escape' });
         expect(closeSweep).toHaveBeenCalledOnce();
@@ -128,14 +130,16 @@ describe('safety-critical dialog accessibility', () => {
                 onClose={closeWindow}
                 planning={false}
                 scenarios={[]}
-                progressLabel={null}
+                progressLabel={undefined}
                 onAccept={vi.fn()}
                 origin="Brisbane"
                 destination="Moreton"
             />,
         );
         const windowClose = screen.getByRole('button', { name: 'Close' });
-        expect(screen.getByRole('dialog', { name: 'Departure Window' })).toContainElement(windowClose);
+        const windowDialog = screen.getByRole('dialog', { name: 'Departure Window' });
+        expect(windowDialog).toContainElement(windowClose);
+        expect(windowDialog.closest('[data-overlay-layer="modal"]')?.parentElement).toBe(document.body);
         expect(windowClose).toHaveFocus();
         fireEvent.keyDown(windowClose, { key: 'Escape' });
         expect(closeWindow).toHaveBeenCalledOnce();

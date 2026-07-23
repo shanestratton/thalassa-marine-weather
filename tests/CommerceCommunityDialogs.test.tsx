@@ -48,7 +48,11 @@ describe('commerce and community dialogs', () => {
                 <CommunityTrackBrowser isOpen onClose={onClose} onImportComplete={vi.fn()} />
             </>,
         );
+        const dialog = screen.getByRole('dialog', { name: 'Community track browser' });
         const close = screen.getByRole('button', { name: 'Close dialog' });
+        expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
+        expect(dialog.parentElement).toBe(document.body);
+        expect(dialog.style.zIndex).toBe('1100');
         await waitFor(() => expect(close).toHaveFocus());
         fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
@@ -123,8 +127,8 @@ describe('commerce and community dialogs', () => {
         Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
 
         try {
-            const { container } = render(<CreateListingModal isOpen onClose={vi.fn()} onCreated={vi.fn()} />);
-            const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+            render(<CreateListingModal isOpen onClose={vi.fn()} onCreated={vi.fn()} />);
+            const fileInput = document.body.querySelector<HTMLInputElement>('input[type="file"]');
             expect(fileInput).not.toBeNull();
             fireEvent.change(fileInput!, {
                 target: { files: [new File(['photo'], 'anchor.jpg', { type: 'image/jpeg' })] },

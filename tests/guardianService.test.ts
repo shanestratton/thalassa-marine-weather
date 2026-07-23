@@ -20,6 +20,7 @@ const mockUpdate = vi.fn();
 const mockEq = vi.fn();
 const mockMaybeSingle = vi.fn();
 const mockGetUser = vi.fn();
+const mockAcquireFreshOwnshipPosition = vi.fn();
 
 vi.mock('../services/supabase', () => ({
     supabase: {
@@ -51,6 +52,10 @@ vi.mock('../stores/LocationStore', () => ({
     },
 }));
 
+vi.mock('../services/ownshipPosition', () => ({
+    acquireFreshOwnshipPosition: (...args: unknown[]) => mockAcquireFreshOwnshipPosition(...args),
+}));
+
 let GuardianService: any;
 
 let HAIL_MESSAGES: any;
@@ -60,6 +65,17 @@ let WEATHER_TEMPLATES: any;
 beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
+    mockAcquireFreshOwnshipPosition.mockResolvedValue({
+        lat: -36.8485,
+        lon: 174.7633,
+        sog: 0,
+        cog: 0,
+        timestamp: Date.now(),
+        source: 'gps',
+    });
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'test-user' } }, error: null });
+    const identity = await import('../services/authIdentityScope');
+    identity.setAuthIdentityScope('test-user');
     const mod = await import('../services/GuardianService');
     GuardianService = mod.GuardianService;
     HAIL_MESSAGES = mod.HAIL_MESSAGES;
@@ -182,6 +198,9 @@ describe('GuardianService — Alert Feed', () => {
                 alert_type: 'suspicious',
                 title: 'Test',
                 body: 'Test body',
+                lat: -36.84,
+                lon: 174.76,
+                data: {},
                 created_at: new Date().toISOString(),
             },
         ];

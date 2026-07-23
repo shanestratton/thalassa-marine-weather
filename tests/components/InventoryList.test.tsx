@@ -4,6 +4,7 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { setAuthIdentityScope } from '../../services/authIdentityScope';
 
 vi.mock('../../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
@@ -12,14 +13,24 @@ vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
 vi.mock('../../services/vessel/LocalInventoryService', () => ({
     LocalInventoryService: {
         getAll: vi.fn().mockResolvedValue([]),
+        getStats: vi.fn().mockResolvedValue({ totalItems: 0, totalQuantity: 0, lowStock: 0 }),
+        deduplicateByName: vi.fn().mockResolvedValue(0),
+        adjustQuantity: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: '1' }),
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue([]),
     },
 }));
+vi.mock('../../stores/settingsStore', () => ({
+    useSettingsStore: (selector: (state: { settings: { vessel: { name: string } } }) => unknown) =>
+        selector({ settings: { vessel: { name: 'Test Vessel' } } }),
+}));
 vi.mock('../../services/vessel/InventorySyncService', () => ({
     InventorySyncService: { sync: vi.fn().mockResolvedValue(undefined) },
+}));
+vi.mock('../../services/vessel/LocalDatabase', () => ({
+    initLocalDatabase: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../../components/ui/SlideToAction', () => ({
     SlideToAction: ({ children }: { children: React.ReactNode }) => <div data-testid="slide-to-action">{children}</div>,
@@ -36,7 +47,12 @@ vi.mock('../../components/Toast', () => ({ toast: { success: vi.fn(), error: vi.
 import { InventoryList } from '../../components/vessel/InventoryList';
 
 describe('InventoryList', () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('account-a');
+    });
 
     it('renders without crashing', () => {
         const { container } = render(<InventoryList onBack={vi.fn()} />);

@@ -6,8 +6,9 @@
  */
 
 import { supabase } from './supabase';
-import { getAll, insertLocal, updateLocal, generateUUID } from './vessel/LocalDatabase';
+import { atomicLocalTransaction, generateUUID, getAll, getLocalDatabaseIdentity } from './vessel/LocalDatabase';
 import type { CrewManifestEntry } from '../utils/globalClearanceEngine';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,17 +34,38 @@ export interface CrewProfile {
 
 const TABLE = 'crew_profiles';
 
+function localIdentityMatches(identity: AuthIdentityScope): boolean {
+    if (!isAuthIdentityScopeCurrent(identity)) return false;
+    try {
+        return getLocalDatabaseIdentity() === identity.userId;
+    } catch {
+        return false;
+    }
+}
+
+async function verifyAuthenticatedOwner(identity: AuthIdentityScope): Promise<string | null> {
+    if (!supabase || !identity.userId || !isAuthIdentityScopeCurrent(identity)) return null;
+    const {
+        data: { user },
+        error,
+    } = await supabase.auth.getUser();
+    if (error || user?.id !== identity.userId || !isAuthIdentityScopeCurrent(identity)) return null;
+    return identity.userId;
+}
+
 // ── CRUD ───────────────────────────────────────────────────────────────────
 
 export async function saveProfile(
     profile: Partial<CrewProfile> & { full_name: string; nationality: string },
 ): Promise<CrewProfile | null> {
+    const identity = getAuthIdentityScope();
     if (!supabase) {
+        if (!localIdentityMatches(identity)) return null;
         // Offline: save locally
         const now = new Date().toISOString();
         const record: CrewProfile = {
             id: generateUUID(),
-            user_id: '',
+            user_id: identity.userId || '',
             full_name: profile.full_name,
             nationality: profile.nationality,
             date_of_birth: profile.date_of_birth || null,
@@ -60,20 +82,23 @@ export async function saveProfile(
             created_at: now,
             updated_at: now,
         };
-        return insertLocal(TABLE, record);
+        try {
+            const saved = await atomicLocalTransaction((transaction) => transaction.insert(TABLE, record));
+            return isAuthIdentityScopeCurrent(identity) ? saved : null;
+        } catch {
+            return null;
+        }
     }
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return null;
+    const ownerId = await verifyAuthenticatedOwner(identity);
+    if (!ownerId) return null;
 
     const { data, error } = await supabase
         .from('crew_profiles')
         .upsert(
             {
-                user_id: user.id,
                 ...profile,
+                user_id: ownerId,
                 updated_at: new Date().toISOString(),
             },
             { onConflict: 'user_id' },
@@ -81,28 +106,74 @@ export async function saveProfile(
         .select()
         .single();
 
-    if (error) return null;
+    if (error || !isAuthIdentityScopeCurrent(identity)) return null;
     return data as CrewProfile;
 }
 
 export async function getMyProfile(): Promise<CrewProfile | null> {
+    const identity = getAuthIdentityScope();
     if (!supabase) {
+        if (!localIdentityMatches(identity)) return null;
         const profiles = getAll<CrewProfile>(TABLE);
-        return profiles[0] || null;
+        const ownerId = identity.userId || '';
+        return (
+            profiles.find(
+                (profile) =>
+                    profile.user_id === ownerId ||
+                    // Pre-isolation records used an empty owner. They are safe
+                    // only inside the already verified account-scoped file.
+                    (!!identity.userId && !profile.user_id),
+            ) || null
+        );
     }
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return null;
+    const ownerId = await verifyAuthenticatedOwner(identity);
+    if (!ownerId) return null;
 
-    const { data } = await supabase.from('crew_profiles').select('*').eq('user_id', user.id).maybeSingle();
+    const { data } = await supabase.from('crew_profiles').select('*').eq('user_id', ownerId).maybeSingle();
+    if (!isAuthIdentityScopeCurrent(identity)) return null;
 
     return (data as CrewProfile) || null;
 }
 
 export async function updateProfile(id: string, updates: Partial<CrewProfile>): Promise<CrewProfile | null> {
-    return updateLocal<CrewProfile>(TABLE, id, updates as Partial<CrewProfile>);
+    const identity = getAuthIdentityScope();
+    const safeUpdates = { ...updates };
+    delete safeUpdates.id;
+    delete safeUpdates.user_id;
+    delete safeUpdates.created_at;
+
+    if (!supabase) {
+        if (!localIdentityMatches(identity)) return null;
+        try {
+            const updated = await atomicLocalTransaction((transaction) => {
+                const existing = transaction.getById<CrewProfile>(TABLE, id);
+                const ownerId = identity.userId || '';
+                const isScopedLegacy = !!identity.userId && !existing?.user_id;
+                if (!existing || (existing.user_id !== ownerId && !isScopedLegacy)) return null;
+                return transaction.update<CrewProfile>(TABLE, id, {
+                    ...safeUpdates,
+                    // Bind a safely scoped legacy record on its first update.
+                    user_id: ownerId,
+                });
+            });
+            return isAuthIdentityScopeCurrent(identity) ? updated : null;
+        } catch {
+            return null;
+        }
+    }
+
+    const ownerId = await verifyAuthenticatedOwner(identity);
+    if (!ownerId) return null;
+    const { data, error } = await supabase
+        .from(TABLE)
+        .update(safeUpdates)
+        .eq('id', id)
+        .eq('user_id', ownerId)
+        .select()
+        .maybeSingle();
+    if (error || !isAuthIdentityScopeCurrent(identity)) return null;
+    return (data as CrewProfile) || null;
 }
 
 // ── Customs Integration ────────────────────────────────────────────────────
@@ -112,16 +183,24 @@ export async function updateProfile(id: string, updates: Partial<CrewProfile>): 
  * Auto-populates the Customs PDF crew table.
  */
 export async function getCrewManifestForClearance(): Promise<CrewManifestEntry[]> {
+    const identity = getAuthIdentityScope();
     let profiles: CrewProfile[] = [];
 
     if (supabase) {
+        // Crew visible through vessel membership is deliberately shared data,
+        // so RLS defines the result set rather than narrowing it to the caller.
+        // We still bind the request and its result to the initiating account.
+        const ownerId = await verifyAuthenticatedOwner(identity);
+        if (!ownerId) return [];
         // Fetch all crew profiles visible to the current user
         const { data } = await supabase.from('crew_profiles').select('*').order('full_name');
+        if (!isAuthIdentityScopeCurrent(identity)) return [];
         profiles = (data as CrewProfile[]) || [];
     }
 
     // Fallback to local
     if (profiles.length === 0) {
+        if (!localIdentityMatches(identity)) return [];
         profiles = getAll<CrewProfile>(TABLE);
     }
 
@@ -138,6 +217,8 @@ export async function getCrewManifestForClearance(): Promise<CrewManifestEntry[]
  * Get crew dietary summary (for galley planning).
  */
 export function getCrewDietarySummary(): { name: string; dietary: string }[] {
+    const identity = getAuthIdentityScope();
+    if (!localIdentityMatches(identity)) return [];
     const profiles = getAll<CrewProfile>(TABLE);
     return profiles
         .filter((p) => p.dietary_notes)

@@ -14,7 +14,7 @@
  * To add a new premium feature, add one line to the registry.
  */
 
-import { isPremiumUser, triggerPaywall, type SubscriptionStatus } from './SubscriptionManager';
+import { getCachedSubscriptionStatus, isPremiumUser, triggerPaywall } from './SubscriptionManager';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('FeatureGate');
@@ -171,7 +171,10 @@ export async function isFeatureLocked(feature: FeatureName): Promise<boolean> {
     const def = FEATURE_REGISTRY[feature];
     if (!def) {
         log.warn(`Unknown feature: ${feature}`);
-        return false; // Unknown features default to unlocked (fail open)
+        // A stale or misspelled runtime feature key must not accidentally
+        // grant a paid capability. The FeatureName type prevents this in
+        // normal callers; this guard covers persisted data and JS boundaries.
+        return true;
     }
 
     // Free features are never locked
@@ -184,24 +187,23 @@ export async function isFeatureLocked(feature: FeatureName): Promise<boolean> {
 
 /**
  * Synchronous version — uses cached subscription status.
- * Falls back to unlocked if cache is empty (first load).
+ * Falls back to locked if cache is empty (first load).
  * Prefer the async version for accuracy; use this for render-path checks
  * where you can't await.
  */
 export function isFeatureLockedSync(feature: FeatureName): boolean {
     const def = FEATURE_REGISTRY[feature];
-    if (!def || def.tier === 'free') return false;
-
-    // Check cached premium status from SubscriptionManager
-    // If no cache exists yet, default to unlocked (don't block UI on first render)
-    try {
-        const cached = localStorage.getItem('thalassa_subscription_cache');
-        if (!cached) return false;
-        const status = JSON.parse(cached) as { status: SubscriptionStatus };
-        return status.status !== 'active' && status.status !== 'trial';
-    } catch {
-        return false;
+    if (!def) {
+        log.warn(`Unknown feature: ${feature}`);
+        return true;
     }
+    if (def.tier === 'free') return false;
+
+    // Entitlements are account-specific. A missing/expired cache stays locked
+    // until the current account has been verified; a legacy global
+    // localStorage entry could otherwise grant B account A's paid AIS layer.
+    const cached = getCachedSubscriptionStatus();
+    return !cached || (cached.status !== 'active' && cached.status !== 'trial');
 }
 
 /**

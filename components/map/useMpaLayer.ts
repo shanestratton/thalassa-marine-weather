@@ -53,7 +53,7 @@ interface MpaProps {
     restriction?: string;
 }
 
-function buildPopupHtml(props: MpaProps): string {
+export function buildMpaPopupHtml(props: MpaProps): string {
     const restriction = (props.restriction ?? 'general') as keyof typeof RESTRICTION_LABEL;
     const meta = RESTRICTION_LABEL[restriction] ?? RESTRICTION_LABEL.general;
 
@@ -69,7 +69,8 @@ function buildPopupHtml(props: MpaProps): string {
     if (props.iucn) subParts.push(`IUCN ${escape(props.iucn)}`);
 
     const sub = subParts.join(' · ');
-    const area = props.area_km2 ? `${props.area_km2.toLocaleString()} km²` : '';
+    const areaValue = Number(props.area_km2);
+    const area = Number.isFinite(areaValue) && areaValue > 0 ? `${escape(areaValue.toLocaleString())} km²` : '';
     const auth = props.authority ? escape(props.authority) : '';
 
     return `
@@ -203,7 +204,7 @@ export function useMpaLayer(mapRef: React.MutableRefObject<mapboxgl.Map | null>,
                         offset: 8,
                     })
                         .setLngLat(e.lngLat)
-                        .setHTML(buildPopupHtml(props))
+                        .setHTML(buildMpaPopupHtml(props))
                         .addTo(map);
                     popupRef.current = popup;
 

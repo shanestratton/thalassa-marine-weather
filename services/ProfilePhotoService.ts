@@ -13,6 +13,12 @@
 
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { supabase, supabaseUrl } from './supabase';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 // --- CONFIG ---
 const BUCKET_NAME = 'chat-avatars';
@@ -44,7 +50,28 @@ export interface PhotoModerationResult {
 }
 
 // --- AVATAR CACHE ---
-const avatarCache = new Map<string, string>();
+let avatarCache = new Map<string, string>();
+
+// Avatar URLs are public chat data, but the set a sailor has viewed is still
+// account-local application state. Hide it synchronously on A → B and prevent
+// an old request from repopulating the new account's cache.
+subscribeAuthIdentityScope(() => {
+    avatarCache = new Map();
+});
+
+async function verifyAuthenticatedOwner(identity: AuthIdentityScope): Promise<string | null> {
+    if (!supabase || !identity.userId || !isAuthIdentityScopeCurrent(identity)) return null;
+    const {
+        data: { user },
+        error,
+    } = await supabase.auth.getUser();
+    if (error || user?.id !== identity.userId || !isAuthIdentityScopeCurrent(identity)) return null;
+    return identity.userId;
+}
+
+function reportProgress(identity: AuthIdentityScope, onProgress: ((step: string) => void) | undefined, step: string) {
+    if (isAuthIdentityScopeCurrent(identity)) onProgress?.(step);
+}
 
 /**
  * Get cached avatar URL for a user. Returns null if not cached.
@@ -183,8 +210,16 @@ export const moderatePhoto = async (imageBlob: Blob): Promise<PhotoModerationRes
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
+    const identity = getAuthIdentityScope();
     try {
-        const [headers, imageBase64] = await Promise.all([getAuthenticatedFunctionHeaders(), blobToBase64(imageBlob)]);
+        const [headers, imageBase64, ownerId] = await Promise.all([
+            getAuthenticatedFunctionHeaders(),
+            blobToBase64(imageBlob),
+            verifyAuthenticatedOwner(identity),
+        ]);
+        if (!ownerId || !isAuthIdentityScopeCurrent(identity)) {
+            return { verdict: 'review', reason: 'Account changed during photo safety check' };
+        }
         const response = await fetch(`${supabaseUrl}/functions/v1/proxy-gemini`, {
             method: 'POST',
             headers,
@@ -205,6 +240,9 @@ export const moderatePhoto = async (imageBlob: Blob): Promise<PhotoModerationRes
         }
 
         const payload = (await response.json()) as { text?: unknown };
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { verdict: 'review', reason: 'Account changed during photo safety check' };
+        }
         if (typeof payload.text !== 'string') {
             return { verdict: 'review', reason: 'Photo safety check returned no verdict' };
         }
@@ -256,20 +294,24 @@ export const uploadProfilePhoto = async (
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
     if (!supabase) return { success: false, error: 'Supabase not configured' };
 
+    const identity = getAuthIdentityScope();
     try {
-        // Get current user
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return { success: false, error: 'Not authenticated' };
+        const ownerId = await verifyAuthenticatedOwner(identity);
+        if (!ownerId) return { success: false, error: 'Not authenticated or account changed' };
 
         // Step 1: Compress
-        onProgress?.('Optimizing photo...');
+        reportProgress(identity, onProgress, 'Optimizing photo...');
         const compressed = await compressImage(file);
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Account changed during upload' };
+        }
 
         // Step 2: Moderate with Gemini Vision
-        onProgress?.('Checking content...');
+        reportProgress(identity, onProgress, 'Checking content...');
         const modResult = await moderatePhoto(compressed);
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Account changed during upload' };
+        }
 
         if (modResult.verdict !== 'approved') {
             return {
@@ -282,15 +324,16 @@ export const uploadProfilePhoto = async (
         }
 
         // Step 3: Upload to Supabase Storage
-        onProgress?.('Uploading...');
-        const fileName = `${user.id}/avatar-${Date.now()}.jpg`;
+        reportProgress(identity, onProgress, 'Uploading...');
+        const fileName = `${ownerId}/avatar-${Date.now()}.jpg`;
 
-        // Remove old avatar first
-        const { data: existingFiles } = await supabase.storage.from(BUCKET_NAME).list(user.id);
-
-        if (existingFiles && existingFiles.length > 0) {
-            const filesToRemove = existingFiles.map((f) => `${user.id}/${f.name}`);
-            await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
+        // Capture old files now, but keep them in place until the replacement
+        // is uploaded and the profile row points at it. A failed upload must
+        // never leave the sailor with a broken avatar.
+        const { data: existingFiles, error: listError } = await supabase.storage.from(BUCKET_NAME).list(ownerId);
+        if (listError) return { success: false, error: `Could not inspect existing photos: ${listError.message}` };
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Account changed during upload' };
         }
 
         const { error: uploadError } = await supabase.storage.from(BUCKET_NAME).upload(fileName, compressed, {
@@ -301,6 +344,9 @@ export const uploadProfilePhoto = async (
         if (uploadError) {
             return { success: false, error: `Upload failed: ${uploadError.message}` };
         }
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Account changed during upload' };
+        }
 
         // Step 4: Get public URL
         const { data: urlData } = supabase.storage.from(BUCKET_NAME).getPublicUrl(fileName);
@@ -309,18 +355,38 @@ export const uploadProfilePhoto = async (
         if (!publicUrl) return { success: false, error: 'Failed to get public URL' };
 
         // Step 5: Save to profile
-        onProgress?.('Saving profile...');
-        await supabase.from(PROFILES_TABLE).upsert(
+        reportProgress(identity, onProgress, 'Saving profile...');
+        const { error: profileError } = await supabase.from(PROFILES_TABLE).upsert(
             {
-                user_id: user.id,
+                user_id: ownerId,
                 avatar_url: publicUrl,
                 updated_at: new Date().toISOString(),
             },
             { onConflict: 'user_id' },
         );
+        if (profileError) return { success: false, error: `Could not save profile photo: ${profileError.message}` };
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Account changed during upload' };
+        }
 
         // Step 6: Update cache
-        avatarCache.set(user.id, publicUrl);
+        avatarCache.set(ownerId, publicUrl);
+
+        // The new profile is committed. Old storage objects are now safe to
+        // remove; cleanup failure must not misreport the successful upload.
+        if (existingFiles && existingFiles.length > 0) {
+            const filesToRemove = existingFiles.map((file) => `${ownerId}/${file.name}`);
+            try {
+                await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
+            } catch {
+                // The profile already references the new object. An orphaned
+                // old object is preferable to telling the user the upload
+                // failed when their visible profile was updated correctly.
+            }
+            if (!isAuthIdentityScopeCurrent(identity)) {
+                return { success: false, error: 'Account changed during upload' };
+            }
+        }
 
         return { success: true, url: publicUrl };
     } catch (e) {
@@ -335,27 +401,29 @@ export const uploadProfilePhoto = async (
 export const removeProfilePhoto = async (): Promise<boolean> => {
     if (!supabase) return false;
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return false;
+    const identity = getAuthIdentityScope();
+    const ownerId = await verifyAuthenticatedOwner(identity);
+    if (!ownerId) return false;
 
     // Remove from storage
-    const { data: files } = await supabase.storage.from(BUCKET_NAME).list(user.id);
+    const { data: files, error: listError } = await supabase.storage.from(BUCKET_NAME).list(ownerId);
+    if (listError || !isAuthIdentityScopeCurrent(identity)) return false;
 
     if (files && files.length > 0) {
-        const filesToRemove = files.map((f) => `${user.id}/${f.name}`);
-        await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
+        const filesToRemove = files.map((f) => `${ownerId}/${f.name}`);
+        const { error: removeError } = await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
+        if (removeError || !isAuthIdentityScopeCurrent(identity)) return false;
     }
 
     // Clear from profile
-    await supabase
+    const { error: profileError } = await supabase
         .from(PROFILES_TABLE)
         .update({ avatar_url: null, updated_at: new Date().toISOString() })
-        .eq('user_id', user.id);
+        .eq('user_id', ownerId);
+    if (profileError || !isAuthIdentityScopeCurrent(identity)) return false;
 
     // Clear cache
-    avatarCache.delete(user.id);
+    avatarCache.delete(ownerId);
 
     return true;
 };
@@ -365,11 +433,13 @@ export const removeProfilePhoto = async (): Promise<boolean> => {
  */
 export const getProfile = async (userId: string): Promise<ChatProfile | null> => {
     if (!supabase) return null;
+    const identity = getAuthIdentityScope();
 
     // Check cache first
     const cached = avatarCache.get(userId);
 
     const { data } = await supabase.from(PROFILES_TABLE).select('*').eq('user_id', userId).single();
+    if (!isAuthIdentityScopeCurrent(identity)) return null;
 
     if (data) {
         const profile = data as ChatProfile;
@@ -411,21 +481,20 @@ export const updateProfile = async (updates: {
 }): Promise<boolean> => {
     if (!supabase) return false;
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return false;
+    const identity = getAuthIdentityScope();
+    const ownerId = await verifyAuthenticatedOwner(identity);
+    if (!ownerId) return false;
 
     const { error } = await supabase.from(PROFILES_TABLE).upsert(
         {
-            user_id: user.id,
+            user_id: ownerId,
             ...updates,
             updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' },
     );
 
-    return !error;
+    return !error && isAuthIdentityScopeCurrent(identity);
 };
 
 /**
@@ -435,6 +504,7 @@ export const updateProfile = async (updates: {
 export const batchFetchAvatars = async (userIds: string[]): Promise<Map<string, string>> => {
     const result = new Map<string, string>();
     if (!supabase || userIds.length === 0) return result;
+    const identity = getAuthIdentityScope();
 
     // Filter out already cached
     const uncached = userIds.filter((id) => !avatarCache.has(id));
@@ -445,6 +515,7 @@ export const batchFetchAvatars = async (userIds: string[]): Promise<Map<string, 
             .select('user_id, avatar_url')
             .in('user_id', uncached)
             .not('avatar_url', 'is', null);
+        if (!isAuthIdentityScopeCurrent(identity)) return result;
 
         if (data) {
             for (const row of data) {
@@ -454,6 +525,8 @@ export const batchFetchAvatars = async (userIds: string[]): Promise<Map<string, 
             }
         }
     }
+
+    if (!isAuthIdentityScopeCurrent(identity)) return new Map();
 
     // Build return map from cache
     for (const id of userIds) {

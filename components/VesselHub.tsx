@@ -19,7 +19,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
-import { buildClaim, claimAgeLabel, holdsClaim } from '../services/skipperDevice';
+import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { useWeather } from '../context/WeatherContext';
 import { triggerHaptic } from '../utils/system';
 import { convertLength } from '../utils/units';
@@ -33,6 +33,14 @@ import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 import { WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -69,13 +77,13 @@ const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, onSave: _onSave }) => {
     // ── Vessel state ──
     const { settings: ctx, updateSettings } = useSettings();
+    const authenticatedUserId = useAuthStore((state) => state.user?.id ?? null);
     const isObserver = (ctx as { vessel?: { type?: string } })?.vessel?.type === 'observer';
     // Which device speaks for this boat (services/skipperDevice.ts). Read from
     // the live store rather than the `settings` prop so a takeover on another
     // device reflects here as soon as settings sync brings it down.
     const skipperClaim =
         (ctx as { skipperDevice?: import('../services/skipperDevice').SkipperClaim })?.skipperDevice ?? null;
-    const skipperClaimHeld = holdsClaim(skipperClaim);
 
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
@@ -354,13 +362,31 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // ── Crew invite badge ──
     const [pendingCrewInvites, setPendingCrewInvites] = useState(0);
     useEffect(() => {
-        if (!supabase) return;
-        supabase.auth.getUser().then(({ data }) => {
-            if (data.user) {
-                getPendingInviteCount().then(setPendingCrewInvites);
+        // Account A's count must disappear in the render cycle immediately
+        // after authStore switches to B; the async refresh may take a network
+        // round-trip.
+        setPendingCrewInvites(0);
+        if (!supabase || !authenticatedUserId) return;
+
+        let cancelled = false;
+        const scope = getAuthIdentityScope();
+        if (scope.userId !== authenticatedUserId) return;
+
+        void (async () => {
+            const { data } = await supabase.auth.getUser();
+            if (data.user?.id !== authenticatedUserId) return;
+            const count = await getPendingInviteCount();
+            if (!cancelled && isAuthIdentityScopeCurrent(scope)) {
+                setPendingCrewInvites(count);
             }
+        })().catch(() => {
+            // Offline or temporarily unavailable: retain the safe empty badge.
         });
-    }, []);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [authenticatedUserId]);
 
     // ── Live tile state — guardian status, maintenance overdue ──
     // entriesToday + routeCount + trackCount removed 2026-05-17:
@@ -409,27 +435,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // trigger, so the "{n} crew" planning hint could go stale while
     // the Nav Station stayed open. useRealtimeSync mirrors the
     // pattern the Documents / Equipment tiles already use.
+    const configuredPassageCrewCount =
+        Number((ctx as { vessel?: { crewCount?: number } }).vessel?.crewCount) > 0
+            ? Number((ctx as { vessel?: { crewCount?: number } }).vessel?.crewCount)
+            : 2;
     const loadPassageCrew = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        if (scope.userId !== authenticatedUserId) return;
         try {
             const c = await getMyCrew();
-            let settingsCount = 2;
-            try {
-                const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
-                if (raw) {
-                    const s = JSON.parse(raw);
-                    if (s?.vessel?.crewCount) settingsCount = s.vessel.crewCount;
-                }
-            } catch {
-                /* ignore */
-            }
+            if (!isAuthIdentityScopeCurrent(scope)) return;
             // max(settings count, actual crew + captain)
             const actualWithCaptain = c.length + 1;
-            setPassageCrewCount(Math.max(settingsCount, actualWithCaptain));
+            setPassageCrewCount(Math.max(configuredPassageCrewCount, actualWithCaptain));
         } catch {
             /* offline — keep previous count */
         }
-    }, []);
+    }, [authenticatedUserId, configuredPassageCrewCount]);
     useEffect(() => {
+        setPassageCrewCount(0);
         void loadPassageCrew();
     }, [loadPassageCrew]);
     useRealtimeSync('vessel_crew', loadPassageCrew);
@@ -906,57 +930,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     device is overboard, soaked, flat or ashore — so this shows
                     WHO holds it and WHEN they were last seen, and lets you take
                     it rather than locking you out of your own boat. */}
-                <div className="mb-4 rounded-2xl border border-cyan-500/20 bg-slate-900/40 p-3">
-                    <div className="mb-1.5 flex items-baseline justify-between gap-2">
-                        <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
-                            ⚓ Skipper device
-                        </span>
-                        {skipperClaimHeld && (
-                            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
-                                This device
-                            </span>
-                        )}
-                    </div>
-                    <p className="mb-2 text-[11px] leading-snug text-gray-400">
-                        {skipperClaim
-                            ? skipperClaimHeld
-                                ? 'This device publishes the boat’s position to your public page.'
-                                : `${skipperClaim.deviceName} is publishing — last claimed ${claimAgeLabel(skipperClaim)}.`
-                            : 'No device claimed yet — any signed-in device can publish. Claim one to make it the single source.'}
-                    </p>
-                    <button
-                        onClick={() => {
-                            triggerHaptic('medium');
-                            if (skipperClaimHeld) {
-                                // Release. Unclaimed means any device may publish
-                                // again — the same state as before anyone claimed.
-                                updateSettings({ skipperDevice: undefined });
-                                return;
-                            }
-                            // Taking over from a device seen RECENTLY is the case
-                            // most likely to be a mistake, so it asks. An old or
-                            // absent holder is exactly who you need to displace,
-                            // so that path stays one tap.
-                            const recent =
-                                skipperClaim && Date.now() - new Date(skipperClaim.claimedAt).getTime() < 30 * 60_000;
-                            if (
-                                recent &&
-                                !window.confirm(
-                                    `${skipperClaim!.deviceName} was active ${claimAgeLabel(skipperClaim)}. ` +
-                                        `Take over? It will stop publishing and this device will start.`,
-                                )
-                            ) {
-                                return;
-                            }
-                            updateSettings({ skipperDevice: buildClaim() });
-                        }}
-                        className={`min-h-[44px] w-full rounded-xl py-2.5 text-[12px] font-black uppercase tracking-widest active:scale-95 ${
-                            skipperClaimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
-                        }`}
-                    >
-                        {skipperClaimHeld ? 'Release — let another device take it' : 'I am the skipper on this device'}
-                    </button>
-                </div>
+                <SkipperDeviceControl
+                    claim={skipperClaim}
+                    authenticatedUserId={authenticatedUserId}
+                    updateSettings={updateSettings}
+                />
 
                 {/* SHARING — Diary + Scuttlebutt               */}
                 {/* (Added 2026-05-17.) Diary used to be buried */}
@@ -1196,6 +1174,133 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 // ══════════════════════════════════════
 // ── Shared Components ──
 // ══════════════════════════════════════
+
+interface SkipperDeviceControlProps {
+    claim: SkipperClaim | null;
+    authenticatedUserId: string | null;
+    updateSettings: (patch: { skipperDevice?: SkipperClaim }) => void;
+}
+
+export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
+    claim,
+    authenticatedUserId,
+    updateSettings,
+}) => {
+    const claimHeld = holdsClaim(claim);
+    const [takeoverRequest, setTakeoverRequest] = useState<{
+        scope: AuthIdentityScope;
+        claim: SkipperClaim;
+    } | null>(null);
+    const actionInFlight = useRef(false);
+
+    useEffect(() => {
+        actionInFlight.current = false;
+        setTakeoverRequest(null);
+    }, [authenticatedUserId]);
+
+    useEffect(
+        () =>
+            subscribeAuthIdentityScope(() => {
+                actionInFlight.current = false;
+                setTakeoverRequest(null);
+            }),
+        [],
+    );
+
+    const applyClaim = useCallback(
+        (nextClaim: SkipperClaim | undefined) => {
+            if (actionInFlight.current) return;
+            actionInFlight.current = true;
+            try {
+                updateSettings({ skipperDevice: nextClaim });
+            } finally {
+                queueMicrotask(() => {
+                    actionInFlight.current = false;
+                });
+            }
+        },
+        [updateSettings],
+    );
+
+    const handleAction = useCallback(() => {
+        if (actionInFlight.current || takeoverRequest) return;
+        triggerHaptic('medium');
+        if (claimHeld) {
+            applyClaim(undefined);
+            return;
+        }
+
+        const recent = claim && Date.now() - new Date(claim.claimedAt).getTime() < 30 * 60_000;
+        if (recent) {
+            const scope = getAuthIdentityScope();
+            if (scope.userId !== authenticatedUserId) return;
+            setTakeoverRequest({ scope, claim });
+            return;
+        }
+        applyClaim(buildClaim());
+    }, [applyClaim, authenticatedUserId, claim, claimHeld, takeoverRequest]);
+
+    const confirmTakeover = useCallback(() => {
+        const request = takeoverRequest;
+        if (!request || actionInFlight.current) return;
+        const sameClaim = claim?.deviceId === request.claim.deviceId && claim.claimedAt === request.claim.claimedAt;
+        if (!sameClaim || !isAuthIdentityScopeCurrent(request.scope) || request.scope.userId !== authenticatedUserId) {
+            setTakeoverRequest(null);
+            return;
+        }
+        applyClaim(buildClaim());
+        setTakeoverRequest(null);
+    }, [applyClaim, authenticatedUserId, claim, takeoverRequest]);
+
+    return (
+        <>
+            <div className="mb-4 rounded-2xl border border-cyan-500/20 bg-slate-900/40 p-3">
+                <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
+                        ⚓ Skipper device
+                    </span>
+                    {claimHeld && (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                            This device
+                        </span>
+                    )}
+                </div>
+                <p className="mb-2 text-[11px] leading-snug text-gray-400">
+                    {claim
+                        ? claimHeld
+                            ? 'This device publishes the boat’s position to your public page.'
+                            : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
+                        : 'No device claimed yet — any signed-in device can publish. Claim one to make it the single source.'}
+                </p>
+                <button
+                    type="button"
+                    onClick={handleAction}
+                    className={`min-h-[44px] w-full rounded-xl py-2.5 text-[12px] font-black uppercase tracking-widest active:scale-95 ${
+                        claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
+                    }`}
+                >
+                    {claimHeld ? 'Release — let another device take it' : 'I am the skipper on this device'}
+                </button>
+            </div>
+            <ConfirmDialog
+                isOpen={takeoverRequest !== null}
+                title="Take over skipper publishing?"
+                message={
+                    takeoverRequest
+                        ? `${takeoverRequest.claim.deviceName} was active ${claimAgeLabel(
+                              takeoverRequest.claim,
+                          )}. Taking over stops that device publishing and starts this one.`
+                        : ''
+                }
+                confirmLabel="Take over"
+                onConfirm={confirmTakeover}
+                onCancel={() => {
+                    if (!actionInFlight.current) setTakeoverRequest(null);
+                }}
+            />
+        </>
+    );
+};
 
 /** Collapsible section header with colored pip and chevron.
  *  Tap target: min-h-[44px] meets Apple HIG minimum so wet-handed
@@ -1621,7 +1726,7 @@ const NavStationHero: React.FC<{
         // SettingsModal's activeTab initialiser. Avoids the user
         // landing on the General tab and hunting for vessel config.
         try {
-            localStorage.setItem('thalassa_settings_initial_tab', 'vessel');
+            localStorage.setItem(authScopedStorageKey('thalassa_settings_initial_tab'), 'vessel');
         } catch {
             /* private-mode / quota — fall through, lands on default tab */
         }

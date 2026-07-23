@@ -7,6 +7,7 @@
  * Returns GeoJSON FeatureCollection for map rendering.
  */
 import { supabase } from './supabase';
+import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -59,26 +60,18 @@ class AisStreamServiceClass {
                 (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                 '';
 
-            const supabaseKey =
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (supabase as any).supabaseKey ||
-                (typeof import.meta !== 'undefined' &&
-                    (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_KEY)) ||
-                '';
-
             const params = new URLSearchParams({
                 lat: String(query.lat),
                 lon: String(query.lon),
                 radius: String(query.radiusNm || DEFAULT_RADIUS_NM),
-                limit: String(query.limit || 500),
+                limit: String(query.limit || 250),
             });
 
             const url = `${supabaseUrl}/functions/v1/${EDGE_FN_NAME}?${params}`;
+            const authHeaders = await getAuthenticatedFunctionHeaders();
             const resp = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${supabaseKey}`,
-                    apikey: supabaseKey,
-                },
+                headers: authHeaders,
+                signal: AbortSignal.timeout(10_000),
             });
 
             if (!resp.ok) {

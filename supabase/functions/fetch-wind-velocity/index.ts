@@ -2,6 +2,16 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Response) => void };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseBoundedNumber,
+    parseCoordinate,
+    parseGeoBounds,
+    readJsonObject,
+    readResponseArrayBufferLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * fetch-wind-velocity — Server-side GRIB2 → Velocity JSON for ih-leaflet-velocity-ts
  *
@@ -110,6 +120,16 @@ function getSignedGrib(dv: DataView, offset: number): number {
 
 function extractBits(dv: DataView, byteOffset: number, totalBits: number, bitsPerValue: number): number[] {
     const count = Math.floor(totalBits / bitsPerValue);
+    if (
+        bitsPerValue < 1 ||
+        bitsPerValue > 30 ||
+        count < 0 ||
+        count > 2_000_000 ||
+        byteOffset < 0 ||
+        byteOffset + Math.ceil(totalBits / 8) > dv.byteLength
+    ) {
+        throw new Error('Invalid GRIB packed-data bounds');
+    }
     const values: number[] = new Array(count);
     let bitPos = 0;
     for (let i = 0; i < count; i++) {
@@ -143,9 +163,15 @@ function parseGrib2Message(buf: ArrayBuffer, offset: number): { msg: GridMessage
     const dv = new DataView(buf);
 
     // Section 0 — Indicator
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset + 16 > buf.byteLength) {
+        throw new Error('Invalid GRIB message offset');
+    }
     const magic = dv.getUint32(offset);
     if (magic !== GRIB_MAGIC) throw new Error(`Not GRIB2 at offset ${offset}`);
     const totalLen = Number(dv.getBigUint64(offset + 8));
+    if (!Number.isSafeInteger(totalLen) || totalLen < 20 || offset + totalLen > buf.byteLength) {
+        throw new Error('Invalid GRIB message length');
+    }
     let pos = offset + 16;
 
     let nx = 0,
@@ -164,11 +190,13 @@ function parseGrib2Message(buf: ArrayBuffer, offset: number): { msg: GridMessage
     let data = new Float32Array(0);
 
     while (pos < offset + totalLen - 4) {
+        if (pos + 5 > offset + totalLen) throw new Error('Truncated GRIB section');
         const secLen = dv.getUint32(pos);
         const secNum = dv.getUint8(pos + 4);
 
         // End marker "7777"
         if (secLen === 0x37373737) break;
+        if (secLen < 5 || pos + secLen > offset + totalLen) throw new Error('Invalid GRIB section length');
 
         switch (secNum) {
             case 3: {
@@ -176,6 +204,9 @@ function parseGrib2Message(buf: ArrayBuffer, offset: number): { msg: GridMessage
                 numPoints = dv.getUint32(pos + 6);
                 nx = dv.getUint32(pos + 30);
                 ny = dv.getUint32(pos + 34);
+                if (numPoints < 1 || numPoints > 2_000_000 || nx < 1 || ny < 1 || nx * ny > 2_000_000) {
+                    throw new Error('GRIB grid dimensions exceed safety bounds');
+                }
                 // La1/Lo1 — use sign-magnitude decoder (GRIB2 spec)
                 lat1 = getSignedGrib(dv, pos + 46) / 1e6;
                 lon1 = getSignedGrib(dv, pos + 50) / 1e6;
@@ -330,54 +361,49 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return corsResponse(null, 204);
     }
+    if (req.method !== 'GET' && req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'GET or POST required' }), 405, {
+            'Content-Type': 'application/json',
+        });
+    }
+
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'wind_velocity', 120, 60, 3600);
+    if (caller instanceof Response) return withCors(caller, CORS);
 
     try {
-        let north: number, south: number, east: number, west: number;
+        let rawBounds: Record<string, unknown> | null = null;
 
         if (req.method === 'GET') {
             // GET: ?lat=-24.5&lon=159.5&radius=10
             const url = new URL(req.url);
-            const lat = parseFloat(url.searchParams.get('lat') || '');
-            const lon = parseFloat(url.searchParams.get('lon') || '');
-            const radius = parseFloat(url.searchParams.get('radius') || '15');
+            const lat = parseCoordinate(url.searchParams.get('lat'), 'lat');
+            const lon = parseCoordinate(url.searchParams.get('lon'), 'lon');
+            const radius = parseBoundedNumber(url.searchParams.get('radius') ?? '15', 0.25, 30);
 
-            if (isNaN(lat) || isNaN(lon)) {
-                return corsResponse(JSON.stringify({ error: 'Missing lat/lon query params' }), 400, {
+            if (lat === null || lon === null || radius === null) {
+                return corsResponse(JSON.stringify({ error: 'Invalid lat/lon/radius query params' }), 400, {
                     'Content-Type': 'application/json',
                 });
             }
 
-            north = lat + radius;
-            south = lat - radius;
-            east = lon + radius;
-            west = lon - radius;
+            rawBounds = {
+                north: Math.min(90, lat + radius),
+                south: Math.max(-90, lat - radius),
+                east: lon + radius > 180 ? lon + radius - 360 : lon + radius,
+                west: lon - radius < -180 ? lon - radius + 360 : lon - radius,
+            };
         } else if (req.method === 'POST') {
             // POST: { north, south, east, west }
-            const body: VelocityRequest = await req.json();
-            north = body.north;
-            south = body.south;
-            east = body.east;
-            west = body.west;
-        } else {
-            return corsResponse(JSON.stringify({ error: 'GET or POST required' }), 405, {
-                'Content-Type': 'application/json',
-            });
+            rawBounds = await readJsonObject(req, 4096);
         }
 
-        if (
-            typeof north !== 'number' ||
-            typeof south !== 'number' ||
-            typeof east !== 'number' ||
-            typeof west !== 'number' ||
-            isNaN(north) ||
-            isNaN(south) ||
-            isNaN(east) ||
-            isNaN(west)
-        ) {
+        const bounds = rawBounds ? parseGeoBounds(rawBounds) : null;
+        if (!bounds) {
             return corsResponse(JSON.stringify({ error: 'Invalid bounds' }), 400, {
                 'Content-Type': 'application/json',
             });
         }
+        const { north, south, east, west } = bounds;
 
         // Convert longitudes to NOAA 0-360 format
         const lonSpan = east - west;
@@ -413,32 +439,28 @@ Deno.serve(async (req: Request) => {
         console.info(`[fetch-wind-velocity] GFS ${date}/${cycle}z @ ${res.label} → ${noaaUrl}`);
 
         // Fetch raw GRIB2 from NOAA
-        const upstream = await fetch(noaaUrl);
+        const upstream = await fetchWithTimeout(noaaUrl, {}, 15_000);
 
         if (!upstream.ok) {
-            const errText = await upstream.text();
-            console.error(`[fetch-wind-velocity] NOAA error ${upstream.status}: ${errText}`);
-            return corsResponse(
-                JSON.stringify({
-                    error: `NOAA NOMADS returned ${upstream.status}`,
-                    detail: errText.substring(0, 500),
-                }),
-                502,
-                { 'Content-Type': 'application/json' },
-            );
+            console.error(`[fetch-wind-velocity] NOAA error ${upstream.status}`);
+            return corsResponse(JSON.stringify({ error: 'NOAA wind upstream failed' }), 502, {
+                'Content-Type': 'application/json',
+            });
         }
 
-        const gribData = await upstream.arrayBuffer();
+        const gribData = await readResponseArrayBufferLimited(upstream, 12_000_000);
+        if (!gribData) {
+            return corsResponse(JSON.stringify({ error: 'NOAA wind response exceeded byte limit' }), 502, {
+                'Content-Type': 'application/json',
+            });
+        }
 
         // Guard against empty/HTML error responses
         if (gribData.byteLength < 200) {
-            const text = new TextDecoder().decode(gribData);
-            console.error(`[fetch-wind-velocity] Tiny response (${gribData.byteLength}B): ${text}`);
-            return corsResponse(
-                JSON.stringify({ error: 'NOAA returned empty or invalid data', detail: text.substring(0, 300) }),
-                502,
-                { 'Content-Type': 'application/json' },
-            );
+            console.error(`[fetch-wind-velocity] Tiny response (${gribData.byteLength}B)`);
+            return corsResponse(JSON.stringify({ error: 'NOAA returned empty or invalid data' }), 502, {
+                'Content-Type': 'application/json',
+            });
         }
 
         // ── Server-side GRIB2 decode → Velocity JSON ──
@@ -464,6 +486,8 @@ Deno.serve(async (req: Request) => {
         });
     } catch (err) {
         console.error('[fetch-wind-velocity] Error:', err);
-        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
+        return corsResponse(JSON.stringify({ error: 'Wind velocity fetch failed' }), 502, {
+            'Content-Type': 'application/json',
+        });
     }
 });

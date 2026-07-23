@@ -117,6 +117,9 @@ export interface StoresItem {
     quantity: number;
     min_quantity: number;
     unit: string;
+    currency?: string | null;
+    unit_value?: number | null;
+    unit_system?: 'metric' | 'imperial' | null;
     location_zone: string | null;
     location_specific: string | null;
     expiry_date: string | null;

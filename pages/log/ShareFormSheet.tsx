@@ -4,6 +4,7 @@
  */
 import React, { useRef } from 'react';
 import { RegionAutocomplete } from '../../components/RegionAutocomplete';
+import { OverlayPortal } from '../../components/ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { TrackCategory } from '../../services/TrackSharingService';
 
@@ -31,12 +32,12 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
     });
 
     return (
-        <div
+        <OverlayPortal
             ref={sheetRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="share-form-sheet-title"
-            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+            className="flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
         >
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
                 <div className="flex items-center justify-between">
@@ -233,6 +234,6 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

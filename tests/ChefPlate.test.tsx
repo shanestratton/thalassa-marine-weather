@@ -83,14 +83,17 @@ describe('ChefPlate', () => {
         expect(screen.getByLabelText('Increase servings')).toBeDefined();
     });
 
-    it('renders start prep button when not cooking', () => {
+    it('opens the canonical cooking mode without mutating the meal inline', () => {
         render(<ChefPlate {...defaultProps} />);
-        expect(screen.getByLabelText('Start cooking this meal')).toBeDefined();
+        fireEvent.click(screen.getByRole('button', { name: 'Open cooking mode for this meal' }));
+        expect(defaultProps.onCook).toHaveBeenCalledOnce();
     });
 
-    it('renders complete button when prep has been started', () => {
+    it('offers to resume cooking meals already in progress', () => {
         render(<ChefPlate {...defaultProps} meal={makeMeal({ status: 'cooking' })} />);
-        expect(screen.getByLabelText('Complete this meal')).toBeDefined();
+        expect(screen.getByRole('button', { name: 'Resume cooking mode for this meal' })).toHaveTextContent(
+            'Resume Cooking',
+        );
     });
 
     it('renders ingredient list with listitem roles', () => {

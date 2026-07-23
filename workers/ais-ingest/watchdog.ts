@@ -17,8 +17,9 @@ const BOLO_THRESHOLD_M = 50;
 const WATCHDOG_INTERVAL_MS = 30_000;
 
 // Track which vessels we've already alerted for (prevent duplicate BOLOs)
-const boloAlerted = new Set<number>();
+const boloAlerted = new Set<string>();
 const geofenceAlerted = new Set<string>();
+const geofenceResolvedInside = new Set<string>();
 
 interface ArmedVessel {
     user_id: string;
@@ -34,17 +35,99 @@ interface GeofenceVessel {
     home_radius_m: number;
 }
 
+interface WatchdogPosition {
+    distanceM: number;
+    lat: number;
+    lon: number;
+}
+
+export function parseWatchdogPosition(value: unknown): WatchdogPosition | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+    const candidate = value as Record<string, unknown>;
+    const distanceM = candidate.distance_m;
+    const lat = candidate.lat;
+    const lon = candidate.lon;
+    const updatedAt = candidate.updated_at;
+
+    if (
+        typeof distanceM !== 'number' ||
+        !Number.isFinite(distanceM) ||
+        distanceM < 0 ||
+        typeof lat !== 'number' ||
+        !Number.isFinite(lat) ||
+        lat < -90 ||
+        lat > 90 ||
+        typeof lon !== 'number' ||
+        !Number.isFinite(lon) ||
+        lon < -180 ||
+        lon > 180 ||
+        typeof updatedAt !== 'string' ||
+        !Number.isFinite(Date.parse(updatedAt))
+    ) {
+        return null;
+    }
+
+    return { distanceM, lat, lon };
+}
+
+export function shouldTriggerGeofenceAlert(
+    alertedEpisodes: Set<string>,
+    alertKey: string,
+    distanceM: number,
+    radiusM: number,
+): boolean {
+    if (!Number.isFinite(distanceM) || distanceM < 0 || !Number.isFinite(radiusM) || radiusM <= 0) {
+        return false;
+    }
+
+    if (distanceM <= radiusM) {
+        // Returning inside closes the current breach episode, allowing a
+        // genuinely later departure to create a new alert.
+        alertedEpisodes.delete(alertKey);
+        return false;
+    }
+
+    return !alertedEpisodes.has(alertKey);
+}
+
+async function getWatchdogPosition(
+    supabase: SupabaseClient,
+    userId: string,
+    mmsi: number,
+    kind: 'bolo' | 'geofence_breach',
+): Promise<WatchdogPosition | null> {
+    const { data, error } = await supabase.rpc('guardian_watchdog_position', {
+        p_user_id: userId,
+        p_vessel_mmsi: mmsi,
+        p_kind: kind,
+    });
+    if (error) {
+        console.error(`[Watchdog] Failed to read ${kind} position for ${mmsi}:`, error.message);
+        return null;
+    }
+    return parseWatchdogPosition(data);
+}
+
 export function startWatchdog(supabaseUrl: string, supabaseKey: string): ReturnType<typeof setInterval> {
     const supabase = createClient(supabaseUrl, supabaseKey);
+    let tickInFlight = false;
 
     console.log('[Watchdog] Starting BOLO + Geofence monitor (30s loop)');
 
     const tick = async () => {
+        // A slow database/push round must never overlap the next interval:
+        // overlapping ticks can both observe an unlatch and enqueue the same
+        // critical alert before either has recorded success.
+        if (tickInFlight) return;
+        tickInFlight = true;
         try {
             await checkBolo(supabase);
             await checkGeofences(supabase);
         } catch (e) {
             console.error('[Watchdog] Tick error:', e);
+        } finally {
+            tickInFlight = false;
         }
     };
 
@@ -64,72 +147,69 @@ async function checkBolo(supabase: SupabaseClient): Promise<void> {
         .not('mmsi', 'is', null)
         .not('armed_location', 'is', null);
 
-    if (armError || !armed || armed.length === 0) return;
+    if (armError) {
+        console.error('[Watchdog] Failed to load armed vessels:', armError.message);
+        return;
+    }
+    if (!armed || armed.length === 0) {
+        boloAlerted.clear();
+        return;
+    }
 
     for (const vessel of armed as ArmedVessel[]) {
         if (!vessel.mmsi) continue;
-        if (boloAlerted.has(vessel.mmsi)) continue; // Already alerted
+        const alertKey = `${vessel.user_id}:${vessel.mmsi}:${vessel.armed_at}`;
+        if (boloAlerted.has(alertKey)) continue; // Already alerted for this arming episode
 
-        // 2. Get latest AIS position for this MMSI
-        const { data: aisData, error: aisError } = await supabase
-            .from('vessels')
-            .select('latitude, longitude')
-            .eq('mmsi', vessel.mmsi)
-            .maybeSingle();
+        // The owner-scoped RPC rejects AIS positions older than 15 minutes and
+        // returns coordinates from PostGIS without relying on client-side
+        // geography decoding.
+        const position = await getWatchdogPosition(supabase, vessel.user_id, vessel.mmsi, 'bolo');
+        if (!position) continue;
 
-        if (aisError || !aisData || !aisData.latitude || !aisData.longitude) continue;
-
-        // 3. Compare against armed position using PostGIS
-        const { data: distResult } = await supabase.rpc('check_bolo_distance', {
-            vessel_mmsi: vessel.mmsi,
-        });
-
-        const distanceM = distResult as number | null;
-        if (distanceM === null || distanceM === undefined) continue;
-
-        if (distanceM > BOLO_THRESHOLD_M) {
-            console.log(
-                `[Watchdog] 🚨 BOLO TRIGGERED: ${vessel.vessel_name || 'MMSI ' + vessel.mmsi} ` +
-                    `moved ${distanceM.toFixed(0)}m while armed!`,
-            );
-
-            // 4. Broadcast BOLO alert
-            const { data: notified } = await supabase.rpc('broadcast_guardian_alert', {
-                sender_user_id: vessel.user_id,
-                p_alert_type: 'bolo',
-                lat: aisData.latitude,
-                lon: aisData.longitude,
-                radius_nm: 5,
+        if (position.distanceM > BOLO_THRESHOLD_M) {
+            const episodeKey = `${vessel.mmsi}:${vessel.armed_at}`;
+            const { data: notified, error: notificationError } = await supabase.rpc('queue_guardian_watchdog_alert', {
+                p_user_id: vessel.user_id,
+                p_alert_kind: 'bolo',
+                p_episode_key: episodeKey,
+                p_lat: position.lat,
+                p_lon: position.lon,
+                p_radius_nm: 5,
                 p_title: '🚨 BOLO — Armed Vessel Moving',
-                p_body: `${vessel.vessel_name || 'MMSI ' + vessel.mmsi} has moved ${distanceM.toFixed(0)}m while armed. Be on the lookout!`,
-                alert_data: JSON.stringify({
+                p_body: `${vessel.vessel_name || 'MMSI ' + vessel.mmsi} has moved ${position.distanceM.toFixed(0)}m while armed. Be on the lookout!`,
+                p_owner_title: '🚨 Your Vessel Is Moving!',
+                p_owner_body: `${vessel.vessel_name || 'Your vessel'} has moved ${position.distanceM.toFixed(0)}m while armed.`,
+                p_data: {
                     mmsi: vessel.mmsi,
-                    distance_m: distanceM,
+                    distance_m: position.distanceM,
                     vessel_name: vessel.vessel_name,
-                }),
+                },
             });
 
-            // Also notify the vessel owner directly
-            await supabase.from('push_notification_queue').insert({
-                recipient_user_id: vessel.user_id,
-                notification_type: 'bolo_alert',
-                title: '🚨 Your Vessel Is Moving!',
-                body: `${vessel.vessel_name || 'Your vessel'} has moved ${distanceM.toFixed(0)}m while armed.`,
-                data: { mmsi: vessel.mmsi, distance_m: distanceM },
-            });
+            if (notificationError) {
+                console.error(`[Watchdog] BOLO notification failed for ${vessel.mmsi}:`, notificationError.message);
+                continue;
+            }
 
-            boloAlerted.add(vessel.mmsi);
-
-            console.log(`[Watchdog] BOLO broadcast to ${notified ?? 0} nearby users`);
+            // The database claim is restart-safe. A zero means this process
+            // rediscovered an already-queued episode after a restart.
+            boloAlerted.add(alertKey);
+            if (typeof notified === 'number' && notified > 0) {
+                console.log(
+                    `[Watchdog] 🚨 BOLO TRIGGERED: ${vessel.vessel_name || 'MMSI ' + vessel.mmsi} ` +
+                        `moved ${position.distanceM.toFixed(0)}m; queued ${notified} notification(s)`,
+                );
+            }
         }
     }
 
     // Clean up: remove alerts for vessels that are no longer armed
-    const armedMmsis = new Set(armed.map((v) => v.mmsi).filter(Boolean));
-    for (const mmsi of boloAlerted) {
-        if (!armedMmsis.has(mmsi)) {
-            boloAlerted.delete(mmsi);
-        }
+    const activeAlertKeys = new Set(
+        (armed as ArmedVessel[]).filter((v) => v.mmsi).map((v) => `${v.user_id}:${v.mmsi}:${v.armed_at}`),
+    );
+    for (const key of boloAlerted) {
+        if (!activeAlertKeys.has(key)) boloAlerted.delete(key);
     }
 }
 
@@ -143,52 +223,96 @@ async function checkGeofences(supabase: SupabaseClient): Promise<void> {
         .not('mmsi', 'is', null)
         .not('home_coordinate', 'is', null);
 
-    if (error || !geofenced || geofenced.length === 0) return;
+    if (error) {
+        console.error('[Watchdog] Failed to load geofenced vessels:', error.message);
+        return;
+    }
+    if (!geofenced || geofenced.length === 0) {
+        geofenceAlerted.clear();
+        geofenceResolvedInside.clear();
+        return;
+    }
 
     for (const vessel of geofenced as GeofenceVessel[]) {
         if (!vessel.mmsi) continue;
-        const alertKey = `${vessel.mmsi}`;
-        if (geofenceAlerted.has(alertKey)) continue;
+        const alertKey = `${vessel.user_id}:${vessel.mmsi}`;
+        const episodeKey = `${vessel.mmsi}`;
 
-        // 2. Check if vessel has moved outside geofence
-        const { data: distResult } = await supabase.rpc('check_geofence_distance', {
-            vessel_mmsi: vessel.mmsi,
+        const position = await getWatchdogPosition(supabase, vessel.user_id, vessel.mmsi, 'geofence_breach');
+        if (
+            !position ||
+            typeof vessel.home_radius_m !== 'number' ||
+            !Number.isFinite(vessel.home_radius_m) ||
+            vessel.home_radius_m <= 0
+        ) {
+            continue;
+        }
+
+        if (position.distanceM <= vessel.home_radius_m) {
+            shouldTriggerGeofenceAlert(geofenceAlerted, alertKey, position.distanceM, vessel.home_radius_m);
+            if (!geofenceResolvedInside.has(alertKey)) {
+                const { error: resolveError } = await supabase.rpc('resolve_guardian_watchdog_episode', {
+                    p_user_id: vessel.user_id,
+                    p_alert_kind: 'geofence_breach',
+                    p_episode_key: episodeKey,
+                });
+                if (resolveError) {
+                    console.error(
+                        `[Watchdog] Failed to resolve geofence episode for ${vessel.mmsi}:`,
+                        resolveError.message,
+                    );
+                } else {
+                    geofenceResolvedInside.add(alertKey);
+                }
+            }
+            continue;
+        }
+
+        geofenceResolvedInside.delete(alertKey);
+        if (!shouldTriggerGeofenceAlert(geofenceAlerted, alertKey, position.distanceM, vessel.home_radius_m)) {
+            continue;
+        }
+
+        console.log(
+            `[Watchdog] 🏠 GEOFENCE BREACH: ${vessel.vessel_name || 'MMSI ' + vessel.mmsi} ` +
+                `is ${position.distanceM.toFixed(0)}m from home (limit: ${vessel.home_radius_m}m)`,
+        );
+
+        const { error: notificationError } = await supabase.rpc('queue_guardian_watchdog_alert', {
+            p_user_id: vessel.user_id,
+            p_alert_kind: 'geofence_breach',
+            p_episode_key: episodeKey,
+            p_lat: position.lat,
+            p_lon: position.lon,
+            p_radius_nm: Math.min(5, Math.max(0.1, vessel.home_radius_m / 1852)),
+            p_title: '🏠 Digital Tripwire Triggered',
+            p_body: `${vessel.vessel_name || 'Your vessel'} has moved ${position.distanceM.toFixed(0)}m from home base.`,
+            p_owner_title: '🏠 Digital Tripwire Triggered',
+            p_owner_body: `${vessel.vessel_name || 'Your vessel'} has moved ${position.distanceM.toFixed(0)}m from home base.`,
+            p_data: {
+                mmsi: vessel.mmsi,
+                distance_m: position.distanceM,
+                home_radius_m: vessel.home_radius_m,
+            },
         });
 
-        const distanceM = distResult as number | null;
-        if (distanceM === null || distanceM === undefined) continue;
-
-        if (distanceM > vessel.home_radius_m) {
-            console.log(
-                `[Watchdog] 🏠 GEOFENCE BREACH: ${vessel.vessel_name || 'MMSI ' + vessel.mmsi} ` +
-                    `is ${distanceM.toFixed(0)}m from home (limit: ${vessel.home_radius_m}m)`,
+        if (notificationError) {
+            console.error(
+                `[Watchdog] Geofence owner notification failed for ${vessel.mmsi}:`,
+                notificationError.message,
             );
-
-            // Get current AIS position
-            const { data: aisData } = await supabase
-                .from('vessels')
-                .select('latitude, longitude')
-                .eq('mmsi', vessel.mmsi)
-                .maybeSingle();
-
-            if (!aisData) continue;
-
-            // Notify the vessel owner
-            await supabase.from('push_notification_queue').insert({
-                recipient_user_id: vessel.user_id,
-                notification_type: 'geofence_alert',
-                title: '🏠 Digital Tripwire Triggered',
-                body: `${vessel.vessel_name || 'Your vessel'} has moved ${distanceM.toFixed(0)}m from home base.`,
-                data: { mmsi: vessel.mmsi, distance_m: distanceM },
-            });
-
-            geofenceAlerted.add(alertKey);
+            continue;
         }
+
+        geofenceAlerted.add(alertKey);
     }
 
     // Clean up stale alerts
-    const activeKeys = new Set(geofenced.map((v) => `${v.mmsi}`));
+    const activeKeys = new Set(geofenced.map((v) => `${v.user_id}:${v.mmsi}`));
     for (const key of geofenceAlerted) {
         if (!activeKeys.has(key)) geofenceAlerted.delete(key);
+    }
+    for (const key of geofenceResolvedInside) {
+        if (!activeKeys.has(key)) geofenceResolvedInside.delete(key);
     }
 }

@@ -2,7 +2,7 @@
  * MealCalendar — component tests
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock service dependencies
@@ -35,11 +35,14 @@ vi.mock('../components/chat/CaptainsTable', () => ({
 }));
 
 import { MealCalendar } from '../components/chat/MealCalendar';
+import { getStoresAvailability } from '../services/MealPlanService';
+import { addManualItem, getShoppingList } from '../services/ShoppingListService';
 
 describe('MealCalendar', () => {
     const baseProps = {
         crewCount: 4,
         voyageId: 'v1',
+        ownerUserId: 'owner-1',
         voyageName: 'Brisbane to Sydney',
         activeMeals: [],
         onMealsChanged: vi.fn(),
@@ -220,6 +223,7 @@ describe('MealCalendar', () => {
         };
         const meal = {
             id: 'm1',
+            user_id: 'owner-1',
             title: 'Eggs',
             planned_date: '2026-03-27',
             meal_slot: 'breakfast' as const,
@@ -238,5 +242,116 @@ describe('MealCalendar', () => {
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={[meal]} />);
         expect(screen.getByLabelText(/items to shopping list|fully stocked/i)).toBeDefined();
+    });
+
+    it('scopes stores and shopping reads to the selected voyage owner', () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        const meal = {
+            id: 'm-scope',
+            user_id: 'owner-1',
+            title: 'Scoped Pasta',
+            planned_date: '2026-03-27',
+            meal_slot: 'dinner' as const,
+            servings_planned: 4,
+            status: 'reserved' as const,
+            spoonacular_id: null,
+            voyage_id: 'v1',
+            recipe_id: null,
+            cook_started_at: null,
+            completed_at: null,
+            leftovers_saved: false,
+            notes: null,
+            created_at: '2026-03-27T00:00:00Z',
+            updated_at: '2026-03-27T00:00:00Z',
+            ingredients: [{ name: 'Pasta', amount: 2, unit: 'kg', aisle: 'Pasta and Rice', scalable: true }],
+        };
+
+        render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={[meal]} />);
+
+        expect(getStoresAvailability).toHaveBeenCalledWith('v1', 'owner-1');
+        expect(getShoppingList).toHaveBeenCalledWith('v1', 'owner-1');
+    });
+
+    it('passes the selected voyage and authoritative owner when adding provisions', async () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        const meal = {
+            id: 'm-provision',
+            user_id: 'owner-1',
+            title: 'Scoped Pasta',
+            planned_date: '2026-03-27',
+            meal_slot: 'dinner' as const,
+            servings_planned: 4,
+            status: 'reserved' as const,
+            spoonacular_id: null,
+            voyage_id: 'v1',
+            recipe_id: null,
+            cook_started_at: null,
+            completed_at: null,
+            leftovers_saved: false,
+            notes: null,
+            created_at: '2026-03-27T00:00:00Z',
+            updated_at: '2026-03-27T00:00:00Z',
+            ingredients: [{ name: 'Pasta', amount: 2, unit: 'kg', aisle: 'Pasta and Rice', scalable: true }],
+        };
+
+        render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={[meal]} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Add 1 items to shopping list' }));
+
+        await waitFor(() =>
+            expect(addManualItem).toHaveBeenCalledWith({
+                name: 'Pasta',
+                qty: 2,
+                unit: 'kg',
+                notes: 'Passage provision',
+                voyageId: 'v1',
+                ownerUserId: 'owner-1',
+            }),
+        );
+    });
+
+    it('fails closed when a shared voyage owner is unavailable', () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        const meal = {
+            id: 'm-ownerless',
+            user_id: '',
+            title: 'Ownerless Pasta',
+            planned_date: '2026-03-27',
+            meal_slot: 'dinner' as const,
+            servings_planned: 4,
+            status: 'reserved' as const,
+            spoonacular_id: null,
+            voyage_id: 'v1',
+            recipe_id: null,
+            cook_started_at: null,
+            completed_at: null,
+            leftovers_saved: false,
+            notes: null,
+            created_at: '2026-03-27T00:00:00Z',
+            updated_at: '2026-03-27T00:00:00Z',
+            ingredients: [{ name: 'Pasta', amount: 2, unit: 'kg', aisle: 'Pasta and Rice', scalable: true }],
+        };
+
+        render(<MealCalendar {...baseProps} ownerUserId={null} mealDays={mealDays} activeMeals={[meal]} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Add 1 items to shopping list' }));
+
+        expect(addManualItem).not.toHaveBeenCalled();
     });
 });

@@ -22,6 +22,7 @@ import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { POLISH_INTENSITY, type PolishStyle } from '../types/settings';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -227,6 +228,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
+    const pageScopeRef = useRef(getAuthIdentityScope());
+    const pageActiveRef = useRef(true);
     // Track iOS keyboard height via Capacitor Keyboard plugin (reliable with KeyboardResize.None)
     // Falls back to visualViewport for web
     useEffect(() => {
@@ -315,7 +318,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     }, [refreshEntries]);
     // Cleanup on unmount
     useEffect(() => {
+        pageActiveRef.current = true;
         return () => {
+            pageActiveRef.current = false;
             if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
             if (audioPlayerRef.current) {
@@ -411,8 +416,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     );
     // ── Audio Recording ────────────────────────────────────────
     const startRecording = async () => {
+        const operationScope = getAuthIdentityScope();
+        const operationIsCurrent = () => pageActiveRef.current && isAuthIdentityScopeCurrent(operationScope);
+        let stream: MediaStream | null = null;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recordingStream = stream;
+            if (!operationIsCurrent()) {
+                recordingStream.getTracks().forEach((track) => track.stop());
+                return;
+            }
             // Determine best supported audio format
             // iOS WKWebView only supports audio/mp4; desktop Chrome/Firefox support audio/webm
             let mimeType = '';
@@ -433,27 +446,41 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             audioChunksRef.current = [];
             mediaRecorderRef.current = mediaRecorder;
             mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+                if (operationIsCurrent() && e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
             };
             mediaRecorder.onstop = async () => {
                 // Stop all tracks
-                stream.getTracks().forEach((t) => t.stop());
-                const blob = new Blob(audioChunksRef.current, { type: recordedMime });
+                recordingStream.getTracks().forEach((t) => t.stop());
+                if (recordingTimerRef.current) {
+                    clearInterval(recordingTimerRef.current);
+                    recordingTimerRef.current = null;
+                }
+                if (mediaRecorderRef.current === mediaRecorder) mediaRecorderRef.current = null;
+                if (!operationIsCurrent()) {
+                    audioChunksRef.current = [];
+                    return;
+                }
+                const completedChunks = audioChunksRef.current;
+                audioChunksRef.current = [];
+                const blob = new Blob(completedChunks, { type: recordedMime });
                 if (blob.size > 0) {
                     const url = await DiaryService.uploadAudio(blob);
+                    if (!operationIsCurrent()) return;
                     // Store URL for saving with entry (but don't show preview)
                     if (url) setAudioUrl(url);
                     // Auto-transcribe voice memo to text silently
                     if (url) {
                         setTranscribing(true);
                         const text = await DiaryService.transcribeAudio(url, recordedMime);
+                        if (!operationIsCurrent()) return;
                         if (text) {
                             setBody((prev) => (prev ? `${prev}\n\n${text}` : text));
                         }
                         setTranscribing(false);
                     }
                 }
-                if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             };
             mediaRecorder.start(100); // Collect data every 100ms for snappy response
             setIsRecording(true);
@@ -461,9 +488,17 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             triggerHaptic('medium');
             // Timer
             recordingTimerRef.current = setInterval(() => {
+                if (!operationIsCurrent()) {
+                    if (recordingTimerRef.current) {
+                        clearInterval(recordingTimerRef.current);
+                        recordingTimerRef.current = null;
+                    }
+                    return;
+                }
                 setRecordingTime((prev) => prev + 1);
             }, 1000);
         } catch (err) {
+            stream?.getTracks().forEach((track) => track.stop());
             log.error('[Diary] Mic access denied:', err);
         }
     };
@@ -534,6 +569,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Save (create or update) ────────────────────────────────
     const handleSave = async () => {
         if (!body.trim() && !title.trim() && !audioUrl) return;
+        const operationScope = getAuthIdentityScope();
         setSaving(true);
         triggerHaptic('medium');
 
@@ -551,16 +587,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         let finalLocationName = locationName;
         if (!editingId && (finalLat === null || finalLon === null)) {
             const loc = await DiaryService.getCurrentLocation();
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             if (loc) {
                 finalLat = loc.lat;
                 finalLon = loc.lon;
                 if (!finalLocationName) {
                     const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
+                    if (!isAuthIdentityScopeCurrent(operationScope)) return;
                     if (placeName) finalLocationName = placeName;
                 }
             }
         }
 
+        if (!isAuthIdentityScopeCurrent(operationScope)) return;
         if (editingId) {
             const ok = await DiaryService.updateEntry(editingId, {
                 title: title.trim() || formatDate(new Date().toISOString()),
@@ -568,6 +607,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 mood,
                 photos,
             });
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             if (ok) {
                 const prevEntry = entries.find((e) => e.id === editingId);
                 const updated: DiaryEntry | null = prevEntry
@@ -588,23 +628,33 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (updated) setPublishPromptEntry(updated);
             }
         } else {
-            const entry = await DiaryService.createEntry({
-                title: title.trim() || formatDate(new Date().toISOString()),
-                body: body.trim(),
-                mood,
-                photos,
-                audio_url: audioUrl,
-                latitude: finalLat,
-                longitude: finalLon,
-                location_name: finalLocationName,
-                weather_summary: weatherSummary,
-                weather_data: state.weatherDataObj,
-                tags: [],
-                // Stamp the recording voyage so the public page's per-voyage
-                // hide toggle takes this entry (and its photos) with it.
-                // Null when written at rest — those never hide.
-                voyage_id: ShipLogService.getCurrentVoyageId(),
-            });
+            let entry: DiaryEntry | null = null;
+            try {
+                entry = await DiaryService.createEntry({
+                    title: title.trim() || formatDate(new Date().toISOString()),
+                    body: body.trim(),
+                    mood,
+                    photos,
+                    audio_url: audioUrl,
+                    latitude: finalLat,
+                    longitude: finalLon,
+                    location_name: finalLocationName,
+                    weather_summary: weatherSummary,
+                    weather_data: state.weatherDataObj,
+                    tags: [],
+                    // Stamp the recording voyage so the public page's per-voyage
+                    // hide toggle takes this entry (and its photos) with it.
+                    // Null when written at rest — those never hide.
+                    voyage_id: ShipLogService.getCurrentVoyageId(),
+                });
+            } catch (error) {
+                if (isAuthIdentityScopeCurrent(operationScope)) {
+                    log.error('Diary entry save failed:', error);
+                    setSaving(false);
+                }
+                return;
+            }
+            if (!isAuthIdentityScopeCurrent(operationScope)) return;
             if (entry) {
                 setEntries((prev) => [entry, ...prev]);
                 setShowCompose(false);
@@ -624,10 +674,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // resurrecting the item in React state would only create a ghost that the
     // (already-committed) tombstone filters out on the next poll.
     const commitDelete = useCallback(async (item: DiaryEntry) => {
+        if (!isAuthIdentityScopeCurrent(pageScopeRef.current)) {
+            pendingDeleteIdsRef.current.delete(item.id);
+            return;
+        }
         try {
             await DiaryService.deleteEntry(item.id);
         } catch (e) {
-            log.warn('delete failed:', e);
+            if (isAuthIdentityScopeCurrent(pageScopeRef.current)) log.warn('delete failed:', e);
         }
         // Clear pending-delete guard once the commit settles
         pendingDeleteIdsRef.current.delete(item.id);
@@ -692,18 +746,26 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── PDF Export ───────────────────────────────────────────────
     const exportDiaryPdf = useCallback(
         async (entriesToPrint: DiaryEntry[], delivery: 'download' | 'share') => {
+            const operationScope = getAuthIdentityScope();
+            const operationIsCurrent = () => pageActiveRef.current && isAuthIdentityScopeCurrent(operationScope);
             setExportProgress(delivery === 'download' ? 'Preparing download...' : 'Preparing share...');
             const { generateDiaryPDF } = await import('../utils/diaryExport');
+            if (!operationIsCurrent()) return;
             await generateDiaryPDF(
                 entriesToPrint,
                 {
-                    onProgress: (msg) => setExportProgress(msg),
+                    shouldContinue: operationIsCurrent,
+                    onProgress: (msg) => {
+                        if (operationIsCurrent()) setExportProgress(msg);
+                    },
                     onSuccess: () => {
+                        if (!operationIsCurrent()) return;
                         setExportProgress(null);
                         setSelectMode(false);
                         setSelectedIds(new Set());
                     },
                     onError: (err) => {
+                        if (!operationIsCurrent()) return;
                         setExportProgress(null);
                         log.error('Diary PDF export error:', err);
                     },

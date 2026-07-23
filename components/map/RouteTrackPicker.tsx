@@ -22,6 +22,7 @@ import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 export type RouteTrackVariant = 'route' | 'track';
 
@@ -116,18 +117,12 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
     if (!visible) return null;
 
     return (
-        <div
-            ref={wrapRef}
-            className="fixed left-1/2 chart-chip-centered z-[185] pointer-events-auto chart-chip-in"
-            style={{ top: 'max(56px, calc(env(safe-area-inset-top) + 56px))' }}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${meta.title} picker`}
-            tabIndex={-1}
-        >
+        <OverlayPortal className="pointer-events-auto" role="presentation">
             <div
-                className="flex flex-col"
+                ref={wrapRef}
+                className="absolute left-1/2 chart-chip-centered pointer-events-auto chart-chip-in flex flex-col"
                 style={{
+                    top: 'max(56px, calc(env(safe-area-inset-top) + 56px))',
                     background: 'rgba(15, 23, 42, 0.94)',
                     backdropFilter: 'blur(24px)',
                     WebkitBackdropFilter: 'blur(24px)',
@@ -138,6 +133,10 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                     maxWidth: `min(${sheetMaxWidth}px, calc(100vw - 24px))`,
                     maxHeight: 'min(560px, calc(100vh - 140px))',
                 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`${meta.title} picker`}
+                tabIndex={-1}
             >
                 {/* Header */}
                 <div
@@ -293,6 +292,6 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                     </div>
                 )}
             </div>
-        </div>
+        </OverlayPortal>
     );
 };

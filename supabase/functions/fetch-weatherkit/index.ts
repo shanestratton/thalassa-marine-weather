@@ -5,6 +5,14 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
+import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
+import {
+    fetchWithTimeout,
+    parseCoordinate,
+    readJsonObject,
+    readResponseTextLimited,
+} from '../_shared/http-security.ts';
+
 /**
  * fetch-weatherkit — Apple WeatherKit JWT Proxy
  *
@@ -29,7 +37,7 @@ declare const Deno: {
 const CORS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -117,6 +125,7 @@ async function generateWeatherKitJWT(
 // ── Cache JWT for reuse ───────────────────────────────────────
 
 let cachedToken: { jwt: string; expiresAt: number } | null = null;
+let cachedPrivateKey: CryptoKey | null = null;
 
 async function getOrCreateJWT(
     privateKey: CryptoKey,
@@ -156,6 +165,17 @@ Deno.serve(async (req: Request) => {
         return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
+    // route-weather fans out bounded corridor samples through this proxy. Its
+    // service-role call is already protected by route-weather's own quota and
+    // must not consume (or be rejected by) the public 30-call WeatherKit lane.
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const isTrustedInternalCall =
+        Boolean(serviceRoleKey) && req.headers.get('authorization') === `Bearer ${serviceRoleKey}`;
+    if (!isTrustedInternalCall) {
+        const caller = await requireAuthenticatedOrPublicQuota(req, 'weatherkit', 240, 30, 3600);
+        if (caller instanceof Response) return withCors(caller, CORS);
+    }
+
     try {
         // ── Read secrets (try both naming conventions) ──
         const p8Key = Deno.env.get('APPLE_WEATHERKIT_P8_KEY') || Deno.env.get('WEATHERKIT_PRIVATE_KEY');
@@ -166,42 +186,53 @@ Deno.serve(async (req: Request) => {
             Deno.env.get('WEATHERKIT_SERVICE_ID') ||
             (teamId ? `com.thalassa.weatherkit` : undefined);
 
-        console.info(
-            `[fetch-weatherkit] Secrets check: P8=${p8Key ? 'YES' : 'MISSING'}, KeyID=${keyId ? 'YES' : 'MISSING'}, TeamID=${teamId ? 'YES' : 'MISSING'}, ServiceID=${serviceId ? 'YES' : 'MISSING'}`,
-        );
-
         if (!p8Key || !keyId || !teamId || !serviceId) {
             console.error('[fetch-weatherkit] Missing required secrets');
-            return corsResponse(
-                JSON.stringify({
-                    error: 'WeatherKit not configured',
-                    missing: [
-                        !p8Key && 'APPLE_WEATHERKIT_P8_KEY / WEATHERKIT_PRIVATE_KEY',
-                        !keyId && 'APPLE_WEATHERKIT_KEY_ID / WEATHERKIT_KEY_ID',
-                        !teamId && 'APPLE_WEATHERKIT_TEAM_ID / WEATHERKIT_TEAM_ID',
-                        !serviceId && 'APPLE_WEATHERKIT_SERVICE_ID / WEATHERKIT_SERVICE_ID',
-                    ].filter(Boolean),
-                }),
-                500,
-                { 'Content-Type': 'application/json' },
-            );
-        }
-
-        // ── Parse request ──
-        const body: WeatherKitRequest = await req.json();
-        const { lat, lon } = body;
-
-        if (typeof lat !== 'number' || typeof lon !== 'number') {
-            return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400, {
+            return corsResponse(JSON.stringify({ error: 'WeatherKit not configured' }), 503, {
                 'Content-Type': 'application/json',
             });
         }
 
-        const language = body.language || 'en';
-        const dataSets = body.dataSets || ['currentWeather', 'forecastHourly', 'forecastDaily', 'forecastNextHour'];
+        // ── Parse request ──
+        const rawBody = await readJsonObject(req, 8192);
+        if (!rawBody) {
+            return corsResponse(JSON.stringify({ error: 'Invalid JSON request body' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        const lat = parseCoordinate(rawBody.lat, 'lat');
+        const lon = parseCoordinate(rawBody.lon, 'lon');
+        if (lat === null || lon === null) {
+            return corsResponse(JSON.stringify({ error: 'lat/lon must be valid coordinates' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+
+        const language = typeof rawBody.language === 'string' ? rawBody.language : 'en';
+        if (!/^[a-z]{2}(?:-[A-Z]{2})?$/.test(language)) {
+            return corsResponse(JSON.stringify({ error: 'Invalid language' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        const allowedDataSets = new Set(['currentWeather', 'forecastHourly', 'forecastDaily', 'forecastNextHour']);
+        const requestedDataSets = rawBody.dataSets;
+        const dataSets =
+            requestedDataSets === undefined
+                ? [...allowedDataSets]
+                : Array.isArray(requestedDataSets) &&
+                    requestedDataSets.length >= 1 &&
+                    requestedDataSets.length <= allowedDataSets.size &&
+                    requestedDataSets.every((value) => typeof value === 'string' && allowedDataSets.has(value))
+                  ? [...new Set(requestedDataSets as string[])]
+                  : null;
+        if (!dataSets) {
+            return corsResponse(JSON.stringify({ error: 'Invalid dataSets' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
 
         // ── Generate JWT ──
-        const privateKey = await importP8Key(p8Key);
+        const privateKey = cachedPrivateKey ?? (cachedPrivateKey = await importP8Key(p8Key));
         const jwt = await getOrCreateJWT(privateKey, keyId, teamId, serviceId);
 
         // ── Fetch from Apple WeatherKit ──
@@ -211,57 +242,135 @@ Deno.serve(async (req: Request) => {
         // hourlyStart/hourlyEnd (ISO8601) let callers request HISTORICAL hourly
         // (e.g. yesterday) for the metric deep-dive. Backward-compatible: when
         // absent, the URL is identical to before.
-        const b = body as Record<string, unknown>;
+        const b = rawBody;
         const extra: string[] = [];
-        for (const k of [
-            'hourlyStart',
-            'hourlyEnd',
-            'dailyStart',
-            'dailyEnd',
-            'currentAsOf',
-            'timezone',
-            'countryCode',
-        ]) {
+        const parsedTimes: Record<string, number> = {};
+        for (const k of ['hourlyStart', 'hourlyEnd', 'dailyStart', 'dailyEnd', 'currentAsOf']) {
             const v = b[k];
-            if (typeof v === 'string' && v) extra.push(`${k}=${encodeURIComponent(v)}`);
+            if (v === undefined) continue;
+            const parsed = typeof v === 'string' ? Date.parse(v) : NaN;
+            if (typeof v !== 'string' || v.length > 40 || !Number.isFinite(parsed)) {
+                return corsResponse(JSON.stringify({ error: `Invalid ${k}` }), 400, {
+                    'Content-Type': 'application/json',
+                });
+            }
+            parsedTimes[k] = parsed;
+            extra.push(`${k}=${encodeURIComponent(v)}`);
+        }
+        const now = Date.now();
+        const hourlyStart = parsedTimes.hourlyStart;
+        const hourlyEnd = parsedTimes.hourlyEnd;
+        if ((hourlyStart === undefined) !== (hourlyEnd === undefined)) {
+            return corsResponse(JSON.stringify({ error: 'Invalid hourly forecast window' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        if (
+            hourlyStart !== undefined &&
+            hourlyEnd !== undefined &&
+            (hourlyStart > hourlyEnd ||
+                hourlyEnd - hourlyStart > 7 * 86_400_000 ||
+                hourlyStart < now - 48 * 3_600_000 ||
+                hourlyEnd > now + 12 * 86_400_000)
+        ) {
+            return corsResponse(JSON.stringify({ error: 'Invalid hourly forecast window' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        const dailyStart = parsedTimes.dailyStart;
+        const dailyEnd = parsedTimes.dailyEnd;
+        if ((dailyStart === undefined) !== (dailyEnd === undefined)) {
+            return corsResponse(JSON.stringify({ error: 'Invalid daily forecast window' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        if (
+            dailyStart !== undefined &&
+            dailyEnd !== undefined &&
+            (dailyStart > dailyEnd ||
+                dailyEnd - dailyStart > 15 * 86_400_000 ||
+                dailyStart < now - 7 * 86_400_000 ||
+                dailyEnd > now + 30 * 86_400_000)
+        ) {
+            return corsResponse(JSON.stringify({ error: 'Invalid daily forecast window' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        const currentAsOf = parsedTimes.currentAsOf;
+        if (currentAsOf !== undefined && (currentAsOf < now - 7 * 86_400_000 || currentAsOf > now + 12 * 86_400_000)) {
+            return corsResponse(JSON.stringify({ error: 'Invalid currentAsOf' }), 400, {
+                'Content-Type': 'application/json',
+            });
+        }
+        if (b.timezone !== undefined) {
+            if (typeof b.timezone !== 'string' || !/^[A-Za-z0-9_+\-/]{1,64}$/.test(b.timezone)) {
+                return corsResponse(JSON.stringify({ error: 'Invalid timezone' }), 400, {
+                    'Content-Type': 'application/json',
+                });
+            }
+            extra.push(`timezone=${encodeURIComponent(b.timezone)}`);
+        }
+        if (b.countryCode !== undefined) {
+            if (typeof b.countryCode !== 'string' || !/^[A-Z]{2}$/.test(b.countryCode)) {
+                return corsResponse(JSON.stringify({ error: 'Invalid countryCode' }), 400, {
+                    'Content-Type': 'application/json',
+                });
+            }
+            extra.push(`countryCode=${encodeURIComponent(b.countryCode)}`);
         }
         if (extra.length) url += '&' + extra.join('&');
 
-        console.info(`[fetch-weatherkit] Fetching: ${url}`);
+        console.info(`[fetch-weatherkit] Fetching ${dataSets.length} dataset(s)`);
 
-        const upstream = await fetch(url, {
-            headers: {
-                Authorization: `Bearer ${jwt}`,
+        const upstream = await fetchWithTimeout(
+            url,
+            {
+                headers: {
+                    Authorization: `Bearer ${jwt}`,
+                },
             },
-        });
+            12_000,
+        );
 
         if (!upstream.ok) {
-            const errText = await upstream.text().catch(() => '');
-            console.error(`[fetch-weatherkit] Apple API error ${upstream.status}: ${errText}`);
+            console.error(`[fetch-weatherkit] Apple API error ${upstream.status}`);
 
             // If 401, invalidate cached token
             if (upstream.status === 401) {
                 cachedToken = null;
+                cachedPrivateKey = null;
             }
 
             return corsResponse(
                 JSON.stringify({
                     error: `WeatherKit API error: ${upstream.status}`,
-                    detail: errText.substring(0, 200),
                 }),
-                upstream.status,
+                502,
                 { 'Content-Type': 'application/json' },
             );
         }
 
-        const weatherData = await upstream.json();
+        const responseText = await readResponseTextLimited(upstream, 5_000_000);
+        if (responseText === null) {
+            console.error('[fetch-weatherkit] Apple response exceeded the byte limit');
+            return corsResponse(JSON.stringify({ error: 'WeatherKit response exceeded the safety limit' }), 502, {
+                'Content-Type': 'application/json',
+            });
+        }
+        const weatherData: unknown = JSON.parse(responseText);
+        if (!weatherData || typeof weatherData !== 'object' || Array.isArray(weatherData)) {
+            throw new Error('WeatherKit returned an invalid payload');
+        }
 
         return corsResponse(JSON.stringify(weatherData), 200, {
             'Content-Type': 'application/json',
             'Cache-Control': 'public, max-age=300', // 5 min cache
+            'X-Content-Type-Options': 'nosniff',
         });
     } catch (err) {
         console.error('[fetch-weatherkit] Error:', err);
-        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
+        return corsResponse(JSON.stringify({ error: 'WeatherKit fetch failed' }), 502, {
+            'Content-Type': 'application/json',
+        });
     }
 });

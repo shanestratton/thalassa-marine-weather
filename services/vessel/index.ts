@@ -5,8 +5,16 @@
  */
 
 // Core database
-export { initLocalDatabase, getPendingCount, getSyncMeta, generateUUID, deltaLocal } from './LocalDatabase';
-export type { SyncQueueItem, SyncMeta } from './LocalDatabase';
+export {
+    initLocalDatabase,
+    getPendingCount,
+    getFailedCount,
+    getSyncMeta,
+    getLocalDatabaseIdentity,
+    generateUUID,
+    deltaLocal,
+} from './LocalDatabase';
+export type { SyncQueueItem, SyncMeta, LocalDatabaseSession } from './LocalDatabase';
 
 // Sync engine
 export {
@@ -14,6 +22,7 @@ export {
     stopSyncEngine,
     syncNow,
     forceFullPull,
+    requestFullReconciliation,
     getSyncStatus,
     onSyncComplete,
     onStatusChange,

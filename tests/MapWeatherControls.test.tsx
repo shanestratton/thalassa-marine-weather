@@ -19,7 +19,7 @@ function weather(overrides: Record<string, unknown> = {}): WeatherControlsWeathe
         setWindModel: vi.fn(),
         windState: { loading: false },
         ...overrides,
-    } as WeatherControlsWeather;
+    } as unknown as WeatherControlsWeather;
 }
 
 describe('MapWeatherControls', () => {

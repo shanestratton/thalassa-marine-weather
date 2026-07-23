@@ -8,10 +8,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../services/weather/keys', () => ({
-    getOpenMeteoKey: vi.fn().mockReturnValue('test-key'),
-}));
-
 import { encodeWindTexture, MAX_SPEED, WIND_FIELD_HOURS, GLOBAL_GRID_HOURS } from '../services/weather/windField';
 import type { WindGrid } from '../services/weather/windField';
 
