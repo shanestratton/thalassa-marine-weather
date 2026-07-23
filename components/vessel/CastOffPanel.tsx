@@ -8,7 +8,7 @@
  *
  * State protection: blocks if another voyage is already ACTIVE.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     getDraftVoyages,
     getActiveVoyage,
@@ -22,6 +22,7 @@ import type { PassageLeg } from '../../types/navigation';
 import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { ChatService } from '../../services/ChatService';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
@@ -53,6 +54,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [currentLeg, setCurrentLeg] = useState<PassageLeg | null>(null);
     const [completedLegs, setCompletedLegs] = useState<PassageLeg[]>([]);
     const [arrivalPort, setArrivalPort] = useState('');
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     // Load drafts + check active
     useEffect(() => {
@@ -206,8 +212,15 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     }, []);
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-stretch justify-center">
-            <div className="w-full max-w-lg bg-[#0a0e14] overflow-y-auto pb-24" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-stretch justify-center" role="presentation">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cast-off-title"
+                className="w-full max-w-lg bg-[#0a0e14] overflow-y-auto pb-24"
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
                 <div className="flex items-center justify-between p-5 pb-3">
                     <div className="flex items-center gap-3">
@@ -215,7 +228,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <span className="text-xl">⛵</span>
                         </div>
                         <div>
-                            <h2 className="text-base font-black text-white">
+                            <h2 id="cast-off-title" className="text-base font-black text-white">
                                 {step === 'active'
                                     ? 'Active Voyage'
                                     : step === 'preflight'
@@ -244,6 +257,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         </div>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
                         aria-label="Close dialog"

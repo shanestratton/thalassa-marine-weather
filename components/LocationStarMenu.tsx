@@ -25,7 +25,7 @@
  * no nested <button>s (WKWebView rewrites them and breaks the handler);
  * action icons are always-visible (iOS has no hover).
  */
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { AnchorIcon, CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
@@ -39,6 +39,7 @@ import {
     type SavedLocation,
 } from '../utils/savedLocations';
 import { triggerHaptic } from '../utils/system';
+import { useMenuNavigation } from '../hooks/useMenuNavigation';
 
 const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 8;
@@ -49,7 +50,11 @@ export const LocationStarMenu: React.FC = () => {
 
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
-    const popoverRef = useRef<HTMLDivElement>(null);
+    const menuId = useId();
+    const popoverRef = useMenuNavigation<HTMLDivElement>(open, {
+        triggerRef: buttonRef,
+        onClose: () => setOpen(false),
+    });
     const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
     const saved = useMemo(
@@ -85,7 +90,7 @@ export const LocationStarMenu: React.FC = () => {
         };
     }, [open]);
 
-    // Close on outside-click / Escape (check both button + popover since
+    // Close on outside-click (check both button + popover since
     // the popover lives in a portal).
     useEffect(() => {
         if (!open) return;
@@ -93,22 +98,22 @@ export const LocationStarMenu: React.FC = () => {
             const t = e.target as Node;
             if (!buttonRef.current?.contains(t) && !popoverRef.current?.contains(t)) setOpen(false);
         };
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setOpen(false);
-        };
         document.addEventListener('mousedown', onClick);
         document.addEventListener('touchstart', onClick);
-        document.addEventListener('keydown', onKey);
         return () => {
             document.removeEventListener('mousedown', onClick);
             document.removeEventListener('touchstart', onClick);
-            document.removeEventListener('keydown', onKey);
         };
-    }, [open]);
+    }, [open, popoverRef]);
+
+    const closeAndRestore = () => {
+        setOpen(false);
+        requestAnimationFrame(() => buttonRef.current?.focus({ preventScroll: true }));
+    };
 
     const goTo = (loc: SavedLocation | 'current') => {
         triggerHaptic('light');
-        setOpen(false);
+        closeAndRestore();
         if (loc === 'current') {
             void selectLocation('Current Location');
             return;
@@ -128,6 +133,7 @@ export const LocationStarMenu: React.FC = () => {
         const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, name);
         // Removing the home port clears the designation too.
         updateSettings(settings.homePort === name ? { ...patch, homePort: undefined } : patch);
+        closeAndRestore();
     };
 
     const saveCurrent = () => {
@@ -137,6 +143,7 @@ export const LocationStarMenu: React.FC = () => {
         const planner = toPlannerString({ name: currentName, lat: c?.lat, lon: c?.lon });
         const patch = buildSaveLocationPatch(settings.savedLocations, settings.savedLocationCoords, planner);
         if (patch) updateSettings(patch);
+        closeAndRestore();
     };
 
     // Anchor to the button's right edge; clamp 8px from each viewport edge.
@@ -173,28 +180,37 @@ export const LocationStarMenu: React.FC = () => {
                 }}
                 aria-label="Saved locations"
                 aria-expanded={open}
+                aria-haspopup="menu"
+                aria-controls={open ? menuId : undefined}
                 className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-gray-300 transition-colors hover:bg-white/10 hover:text-yellow-400"
             >
                 <StarIcon className={`w-4 h-4 ${starActive ? 'text-yellow-400' : ''}`} filled={starActive} />
             </button>
 
             {open &&
-                anchorRect &&
                 createPortal(
                     <div
+                        id={menuId}
                         ref={popoverRef}
                         style={popoverStyle}
                         role="menu"
+                        aria-label="Saved locations"
+                        tabIndex={-1}
                         className="rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
                     >
                         <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 border-b border-white/10">
                             Locations
                         </div>
 
-                        <div className="max-h-[55vh] overflow-y-auto py-1">
+                        <div role="none" className="max-h-[55vh] overflow-y-auto py-1">
                             {/* Home port — pinned first */}
                             {homePortLoc && (
-                                <button type="button" onClick={() => goTo(homePortLoc)} className={`${rowBase} w-full`}>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => goTo(homePortLoc)}
+                                    className={`${rowBase} w-full`}
+                                >
                                     <AnchorIcon className="w-4 h-4 text-amber-400 shrink-0" />
                                     <span className="flex-1 font-semibold text-amber-100 truncate">{homePort}</span>
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">
@@ -204,19 +220,25 @@ export const LocationStarMenu: React.FC = () => {
                             )}
 
                             {/* Current Location — back to live GPS-follow */}
-                            <button type="button" onClick={() => goTo('current')} className={`${rowBase} w-full`}>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => goTo('current')}
+                                className={`${rowBase} w-full`}
+                            >
                                 <CrosshairIcon className="w-4 h-4 text-sky-400 shrink-0" />
                                 <span className="flex-1 font-medium text-white truncate">Current Location</span>
                                 {inGpsMode && <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />}
                             </button>
 
-                            {otherSaved.length > 0 && <div className="my-1 mx-3 h-px bg-white/10" />}
+                            {otherSaved.length > 0 && <div role="separator" className="my-1 mx-3 h-px bg-white/10" />}
 
                             {/* Saved spots */}
                             {otherSaved.map((loc) => (
-                                <div key={loc.name} className="flex items-center">
+                                <div key={loc.name} role="none" className="flex items-center">
                                     <button
                                         type="button"
+                                        role="menuitem"
                                         onClick={() => goTo(loc)}
                                         className={`${rowBase} flex-1 min-w-0`}
                                     >
@@ -225,6 +247,7 @@ export const LocationStarMenu: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
+                                        role="menuitem"
                                         onClick={() => setHome(loc.name)}
                                         aria-label={`Set ${loc.name} as home port`}
                                         title="Set as home port"
@@ -234,6 +257,7 @@ export const LocationStarMenu: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
+                                        role="menuitem"
                                         onClick={() => removeSaved(loc.name)}
                                         aria-label={`Remove ${loc.name}`}
                                         title="Remove"
@@ -255,6 +279,7 @@ export const LocationStarMenu: React.FC = () => {
                         {isRealCurrent && !currentSaved && (
                             <button
                                 type="button"
+                                role="menuitem"
                                 onClick={saveCurrent}
                                 className="w-full flex items-center gap-2 px-3 py-2.5 border-t border-white/10 text-amber-300 hover:bg-white/5 transition-colors"
                             >

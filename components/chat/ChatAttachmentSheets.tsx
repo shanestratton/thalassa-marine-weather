@@ -2,10 +2,11 @@
  * ChatAttachmentSheets — Pin drop, POI picker, track picker, report modal, track disclaimer.
  * Extracted from ChatPage to reduce monolith complexity.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ChatMessage } from '../../services/ChatService';
 import { PinService, SavedPin } from '../../services/PinService';
 import { ShipLogEntry } from '../../types';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { getStaticMapUrl } from './chatUtils';
 
 // --- Report Modal ---
@@ -19,66 +20,106 @@ export interface ReportModalProps {
 }
 
 export const ReportModal: React.FC<ReportModalProps> = React.memo(
-    ({ reportingMsg, reportSent, reportReason, setReportReason, onSubmit, onClose }) => (
-        <div className="absolute inset-0 z-50 flex items-center justify-center" role="presentation" onClick={onClose}>
-            <div className="absolute inset-0 bg-black/60" />
+    ({ reportingMsg, reportSent, reportReason, setReportReason, onSubmit, onClose }) => {
+        const closeButtonRef = useRef<HTMLButtonElement>(null);
+        const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+            initialFocusRef: closeButtonRef,
+            onEscape: onClose,
+        });
+
+        // Submitting replaces the focused action row. Move focus to the
+        // acknowledgement action instead of leaving it on document.body.
+        useEffect(() => {
+            if (reportSent) closeButtonRef.current?.focus();
+        }, [reportSent]);
+
+        return (
             <div
-                className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down"
-                onClick={(e) => e.stopPropagation()}
+                className="absolute inset-0 z-50 flex items-center justify-center"
+                role="presentation"
+                onClick={onClose}
             >
-                {reportSent ? (
-                    <div className="text-center py-6">
-                        <div className="text-4xl mb-3">✅</div>
-                        <p className="text-sm font-medium text-white/70">Report submitted</p>
-                        <p className="text-[11px] text-white/60 mt-1">Our moderators will review it shortly</p>
-                    </div>
-                ) : (
-                    <>
-                        <p className="text-sm font-bold text-white/80 mb-1">Report Message</p>
-                        <p className="text-[11px] text-white/60 mb-4 truncate">
-                            From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"
-                        </p>
-                        <div className="space-y-1.5 mb-4">
-                            {(['spam', 'harassment', 'hate_speech', 'inappropriate', 'other'] as const).map((r) => (
-                                <button
-                                    aria-label="Report message to moderators"
-                                    key={r}
-                                    onClick={() => setReportReason(r)}
-                                    className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${
-                                        reportReason === r
-                                            ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                                            : 'bg-white/[0.02] border border-white/[0.04] text-white/60 hover:bg-white/[0.04]'
-                                    }`}
-                                >
-                                    {r === 'spam' && 'Spam'}
-                                    {r === 'harassment' && 'Harassment'}
-                                    {r === 'hate_speech' && 'Hate speech'}
-                                    {r === 'inappropriate' && 'Inappropriate'}
-                                    {r === 'other' && 'Other'}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="flex gap-2">
+                <div className="absolute inset-0 bg-black/60" />
+                <div
+                    ref={dialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="report-message-title"
+                    aria-describedby={reportSent ? 'report-success-description' : 'report-message-context'}
+                    className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {reportSent ? (
+                        <div className="text-center py-6">
+                            <div className="text-4xl mb-3" aria-hidden="true">
+                                ✅
+                            </div>
+                            <p id="report-message-title" className="text-sm font-medium text-white/70">
+                                Report submitted
+                            </p>
+                            <p id="report-success-description" className="text-[11px] text-white/60 mt-1">
+                                Our moderators will review it shortly
+                            </p>
                             <button
-                                aria-label="Close attachment sheet"
+                                ref={closeButtonRef}
                                 onClick={onClose}
-                                className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors"
+                                className="mt-5 w-full py-2.5 rounded-xl bg-white/[0.06] text-xs text-white/70 hover:bg-white/[0.1] transition-colors"
                             >
-                                Cancel
-                            </button>
-                            <button
-                                aria-label="Submit report"
-                                onClick={onSubmit}
-                                className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors"
-                            >
-                                Submit Report
+                                Done
                             </button>
                         </div>
-                    </>
-                )}
+                    ) : (
+                        <>
+                            <p id="report-message-title" className="text-sm font-bold text-white/80 mb-1">
+                                Report Message
+                            </p>
+                            <p id="report-message-context" className="text-[11px] text-white/60 mb-4 truncate">
+                                From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"
+                            </p>
+                            <div className="space-y-1.5 mb-4">
+                                {(['spam', 'harassment', 'hate_speech', 'inappropriate', 'other'] as const).map((r) => (
+                                    <button
+                                        aria-label={`Report reason: ${r.replace('_', ' ')}`}
+                                        aria-pressed={reportReason === r}
+                                        key={r}
+                                        onClick={() => setReportReason(r)}
+                                        className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${
+                                            reportReason === r
+                                                ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                                                : 'bg-white/[0.02] border border-white/[0.04] text-white/60 hover:bg-white/[0.04]'
+                                        }`}
+                                    >
+                                        {r === 'spam' && 'Spam'}
+                                        {r === 'harassment' && 'Harassment'}
+                                        {r === 'hate_speech' && 'Hate speech'}
+                                        {r === 'inappropriate' && 'Inappropriate'}
+                                        {r === 'other' && 'Other'}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    ref={closeButtonRef}
+                                    aria-label="Cancel report"
+                                    onClick={onClose}
+                                    className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    aria-label="Submit report"
+                                    onClick={onSubmit}
+                                    className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors"
+                                >
+                                    Submit Report
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
             </div>
-        </div>
-    ),
+        );
+    },
 );
 ReportModal.displayName = 'ReportModal';
 
@@ -449,46 +490,72 @@ export interface TrackDisclaimerModalProps {
     onClose: () => void;
 }
 
-export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.memo(({ track, onImport, onClose }) => (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6" onClick={onClose}>
+export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.memo(({ track, onImport, onClose }) => {
+    const cancelButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: cancelButtonRef,
+        onEscape: onClose,
+    });
+
+    return (
         <div
-            className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6"
+            role="presentation"
+            onClick={onClose}
         >
-            <div className="px-5 pt-5 pb-3">
-                <div className="flex items-center gap-2 mb-3">
-                    <span className="text-amber-400 text-lg">⚠️</span>
-                    <h2 className="text-base font-black text-white">Navigation Disclaimer</h2>
-                </div>
-                <div className="bg-amber-900/20 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-3">
-                    <p className="text-xs text-amber-400/80 leading-relaxed">
-                        This track was shared by another sailor and is{' '}
-                        <span className="font-bold text-amber-300">not verified</span>. Depths vary with tide, weather,
-                        and vessel draft. <span className="font-bold text-amber-300">Not suitable for navigation.</span>
+            <div
+                ref={dialogRef}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="track-disclaimer-title"
+                aria-describedby="track-disclaimer-description"
+                className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="px-5 pt-5 pb-3">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="text-amber-400 text-lg" aria-hidden="true">
+                            ⚠️
+                        </span>
+                        <h2 id="track-disclaimer-title" className="text-base font-black text-white">
+                            Navigation Disclaimer
+                        </h2>
+                    </div>
+                    <div
+                        id="track-disclaimer-description"
+                        className="bg-amber-900/20 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-3"
+                    >
+                        <p className="text-xs text-amber-400/80 leading-relaxed">
+                            This track was shared by another sailor and is{' '}
+                            <span className="font-bold text-amber-300">not verified</span>. Depths vary with tide,
+                            weather, and vessel draft.{' '}
+                            <span className="font-bold text-amber-300">Not suitable for navigation.</span>
+                        </p>
+                    </div>
+                    <p className="text-xs text-white/60 leading-relaxed">
+                        It will be imported to your ship's log as a community track with an{' '}
+                        <span className="text-amber-400 font-bold">Imported</span> badge.
                     </p>
                 </div>
-                <p className="text-xs text-white/60 leading-relaxed">
-                    It will be imported to your ship's log as a community track with an{' '}
-                    <span className="text-amber-400 font-bold">Imported</span> badge.
-                </p>
-            </div>
-            <div className="px-5 pb-5 flex gap-2 pt-2">
-                <button
-                    aria-label="Close attachment sheet"
-                    onClick={onClose}
-                    className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/60 text-sm font-bold transition-all active:scale-95"
-                >
-                    Cancel
-                </button>
-                <button
-                    aria-label="Import shared track to ship's log"
-                    onClick={() => onImport(track.trackId, track.title)}
-                    className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
-                >
-                    ⬇ Import Track
-                </button>
+                <div className="px-5 pb-5 flex gap-2 pt-2">
+                    <button
+                        ref={cancelButtonRef}
+                        aria-label="Cancel track import"
+                        onClick={onClose}
+                        className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/60 text-sm font-bold transition-all active:scale-95"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        aria-label="Import shared track to ship's log"
+                        onClick={() => onImport(track.trackId, track.title)}
+                        className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
+                    >
+                        ⬇ Import Track
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-));
+    );
+});
 TrackDisclaimerModal.displayName = 'TrackDisclaimerModal';

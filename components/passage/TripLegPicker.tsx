@@ -25,6 +25,7 @@ import {
 } from '../../services/routeTracer';
 import { requestTracerOpen } from '../../services/deepLink';
 import { triggerHaptic } from '../../utils/system';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // Grouping is the SHARED helper (groupTracesByTrip) so this Trip box and the
 // tracer card's "open a saved route" list can never drift (2026-07-17).
@@ -49,6 +50,11 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
         setLegsOpen(false);
         setSelectedKey('');
     };
+    const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(legsOpen, {
+        initialFocusRef: closeButtonRef,
+        onEscape: closeLegs,
+    });
     // Saved routes land from the cloud merge after mount — refresh once the
     // punter actually opens the dropdown so the list is never stale.
     const refresh = (): void => setTrips(buildTrips());
@@ -100,14 +106,22 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                     <div
                         className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
                         onClick={closeLegs}
+                        role="presentation"
                     >
                         <div
+                            ref={dialogRef}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="trip-leg-picker-title"
                             className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-amber-500/30 bg-slate-900 shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
                                 <span className="min-w-0">
-                                    <span className="block truncate text-sm font-black uppercase tracking-widest text-amber-300">
+                                    <span
+                                        id="trip-leg-picker-title"
+                                        className="block truncate text-sm font-black uppercase tracking-widest text-amber-300"
+                                    >
                                         🧩 {selected.label}
                                     </span>
                                     <span className="mt-0.5 block text-[11px] font-bold text-gray-400">
@@ -115,7 +129,11 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                         open it on the chart
                                     </span>
                                 </span>
-                                <button onClick={closeLegs} className="shrink-0 text-sm font-bold text-gray-400">
+                                <button
+                                    ref={closeButtonRef}
+                                    onClick={closeLegs}
+                                    className="shrink-0 text-sm font-bold text-gray-400"
+                                >
                                     Close
                                 </button>
                             </div>

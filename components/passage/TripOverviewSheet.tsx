@@ -13,7 +13,7 @@
  * out to crew + family before departure.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
@@ -28,6 +28,7 @@ import {
 } from '../../services/TripOverviewService';
 import { resolveCountrySnippets, type ResolvedCountrySnippet } from '../../services/CountrySnippetService';
 import { useSettings } from '../../context/SettingsContext';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface TripOverviewSheetProps {
     isOpen: boolean;
@@ -129,6 +130,12 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
         return () => clearTimeout(t);
     }, [toast]);
 
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(isOpen && baseOverview !== null, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     if (!isOpen || !baseOverview) return null;
 
     /** Render-time overview — prefer the enriched copy when we have one. */
@@ -221,16 +228,31 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
     };
 
     return (
-        <div className="fixed inset-0 z-[10000] bg-black/80 flex items-stretch justify-center" onClick={onClose}>
+        <div
+            className="fixed inset-0 z-[10000] bg-black/80 flex items-stretch justify-center"
+            onClick={onClose}
+            role="presentation"
+        >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="trip-overview-eyebrow trip-overview-name"
                 className="w-full max-w-lg bg-[#0a0e14] flex flex-col overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
                 <div className="flex items-start justify-between p-4 border-b border-white/[0.06] shrink-0">
                     <div className="min-w-0">
-                        <p className="text-[11px] font-bold text-sky-400/70 uppercase tracking-widest">Trip Overview</p>
-                        <h2 className="text-lg font-black text-white truncate mt-0.5">{overview.name}</h2>
+                        <p
+                            id="trip-overview-eyebrow"
+                            className="text-[11px] font-bold text-sky-400/70 uppercase tracking-widest"
+                        >
+                            Trip Overview
+                        </p>
+                        <h2 id="trip-overview-name" className="text-lg font-black text-white truncate mt-0.5">
+                            {overview.name}
+                        </h2>
                         {(overview.earliestDepartureIso || overview.latestArrivalIso) && (
                             <p className="text-[11px] text-gray-400 mt-0.5">
                                 {formatDate(overview.earliestDepartureIso)} → {formatDate(overview.latestArrivalIso)}
@@ -238,6 +260,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                         )}
                     </div>
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10 shrink-0 ml-2"
                         aria-label="Close trip overview"

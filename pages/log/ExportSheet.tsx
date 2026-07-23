@@ -3,7 +3,8 @@
  *
  * Full-screen panel with PDF and GPX export options.
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface ExportSheetProps {
     onClose: () => void;
@@ -22,9 +23,20 @@ export const ExportSheet: React.FC<ExportSheetProps> = ({
 }) => {
     const [isExportingPDF, setIsExportingPDF] = useState(false);
     const [isExportingGPX, setIsExportingGPX] = useState(false);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const sheetRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     return (
-        <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+        <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-sheet-title"
+            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+        >
             {/* Header bar */}
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between">
@@ -44,9 +56,12 @@ export const ExportSheet: React.FC<ExportSheetProps> = ({
                                 />
                             </svg>
                         </div>
-                        <h2 className="text-lg font-bold text-white">Export Voyage</h2>
+                        <h2 id="export-sheet-title" className="text-lg font-bold text-white">
+                            Export Voyage
+                        </h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         aria-label="Close"
                         onClick={onClose}
                         className="p-2 text-slate-400 hover:text-white transition-colors"

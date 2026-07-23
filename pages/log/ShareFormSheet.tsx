@@ -2,8 +2,9 @@
  * ShareFormSheet — Community share form extracted from LogPage.
  * Full-screen form for sharing a voyage to the community.
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import { RegionAutocomplete } from '../../components/RegionAutocomplete';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { TrackCategory } from '../../services/TrackSharingService';
 
 interface ShareFormSheetProps {
@@ -23,8 +24,20 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
     shareAutoTitle,
     shareAutoRegion,
 }) => {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const sheetRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
+
     return (
-        <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+        <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-form-sheet-title"
+            className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]"
+        >
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
@@ -57,9 +70,12 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                 />
                             </svg>
                         </div>
-                        <h2 className="text-lg font-bold text-white">Community Share</h2>
+                        <h2 id="share-form-sheet-title" className="text-lg font-bold text-white">
+                            Community Share
+                        </h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         aria-label="Close"
                         onClick={onClose}
                         className="p-2 text-slate-400 hover:text-white transition-colors"
@@ -89,7 +105,10 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                     {/* Share Track Form */}
                     <div className="rounded-2xl bg-gradient-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
                         <div>
-                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                            <label
+                                htmlFor="share-title"
+                                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1"
+                            >
                                 Title *
                             </label>
                             <input
@@ -100,7 +119,10 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                            <label
+                                htmlFor="share-description"
+                                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1"
+                            >
                                 Description
                             </label>
                             <textarea
@@ -112,7 +134,10 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                         </div>
                         <div className="flex gap-3">
                             <div className="flex-1">
-                                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                                <label
+                                    htmlFor="share-category"
+                                    className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1"
+                                >
                                     Category
                                 </label>
                                 <select
@@ -138,7 +163,10 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                 </select>
                             </div>
                             <div className="flex-1">
-                                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                                <label
+                                    htmlFor="share-region"
+                                    className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1"
+                                >
                                     Region
                                 </label>
                                 <RegionAutocomplete

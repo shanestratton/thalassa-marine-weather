@@ -15,6 +15,7 @@ import { GpsService } from '../../services/GpsService';
 import { buildDirectionsVoyagePlan } from '../../services/MapboxDirectionsService';
 import { useWeather } from '../../context/WeatherContext';
 import { useUI } from '../../context/UIContext';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { triggerHaptic } from '../../utils/system';
 
 interface PinMapViewerProps {
@@ -32,6 +33,11 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
     const { setPage } = useUI();
     const [routing, setRouting] = useState(false);
     const [routeError, setRouteError] = useState<string | null>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, {
+        initialFocusRef: closeButtonRef,
+        onEscape: onClose,
+    });
 
     // "Get Directions" — current GPS → this pin via Mapbox Directions.
     // Drops a road-following polyline + auto-turn waypoints on the
@@ -164,9 +170,10 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
 
     // Block body scroll when open
     useEffect(() => {
+        const previousOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
-            document.body.style.overflow = '';
+            document.body.style.overflow = previousOverflow;
         };
     }, []);
 
@@ -182,10 +189,17 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
     // maybe it is below the menu bar"). Same pattern used by the
     // RoutePlanner's map modal.
     return createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col">
+        <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pin-map-viewer-title"
+            className="fixed inset-0 z-[9999] bg-black/95 flex flex-col"
+        >
             {/* Header */}
             <div className="relative z-10 flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
                 <button
+                    ref={closeButtonRef}
                     aria-label="Close pin drop map"
                     onClick={onClose}
                     className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-90 transition-transform"
@@ -202,7 +216,9 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                         <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
                 </button>
-                <h2 className="text-sm font-semibold text-white/80 truncate max-w-[60%]">{caption}</h2>
+                <h2 id="pin-map-viewer-title" className="text-sm font-semibold text-white/80 truncate max-w-[60%]">
+                    {caption}
+                </h2>
                 <div className="w-10" /> {/* spacer */}
             </div>
 
