@@ -282,7 +282,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         };
         // Base recreated only when the viewer reopens; live swaps handled by the
         // day/night effect below (recreating the map would lose pan/zoom).
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     // ── Day/night base swap ── live, without recreating the map or
