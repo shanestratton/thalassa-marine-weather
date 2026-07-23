@@ -193,9 +193,7 @@ describe('groupTracesByTrip (shared by PLAN Trip box + card list)', () => {
         saveTrace('woorim - mooloolaba (2nd Leg)', PTS, { tripId: 'trip-a', legOrdinal: 2 });
         const { trace: solo } = saveTrace('bay run', PTS);
         // Feed newest-first (like loadSavedTraces returns) and out of leg order.
-        const groups = groupTracesByTrip([
-            ...loadSavedTraces(),
-        ]);
+        const groups = groupTracesByTrip([...loadSavedTraces()]);
         const trip = groups.find((g) => g.key === 'trip-a')!;
         expect(trip.legs.map((l) => l.legOrdinal)).toEqual([1, 2]); // ordinal-sorted
         expect(trip.label).toContain('2 legs');

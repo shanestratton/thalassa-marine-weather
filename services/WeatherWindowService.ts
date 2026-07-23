@@ -13,6 +13,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { ComfortParams, PreferredAngle } from '../types';
 import { getOpenMeteoKey } from './weather/keys';
 import { createLogger } from '../utils/createLogger';
+import { circularMean } from '../utils/circularStats';
 
 /**
  * Internal scoring shape — what scoreWindow() actually consumes.
@@ -61,12 +62,26 @@ export interface WeatherWindowResult {
 
 const CACHE_KEY = 'thalassa_weather_windows';
 const CACHE_TTL = 3 * 60 * 60 * 1000; // 3 hours
+const WEATHER_WINDOW_TIMEOUT_MS = 20_000;
 
 /** Wind direction labels */
 const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 function degToDir(deg: number): string {
     const idx = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
     return DIRS[idx];
+}
+
+/**
+ * Average wind bearings safely across the 0°/360° seam. An arithmetic mean
+ * would label 350° + 10° as a southerly (180°), which can invert the apparent
+ * wind angle and change a departure recommendation. Opposed directions have
+ * no mathematical mean, so retain the first usable forecast bearing in that
+ * deliberately ambiguous case.
+ */
+export function meanWindDirection(degrees: number[]): number {
+    const mean = circularMean(degrees);
+    if (mean !== null) return mean;
+    return degrees.find(Number.isFinite) ?? 0;
 }
 
 /** Score a single 6h window against comfort thresholds */
@@ -108,7 +123,7 @@ function scoreWindow(
     // If preferredAngles is empty / has all 5 → no filter (every relAngle
     // hits at least one band).
     if (courseBearing !== undefined && comfort.preferredAngles.length > 0 && comfort.preferredAngles.length < 5) {
-        const avgWindDir = hourlyWindDir.reduce((a, b) => a + b, 0) / hourlyWindDir.length;
+        const avgWindDir = meanWindDirection(hourlyWindDir);
         const relAngle = Math.abs(((avgWindDir - courseBearing + 180) % 360) - 180);
         const inBand =
             (comfort.preferredAngles.includes('beating') && relAngle < 50) ||
@@ -199,6 +214,19 @@ export const WeatherWindowService = {
     async analyse(lat: number, lon: number, _voyageId?: string, courseBearing?: number): Promise<WeatherWindowResult> {
         const comfort = loadScoringComfort();
 
+        // Coordinates are normally supplied by a selected map point, but this
+        // service is also called from forms and restored voyage data. Refuse
+        // malformed values before they can create a bogus cache key or request.
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+            log.warn('Ignoring weather-window request with invalid coordinates');
+            return {
+                windows: [],
+                bestWindowIndex: -1,
+                analysisTime: new Date().toISOString(),
+                source: 'live',
+            };
+        }
+
         // Cache key includes lat/lon (rounded to 0.1°, ~6 NM resolution)
         // so two voyages from different ports don't share the same
         // cache entry. The old single-key cache leaked between voyages
@@ -247,7 +275,11 @@ export const WeatherWindowService = {
                 `&hourly=wind_speed_10m,wind_direction_10m,precipitation_probability` +
                 `&forecast_days=16&timezone=auto&wind_speed_unit=kn${keyParam}`;
 
-            const [marineRes, windRes] = await Promise.all([fetch(url), fetch(windUrl)]);
+            // A stalled radio/satellite connection must not leave the passage
+            // card in a permanent loading state. Both source calls share one
+            // deadline because a partial forecast cannot score a safe window.
+            const signal = AbortSignal.timeout(WEATHER_WINDOW_TIMEOUT_MS);
+            const [marineRes, windRes] = await Promise.all([fetch(url, { signal }), fetch(windUrl, { signal })]);
 
             if (!marineRes.ok || !windRes.ok) throw new Error('API error');
 
@@ -259,6 +291,19 @@ export const WeatherWindowService = {
             const windDir: number[] = wind.hourly.wind_direction_10m;
             const waveHeight: number[] = marine.hourly.wave_height;
             const precip: number[] = wind.hourly.precipitation_probability;
+            if (![times, windSpeed, windDir, waveHeight, precip].every(Array.isArray)) {
+                throw new Error('Forecast response is missing hourly series');
+            }
+            // Providers should return aligned hourly series, but treat a
+            // truncated/mismatched response as only as complete as its shortest
+            // required series. This avoids scoring a window with Infinity/NaN.
+            const forecastLength = Math.min(
+                times.length,
+                windSpeed.length,
+                windDir.length,
+                waveHeight.length,
+                precip.length,
+            );
 
             // Build 6-hour windows
             const windows: DepartureWindow[] = [];
@@ -267,12 +312,12 @@ export const WeatherWindowService = {
             // 16 days × 4 windows/day = 64 max. Up from 28 (7 × 4) so
             // the card can show windows around any chosen departure
             // date within the forecast horizon.
-            for (let i = 0; i + step <= times.length && windows.length < 64; i += step) {
+            for (let i = 0; i + step <= forecastLength && windows.length < 64; i += step) {
                 const sliceDir = windDir.slice(i, i + step);
                 const slicePrecip = precip.slice(i, i + step);
 
                 // Extend analysis to 24h if enough data
-                const extEnd = Math.min(i + 24, times.length);
+                const extEnd = Math.min(i + 24, forecastLength);
                 const dayWind = windSpeed.slice(i, extEnd);
                 const dayWave = waveHeight.slice(i, extEnd);
 
@@ -294,7 +339,7 @@ export const WeatherWindowService = {
                     avgWindKts: Math.round(dayWind.reduce((a, b) => a + b, 0) / dayWind.length),
                     maxWaveM: Math.round(Math.max(...dayWave) * 10) / 10,
                     avgWaveM: Math.round((dayWave.reduce((a, b) => a + b, 0) / dayWave.length) * 10) / 10,
-                    dominantWindDir: degToDir(sliceDir.reduce((a, b) => a + b, 0) / sliceDir.length),
+                    dominantWindDir: degToDir(meanWindDirection(sliceDir)),
                     rainProbability: Math.round(Math.max(...slicePrecip)),
                 };
 
@@ -309,7 +354,9 @@ export const WeatherWindowService = {
             }
 
             // Find best window
-            const bestIdx = windows.reduce((best, w, i) => (w.score > windows[best].score ? i : best), 0);
+            const bestIdx = windows.length
+                ? windows.reduce((best, w, i) => (w.score > windows[best].score ? i : best), 0)
+                : -1;
 
             const result: WeatherWindowResult = {
                 windows,
@@ -350,7 +397,16 @@ export const WeatherWindowService = {
     /** Clear cached analysis */
     clearCache(): void {
         try {
-            localStorage.removeItem(CACHE_KEY);
+            // Analyses are keyed by rounded departure coordinates. Removing
+            // only the old bare CACHE_KEY left every real cached result in
+            // place, so a user pressing refresh after changing safety limits
+            // could still be shown a stale rating for up to three hours.
+            const keys: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key === CACHE_KEY || key?.startsWith(`${CACHE_KEY}:`)) keys.push(key);
+            }
+            for (const key of keys) localStorage.removeItem(key);
         } catch {
             /* ignore */
         }

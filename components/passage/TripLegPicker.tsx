@@ -120,43 +120,43 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                 </button>
                             </div>
                             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
-                    {selected.legs.map((leg, i) => (
-                        <button
-                            key={leg.id}
-                            onClick={() => {
-                                triggerHaptic('light');
-                                requestTracerOpen({ kind: 'load-saved', id: leg.id });
-                                onOpenChart();
-                            }}
-                            className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
-                        >
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-black text-gray-300">
-                                {i + 1}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-200">
-                                {leg.name}
-                            </span>
-                            <span className="shrink-0 text-[10px] font-bold text-gray-500">
-                                {leg.points.length} pins
-                            </span>
-                        </button>
-                    ))}
-                    {seed && (
-                        <button
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                requestTracerOpen({ kind: 'new-leg', fromId: lastLeg!.id });
-                                onOpenChart();
-                            }}
-                            className="flex w-full items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-left shadow-[0_0_14px_rgba(245,158,11,0.25)] active:scale-[0.99]"
-                        >
-                            <span className="text-base leading-none">⚓</span>
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-black text-amber-300">
-                                Plot the {ordinalLegLabel(seed.ordinal).toLowerCase()} from {seed.fromName}
-                            </span>
-                            <span className="shrink-0 text-[11px] font-black text-amber-400">🔒→</span>
-                        </button>
-                    )}
+                                {selected.legs.map((leg, i) => (
+                                    <button
+                                        key={leg.id}
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            requestTracerOpen({ kind: 'load-saved', id: leg.id });
+                                            onOpenChart();
+                                        }}
+                                        className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
+                                    >
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-black text-gray-300">
+                                            {i + 1}
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-200">
+                                            {leg.name}
+                                        </span>
+                                        <span className="shrink-0 text-[10px] font-bold text-gray-500">
+                                            {leg.points.length} pins
+                                        </span>
+                                    </button>
+                                ))}
+                                {seed && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('medium');
+                                            requestTracerOpen({ kind: 'new-leg', fromId: lastLeg!.id });
+                                            onOpenChart();
+                                        }}
+                                        className="flex w-full items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-left shadow-[0_0_14px_rgba(245,158,11,0.25)] active:scale-[0.99]"
+                                    >
+                                        <span className="text-base leading-none">⚓</span>
+                                        <span className="min-w-0 flex-1 truncate text-[13px] font-black text-amber-300">
+                                            Plot the {ordinalLegLabel(seed.ordinal).toLowerCase()} from {seed.fromName}
+                                        </span>
+                                        <span className="shrink-0 text-[11px] font-black text-amber-400">🔒→</span>
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>,

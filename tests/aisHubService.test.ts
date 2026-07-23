@@ -4,6 +4,14 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+const isNativePlatform = vi.hoisted(() => vi.fn(() => false));
+const UDP = vi.hoisted(() => ({
+    create: vi.fn().mockResolvedValue({ socketId: 42 }),
+    bind: vi.fn().mockResolvedValue(undefined),
+    send: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock localStorage
 const store: Record<string, string> = {};
 vi.stubGlobal('localStorage', {
@@ -16,10 +24,11 @@ vi.stubGlobal('localStorage', {
     },
 });
 
-// Mock Capacitor as web platform (no native TCP)
+// Default to web mode; native behavior is exercised explicitly below.
 vi.mock('@capacitor/core', () => ({
-    Capacitor: { isNativePlatform: () => false },
+    Capacitor: { isNativePlatform },
 }));
+vi.mock('@frontall/capacitor-udp', () => ({ UDP }));
 
 import { AisHubService } from '../services/AisHubService';
 
@@ -28,6 +37,8 @@ beforeEach(() => {
     Object.keys(store).forEach((k) => delete store[k]);
     // Reset service state
     AisHubService.destroy();
+    isNativePlatform.mockReturnValue(false);
+    Object.values(UDP).forEach((mock) => mock.mockClear());
 });
 
 describe('AisHubService config', () => {
@@ -98,6 +109,23 @@ describe('AisHubService forwarding', () => {
         AisHubService.configure('', 0);
         AisHubService.forward('!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75');
         expect(AisHubService.getStats().sentenceCount).toBe(0);
+    });
+});
+
+describe('AisHubService native UDP', () => {
+    it('uses the current UDP export and binds a wildcard local address', async () => {
+        isNativePlatform.mockReturnValue(true);
+        AisHubService.configure('192.168.4.1', 5678);
+        AisHubService.setEnabled(true);
+
+        await vi.waitFor(() => expect(UDP.create).toHaveBeenCalledOnce());
+        expect(UDP.bind).toHaveBeenCalledWith({ socketId: 42, address: '0.0.0.0', port: 0 });
+
+        AisHubService.forward('!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75');
+        await vi.waitFor(() => expect(UDP.send).toHaveBeenCalledOnce());
+        expect(UDP.send).toHaveBeenCalledWith(
+            expect.objectContaining({ socketId: 42, address: '192.168.4.1', port: 5678 }),
+        );
     });
 });
 

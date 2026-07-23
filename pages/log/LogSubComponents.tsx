@@ -115,7 +115,6 @@ export const MenuBtn: React.FC<{
     </button>
 ));
 
-
 // ── FollowRouteChoice — one row of the cast-off "Following a route?" sheet ──
 //
 // A row per planned route. Every row used to read "🧭 Suggested route", so the
@@ -133,8 +132,7 @@ export const FollowRouteChoice: React.FC<{
     reversible?: boolean;
     onPick: () => void;
 }> = ({ summary, reversible = false, onPick }) => {
-    const first =
-        summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
+    const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
     const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
     const { startLabel, endLabel } = useEndpointNames(first, last);
 

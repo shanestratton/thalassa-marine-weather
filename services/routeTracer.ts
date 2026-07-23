@@ -720,7 +720,11 @@ export function validateTraceLeg(
             if (read === 'shoalside') {
                 // Chart puts the boat on the SHOAL side of the mark — a real
                 // risk, keep the teeth.
-                issues.push({ severity: 'caution', message: 'bank side of a nearby mark — favour the deeper side', at: mz });
+                issues.push({
+                    severity: 'caution',
+                    message: 'bank side of a nearby mark — favour the deeper side',
+                    at: mz,
+                });
             } else if (nearest?.hand) {
                 // A lateral mark with a known IALA hand. Which side of THIS
                 // course does it sit on? (signed cross-product, cos-lat scaled).
@@ -1362,7 +1366,9 @@ export function groupTracesByTrip(traces: readonly SavedTrace[]): TripGroup[] {
     }
     return order.map((key) => {
         const legs = groups.get(key)!;
-        legs.sort((a, b) => (a.legOrdinal ?? legBadgeOrdinal(a.name) ?? 1) - (b.legOrdinal ?? legBadgeOrdinal(b.name) ?? 1));
+        legs.sort(
+            (a, b) => (a.legOrdinal ?? legBadgeOrdinal(a.name) ?? 1) - (b.legOrdinal ?? legBadgeOrdinal(b.name) ?? 1),
+        );
         const base = stripLegBadge(legs[0].name);
         return { key, legs, label: legs.length > 1 ? `${base} … (${legs.length} legs)` : base };
     });
@@ -1525,7 +1531,11 @@ function escapeGpxXml(s: string): string {
  * precision. `nowIso` is passed in because the tracer runs where the
  * clock-free Date guard doesn't apply, but callers keep it injectable/testable.
  */
-export function traceToGpx(name: string, points: readonly TracePoint[], nowIso: string = new Date().toISOString()): string {
+export function traceToGpx(
+    name: string,
+    points: readonly TracePoint[],
+    nowIso: string = new Date().toISOString(),
+): string {
     const routeName = name.trim() || 'Thalassa route';
     const rtepts = points
         .map(

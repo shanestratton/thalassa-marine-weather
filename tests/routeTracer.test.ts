@@ -726,8 +726,18 @@ describe('snapTraceTapToLead — fat-finger pin onto the transit', () => {
         expect(snapTraceTapToLead({ leads: [] } as unknown as TracerContext, { lat: -27.01, lon: 153.01 })).toBeNull();
         const two = {
             leads: [
-                { pts: [{ lat: -27.0, lon: 153.01 }, { lat: -27.02, lon: 153.01 }] },
-                { pts: [{ lat: -27.0, lon: 153.0104 }, { lat: -27.02, lon: 153.0104 }] },
+                {
+                    pts: [
+                        { lat: -27.0, lon: 153.01 },
+                        { lat: -27.02, lon: 153.01 },
+                    ],
+                },
+                {
+                    pts: [
+                        { lat: -27.0, lon: 153.0104 },
+                        { lat: -27.02, lon: 153.0104 },
+                    ],
+                },
             ],
         } as unknown as TracerContext;
         const p = snapTraceTapToLead(two, { lat: -27.01, lon: 153.0103 });

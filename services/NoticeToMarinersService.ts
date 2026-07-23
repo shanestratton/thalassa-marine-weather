@@ -66,8 +66,8 @@ export interface Notice {
 // ── Endpoint ──────────────────────────────────────────────────────────────
 
 // Native Capacitor has no CORS restrictions, so it can hit the real URL.
-// Web uses the Vite dev proxy (see vite.config.ts) or a Supabase edge
-// function proxy (TODO: proxy-nga-msi for web production).
+// Web uses the Vite dev proxy locally and the proxy-nga-msi Supabase edge
+// function in production.
 function isNative(): boolean {
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,12 +75,6 @@ function isNative(): boolean {
     } catch {
         return false;
     }
-}
-
-function endpoint(): string {
-    return isNative()
-        ? 'https://msi.nga.mil/api/publications/broadcast-warn?output=json'
-        : '/api/nga-msi/broadcast-warn?output=json';
 }
 
 // Edge-function endpoint resolver shared by every NHO source we scrape
@@ -103,6 +97,17 @@ function edgeFunctionEndpoint(name: string): { url: string; headers: Record<stri
             apikey: supabaseAnonKey,
         },
     };
+}
+
+function ngaEndpoint(): { url: string; headers?: Record<string, string> } {
+    if (isNative()) {
+        return { url: 'https://msi.nga.mil/api/publications/broadcast-warn?output=json' };
+    }
+
+    // Vite owns this same-origin path during local development. In deployed
+    // web builds, use the edge function so NGA's lack of browser CORS headers
+    // does not silently remove the largest warning source.
+    return edgeFunctionEndpoint('proxy-nga-msi') ?? { url: '/api/nga-msi/broadcast-warn?output=json' };
 }
 
 // AMSA NAVAREA X proxy — scrapes the AMSA bulletin board.
@@ -158,13 +163,22 @@ const AREA_BOUNDS: Record<string, [number, number, number, number]> = {
 export function isAreaCoveringPoint(code: string, lat: number, lon: number): boolean {
     const b = AREA_BOUNDS[code];
     if (!b) return false;
-    // Handle simple non-wrapping case
-    if (b[0] <= b[2]) {
-        return lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
-    }
-    // Wrapping (e.g. HYDROPAC spans the antimeridian)
-    const lonNorm = lon < 0 ? lon + 360 : lon;
-    return lonNorm >= b[0] + 360 && lonNorm <= b[2] + 360 && lat >= b[1] && lat <= b[3];
+    const [west, south, east, north] = b;
+    if (lat < south || lat > north) return false;
+
+    // Some bounds use ordinary -180..180 longitudes while Pacific areas use
+    // a 0..360 east edge to span the antimeridian. Compare *everything* in a
+    // single 0..360 domain; mixing the two previously excluded valid Pacific
+    // positions such as 170°W from HYDROPAC/NAVAREA XIV.
+    if (Math.abs(east - west) >= 360) return true;
+    const normaliseLongitude = (value: number) => ((value % 360) + 360) % 360;
+    const westNorm = normaliseLongitude(west);
+    const eastNorm = normaliseLongitude(east);
+    const lonNorm = normaliseLongitude(lon);
+
+    return westNorm <= eastNorm
+        ? lonNorm >= westNorm && lonNorm <= eastNorm
+        : lonNorm >= westNorm || lonNorm <= eastNorm;
 }
 
 // ── Coordinate parsing ────────────────────────────────────────────────────
@@ -224,8 +238,14 @@ export function parseIssueDate(raw: string): Date | null {
     const min = Number(m[3]);
     const mon = MONTHS[m[4]];
     const year = Number(m[5]);
-    if (mon === undefined) return null;
-    return new Date(Date.UTC(year, mon, day, hour, min));
+    if (mon === undefined || day < 1 || day > 31 || hour > 23 || min > 59) return null;
+    const parsed = new Date(Date.UTC(year, mon, day, hour, min));
+    // Date.UTC normalises invalid days (e.g. 31 April) rather than rejecting
+    // them. Reject those malformed source values instead of silently moving a
+    // warning to a different date in the UI.
+    return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === mon && parsed.getUTCDate() === day
+        ? parsed
+        : null;
 }
 
 // ── Title extraction ──────────────────────────────────────────────────────
@@ -314,11 +334,26 @@ function saveCache(payload: CachePayload): void {
 
 // ── Source fetchers ───────────────────────────────────────────────────────
 
-async function fetchNga(): Promise<RawBroadcastWarn[]> {
-    const res = await fetch(endpoint());
-    if (!res.ok) throw new Error(`NGA MSI returned ${res.status}`);
+const NOTICE_REQUEST_TIMEOUT_MS = 15_000;
+
+type NoticeEndpoint = { url: string; headers?: Record<string, string> };
+
+async function fetchBroadcastWarnings(endpoint: NoticeEndpoint, source: string): Promise<RawBroadcastWarn[]> {
+    // One stalled hydrographic source used to hold the complete parallel
+    // refresh open indefinitely. Each source has its own deadline so a slow
+    // bulletin degrades to the remaining authorities rather than freezing the
+    // map's notices layer.
+    const res = await fetch(endpoint.url, {
+        headers: endpoint.headers,
+        signal: AbortSignal.timeout(NOTICE_REQUEST_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`${source} MSI returned ${res.status}`);
     const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
     return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+}
+
+async function fetchNga(): Promise<RawBroadcastWarn[]> {
+    return fetchBroadcastWarnings(ngaEndpoint(), 'NGA');
 }
 
 async function fetchAmsa(): Promise<RawBroadcastWarn[]> {
@@ -328,28 +363,19 @@ async function fetchAmsa(): Promise<RawBroadcastWarn[]> {
         // works on NGA-only; AMSA is purely additive.
         return [];
     }
-    const res = await fetch(ep.url, { headers: ep.headers });
-    if (!res.ok) throw new Error(`AMSA MSI returned ${res.status}`);
-    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
-    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+    return fetchBroadcastWarnings(ep, 'AMSA');
 }
 
 async function fetchUkho(): Promise<RawBroadcastWarn[]> {
     const ep = ukhoEndpoint();
     if (!ep) return [];
-    const res = await fetch(ep.url, { headers: ep.headers });
-    if (!res.ok) throw new Error(`UKHO MSI returned ${res.status}`);
-    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
-    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+    return fetchBroadcastWarnings(ep, 'UKHO');
 }
 
 async function fetchLinz(): Promise<RawBroadcastWarn[]> {
     const ep = linzEndpoint();
     if (!ep) return [];
-    const res = await fetch(ep.url, { headers: ep.headers });
-    if (!res.ok) throw new Error(`LINZ MSI returned ${res.status}`);
-    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
-    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+    return fetchBroadcastWarnings(ep, 'LINZ');
 }
 
 // ── Service ───────────────────────────────────────────────────────────────

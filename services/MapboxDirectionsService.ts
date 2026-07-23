@@ -59,6 +59,16 @@ export interface DirectionsResult {
 }
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
+const DIRECTIONS_TIMEOUT_MS = 15_000;
+
+function isValidCoordinate(point: { lat: number; lon: number }): boolean {
+    return (
+        Number.isFinite(point.lat) &&
+        Number.isFinite(point.lon) &&
+        Math.abs(point.lat) <= 90 &&
+        Math.abs(point.lon) <= 180
+    );
+}
 
 /**
  * Fetch a road-following route from Mapbox Directions API.
@@ -74,6 +84,11 @@ export async function getDirections(
     destination: { lat: number; lon: number },
     options: DirectionsOptions = {},
 ): Promise<DirectionsResult | null> {
+    if (!isValidCoordinate(origin) || !isValidCoordinate(destination)) {
+        log.warn('Directions requested with invalid coordinates');
+        return null;
+    }
+
     if (!MAPBOX_TOKEN) {
         log.warn('VITE_MAPBOX_ACCESS_TOKEN not configured — directions unavailable');
         return null;
@@ -89,7 +104,15 @@ export async function getDirections(
 
     log.info(`requesting ${profile} route ${coords}`);
 
-    const res = await fetch(url);
+    let res: Response;
+    try {
+        res = await fetch(url, { signal: AbortSignal.timeout(DIRECTIONS_TIMEOUT_MS) });
+    } catch (error) {
+        if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+            throw new Error('Mapbox Directions timed out — check your connection and try again.');
+        }
+        throw error;
+    }
     if (!res.ok) {
         throw new Error(`Mapbox Directions HTTP ${res.status}`);
     }

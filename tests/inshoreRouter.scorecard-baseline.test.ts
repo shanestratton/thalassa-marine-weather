@@ -62,7 +62,7 @@ describe('scorecard baseline (golden fixtures)', () => {
             const baseline: Baseline = {};
             for (const f of FIXTURES) baseline[f] = liveScore(f);
             writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + '\n');
-             
+
             console.error(`[scorecard-baseline] regenerated → ${BASELINE_PATH}\n${JSON.stringify(baseline, null, 2)}`);
             expect(existsSync(BASELINE_PATH)).toBe(true);
         });

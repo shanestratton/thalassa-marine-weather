@@ -22,11 +22,5 @@
         "noEmit": true
     },
     "include": ["./**/*"],
-    "exclude": [
-        "supabase/**/*",
-        "pi-cache/**/*",
-        "cloudflare-worker/**/*",
-        "**/scratch*.ts",
-        "**/scratch*.tsx"
-    ]
+    "exclude": ["supabase/**/*", "pi-cache/**/*", "cloudflare-worker/**/*", "**/scratch*.ts", "**/scratch*.tsx"]
 }

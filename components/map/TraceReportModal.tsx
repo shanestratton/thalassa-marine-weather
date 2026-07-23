@@ -10,10 +10,15 @@
  * Approve-all runs every fixable danger in one tap.
  */
 import React from 'react';
-import type { TraceLegVerdict, TracePoint } from '../../services/routeTracer';
-import { traceHealth } from '../../services/routeTracer';
+import {
+    traceGpxFileName,
+    traceHealth,
+    traceToGpx,
+    type TraceLegVerdict,
+    type TracePoint,
+} from '../../services/routeTracer';
 import { triggerHaptic } from '../../utils/system';
-import { windCompass, type WaypointWeather } from '../../services/routeReportWeather';
+import { fetchRouteWaypointWeather, windCompass, type WaypointWeather } from '../../services/routeReportWeather';
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
 
@@ -75,7 +80,7 @@ interface Props {
 /** Decimal degrees → degrees-decimal-minutes with hemisphere (the marine
  *  standard a skipper keys into a plotter): -27.1417 → 27°08.50'S. */
 const ddToDMM = (v: number, isLat: boolean): string => {
-    const hemi = isLat ? (v >= 0 ? 'N' : 'S') : (v >= 0 ? 'E' : 'W');
+    const hemi = isLat ? (v >= 0 ? 'N' : 'S') : v >= 0 ? 'E' : 'W';
     const a = Math.abs(v);
     const deg = Math.floor(a);
     const min = (a - deg) * 60;
@@ -165,6 +170,9 @@ export const TraceReportModal: React.FC<Props> = ({
 }) => {
     const [exporting, setExporting] = React.useState(false);
     const [exportMsg, setExportMsg] = React.useState<string | null>(null);
+    const dialogRef = React.useRef<HTMLDivElement>(null);
+    const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+    const priorFocusRef = React.useRef<HTMLElement | null>(null);
     // Per-waypoint weather at the ETA from the chosen departure (or NOW).
     // Fetched when the report opens; feeds the waypoint list and the PDF.
     const [weather, setWeather] = React.useState<WaypointWeather[] | null>(null);
@@ -181,7 +189,6 @@ export const TraceReportModal: React.FC<Props> = ({
         const departM = departureMs ?? Date.now();
         void (async () => {
             try {
-                const { fetchRouteWaypointWeather } = await import('../../services/routeReportWeather');
                 const rows = await fetchRouteWaypointWeather(pins, departM, spd);
                 if (live) setWeather(rows);
             } catch {
@@ -195,6 +202,55 @@ export const TraceReportModal: React.FC<Props> = ({
         };
         // Re-fetch when the report (re)opens or the route/speed/departure changes.
     }, [open, pins, spd, departureMs]);
+
+    // A route report is a true modal: on a keyboard-equipped plotter or
+    // desktop, Escape must offer the same deliberate exit as its visible Close
+    // control. The listener only exists while the report is presented, so a
+    // stray Escape cannot affect the chart beneath it.
+    React.useEffect(() => {
+        if (!open) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [open, onClose]);
+
+    React.useEffect(() => {
+        if (!open) return;
+        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        closeButtonRef.current?.focus();
+        return () => {
+            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
+            priorFocusRef.current = null;
+        };
+    }, [open]);
+
+    const trapDialogFocus = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Tab') return;
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const targets = Array.from(
+            dialog.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+        );
+        if (targets.length === 0) {
+            event.preventDefault();
+            dialog.focus();
+            return;
+        }
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }, []);
+
     const onExportPdf = React.useCallback(async () => {
         if (pins.length < 2 || exporting) return;
         setExporting(true);
@@ -219,14 +275,30 @@ export const TraceReportModal: React.FC<Props> = ({
                 departureMs,
                 nowMs: Date.now(),
             });
-            const outcome = await sharePdfBlob(blob, getRouteReportFileName(routeName), `Route report - ${routeName || 'route'}`);
+            const outcome = await sharePdfBlob(
+                blob,
+                getRouteReportFileName(routeName),
+                `Route report - ${routeName || 'route'}`,
+            );
             if (outcome === 'downloaded') setExportMsg('PDF downloaded');
         } catch (err) {
             setExportMsg(`Couldn’t make the PDF (${err instanceof Error ? err.message.slice(0, 40) : 'error'})`);
         } finally {
             setExporting(false);
         }
-    }, [pins, routeName, verdicts, tideLabels, departureLabel, vesselName, draftM, weather, spd, departureMs, exporting]);
+    }, [
+        pins,
+        routeName,
+        verdicts,
+        tideLabels,
+        departureLabel,
+        vesselName,
+        draftM,
+        weather,
+        spd,
+        departureMs,
+        exporting,
+    ]);
 
     // GPX export (Shane 2026-07-17: "export it in a gpx file for importing into
     // a chartplotter") — a plain <rte> of the pins, shared/downloaded like the
@@ -237,10 +309,7 @@ export const TraceReportModal: React.FC<Props> = ({
         setExportMsg(null);
         triggerHaptic('medium');
         try {
-            const [{ traceToGpx, traceGpxFileName }, { shareFileBlob }] = await Promise.all([
-                import('../../services/routeTracer'),
-                import('../../utils/sharePdf'),
-            ]);
+            const { shareFileBlob } = await import('../../utils/sharePdf');
             const blob = new Blob([traceToGpx(routeName, pins)], { type: 'application/gpx+xml' });
             const outcome = await shareFileBlob(
                 blob,
@@ -277,10 +346,23 @@ export const TraceReportModal: React.FC<Props> = ({
                 the leg list takes the rest. The old fixed max-h-[46vh] body could
                 not compose with the 80vh cap once header, departure row and footer
                 were stacked on it — the footer got pushed out of the card. */}
-            <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="trace-report-title"
+                tabIndex={-1}
+                onKeyDown={trapDialogFocus}
+                className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
+            >
                 <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
                     <div className="min-w-0">
-                        <div className="text-sm font-black uppercase tracking-widest text-amber-300">Route report</div>
+                        <h2
+                            id="trace-report-title"
+                            className="text-sm font-black uppercase tracking-widest text-amber-300"
+                        >
+                            Route report
+                        </h2>
                         {routeName.trim() !== '' && (
                             <div className="truncate text-[13px] font-bold text-gray-100">{routeName}</div>
                         )}
@@ -301,7 +383,7 @@ export const TraceReportModal: React.FC<Props> = ({
                         >
                             {exporting ? 'Making…' : '⬇ PDF'}
                         </button>
-                        <button onClick={onClose} className="text-sm font-bold text-gray-400">
+                        <button ref={closeButtonRef} onClick={onClose} className="text-sm font-bold text-gray-400">
                             Close
                         </button>
                     </div>
