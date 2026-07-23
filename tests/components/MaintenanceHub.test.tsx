@@ -2,7 +2,7 @@
  * MaintenanceHub — smoke tests (970 LOC component)
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../utils/createLogger', () => ({
@@ -20,6 +20,7 @@ vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
         logService: vi.fn().mockResolvedValue(undefined),
         getEngineHours: vi.fn().mockResolvedValue(0),
         setEngineHours: vi.fn().mockResolvedValue(undefined),
+        seedDefaults: vi.fn().mockResolvedValue(undefined),
     },
 }));
 vi.mock('../../services/MaintenanceService', () => ({
@@ -43,15 +44,20 @@ vi.mock('../../components/Toast', () => ({ toast: { success: vi.fn(), error: vi.
 import { MaintenanceHub } from '../../components/vessel/MaintenanceHub';
 
 describe('MaintenanceHub', () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.setItem('thalassa_maintenance_seeded', '1');
+    });
 
-    it('renders without crashing', () => {
+    it('renders without crashing', async () => {
         const { container } = render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByTestId('empty-state');
         expect(container).toBeDefined();
     });
 
-    it('renders content', () => {
+    it('renders content', async () => {
         const { container } = render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByTestId('empty-state');
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 });

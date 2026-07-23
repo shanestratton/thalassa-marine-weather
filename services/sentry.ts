@@ -67,13 +67,15 @@ function loadSentry(): Promise<SentryModule> {
     return _loading;
 }
 
-// Kick off loading after initial paint (2s delay)
+// Kick off loading well after the interactive shell is available. Errors still
+// load the SDK immediately through the wrappers below; the delayed path is only
+// proactive telemetry initialization and must not compete with first paint.
 if (typeof window !== 'undefined' && DSN) {
     setTimeout(() => {
         void loadSentry().catch(() => {
             /* Telemetry must never affect app availability. */
         });
-    }, 2000);
+    }, 10_000);
 }
 
 // ── Thin async wrappers ─────────────────────────────────────

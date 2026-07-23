@@ -3,7 +3,7 @@
  * Verifies render, view switching, and banner display.
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../utils/createLogger', () => ({
@@ -120,6 +120,11 @@ vi.mock('../services/MealPlanService', () => ({
     },
 }));
 
+vi.mock('../services/CrewService', () => ({
+    getMyCrew: vi.fn().mockResolvedValue([]),
+    getMyMemberships: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../components/SignInScreen', () => ({ SignInScreen: () => null }));
 vi.mock('../components/chat/ChatErrorBoundary', () => ({
     ChatErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -189,33 +194,47 @@ vi.mock('../theme', () => ({
 }));
 
 import { ChatPage } from '../components/ChatPage';
+import { ChatService } from '../services/ChatService';
+
+const renderSettledChatPage = async () => {
+    const result = render(<ChatPage />);
+
+    await waitFor(() => {
+        expect(ChatService.getChannelsFresh).toHaveBeenCalled();
+    });
+    await act(async () => {
+        await Promise.resolve();
+    });
+
+    return result;
+};
 
 describe('ChatPage', () => {
     beforeEach(() => vi.clearAllMocks());
 
-    it('renders without crashing', () => {
-        const { container } = render(<ChatPage />);
+    it('renders without crashing', async () => {
+        const { container } = await renderSettledChatPage();
         expect(container).toBeDefined();
     });
 
-    it('renders content (not empty)', () => {
-        const { container } = render(<ChatPage />);
+    it('renders content (not empty)', async () => {
+        const { container } = await renderSettledChatPage();
         expect(container.textContent!.length).toBeGreaterThan(0);
     });
 
-    it('renders the Crew Talk header', () => {
-        render(<ChatPage />);
+    it('renders the Crew Talk header', async () => {
+        await renderSettledChatPage();
         expect(screen.getByText(/crew talk/i)).toBeDefined();
     });
 
-    it('renders interactive elements', () => {
-        const { container } = render(<ChatPage />);
+    it('renders interactive elements', async () => {
+        const { container } = await renderSettledChatPage();
         // The mocked ChatHeader renders "Crew Talk" text
         expect(container.textContent).toContain('Crew Talk');
     });
 
-    it('starts in channels view by default', () => {
-        render(<ChatPage />);
+    it('starts in channels view by default', async () => {
+        await renderSettledChatPage();
         expect(screen.getByText(/crew talk/i)).toBeDefined();
     });
 });

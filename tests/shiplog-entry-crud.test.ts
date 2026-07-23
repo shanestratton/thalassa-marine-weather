@@ -71,6 +71,10 @@ function setupChainedQuery(data: unknown[] | null, error: unknown = null) {
         insert: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        then: (
+            onFulfilled: (value: { data: unknown[] | null; error: unknown }) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+        ) => Promise.resolve({ data, error }).then(onFulfilled, onRejected),
     };
     mockFrom.mockReturnValue(chain);
     return chain;
@@ -124,9 +128,7 @@ describe('getLogEntries', () => {
 describe('deleteVoyage', () => {
     it('calls delete with correct voyage_id', async () => {
         mockAuthUser('user-1');
-        const chain = setupChainedQuery(null);
-        chain.eq.mockReturnValue(chain);
-        chain.eq.mockResolvedValueOnce({ error: null }); // for user_id eq
+        setupChainedQuery(null);
 
         const result = await deleteVoyage('v1');
         expect(result).toBe(true);
@@ -139,8 +141,7 @@ describe('deleteVoyage', () => {
 describe('deleteEntry', () => {
     it('calls delete with correct entry_id', async () => {
         mockAuthUser('user-1');
-        const chain = setupChainedQuery(null);
-        chain.eq.mockResolvedValue({ error: null });
+        setupChainedQuery(null);
 
         const result = await deleteEntry('e1');
         expect(result).toBe(true);

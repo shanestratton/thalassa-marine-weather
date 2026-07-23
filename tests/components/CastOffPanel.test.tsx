@@ -2,7 +2,7 @@
  * CastOffPanel — smoke tests (595 LOC component)
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../utils/createLogger', () => ({
@@ -25,13 +25,19 @@ import { CastOffPanel } from '../../components/vessel/CastOffPanel';
 describe('CastOffPanel', () => {
     beforeEach(() => vi.clearAllMocks());
 
-    it('renders without crashing', () => {
-        const { container } = render(<CastOffPanel onClose={vi.fn()} />);
+    const renderSettled = async () => {
+        const result = render(<CastOffPanel onClose={vi.fn()} />);
+        await screen.findByText('No draft voyages yet');
+        return result;
+    };
+
+    it('renders without crashing', async () => {
+        const { container } = await renderSettled();
         expect(container).toBeDefined();
     });
 
-    it('renders content', () => {
-        const { container } = render(<CastOffPanel onClose={vi.fn()} />);
+    it('renders content', async () => {
+        const { container } = await renderSettled();
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 });
