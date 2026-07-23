@@ -164,9 +164,31 @@ export function createTileRoutes(cache: Cache, _config: ProxyConfig): Router {
         try {
             const { z, x, y } = req.params;
             const tilePath = (req.query.path as string) || '';
+            const zoom = Number(z);
+            const tileX = Number(x);
+            const tileY = Number(y);
+            const maxCoordinate = Number.isInteger(zoom) && zoom >= 0 && zoom <= 7 ? 2 ** zoom - 1 : -1;
 
-            const key = `tile:rainviewer:${tilePath}:${z}/${x}/${y}`;
-            const url = `https://tilecache.rainviewer.com${tilePath}/256/${z}/${x}/${y}/2/1_1.png`;
+            if (
+                !Number.isInteger(zoom) ||
+                zoom < 0 ||
+                zoom > 7 ||
+                !Number.isInteger(tileX) ||
+                !Number.isInteger(tileY) ||
+                tileX < 0 ||
+                tileY < 0 ||
+                tileX > maxCoordinate ||
+                tileY > maxCoordinate ||
+                !/^\/v2\/radar\/(?:\d{10}|[a-f0-9]{12})$/i.test(tilePath)
+            ) {
+                res.status(400).json({ error: 'Unsupported RainViewer tile request' });
+                return;
+            }
+
+            const url = `https://tilecache.rainviewer.com${tilePath}/512/${zoom}/${tileX}/${tileY}/2/1_1.png`;
+            // Match /api/passthrough-tile so scheduled prefetches, the
+            // dedicated endpoint, and live map requests share one entry.
+            const key = `passthrough-tile:${url}`;
 
             const result = await cachedTileFetch(cache, {
                 cacheKey: key,

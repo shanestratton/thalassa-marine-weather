@@ -73,6 +73,9 @@ export function MapWeatherControls({
         activeWeatherLayers.length === 2 &&
         activeWeatherLayers.includes('wind') &&
         activeWeatherLayers.includes('rain');
+    const currentRainFrame = weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
+    const showRainViewerAttribution =
+        weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'radar';
 
     let content: React.ReactNode = null;
     if (showTimeline && activeWeatherLayers.length >= 2 && !isWindRainCombo) {
@@ -332,6 +335,22 @@ export function MapWeatherControls({
     return (
         <>
             {content}
+            {showRainViewerAttribution && (
+                <a
+                    href="https://www.rainviewer.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="absolute right-4 z-[509] rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-slate-300/80 backdrop-blur-sm"
+                    style={{
+                        bottom: controlsHidden
+                            ? 'calc(84px + env(safe-area-inset-bottom))'
+                            : 'calc(196px + env(safe-area-inset-bottom))',
+                    }}
+                    aria-label="Rain radar data by RainViewer"
+                >
+                    Radar by RainViewer
+                </a>
+            )}
             {controlsHidden ? (
                 <button
                     type="button"

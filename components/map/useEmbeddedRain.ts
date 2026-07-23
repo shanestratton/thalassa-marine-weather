@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
+import {
+    buildRainViewerTileUrl,
+    RAINVIEWER_MAP_TILE_SIZE,
+    RAINVIEWER_NATIVE_MAX_ZOOM,
+} from '../../services/weather/api/rainviewerTiles';
 
 const log = createLogger('useEmbeddedRain');
 
@@ -10,7 +15,7 @@ export function useEmbeddedRain(
     backgroundRain: boolean = false,
 ) {
     const enabled = embedded || backgroundRain;
-    const embeddedRainFrames = useRef<{ path: string; time: number }[]>([]);
+    const embeddedRainFrames = useRef<{ host: string; path: string; time: number }[]>([]);
     const embRainNowIdx = useRef(0);
     const [embRainIdx, setEmbRainIdx] = useState(-1);
     const [embRainCount, setEmbRainCount] = useState(0);
@@ -27,8 +32,12 @@ export function useEmbeddedRain(
                 const { fetchRainviewerIndex } = await import('../../services/weather/api/rainviewerIndex');
                 const data = await fetchRainviewerIndex();
                 if (!data) return;
-                const past = (data.radar?.past ?? []).map((f) => ({ path: f.path, time: f.time }));
-                const forecast = (data.radar?.nowcast ?? []).map((f) => ({ path: f.path, time: f.time }));
+                const past = (data.radar?.past ?? []).map((f) => ({ host: data.host, path: f.path, time: f.time }));
+                const forecast = (data.radar?.nowcast ?? []).map((f) => ({
+                    host: data.host,
+                    path: f.path,
+                    time: f.time,
+                }));
                 const allFrames = [...past, ...forecast];
                 embeddedRainFrames.current = allFrames;
                 setEmbRainCount(allFrames.length);
@@ -68,10 +77,18 @@ export function useEmbeddedRain(
         }
         m.addSource('embedded-rain', {
             type: 'raster',
-            tiles: [`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/1_1.png`],
-            tileSize: 256,
+            tiles: [
+                buildRainViewerTileUrl(frame.path, {
+                    host: frame.host,
+                    size: RAINVIEWER_MAP_TILE_SIZE,
+                    zoom: '{z}',
+                    x: '{x}',
+                    y: '{y}',
+                }),
+            ],
+            tileSize: RAINVIEWER_MAP_TILE_SIZE,
             minzoom: 2,
-            maxzoom: 6,
+            maxzoom: RAINVIEWER_NATIVE_MAX_ZOOM,
         });
         m.addLayer({
             id: 'embedded-rain',

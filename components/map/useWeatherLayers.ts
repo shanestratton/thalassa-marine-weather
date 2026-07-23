@@ -65,6 +65,11 @@ import {
     RAINVIEWER_COLOR_RAMP,
     promoteNavLayers,
 } from './isobarLayerSetup';
+import {
+    buildRainViewerTileUrl,
+    RAINVIEWER_MAP_TILE_SIZE,
+    RAINVIEWER_NATIVE_MAX_ZOOM,
+} from '../../services/weather/api/rainviewerTiles';
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
 
 /**
@@ -261,6 +266,8 @@ export function useWeatherLayers(
         type: 'radar' | 'forecast';
         /** RainViewer tile path (radar only) */
         radarPath?: string;
+        /** Provider-owned host published by the RainViewer index. */
+        radarHost?: string;
         /** Unix timestamp (radar only) */
         radarTime?: number;
         /** Rainbow.ai XYZ tile URL template (forecast only) — contains {z}/{x}/{y} */
@@ -1571,6 +1578,7 @@ export function useWeatherLayers(
                     const past = radarData?.radar?.past ?? [];
                     const nowcast = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
+                    const radarHost = radarData?.host;
 
                     // Build radar-only unified timeline first so the UI can
                     // render as soon as it's ready.
@@ -1584,7 +1592,13 @@ export function useWeatherLayers(
                             const h = Math.round(diffMin / 60);
                             label = `${h > 0 ? '+' : ''}${h}h`;
                         } else label = `${diffMin > 0 ? '+' : ''}${diffMin}m`;
-                        unified.push({ type: 'radar', radarPath: f.path, radarTime: f.time, label });
+                        unified.push({
+                            type: 'radar',
+                            radarPath: f.path,
+                            radarHost,
+                            radarTime: f.time,
+                            label,
+                        });
                     }
 
                     const nowIdx = Math.max(0, past.length - 1);
@@ -1656,14 +1670,22 @@ export function useWeatherLayers(
                         if (m.getSource(srcId)) return;
                         m.addSource(srcId, {
                             type: 'raster',
-                            tiles: [`https://tilecache.rainviewer.com${rf.radarPath}/256/{z}/{x}/{y}/4/1_1.png`],
-                            tileSize: 256,
+                            tiles: [
+                                buildRainViewerTileUrl(rf.radarPath, {
+                                    host: rf.radarHost,
+                                    size: RAINVIEWER_MAP_TILE_SIZE,
+                                    zoom: '{z}',
+                                    x: '{x}',
+                                    y: '{y}',
+                                }),
+                            ],
+                            tileSize: RAINVIEWER_MAP_TILE_SIZE,
                             minzoom: 2,
-                            // Was 7, which at the z7.5 rain framing zoom put the
-                            // layer at the edge of its native resolution and
-                            // turned any zoom into your own water into stretched
-                            // colour blocks.
-                            maxzoom: 10,
+                            // RainViewer rejects native z8+. Keeping the source
+                            // ceiling at z7 makes Mapbox overzoom the final
+                            // valid 512px tile instead of displaying the
+                            // provider's "Zoom Level Not Supported" error PNG.
+                            maxzoom: RAINVIEWER_NATIVE_MAX_ZOOM,
                         });
                         m.addLayer(
                             {
