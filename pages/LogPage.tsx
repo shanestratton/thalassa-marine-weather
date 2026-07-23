@@ -124,7 +124,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         hasNonDeviceEntries,
         totalDistance: _totalDistance,
         avgSpeed: _avgSpeed,
-        careerTotals,
         // Archive
         archivedVoyages,
         handleArchiveVoyage,
