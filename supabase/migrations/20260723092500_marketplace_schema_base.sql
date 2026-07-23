@@ -136,6 +136,10 @@ CREATE POLICY "Users can delete own listings"
 
 -- The next migration replaces these read/message policies with safe views and
 -- participant-only access. They are secure defaults if replay stops here.
+DROP POLICY IF EXISTS "Listings are viewable by everyone" ON public.marketplace_listings;
+DROP POLICY IF EXISTS "Messages are viewable by everyone" ON public.marketplace_messages;
+DROP POLICY IF EXISTS "Users can send messages" ON public.marketplace_messages;
+DROP POLICY IF EXISTS "Buyers read own escrow" ON public.marketplace_escrow;
 CREATE POLICY "Listings are viewable by everyone"
     ON public.marketplace_listings FOR SELECT TO authenticated
     USING (seller_id = auth.uid());
