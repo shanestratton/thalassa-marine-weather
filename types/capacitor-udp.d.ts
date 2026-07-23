@@ -5,11 +5,11 @@
  *   npm install @frontall/capacitor-udp --legacy-peer-deps && npx cap sync
  */
 declare module '@frontall/capacitor-udp' {
-    interface UdpSocketPlugin {
-        create(): Promise<{ socketId: number }>;
-        bind(options: { socketId: number; port: number }): Promise<void>;
+    interface UDPPlugin {
+        create(options?: { properties?: { name?: string; bufferSize?: number } }): Promise<{ socketId: number }>;
+        bind(options: { socketId: number; address: string; port: number }): Promise<void>;
         send(options: { socketId: number; address: string; port: number; buffer: string }): Promise<void>;
         close(options: { socketId: number }): Promise<void>;
     }
-    export const UdpSocket: UdpSocketPlugin;
+    export const UDP: UDPPlugin;
 }

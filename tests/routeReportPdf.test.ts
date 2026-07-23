@@ -7,7 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { generateRouteReportPdf, getRouteReportFileName } from '../services/RouteReportPdfService';
 import type { TraceLegVerdict } from '../services/routeTracer';
 
-const leg = (grade: 'clear' | 'caution' | 'danger', message: string | null, minDepthM: number | null): TraceLegVerdict =>
+const leg = (
+    grade: 'clear' | 'caution' | 'danger',
+    message: string | null,
+    minDepthM: number | null,
+): TraceLegVerdict =>
     ({
         grade,
         issues: message ? [{ severity: grade === 'clear' ? 'info' : grade, message }] : [],

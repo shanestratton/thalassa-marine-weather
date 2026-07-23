@@ -12,7 +12,8 @@
  * This file is now a thin orchestrator — logic is split into:
  *   - mapConstants.ts      (types, constants, helpers)
  *   - useMapInit.ts        (map creation, layers, pin drop, location dot, picker)
- *   - useWeatherLayers.ts  (weather overlays, isobars, rain/wind scrubbers)
+ *   - useWeatherLayers.ts  (weather overlay lifecycle and frame state)
+ *   - MapWeatherControls.tsx (weather timeline, legend, model picker)
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
@@ -64,15 +65,17 @@ import { useLocalCharts } from './useLocalCharts';
 import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
+import { useTraceHistory } from './useTraceHistory';
+import { useTraceDraft } from './useTraceDraft';
 import { useAnchorageLayer } from './useAnchorageLayer';
 import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
-import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
-import { useSstRasterLayer, isCmemsSstEnabled } from './useSstRasterLayer';
-import { useChlRasterLayer, isCmemsChlEnabled } from './useChlRasterLayer';
-import { useSeaIceRasterLayer, isCmemsSeaIceEnabled } from './useSeaIceRasterLayer';
-import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
+import { useOceanWaveParticleLayer } from './useOceanWaveParticleLayer';
+import { useSstRasterLayer } from './useSstRasterLayer';
+import { useChlRasterLayer } from './useChlRasterLayer';
+import { useSeaIceRasterLayer } from './useSeaIceRasterLayer';
+import { useMldRasterLayer } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 // Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
@@ -99,7 +102,6 @@ import {
     type TideOffsetRead,
 } from '../../services/TideOffsetService';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
-import { TraceReportModal } from './TraceReportModal';
 import {
     submitTracedRoute,
     communityLanesNear,
@@ -149,7 +151,6 @@ import {
     destNameFromRouteName,
     retroBadgeFirstLeg,
     healTripChain,
-    type NextLegSeed,
     type GhostLane,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
@@ -205,8 +206,7 @@ import { RadialHelmMenu } from './RadialHelmMenu';
 import { StormPicker } from './StormPicker';
 import { MapActionFabs } from './MapActionFabs';
 import { TimePicker24 } from '../passage/TimePicker24';
-import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
-import { WindModelFieldSelector } from './WindModelFieldSelector';
+import { MapWeatherControls } from './MapWeatherControls';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import {
@@ -264,6 +264,22 @@ const OfflineAreaModal = lazyRetry(
     () => import('./OfflineAreaModal').then((m) => ({ default: m.OfflineAreaModal })),
     'OfflineAreaModal',
 );
+// Route review is an intentional, post-planning step. Keeping its report UI
+// out of the initial chart chunk makes first map paint cheaper without
+// compromising the review path once the skipper asks for it.
+const TraceReportModal = lazyRetry(
+    () => import('./TraceReportModal').then((m) => ({ default: m.TraceReportModal })),
+    'TraceReportModal',
+);
+const TraceReportLoading: React.FC = () => (
+    <div
+        role="status"
+        aria-live="polite"
+        className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-sky-200"
+    >
+        Opening route report…
+    </div>
+);
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { usePersistedState, usePersistedStringSet } from '../../hooks/usePersistedState';
 // WeatherInspectPopup is rendered imperatively via createRoot — use direct dynamic import
@@ -314,129 +330,37 @@ export const MapHub: React.FC<MapHubProps> = ({
      * Incremented by the effect's own wait-for-map poll; never read elsewhere.
      */
     const [traceLayerNudge, setTraceLayerNudge] = useState(0);
-    // Work-in-progress pins survive a page reload (Shane 2026-07-09: a
-    // service-worker reload storm ate his half-traced route — the storm
-    // is fixed, but a mid-trace deploy or crash must never cost the work
-    // again). sessionStorage = per-tab, dies with the tab: exactly the
-    // lifetime of "work in progress". Restored lazily on mount; the
-    // persist effect below keeps it current (CLEAR writes [] naturally).
-    const [capturedCoords, setCapturedCoords] = useState<Array<{ lat: number; lon: number }>>(() => {
-        try {
-            const raw = sessionStorage.getItem('thalassa_trace_wip_pins');
-            const parsed = raw ? (JSON.parse(raw) as Array<{ lat: number; lon: number }>) : [];
-            return Array.isArray(parsed)
-                ? parsed.filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
-                : [];
-        } catch {
-            return [];
-        }
-    });
-    useEffect(() => {
-        try {
-            sessionStorage.setItem('thalassa_trace_wip_pins', JSON.stringify(capturedCoords));
-        } catch {
-            /* quota/private-mode — the trace just doesn't survive reloads */
-        }
-    }, [capturedCoords]);
+    // Trace data is session-persisted as one per-tab draft. The hook owns
+    // recovery/validation so this orchestrator stays focused on map behaviour.
+    const {
+        capturedCoords,
+        setCapturedCoords,
+        departureMs,
+        setDepartureMs,
+        traceName,
+        setTraceName,
+        lastAutoNameRef,
+        legAnchor,
+        setLegAnchor,
+        legAnchorRef,
+        traceOrigin,
+        setTraceOrigin,
+        traceDest,
+        setTraceDest,
+    } = useTraceDraft();
 
-    // Undo / REDO HISTORY (Shane 2026-07-16: "a stray tap drops a stupid
-    // waypoint and sends the route sideways — put it back exactly as it was,
-    // and step back edit-by-edit up to the last save" + "do redo too"). Every
-    // edit to capturedCoords — whatever dropped it: a tap, a drag, auto-route,
-    // a ghost, a delete — snapshots the PREVIOUS state here, so Undo restores
-    // it whole; Redo walks forward again. Two stacks; a fresh edit invalidates
-    // the redo branch. Captured via an effect keyed on capturedCoords so all
-    // ~18 setCapturedCoords sites feed it for free. Guards: an undo/redo
-    // restore must not re-push; a save/load rebases both stacks (the saved
-    // state is the floor — you can't undo past it).
-    type Coords = Array<{ lat: number; lon: number }>;
-    const traceHistoryRef = useRef<Coords[]>([]);
-    const traceRedoRef = useRef<Coords[]>([]);
-    const prevCoordsRef = useRef(capturedCoords);
-    const isRestoringRef = useRef(false);
-    const rebaseHistoryRef = useRef(false);
-    const [canUndoTrace, setCanUndoTrace] = useState(false);
-    const [canRedoTrace, setCanRedoTrace] = useState(false);
-    useEffect(() => {
-        if (capturedCoords === prevCoordsRef.current) return; // no real change
-        if (isRestoringRef.current) {
-            // An undo/redo restore — the handler already moved the stacks. Just
-            // sync the baseline; never re-push and never clear the redo branch.
-            isRestoringRef.current = false;
-            prevCoordsRef.current = capturedCoords;
-            return;
-        }
-        if (rebaseHistoryRef.current) {
-            // Save / load a route → this IS the new floor. Wipe both stacks.
-            rebaseHistoryRef.current = false;
-            traceHistoryRef.current = [];
-            traceRedoRef.current = [];
-            prevCoordsRef.current = capturedCoords;
-            setCanUndoTrace(false);
-            setCanRedoTrace(false);
-            return;
-        }
-        // A fresh edit: push the previous state, and abandon the redo branch.
-        traceHistoryRef.current.push(prevCoordsRef.current);
-        if (traceHistoryRef.current.length > 100) traceHistoryRef.current.shift();
-        traceRedoRef.current = [];
-        prevCoordsRef.current = capturedCoords;
-        setCanUndoTrace(true);
-        setCanRedoTrace(false);
-    }, [capturedCoords]);
-    /** Undo the last route edit — restore the exact prior state (multi-step,
-     *  back to the last save). No-op when history is empty. */
-    const undoTrace = useCallback(() => {
-        if (traceHistoryRef.current.length === 0) return;
-        triggerHaptic('light');
-        const prev = traceHistoryRef.current.pop()!;
-        traceRedoRef.current.push(prevCoordsRef.current); // current → redo
-        isRestoringRef.current = true;
-        setSelectedPin(null);
-        setInsertAfter(null);
-        insertAfterRef.current = null;
-        setCapturedCoords(prev);
-        setCanUndoTrace(traceHistoryRef.current.length > 0);
-        setCanRedoTrace(true);
-    }, []);
-    /** Redo — step forward again after an Undo, up to where you'd undone from.
-     *  Cleared the moment you make a new edit. No-op when the redo stack empty. */
-    const redoTrace = useCallback(() => {
-        if (traceRedoRef.current.length === 0) return;
-        triggerHaptic('light');
-        const next = traceRedoRef.current.pop()!;
-        traceHistoryRef.current.push(prevCoordsRef.current); // current → undo
-        isRestoringRef.current = true;
-        setSelectedPin(null);
-        setInsertAfter(null);
-        insertAfterRef.current = null;
-        setCapturedCoords(next);
-        setCanUndoTrace(true);
-        setCanRedoTrace(traceRedoRef.current.length > 0);
-    }, []);
-
-    // Departure date/time for the plan (Shane 2026-07-16): anchors the
-    // per-leg tide windows (evaluated at each leg's ETA), the departure-window
-    // headline, and the report's weather ETAs. null = "leave now".
-    // Session-persisted beside the WIP pins; a departure >1 h in the past is
-    // stale planning state and resets to "now" on restore.
-    const [departureMs, setDepartureMs] = useState<number | null>(() => {
-        try {
-            const raw = sessionStorage.getItem('thalassa_trace_departure_ms');
-            const v = raw ? Number(raw) : NaN;
-            return Number.isFinite(v) && v > Date.now() - 3_600_000 ? v : null;
-        } catch {
-            return null;
-        }
-    });
-    useEffect(() => {
-        try {
-            if (departureMs === null) sessionStorage.removeItem('thalassa_trace_departure_ms');
-            else sessionStorage.setItem('thalassa_trace_departure_ms', String(departureMs));
-        } catch {
-            /* private mode — departure just doesn't survive reloads */
-        }
-    }, [departureMs]);
+    // Every pin edit feeds the same history hook, regardless of whether it
+    // came from a tap, drag, auto-route, ghost lane, or saved route load.
+    // Rebased loads establish a fresh undo floor.
+    const {
+        rebaseHistoryRef,
+        skipNextHistoryRef,
+        canUndo: canUndoTrace,
+        canRedo: canRedoTrace,
+        reset: resetTraceHistory,
+        undo: undoTraceHistory,
+        redo: redoTraceHistory,
+    } = useTraceHistory(capturedCoords, setCapturedCoords);
 
     // Corridor chart prefetch (Shane 2026-07-16): the app knows the route's
     // start/finish the moment two pins exist — quietly pull the ENC cells for
@@ -556,14 +480,6 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  delete; the shallow patch itself doesn't move). */
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
-    // Name rides with the WIP pins across a tab hop (2026-07-18).
-    const [traceName, setTraceName] = useState(() => {
-        try {
-            return sessionStorage.getItem('thalassa_trace_wip_name') ?? '';
-        } catch {
-            return '';
-        }
-    });
     // AUTO-NAME (Shane 2026-07-16): "Newport - Scarborough" from the first +
     // last pins, live as the route grows; coords when no place is nearby.
     // Auto-naming is ACTIVE while the name box is empty or still holding the
@@ -572,26 +488,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Restored alongside the name, because THIS ref is what distinguishes "we
     // named it" from "the skipper named it". Lost, every restored name looks
     // hand-typed and auto-naming silently stops updating it.
-    // Hoisted above the auto-name effect, which reads it to keep a chained leg's
-    // FROM half stable. Self-contained (sessionStorage only), so the move costs
-    // nothing — and the effect referencing it from below was a TDZ error that
-    // vite bundled happily and tsc caught.
-    const [legAnchor, setLegAnchor] = useState<NextLegSeed | null>(() => {
-        try {
-            return JSON.parse(sessionStorage.getItem('thalassa_trace_wip_leg_anchor') ?? 'null');
-        } catch {
-            return null;
-        }
-    });
-    const lastAutoNameRef = useRef<string>(
-        (() => {
-            try {
-                return sessionStorage.getItem('thalassa_trace_wip_auto_name') ?? '';
-            } catch {
-                return '';
-            }
-        })(),
-    );
     useEffect(() => {
         if (!coordCaptureMode || capturedCoords.length === 0) return;
         const isAuto = traceName === '' || traceName === lastAutoNameRef.current;
@@ -624,7 +520,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             });
         }, 800);
         return () => window.clearTimeout(t);
-    }, [capturedCoords, coordCaptureMode, traceName, legAnchor]);
+    }, [capturedCoords, coordCaptureMode, traceName, legAnchor, lastAutoNameRef, setTraceName]);
     // Typed GPS-fix entry (build a route by keying coords, not just tapping —
     // Shane 2026-07-16). Accepts decimal, hemisphere, DMM and DMS via
     // parseCoordinateString; each Add appends a pin to the trace.
@@ -639,13 +535,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // (no drag, no delete; Clear resets TO it — legs chain by position,
     // not by name). Save badges the name "(2nd Leg)", stamps the chain
     // fields, and retro-badges leg 1. Loading anything else drops it.
-    // Restored with the pins — see the persistence effect below for why the
-    // chain must not outlive its own trace.
-    const legAnchorRef = useRef<NextLegSeed | null>(null);
-    useEffect(() => {
-        legAnchorRef.current = legAnchor;
-    }, [legAnchor]);
-
     // THE LOCK IS AN INVARIANT, not a pile of per-path guards (Shane 2026-07-19:
     // "the first pin LOCKED where the last pin from the previous leg ended… it
     // should not be able to be moved at all").
@@ -668,9 +557,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (p0.lat === a.lat && p0.lon === a.lon) return; // already correct — the common case
         // A correction is not an edit: borrow the undo/redo suppression so this
         // never lands on the history stack as a step the skipper can undo into.
-        isRestoringRef.current = true;
+        skipNextHistoryRef.current = true;
         setCapturedCoords((prev) => (prev.length === 0 ? prev : [{ ...a }, ...prev.slice(1)]));
-    }, [legAnchor, capturedCoords]);
+    }, [legAnchor, capturedCoords, skipNextHistoryRef, setCapturedCoords]);
     // Focused by the no-name Save guard so the keyboard pops ready to type.
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
@@ -688,6 +577,19 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [selectedPin, setSelectedPin] = useState<number | null>(null);
     const [insertAfter, setInsertAfter] = useState<number | null>(null);
     const insertAfterRef = useRef<number | null>(null);
+    const clearTraceSelection = useCallback(() => {
+        setSelectedPin(null);
+        setInsertAfter(null);
+        insertAfterRef.current = null;
+    }, []);
+    // Restoring a route edit must also clear a pin/insertion selection: indexes
+    // refer to the old point list after undo or redo.
+    const undoTrace = useCallback(() => {
+        if (undoTraceHistory()) clearTraceSelection();
+    }, [clearTraceSelection, undoTraceHistory]);
+    const redoTrace = useCallback(() => {
+        if (redoTraceHistory()) clearTraceSelection();
+    }, [clearTraceSelection, redoTraceHistory]);
     /** Saved-route delete confirm: first ✕ arms, second deletes. */
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     /** Guided builder: "⚡ Auto to destination" run state + the course chip
@@ -728,46 +630,9 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  the tracer owns its own From/To — no trip through the old planner.
      *  Origin = fly-to + hollow START ring; destination arms ⚡ Auto, draws
      *  the 🏁 ghost and the dashed bearing hint from the trace's live end.
-     *  Both are GHOSTS, never trace pins — the punter's line stays his. */
-    // Frame survives reloads alongside the WIP pins (same rationale).
-    const [traceOrigin, setTraceOrigin] = useState<{ lat: number; lon: number; name: string } | null>(() => {
-        try {
-            const p = JSON.parse(sessionStorage.getItem('thalassa_trace_wip_origin') ?? 'null');
-            return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null;
-        } catch {
-            return null;
-        }
-    });
-    const [traceDest, setTraceDest] = useState<{ lat: number; lon: number; name: string } | null>(() => {
-        try {
-            const p = JSON.parse(sessionStorage.getItem('thalassa_trace_wip_dest') ?? 'null');
-            return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null;
-        } catch {
-            return null;
-        }
-    });
-    useEffect(() => {
-        try {
-            sessionStorage.setItem('thalassa_trace_wip_origin', JSON.stringify(traceOrigin));
-            sessionStorage.setItem('thalassa_trace_wip_dest', JSON.stringify(traceDest));
-        } catch {
-            /* quota/private-mode */
-        }
-    }, [traceOrigin, traceDest]);
-    // The leg CHAIN rides with the pins, or resuming a trace quietly corrupts it
-    // (2026-07-18). legAnchor is what makes leg 2 a leg 2 — saveTrace branches on
-    // it for tripId/legOrdinal — so a trace resumed after a tab hop would save
-    // UNCHAINED and unbadged, looking fine while having silently lost its parent.
-    // That is worse than the visible loss it accompanies, so it persists too.
-    useEffect(() => {
-        try {
-            sessionStorage.setItem('thalassa_trace_wip_leg_anchor', JSON.stringify(legAnchor));
-            sessionStorage.setItem('thalassa_trace_wip_name', traceName);
-            sessionStorage.setItem('thalassa_trace_wip_auto_name', lastAutoNameRef.current);
-        } catch {
-            /* quota/private-mode */
-        }
-    }, [legAnchor, traceName]);
+     *  Both are GHOSTS, never trace pins — the punter's line stays his.
+     *  useTraceDraft keeps this frame and chained-leg identity with the
+     *  session-backed work-in-progress pins. */
     const [fromQuery, setFromQuery] = useState('');
     const [toQuery, setToQuery] = useState('');
     const [frameBusy, setFrameBusy] = useState(false);
@@ -971,7 +836,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         };
         window.addEventListener('thalassa:departure-changed', onDep);
         return () => window.removeEventListener('thalassa:departure-changed', onDep);
-    }, []);
+    }, [setDepartureMs]);
     // (Tap-the-water popup suppression lives below, after mapRef/mapReady
     // are declared — it's per-map now, not module-global.)
     useEffect(() => {
@@ -1567,7 +1432,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // won't drag (its spot IS the previous leg's arrival).
             if (rec.tag) rec.tag.textContent = locked ? '🔒 START' : 'START';
         });
-    }, [capturedCoords, coordCaptureMode, selectedPin, legAnchor, flashTraceFeedback]);
+    }, [capturedCoords, coordCaptureMode, selectedPin, legAnchor, flashTraceFeedback, setCapturedCoords]);
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
@@ -1620,7 +1485,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (mapRef.current) fitTraceBounds(mapRef.current, t.points);
             flashTraceFeedback(`Opened "${t.name}"`);
         },
-        [flashTraceFeedback],
+        [flashTraceFeedback, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
     );
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
@@ -1691,13 +1556,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                         : ack,
             );
             // This saved state is the new Undo FLOOR (Shane 2026-07-16: undo
-            // "right up to when it was last saved"). Save doesn't touch
-            // capturedCoords, so clear both stacks directly.
-            traceHistoryRef.current = [];
-            traceRedoRef.current = [];
-            prevCoordsRef.current = capturedCoords;
-            setCanUndoTrace(false);
-            setCanRedoTrace(false);
+            // "right up to when it was last saved"). Save does not replace
+            // capturedCoords, so reset the history immediately.
+            resetTraceHistory();
             // Cross-device honesty: "Saved ✓" is true of THIS device either
             // way, but build-on-desktop→sail-on-phone needs the account
             // push — when it didn't happen, say so instead of letting the
@@ -1741,7 +1602,17 @@ export const MapHub: React.FC<MapHubProps> = ({
             // won't exist next session is exactly the lie we don't tell.
             flashTraceFeedback('Could not save — storage full');
         }
-    }, [capturedCoords, traceName, legAnchor, savedTraces, overwriteArm, legVerdicts, flashTraceFeedback]);
+    }, [
+        capturedCoords,
+        traceName,
+        legAnchor,
+        savedTraces,
+        overwriteArm,
+        legVerdicts,
+        flashTraceFeedback,
+        resetTraceHistory,
+        setTraceName,
+    ]);
     // Return-trip flip (Shane 2026-07-15: "when we are returning, we can
     // flip the trip the other way"): reverse the pins and let the grader
     // re-run. Leg cache keys are DIRECTION-SENSITIVE (a↔b swap, the
@@ -1775,7 +1646,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 ? `Reversed — "${flipped.trim()}"`
                 : 'Reversed — checking the return run now',
         );
-    }, [capturedCoords.length, traceName, flashTraceFeedback]);
+    }, [capturedCoords.length, traceName, flashTraceFeedback, legAnchorRef, setCapturedCoords, setTraceName]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         try {
@@ -1887,7 +1758,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // straight shot was already the clean line".
             return { fixed, added: fixed > 0 ? pins.length - capturedCoords.length : 0 };
         },
-        [capturedCoords, tracerCtxFromLru, tracerCtxHold],
+        [capturedCoords, tracerCtxFromLru, tracerCtxHold, setCapturedCoords],
     );
     const onFixLeg = useCallback(
         (i: number) => {
@@ -1968,7 +1839,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         const z = mapRef.current?.getZoom?.() ?? 12;
         mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: Math.max(z, 12), duration: 700 });
         flashTraceFeedback(`Point added — ${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)}`);
-    }, [coordEntry, flashTraceFeedback]);
+    }, [coordEntry, flashTraceFeedback, setCapturedCoords]);
 
     const pasteTrace = useCallback(async () => {
         try {
@@ -1993,7 +1864,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         } catch {
             flashTraceFeedback('Clipboard not available');
         }
-    }, [flashTraceFeedback]);
+    }, [flashTraceFeedback, setCapturedCoords]);
     // Share sheet (Phase 4 lite): the same coord payload Copy produces, out
     // through the native share sheet — "follow my line in" over Messages.
     const shareTrace = useCallback(async () => {
@@ -2254,7 +2125,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
             })();
         }, 30);
-    }, [capturedCoords, selectedPin, fixBusyLeg, settings.vessel, flashTraceFeedback]);
+    }, [capturedCoords, selectedPin, fixBusyLeg, settings.vessel, flashTraceFeedback, setCapturedCoords]);
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
     // the vessel's real draft (feet→metres via vesselDraftMetres) plus the
@@ -2352,7 +2223,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 11.5, duration: 1000 });
             flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
         },
-        [flashTraceFeedback],
+        [flashTraceFeedback, rebaseHistoryRef, setCapturedCoords],
     );
     // ── Route Tracer validation (lives below the settings declaration —
     // the dep arrays read settings.vessel at render time) ──
@@ -3846,7 +3717,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         } finally {
             setFrameBusy(false);
         }
-    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback]);
+    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin]);
 
     const clearCourseFrame = useCallback(() => {
         setTraceOrigin(null);
@@ -3854,7 +3725,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setFromQuery('');
         setToQuery('');
         setCourseChip(null);
-    }, []);
+    }, [setTraceDest, setTraceOrigin]);
 
     // ── Guided builder: "⚡ Auto to destination" ──
     // The punter traces the fiddly bits (marina, bar, river — where local
@@ -3920,7 +3791,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         } finally {
             setAutoBusy(false);
         }
-    }, [autoBusy, capturedCoords, traceOrigin, traceDest, passage.arrival, settings.vessel, flashTraceFeedback]);
+    }, [
+        autoBusy,
+        capturedCoords,
+        traceOrigin,
+        traceDest,
+        passage.arrival,
+        settings.vessel,
+        flashTraceFeedback,
+        setCapturedCoords,
+    ]);
 
     // Follow Route overlay — renders the followed planned route on the map
     // Suppressed during passage planning to avoid visual conflict
@@ -5186,7 +5066,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded;
 
     return (
-        <div className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
+        <div data-testid="map-hub" className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
             {/* Floating route-enhancement chip — visible while the */}
             {/* passage planner's bathymetric/weather/depth pipeline runs */}
             {/* in the background after the basic plan lands. */}
@@ -5239,11 +5119,10 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                     NARROW ON PURPOSE. 799dc4d0 gated this same line and was
                     reverted in a484571b — not because gating wind was wrong,
-                    but because it ALSO gated the ThalassaHelixControl blocks
-                    (:7553, :7572, :7841), which stripped the legend and
-                    scrubber for EVERY weather layer and took the planning
-                    chart with it. Those three sites must stay untouched;
-                    this one line is the whole fix. */}
+                    but because it ALSO gated the weather controls, which
+                    stripped the legend and scrubber for EVERY weather layer
+                    and took the planning chart with it. Keep this guard
+                    narrow: this overlay alone is the whole fix. */}
                 {!isPinView && !embedded && !coordCaptureMode && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
@@ -6679,31 +6558,35 @@ export const MapHub: React.FC<MapHubProps> = ({
                         )}
                     </div>
                 )}
-                <TraceReportModal
-                    open={showReport}
-                    onClose={() => setShowReport(false)}
-                    pins={capturedCoords}
-                    routeName={traceName}
-                    verdicts={legVerdicts}
-                    tideLabels={tideLabels}
-                    departureLabel={departureLabel}
-                    ackedLegs={ackedLegs}
-                    fixBusy={fixBusyLeg}
-                    vesselName={settings.vessel?.name}
-                    draftM={vesselDraftMetres(settings.vessel)}
-                    cruisingSpeedKts={settings.vessel?.cruisingSpeed}
-                    departureMs={departureMs}
-                    onFlyTo={(pt) => {
-                        setShowReport(false);
-                        mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });
-                    }}
-                    onFixLeg={onFixLeg}
-                    onFixAll={onFixAll}
-                    onAckLeg={(i) => {
-                        triggerHaptic('light');
-                        setAckedLegs((prev) => new Set(prev).add(i));
-                    }}
-                />
+                {showReport && (
+                    <Suspense fallback={<TraceReportLoading />}>
+                        <TraceReportModal
+                            open={showReport}
+                            onClose={() => setShowReport(false)}
+                            pins={capturedCoords}
+                            routeName={traceName}
+                            verdicts={legVerdicts}
+                            tideLabels={tideLabels}
+                            departureLabel={departureLabel}
+                            ackedLegs={ackedLegs}
+                            fixBusy={fixBusyLeg}
+                            vesselName={settings.vessel?.name}
+                            draftM={vesselDraftMetres(settings.vessel)}
+                            cruisingSpeedKts={settings.vessel?.cruisingSpeed}
+                            departureMs={departureMs}
+                            onFlyTo={(pt) => {
+                                setShowReport(false);
+                                mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });
+                            }}
+                            onFixLeg={onFixLeg}
+                            onFixAll={onFixAll}
+                            onAckLeg={(i) => {
+                                triggerHaptic('light');
+                                setAckedLegs((prev) => new Set(prev).add(i));
+                            }}
+                        />
+                    </Suspense>
+                )}
 
                 {/* Lightning legend pill — rendered OUTSIDE the AisLegend
                     Suspense block. The eager-imported BlitzortungAttribution
@@ -6881,7 +6764,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                     The single-layer legend has since MOVED OUT of this corner
                     entirely — it now sits mid-left above the back chevron
-                    (ThalassaHelixControl), which is what actually fixed the
+                    (via MapWeatherControls / ThalassaHelixControl), which is what actually fixed the
                     pile-up. LegendDock (2+ layers) still lives here but
                     collapses to 44px chips.
 
@@ -7181,386 +7064,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* ═══ THALASSA HELIX CONTROL ═══ */}
-                {!isPinView &&
-                    !embedded &&
-                    weather.activeLayers.size > 0 &&
-                    !chartControlsHidden &&
-                    (() => {
-                        // Identify active weather layers (only scrubble types)
-                        const WEATHER_KEYS: HelixLayer[] = [
-                            'pressure',
-                            'wind',
-                            'rain',
-                            'temperature',
-                            'clouds',
-                            // Currents + waves + SST + chl only get the scrubber when
-                            // their CMEMS pipeline is on. Under Xweather raster the
-                            // tiles are just static heatmaps.
-                            ...(isCmemsCurrentsEnabled() ? (['currents'] as HelixLayer[]) : []),
-                            ...(isCmemsWavesEnabled() ? (['waves'] as HelixLayer[]) : []),
-                            ...(isCmemsSstEnabled() ? (['sst'] as HelixLayer[]) : []),
-                            ...(isCmemsChlEnabled() ? (['chl'] as HelixLayer[]) : []),
-                            ...(isCmemsSeaIceEnabled() ? (['seaice'] as HelixLayer[]) : []),
-                            ...(isCmemsMldEnabled() ? (['mld'] as HelixLayer[]) : []),
-                        ];
-                        const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
-                            k === 'wind'
-                                ? weather.activeLayers.has('wind' as WeatherLayer) ||
-                                  weather.activeLayers.has('velocity')
-                                : weather.activeLayers.has(k as WeatherLayer),
-                        );
-
-                        // ── Wind+Rain combo: synced scrubber limited to shortest timeline ──
-                        const isWindRainCombo =
-                            activeWeatherLayers.length === 2 &&
-                            activeWeatherLayers.includes('wind') &&
-                            activeWeatherLayers.includes('rain');
-
-                        if (activeWeatherLayers.length >= 2 && !isWindRainCombo) {
-                            return <LegendDock layers={activeWeatherLayers} embedded={embedded} />;
-                        }
-
-                        if (isWindRainCombo) {
-                            // Synced scrubber: use rain timeline (shorter, ~4h) and drive both
-                            if (weather.rainLoading) {
-                                return (
-                                    <ThalassaHelixControl
-                                        activeLayer="rain"
-                                        frameIndex={0}
-                                        totalFrames={1}
-                                        frameLabel="Loading..."
-                                        sublabel="Rain"
-                                        isPlaying={false}
-                                        isLoading={true}
-                                        embedded={embedded}
-                                        onScrub={() => {}}
-                                        onPlayToggle={() => {}}
-                                    />
-                                );
-                            }
-                            if (weather.rainReady && weather.rainFrameCount > 1) {
-                                const rainNow = weather.rainNowIdxRef.current;
-                                const curFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
-                                const isForecast = curFrame?.type === 'forecast';
-                                return (
-                                    <ThalassaHelixControl
-                                        activeLayer="wind"
-                                        frameIndex={weather.rainFrameIndex}
-                                        totalFrames={weather.rainFrameCount}
-                                        frameLabel={curFrame?.label ?? '--'}
-                                        sublabel={isForecast ? 'Forecast' : 'Live'}
-                                        isPlaying={weather.rainPlaying}
-                                        isLoading={false}
-                                        embedded={embedded}
-                                        nowIndex={rainNow}
-                                        dualColor={true}
-                                        forecastAccent="#fbbf24"
-                                        onScrub={(idx: number) => {
-                                            weather.setRainFrameIndex(idx);
-                                            // Map rain frame time to closest wind hour
-                                            const frame = weather.unifiedFramesRef.current[idx];
-                                            if (frame && weather.windForecastHoursRef.current.length > 0) {
-                                                const fhrs = weather.windForecastHoursRef.current;
-                                                const nowIdx = weather.windNowIdxRef.current;
-                                                const rainNowIdx = weather.rainNowIdxRef.current;
-                                                const deltaFrames = idx - rainNowIdx;
-                                                // Each rain frame is ~10 min apart; map to wind hour index
-                                                const deltaHours = (deltaFrames * 10) / 60;
-                                                const targetForecastHour = (fhrs[nowIdx] ?? 0) + deltaHours;
-                                                // Find closest wind forecast hour
-                                                let bestWindIdx = nowIdx;
-                                                let bestDist = Infinity;
-                                                for (let i = 0; i < fhrs.length; i++) {
-                                                    const d = Math.abs(fhrs[i] - targetForecastHour);
-                                                    if (d < bestDist) {
-                                                        bestDist = d;
-                                                        bestWindIdx = i;
-                                                    }
-                                                }
-                                                weather.setWindHour(bestWindIdx);
-                                            }
-                                        }}
-                                        onScrubStart={() => weather.setRainPlaying(false)}
-                                        onPlayToggle={() => weather.setRainPlaying(!weather.rainPlaying)}
-                                    />
-                                );
-                            }
-                            // Rain not ready — fall through to wind-only scrubber
-                        }
-
-                        // ── 0 weather layers (only sea/traffic/etc): nothing ──
-                        if (activeWeatherLayers.length === 0) return null;
-
-                        // ── Exactly 1 weather layer: show scrubber ──
-                        const activeLayerKey = activeWeatherLayers[0];
-                        if (!activeLayerKey) return null;
-
-                        let frameIndex = 0;
-                        let totalFrames = 1;
-                        let frameLabel = 'Live';
-                        let sublabel = 'Live';
-                        let isPlaying = false;
-                        let isLoading = false;
-                        let framesReady: number | undefined;
-                        let nowIndex: number | undefined;
-                        let dualColor = false;
-                        let forecastAccent = '#fbbf24';
-
-                        let onScrub = (_f: number) => {};
-                        let onScrubStart: (() => void) | undefined;
-                        let onPlayToggle = () => {};
-
-                        let applyFrame: ((f: number) => void) | undefined;
-
-                        if (activeLayerKey === 'pressure') {
-                            frameIndex = weather.forecastHour;
-                            totalFrames = weather.totalFrames;
-                            framesReady = weather.framesReady;
-                            isPlaying = weather.isPlaying;
-                            const maxF = Math.max(0, totalFrames - 1);
-                            const nowIdx = weather.pressureNowIdx;
-                            nowIndex = nowIdx; // feed the scrubber's Now-marker
-                            // Label is RELATIVE to Now, not to cycle hour. If
-                            // the GFS cycle is 4h old and we're on sub-frame 4
-                            // (= wall-clock now), we want "Now", not "+4h".
-                            // If we're on sub-frame 8 (= 4h in the future),
-                            // we want "+4h". Matches the wind scrubber.
-                            const forecastHrs = maxF > 0 ? ((frameIndex - nowIdx) / maxF) * 12 : 0;
-                            if (frameIndex === nowIdx) {
-                                frameLabel = 'Now';
-                                sublabel = 'Current';
-                            } else if (forecastHrs > 0) {
-                                frameLabel = `+${forecastHrs % 1 === 0 ? forecastHrs : forecastHrs.toFixed(1)}h`;
-                                sublabel = 'Forecast';
-                            } else {
-                                frameLabel = `${forecastHrs % 1 === 0 ? forecastHrs : forecastHrs.toFixed(1)}h`;
-                                sublabel = 'Past';
-                            }
-                            onScrub = (h: number) => weather.setForecastHour(h);
-                            onPlayToggle = () => weather.setIsPlaying(!weather.isPlaying);
-                            onScrubStart = () => weather.setIsPlaying(false);
-                            applyFrame = weather.applyFrame;
-                        } else if (activeLayerKey === 'wind') {
-                            const fhrs = weather.windForecastHoursRef.current;
-                            const nowIdx = weather.windNowIdxRef.current;
-                            const roundedIdx = Math.round(weather.windHour);
-                            frameIndex = weather.windHour;
-                            totalFrames = weather.windTotalHours;
-                            const actualHour = fhrs[roundedIdx] ?? roundedIdx;
-                            const nowHour = fhrs[nowIdx] ?? 0;
-
-                            if (roundedIdx === nowIdx) {
-                                frameLabel = 'Now';
-                                sublabel = 'Current';
-                            } else {
-                                const relativeH = actualHour - nowHour;
-                                if (relativeH > 0) {
-                                    frameLabel = `+${relativeH}h`;
-                                    sublabel = 'Forecast';
-                                } else if (relativeH < 0) {
-                                    frameLabel = `${relativeH}h`;
-                                    sublabel = 'Past';
-                                } else {
-                                    frameLabel = 'Now';
-                                    sublabel = 'Current';
-                                }
-                            }
-                            isPlaying = weather.windPlaying;
-                            onScrub = (idx: number) => weather.setWindHour(idx);
-                            onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
-                            onScrubStart = () => weather.setWindPlaying(false);
-                        } else if (activeLayerKey === 'currents' && isCmemsCurrentsEnabled()) {
-                            frameIndex = weather.currentsHour;
-                            totalFrames = weather.currentsTotalHours;
-                            // Label is RELATIVE to Now. nowIdx is whatever
-                            // step aligns with wall-clock now given how old
-                            // the CMEMS manifest is. frame === nowIdx → Now.
-                            const nowIdx = weather.currentsNowIdx;
-                            nowIndex = nowIdx;
-                            const relH = Math.round(frameIndex) - nowIdx;
-                            if (relH === 0) {
-                                frameLabel = 'Now';
-                                sublabel = 'Nowcast';
-                            } else {
-                                frameLabel = relH > 0 ? `+${relH}h` : `${relH}h`;
-                                sublabel = relH > 0 ? 'Forecast' : 'Past';
-                            }
-                            isPlaying = weather.currentsPlaying;
-                            onScrub = (h: number) => weather.setCurrentsHour(Math.round(h));
-                            onPlayToggle = () => weather.setCurrentsPlaying(!weather.currentsPlaying);
-                            onScrubStart = () => weather.setCurrentsPlaying(false);
-                        } else if (activeLayerKey === 'waves' && isCmemsWavesEnabled()) {
-                            frameIndex = weather.wavesHour;
-                            totalFrames = weather.wavesTotalHours;
-                            // Waves are 3-hourly — each step = +3h of forecast.
-                            const nowIdx = weather.wavesNowIdx;
-                            nowIndex = nowIdx;
-                            const relH = (Math.round(frameIndex) - nowIdx) * 3;
-                            if (relH === 0) {
-                                frameLabel = 'Now';
-                                sublabel = 'Nowcast';
-                            } else {
-                                frameLabel = relH > 0 ? `+${relH}h` : `${relH}h`;
-                                sublabel = relH > 0 ? 'Forecast' : 'Past';
-                            }
-                            isPlaying = weather.wavesPlaying;
-                            onScrub = (h: number) => weather.setWavesHour(Math.round(h));
-                            onPlayToggle = () => weather.setWavesPlaying(!weather.wavesPlaying);
-                            onScrubStart = () => weather.setWavesPlaying(false);
-                        } else if (activeLayerKey === 'sst' && isCmemsSstEnabled()) {
-                            frameIndex = weather.sstStep;
-                            totalFrames = weather.sstTotalSteps;
-                            // SST is daily — each step = +1 day of forecast.
-                            const nowIdx = weather.sstNowIdx;
-                            nowIndex = nowIdx;
-                            const relD = Math.round(frameIndex) - nowIdx;
-                            if (relD === 0) {
-                                frameLabel = 'Today';
-                                sublabel = 'Daily mean';
-                            } else {
-                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
-                                sublabel = relD > 0 ? 'Forecast' : 'Past';
-                            }
-                            isPlaying = weather.sstPlaying;
-                            onScrub = (h: number) => weather.setSstStep(Math.round(h));
-                            onPlayToggle = () => weather.setSstPlaying(!weather.sstPlaying);
-                            onScrubStart = () => weather.setSstPlaying(false);
-                        } else if (activeLayerKey === 'chl' && isCmemsChlEnabled()) {
-                            frameIndex = weather.chlStep;
-                            totalFrames = weather.chlTotalSteps;
-                            const nowIdx = weather.chlNowIdx;
-                            nowIndex = nowIdx;
-                            const relD = Math.round(frameIndex) - nowIdx;
-                            if (relD === 0) {
-                                frameLabel = 'Today';
-                                sublabel = 'Daily mean';
-                            } else {
-                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
-                                sublabel = relD > 0 ? 'Forecast' : 'Past';
-                            }
-                            isPlaying = weather.chlPlaying;
-                            onScrub = (h: number) => weather.setChlStep(Math.round(h));
-                            onPlayToggle = () => weather.setChlPlaying(!weather.chlPlaying);
-                            onScrubStart = () => weather.setChlPlaying(false);
-                        } else if (activeLayerKey === 'seaice' && isCmemsSeaIceEnabled()) {
-                            frameIndex = weather.seaiceStep;
-                            totalFrames = weather.seaiceTotalSteps;
-                            const nowIdx = weather.seaiceNowIdx;
-                            nowIndex = nowIdx;
-                            const relD = Math.round(frameIndex) - nowIdx;
-                            if (relD === 0) {
-                                frameLabel = 'Today';
-                                sublabel = 'Daily mean';
-                            } else {
-                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
-                                sublabel = relD > 0 ? 'Forecast' : 'Past';
-                            }
-                            isPlaying = weather.seaicePlaying;
-                            onScrub = (h: number) => weather.setSeaiceStep(Math.round(h));
-                            onPlayToggle = () => weather.setSeaicePlaying(!weather.seaicePlaying);
-                            onScrubStart = () => weather.setSeaicePlaying(false);
-                        } else if (activeLayerKey === 'mld' && isCmemsMldEnabled()) {
-                            frameIndex = weather.mldStep;
-                            totalFrames = weather.mldTotalSteps;
-                            const nowIdx = weather.mldNowIdx;
-                            nowIndex = nowIdx;
-                            const relD = Math.round(frameIndex) - nowIdx;
-                            if (relD === 0) {
-                                frameLabel = 'Today';
-                                sublabel = 'Daily mean';
-                            } else {
-                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
-                                sublabel = relD > 0 ? 'Forecast' : 'Past';
-                            }
-                            isPlaying = weather.mldPlaying;
-                            onScrub = (h: number) => weather.setMldStep(Math.round(h));
-                            onPlayToggle = () => weather.setMldPlaying(!weather.mldPlaying);
-                            onScrubStart = () => weather.setMldPlaying(false);
-                        } else if (activeLayerKey === 'rain') {
-                            if (weather.rainLoading) {
-                                isLoading = true;
-                            } else if (weather.rainReady && weather.rainFrameCount > 1) {
-                                frameIndex = weather.rainFrameIndex;
-                                totalFrames = weather.rainFrameCount;
-                                nowIndex = weather.rainNowIdxRef.current;
-                                const curFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
-                                const isForecast = curFrame?.type === 'forecast';
-                                frameLabel = curFrame?.label ?? '--';
-                                sublabel = isForecast ? 'Forecast' : 'Radar';
-                                isPlaying = weather.rainPlaying;
-                                dualColor = true;
-                                forecastAccent = '#fbbf24';
-                                onScrub = (idx: number) => weather.setRainFrameIndex(idx);
-                                onPlayToggle = () => weather.setRainPlaying(!weather.rainPlaying);
-                                onScrubStart = () => weather.setRainPlaying(false);
-                            } else {
-                                frameLabel = 'No Data';
-                                sublabel = 'Retry';
-                            }
-                        }
-                        // temperature / clouds: no scrubber, just legend (totalFrames stays 1)
-
-                        return (
-                            <>
-                                {activeLayerKey === 'wind' && (
-                                    <WindModelFieldSelector
-                                        model={weather.windModel}
-                                        onModelChange={weather.setWindModel}
-                                        loading={weather.windState.loading}
-                                        embedded={embedded}
-                                    />
-                                )}
-                                <ThalassaHelixControl
-                                    activeLayer={activeLayerKey}
-                                    frameIndex={frameIndex}
-                                    totalFrames={totalFrames}
-                                    frameLabel={frameLabel}
-                                    sublabel={sublabel}
-                                    isPlaying={isPlaying}
-                                    isLoading={isLoading}
-                                    framesReady={framesReady}
-                                    embedded={embedded}
-                                    onScrub={onScrub}
-                                    onScrubStart={onScrubStart}
-                                    onPlayToggle={onPlayToggle}
-                                    applyFrame={applyFrame}
-                                    nowIndex={nowIndex}
-                                    dualColor={dualColor}
-                                    forecastAccent={forecastAccent}
-                                />
-                            </>
-                        );
-                    })()}
-
-                {/* Declutter toggle — hide/show the bottom weather cluster (model + scrubber + legend).
-                    Collapsed: a centred "Weather controls" pill where the scrubber sat. Expanded: a small
-                    minimise button top-right of the cluster, clear of the GPS FABs below it. */}
-                {!isPinView &&
-                    !embedded &&
-                    weather.activeLayers.size > 0 &&
-                    (chartControlsHidden ? (
-                        <button
-                            type="button"
-                            onClick={() => setChartControlsHidden(false)}
-                            className="absolute left-1/2 -translate-x-1/2 z-[510] flex min-h-[44px] items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
-                            style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
-                            aria-label="Show weather controls"
-                        >
-                            <span className="text-sky-300 leading-none">▴</span> Weather controls
-                        </button>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() => setChartControlsHidden(true)}
-                            className="absolute right-[16px] z-[510] flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
-                            style={{ bottom: 'calc(140px + env(safe-area-inset-bottom))' }}
-                            aria-label="Hide weather controls"
-                            title="Hide controls"
-                        >
-                            <span className="text-[14px] leading-none">▾</span>
-                        </button>
-                    ))}
+                <MapWeatherControls
+                    weather={weather}
+                    visible={!isPinView && !embedded && weather.activeLayers.size > 0}
+                    embedded={embedded}
+                    controlsHidden={chartControlsHidden}
+                    onControlsHiddenChange={setChartControlsHidden}
+                />
             </div>
 
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}

@@ -190,12 +190,23 @@ class AisHubServiceClass {
         try {
             // Dynamic import — only loaded on native where the plugin exists
             const mod = await import('@frontall/capacitor-udp');
-            this.udpPlugin = mod.UdpSocket || mod.default || mod;
+            // v7 exports `UDP`; earlier releases exposed `UdpSocket`. Keep
+            // the legacy aliases only as a migration bridge, but prefer the
+            // current native plugin so an AIS uplink does not silently remain
+            // in its web/log-only state on device.
+            const udpModule = mod as unknown as {
+                UDP?: unknown;
+                UdpSocket?: unknown;
+                default?: { UDP?: unknown; UdpSocket?: unknown };
+            };
+            this.udpPlugin =
+                udpModule.UDP ?? udpModule.UdpSocket ?? udpModule.default?.UDP ?? udpModule.default?.UdpSocket ?? null;
+            if (!this.udpPlugin) throw new Error('Capacitor UDP plugin is unavailable');
 
             const result = await this.udpPlugin.create();
             this.socketId = result.socketId;
             // Bind to any available local port
-            await this.udpPlugin.bind({ socketId: this.socketId, port: 0 });
+            await this.udpPlugin.bind({ socketId: this.socketId, address: '0.0.0.0', port: 0 });
 
             log.info(`AISHub UDP socket created (id=${this.socketId}) → ${this.ip}:${this.port}`);
             this.updateActiveState();

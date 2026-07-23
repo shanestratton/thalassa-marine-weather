@@ -30,7 +30,14 @@ describe('routeReportWeather', () => {
 
     it('defaults a bad speed to 6 kt and handles an empty route', async () => {
         expect(await fetchRouteWaypointWeather([], 0, 6)).toEqual([]);
-        const rows = await fetchRouteWaypointWeather([{ lat: -27, lon: 153 }, { lat: -27.1, lon: 153 }], 0, 0);
+        const rows = await fetchRouteWaypointWeather(
+            [
+                { lat: -27, lon: 153 },
+                { lat: -27.1, lon: 153 },
+            ],
+            0,
+            0,
+        );
         expect(rows[1].hoursFromDep).toBeCloseTo(1, 1); // 6 NM / 6 kt
     });
 

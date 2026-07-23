@@ -4,36 +4,26 @@ import { ONBOARDED_STORAGE } from './helpers/storageState';
 test.describe('Weather Map', () => {
     test.use({ storageState: ONBOARDED_STORAGE });
 
+    let pageErrors: string[];
+
     test.beforeEach(async ({ page }) => {
+        pageErrors = [];
+        page.on('pageerror', (err) => pageErrors.push(err.message));
         await page.goto('/');
-        // Navigate to map tab
-        const mapTab = page.locator('button, [role="tab"]').filter({ hasText: /map/i });
-        if ((await mapTab.count()) > 0) {
-            await mapTab.first().click();
-            await page.waitForTimeout(500);
-        }
+        // Charts is the map host in the primary navigation. The old fuzzy
+        // “map” query frequently never found a tab, leaving every assertion
+        // to pass on the dashboard instead.
+        const chartsTab = page.getByRole('tab', { name: 'Navigate to Charts' });
+        await expect(chartsTab).toBeEnabled();
+        await chartsTab.click();
+        await expect(chartsTab).toHaveAttribute('aria-selected', 'true');
     });
 
-    test('map page loads', async ({ page }) => {
-        await page.waitForTimeout(2000);
-        const content = await page.textContent('body');
-        expect(content?.length).toBeGreaterThan(0);
+    test('charts renders the map host', async ({ page }) => {
+        await expect(page.getByTestId('map-hub')).toBeVisible();
     });
 
-    test('map canvas renders', async ({ page }) => {
-        await page.waitForTimeout(3000);
-        // Map should render a canvas element
-        const canvas = page.locator('canvas');
-        const canvasCount = await canvas.count();
-        // At least one canvas should exist (the map)
-        expect(canvasCount).toBeGreaterThanOrEqual(0); // Graceful — map may not load without API key
-    });
-
-    test('no critical page errors', async ({ page }) => {
-        const errors: string[] = [];
-        page.on('pageerror', (err) => errors.push(err.message));
-        await page.waitForTimeout(3000);
-        const criticalErrors = errors.filter((e) => e.includes('TypeError') || e.includes('ReferenceError'));
-        expect(criticalErrors.length).toBe(0);
+    test('does not throw a critical runtime error while mounting charts', async () => {
+        expect(pageErrors.filter((message) => /(?:TypeError|ReferenceError)/.test(message))).toEqual([]);
     });
 });

@@ -350,6 +350,53 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
             [posToFrame, updateVisuals, applyFrame, onScrub],
         );
 
+        // The visual timeline is a custom pointer surface for smooth dragging,
+        // but it must remain fully operable without a pointer. Keeping the
+        // keyboard semantics on that same surface gives keyboard and switch
+        // users the identical timeline rather than a hidden, divergent input.
+        const handleTimelineKeyDown = useCallback(
+            (event: React.KeyboardEvent<HTMLDivElement>) => {
+                const currentFrame = Math.round(frameIndex);
+                const pageStep = Math.max(1, Math.round(maxFrame / 10));
+                let nextFrame: number | null = null;
+
+                switch (event.key) {
+                    case 'ArrowLeft':
+                    case 'ArrowDown':
+                        nextFrame = currentFrame - 1;
+                        break;
+                    case 'ArrowRight':
+                    case 'ArrowUp':
+                        nextFrame = currentFrame + 1;
+                        break;
+                    case 'PageDown':
+                        nextFrame = currentFrame - pageStep;
+                        break;
+                    case 'PageUp':
+                        nextFrame = currentFrame + pageStep;
+                        break;
+                    case 'Home':
+                        nextFrame = 0;
+                        break;
+                    case 'End':
+                        nextFrame = maxFrame;
+                        break;
+                    default:
+                        return;
+                }
+
+                if (nextFrame === null) return;
+                event.preventDefault();
+                const frame = Math.max(0, Math.min(maxFrame, nextFrame));
+                onScrubStart?.();
+                updateVisuals(frame);
+                applyFrame?.(frame);
+                onScrub(frame);
+                triggerHaptic('light');
+            },
+            [applyFrame, frameIndex, maxFrame, onScrub, onScrubStart, updateVisuals],
+        );
+
         // ── Sync visuals from external state changes (play, reset) ──
         useEffect(() => {
             if (!isDraggingRef.current) updateVisuals(frameIndex);
@@ -494,12 +541,20 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                 {/* Track */}
                                 <div
                                     ref={trackRef}
+                                    role="slider"
+                                    tabIndex={0}
+                                    aria-label={`${config.label} timeline`}
+                                    aria-valuemin={0}
+                                    aria-valuemax={maxFrame}
+                                    aria-valuenow={Math.round(frameIndex)}
+                                    aria-valuetext={`${frameLabel} — ${sublabel}`}
                                     className="flex-1 relative h-9 flex items-center cursor-pointer"
                                     style={{ touchAction: 'none' }}
                                     onPointerDown={handlePointerDown}
                                     onPointerMove={handlePointerMove}
                                     onPointerUp={handlePointerUp}
                                     onPointerCancel={handlePointerUp}
+                                    onKeyDown={handleTimelineKeyDown}
                                 >
                                     {/* Track background */}
                                     <div className="w-full h-1 bg-white/10 rounded-full relative overflow-hidden">

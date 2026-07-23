@@ -116,7 +116,12 @@ export async function fetchRouteWaypointWeather(
         }
         const data: unknown = await resp.json();
         const results = (Array.isArray(data) ? data : [data]) as Array<{
-            hourly?: { time?: number[]; wind_speed_10m?: number[]; wind_direction_10m?: number[]; wind_gusts_10m?: number[] };
+            hourly?: {
+                time?: number[];
+                wind_speed_10m?: number[];
+                wind_direction_10m?: number[];
+                wind_gusts_10m?: number[];
+            };
         }>;
         return rows.map((r) => {
             const hourly = results[r.index]?.hourly;

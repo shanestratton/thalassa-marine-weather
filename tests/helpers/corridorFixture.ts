@@ -54,9 +54,8 @@ function wide(f: Feature, m: number): boolean {
 }
 
 /** cells + osm → the layer set production hands routeInshore. */
- 
+
 export function assembleLayers(fx: CorridorFixture): any {
-     
     const m: any = {};
     for (const k of Object.keys(fx.cells)) m[k] = { type: 'FeatureCollection', features: [...fx.cells[k].features] };
     for (const k of ['COASTLINE', 'CANAL', 'NAVLINE', 'FAIRWY', 'DEPARE', 'OBSTRN'])
