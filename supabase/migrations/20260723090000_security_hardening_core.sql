@@ -784,6 +784,11 @@ DROP POLICY IF EXISTS "Authenticated can insert alerts" ON public.guardian_alert
 CREATE POLICY "Users read related guardian alerts" ON public.guardian_alerts FOR SELECT TO authenticated
 USING (source_user_id = auth.uid() OR target_user_id = auth.uid());
 
+DROP FUNCTION IF EXISTS public.thalassa_users_nearby(
+    DOUBLE PRECISION,
+    DOUBLE PRECISION,
+    DOUBLE PRECISION
+);
 CREATE OR REPLACE FUNCTION public.thalassa_users_nearby(
     query_lat DOUBLE PRECISION,
     query_lon DOUBLE PRECISION,
