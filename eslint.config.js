@@ -9,6 +9,7 @@ export default tseslint.config(
         ignores: [
             'dist/**',
             'build/**',
+            'storybook-static/**',
             'coverage/**',
             '.next/**',
             'node_modules/**',

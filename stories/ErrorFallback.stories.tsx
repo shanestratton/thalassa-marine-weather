@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import React from 'react';
 import { CompactErrorFallback } from '../components/ErrorBoundary';
