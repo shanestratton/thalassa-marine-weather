@@ -16,7 +16,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { CompassIcon, SearchIcon } from '../Icons';
+import { SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -166,17 +166,28 @@ import {
     hasCoverageFor as encHasCoverageFor,
     setEncHydrationPaused,
 } from '../../services/enc/EncHazardService';
-// Legend swatches import the REAL glaze constants — they were hand-copied
-// hexes and went stale the moment the palette moved (same drift class as
-// MapHub's old SATELLITE_HIDE_LAYERS copy).
-import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, SHALLOW_CAUTION_COLOR } from './encDepthStyle';
-// Chart-key glyphs + swatch colours, imported from the modules that RENDER them
-// so the legend cannot drift from the chart (audit 2026-07-19).
-import { seamarkIconDataUri } from './seamarkIcons';
-import { CAUTION_CLASS_COLOURS, CAUTION_DEFAULT_COLOUR } from './encPopup';
-import { LIGHT_COLOUR_HEX } from '../../services/enc/types';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
+import { PinDirectionsCta } from './PinDirectionsCta';
+import { ChartDepthControls, LiveTideAckModal, TIDE_DEPTH_ACK_KEY } from './ChartDepthControls';
+import {
+    AUTO_MAX_LEG_M,
+    AUTO_ROUTE_BUTTON_VISIBLE,
+    CHARTS_FAB_CATEGORY_VISIBLE,
+    COURSE_FRAME_VISIBLE,
+    NEAR_DIRECT_CAP,
+    SAIL_IT_BUTTON_VISIBLE,
+    TIDE_ADOPT_FACTOR,
+    TRACE_CLUSTER_SPAN_M,
+    TRACER_CARD_LIBRARY_VISIBLE,
+    TRACER_CARD_SHARE_VISIBLE,
+    TRACER_COPY_BUTTON_VISIBLE,
+    coordName,
+    distMetres,
+    fitTraceBounds,
+    legCacheKey,
+    msToLocalInput,
+} from './mapHubHelpers';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
 // islet land-fill dot, hidden over satellite/hybrid so it can't blanket the
 // imagery. Passed to applyChartDetailLevel so its restore side yields (audit
@@ -206,11 +217,6 @@ import {
     toPlannerString,
 } from '../../utils/savedLocations';
 
-/** Fallback name for a tapped point with no geocoded place name. */
-function coordName(lat: number, lon: number): string {
-    return `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
-}
-
 // ── Lazy-loaded overlay components (split into separate chunks) ──
 const ConsensusMatrix = lazyRetry(
     () => import('./ConsensusMatrix').then((m) => ({ default: m.ConsensusMatrix })),
@@ -224,6 +230,10 @@ const AisLegend = lazyRetry(() => import('./AisLegend').then((m) => ({ default: 
 const CmemsAttribution = lazyRetry(
     () => import('./CmemsAttribution').then((m) => ({ default: m.CmemsAttribution })),
     'CmemsAttribution',
+);
+const ChartKeyPanel = lazyRetry(
+    () => import('./ChartKeyPanel').then((module) => ({ default: module.ChartKeyPanel })),
+    'ChartKeyPanel',
 );
 // Eager import — the chip doubles as the live diagnostic pill for the
 // lightning feed, so a lazy chunk that fails to load silently (and
@@ -268,132 +278,6 @@ const getWeatherInspectPopup = async () => {
 };
 
 // ── Component ──────────────────────────────────────────────────
-
-/** Cache key for one trace leg — endpoint coords pin the verdict. The last
- *  leg is keyed separately ("|last"): it owns marks that project onto its
- *  far endpoint (see validateTraceLeg's ownership rule), so when a new pin
- *  demotes it to an interior leg its verdict must re-grade — one leg, cheap. */
-const legCacheKey = (a: { lat: number; lon: number }, b: { lat: number; lon: number }, isLast: boolean): string =>
-    `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}${isLast ? '|last' : ''}`;
-
-/** Fit a saved route's WHOLE extent on screen (Shane 2026-07-17: "show the
- *  entire route… overriding the zoom-10 restriction"). Shared by every "open
- *  a saved route" path so they behave identically. fitBounds picks whatever
- *  zoom shows every pin (in OR out past 10); the left/bottom padding clears
- *  the tracer card + scrubber, and maxZoom stops a tiny route slamming to
- *  max zoom. */
-function fitTraceBounds(map: mapboxgl.Map, points: ReadonlyArray<{ lat: number; lon: number }>): void {
-    if (points.length === 0) return;
-    let minLon = Infinity,
-        minLat = Infinity,
-        maxLon = -Infinity,
-        maxLat = -Infinity;
-    for (const p of points) {
-        if (p.lon < minLon) minLon = p.lon;
-        if (p.lat < minLat) minLat = p.lat;
-        if (p.lon > maxLon) maxLon = p.lon;
-        if (p.lat > maxLat) maxLat = p.lat;
-    }
-    map.fitBounds(
-        [
-            [minLon, minLat],
-            [maxLon, maxLat],
-        ],
-        { padding: { top: 90, bottom: 130, left: 300, right: 40 }, maxZoom: 15, duration: 900 },
-    );
-}
-
-/** One-time "live tide depth" disclaimer acknowledgment (design 2026-07-11:
- *  "needs a disclaimer of course"). Value = ISO timestamp of the ack. */
-const TIDE_ACK_KEY = 'thalassa_tide_depth_ack_v1';
-
-/** Ungraded legs are clustered into build windows no wider than this, so the
- *  padded context bbox (1.5× span) always fits the depth-grid budget — the
- *  whole-trace bbox used to go marks-only at 40 km ("trace too long") AND
- *  cleared the leg cache on every outgrow (Shane 2026-07-11: full re-check
- *  on each new pin, then no depth at all through the shipping channel). */
-const TRACE_CLUSTER_SPAN_M = 24_000;
-
-// ⚡ Auto route: after the engine follows deep water, no resulting leg may
-// exceed this — a longer leg outgrows the grading depth-grid budget and
-// reads "long open-water leg, depth unchecked" (Shane 2026-07-15). 15 km
-// (~8 NM) sits well inside TRACE_CLUSTER_SPAN_M so EVERY piece grades with
-// a real depth grid; the extra pins land ON the engine's water line (safe).
-const AUTO_MAX_LEG_M = 15_000;
-
-// ⚡ Auto route profile selection (2026-07-16 rework — the old AUTO_DETOUR_CAP
-// 2.2× cap couldn't tell a legit deep detour from a nearby-marina dogleg, and
-// the tide fallback it fell to ALSO doglegged because tideAssist prices a
-// crossing at 10× — no crossing ever beats a <10×-longer deep detour).
-//
-//   NEAR_DIRECT_CAP  'safest' within this × the straight line ⇒ deep water
-//                    already lines up, keep it (no tide crossing needed).
-//   TIDE_ADOPT_FACTOR  otherwise run 'tideDirect' (recoverable banks at 1.5×,
-//                    so A* commits to the near-direct crossing) and adopt it
-//                    ONLY when it's materially straighter than the safe
-//                    dogleg (< this × the safe distance). Deep detours that
-//                    exist because the direct line is blocked by land/drying
-//                    (Newport→Rivergate) keep 'safest' — 'tideDirect' doglegs
-//                    the same there and isn't materially shorter.
-// The seamanship dial is TIDE_ADOPT_FACTOR: 0.7 keeps a deep detour up to
-// ~1.43× the direct crossing (take the deep water); beyond that, cross on the
-// tide. Lower → commit to deep water harder; raise → cross banks more eagerly.
-const NEAR_DIRECT_CAP = 1.15;
-const TIDE_ADOPT_FACTOR = 0.7;
-
-// ⚡ Auto route is PARKED (Shane 2026-07-16: "hide the autoroute button for
-// now, so we can move on" — not deleted). The engine path (autoRouteLeg +
-// the tideDirect profile) stays wired and tested; flip this back to true to
-// re-expose the button.
-const AUTO_ROUTE_BUTTON_VISIBLE = false;
-// Copy-coords button PARKED (Shane 2026-07-17) — thinned the 6-button
-// controls row to 5 so the survivors get a fatter tap target on a phone.
-const TRACER_COPY_BUTTON_VISIBLE = false;
-// "Sail it" PARKED (Shane 2026-07-17): following a route is a CAST-OFF
-// decision now, not a plotting one — it lives on the Log page (slide to start
-// tracking → "Follow a route?", or the FOLLOW button on a route card, which
-// also publishes to the public page). Plot → Save → cast off → follow.
-// sailTrace() stays wired for a future "cast off with this route" shortcut.
-const SAIL_IT_BUTTON_VISIBLE = false;
-// Charts source-picker category on the radial layer FAB PARKED (Shane
-// 2026-07-17): the boat's ENC/o-charts are automatic; the picker (Routes/
-// Tracks/NOAA/ECDIS/local) only cluttered the fan. Flip to restore it.
-const CHARTS_FAB_CATEGORY_VISIBLE = false;
-
-// The guided course-frame (From/To boxes + 🧭 Set course) and its ⚡
-// Auto-to-destination button are PARKED with it (Shane 2026-07-16: "remove
-// autoroute and set course — they are both hopeless. we don't need the from
-// and to boxes either; we just start by clicking a spot"). The wiring
-// (setCourseFrame, autoCompleteTrace, traceDest et al) stays intact for a
-// future rework — flip to true to re-expose.
-const COURSE_FRAME_VISIBLE = false;
-
-// The tracer card's route-library rows (📥 paste / 🛥 past voyage / 💾 saved
-// routes) are PARKED (Shane 2026-07-17: "remove from the bottom of the tracer
-// card") — the PLAN page's front door + picker modals own those flows now.
-// Wiring (pasteTrace, openVoyagePicker, the saved list) stays intact.
-const TRACER_CARD_LIBRARY_VISIBLE = false;
-
-// The card's two share rows (📤 share with a mate / 🌐 share with all
-// skippers) are PARKED (Shane 2026-07-17: "remove these from the bottom of
-// the tracer card"). Wiring (shareTrace, submitShare, the harbourmaster
-// review queue) stays intact for a future home.
-const TRACER_CARD_SHARE_VISIBLE = false;
-
-/** Equirectangular distance in metres between two lat/lon points. */
-const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
-    const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
-    return Math.hypot((q.lat - p.lat) * 110_540, (q.lon - p.lon) * mLon);
-};
-
-/** Epoch ms → the LOCAL "yyyy-MM-ddTHH:mm" a datetime-local input wants
- *  (toISOString would shift to UTC — off by the timezone). */
-const msToLocalInput = (ms: number): string => {
-    const d = new Date(ms);
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-};
-
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     onLocationSelect,
@@ -3489,7 +3373,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!tideDepthMode) {
             let acked = false;
             try {
-                acked = !!localStorage.getItem(TIDE_ACK_KEY);
+                acked = !!localStorage.getItem(TIDE_DEPTH_ACK_KEY);
             } catch {
                 /* storage unavailable — show the sheet every time, honest default */
             }
@@ -5332,34 +5216,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     discovered to be dead code). z-[700] matches the
                     back-button stacking, well above the map but below
                     full-screen modals. */}
-                {isPinView && (
-                    <div className="absolute left-4 right-4 bottom-[calc(env(safe-area-inset-bottom)+88px)] z-[700] space-y-2 pointer-events-none">
-                        {pinDirectionsError && (
-                            <div className="rounded-xl border border-red-500/30 bg-red-500/90 backdrop-blur-md px-3 py-2 text-xs text-white shadow-lg pointer-events-auto">
-                                {pinDirectionsError}
-                            </div>
-                        )}
-                        <button
-                            onClick={() => void handlePinDirections()}
-                            disabled={pinDirectionsBusy}
-                            aria-label="Get driving directions to pin"
-                            className="pointer-events-auto w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] transition-all text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50 shadow-2xl"
-                        >
-                            {pinDirectionsBusy ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    <span>Routing…</span>
-                                </>
-                            ) : (
-                                <>
-                                    <CompassIcon className="w-5 h-5" rotation={0} />
-                                    <span>Get Directions</span>
-                                </>
-                            )}
-                        </button>
-                    </div>
-                )}
-
+                <PinDirectionsCta
+                    visible={isPinView}
+                    busy={pinDirectionsBusy}
+                    error={pinDirectionsError}
+                    onRequest={() => void handlePinDirections()}
+                />
                 {/* ═══ ZOOM-LEVEL FAB ═══
                     Top-left pill showing current map zoom — self-
                     subscribed so per-frame zoom events re-render the
@@ -6856,458 +6718,39 @@ export const MapHub: React.FC<MapHubProps> = ({
                     NOT looking at chart datum" marker (design 2026-07-11).
                     Teal = live offset applied; amber = mode on but no tide
                     data, chart fell back to LAT. Tap = kill switch. */}
-                {tideDepthMode && !embedded && !isPinView && !pickerMode && (
-                    <>
-                        <button
-                            onClick={() => {
-                                // Scrubbed WITH data = snap back to now; otherwise
-                                // (live, or no data at all) = kill switch. A
-                                // no-data badge must never eat the first tap as a
-                                // silent scrub reset (review minor).
-                                triggerHaptic('light');
-                                if (tideScrubQ > 0 && tideOffsetInfo) {
-                                    setTideScrubQ(0);
-                                } else {
-                                    onToggleTideDepth();
-                                }
-                            }}
-                            aria-label={
-                                tideScrubQ > 0 && tideOffsetInfo
-                                    ? 'Depths shown at a future tide — tap to return to now'
-                                    : 'Live tide depth is on — tap to return to chart datum'
-                            }
-                            className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
-                            style={
-                                tideOffsetInfo && tideScrubQ > 0
-                                    ? {
-                                          background: 'rgba(49, 27, 95, 0.92)',
-                                          borderColor: 'rgba(167, 139, 250, 0.5)',
-                                          color: '#c4b5fd',
-                                      }
-                                    : tideOffsetInfo
-                                      ? {
-                                            background: 'rgba(13, 63, 70, 0.92)',
-                                            borderColor: 'rgba(45, 212, 191, 0.45)',
-                                            color: '#5eead4',
-                                        }
-                                      : {
-                                            background: 'rgba(69, 51, 8, 0.92)',
-                                            borderColor: 'rgba(251, 191, 36, 0.45)',
-                                            color: '#fcd34d',
-                                        }
-                            }
-                        >
-                            {tideOffsetInfo
-                                ? `${
-                                      tideScrubQ > 0
-                                          ? `AT ${new Date(Date.now() + tideScrubQ * 900_000).toLocaleTimeString(
-                                                'en-AU',
-                                                { hour: '2-digit', minute: '2-digit', hour12: false },
-                                            )}`
-                                          : 'LIVE DEPTH'
-                                  } ${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m ${
-                                      tideOffsetInfo.trend === 'rising' ? '↑' : '↓'
-                                  }${tideOffsetInfo.stationName ? ` · ${tideOffsetInfo.stationName}` : ''}${
-                                      tideOffsetInfo.approx ? ' · approx' : ''
-                                  }${tideScrubQ > 0 ? ' · tap for now' : ''}`
-                                : 'LIVE DEPTH — no tide data, showing chart datum'}
-                        </button>
-                        {/* The scrubber (#3): slide through the next 24 h and
-                            watch the banks flood and dry — or park it on your
-                            ETA. Re-samples the fetched curve; no network. */}
-                        {tideOffsetInfo && (
-                            <div className="absolute left-1/2 top-[6.4rem] z-[9989] w-60 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg">
-                                <input
-                                    type="range"
-                                    min={0}
-                                    max={96}
-                                    step={1}
-                                    value={tideScrubQ}
-                                    onChange={(e) => setTideScrubQ(Number(e.target.value))}
-                                    aria-label="Scrub the tide through the next 24 hours"
-                                    className={`w-full ${tideScrubQ > 0 ? 'accent-violet-400' : 'accent-teal-400'}`}
-                                />
-                                <div className="flex justify-between text-[11px] font-bold text-gray-400">
-                                    <span>now</span>
-                                    <span>+12 h</span>
-                                    <span>+24 h</span>
-                                </div>
-                            </div>
-                        )}
-                    </>
-                )}
-                {/* Datum chip — the one-line honesty note (2026-07-11 #4).
-                    Mode-aware: chart datum vs live tide, so the corner of
-                    the chart always says which water you're reading. */}
-                {encCellCount > 0 && encVisible && !embedded && !pickerMode && !isPinView && (
-                    <button
-                        onClick={() => {
-                            triggerHaptic('light');
-                            setChartKeyOpen((v) => !v);
-                        }}
-                        aria-label="What the chart colours and numbers mean"
-                        className="absolute bottom-[calc(17rem+env(safe-area-inset-bottom))] left-1/2 z-[9980] flex min-h-[44px] -translate-x-1/2 items-center whitespace-nowrap rounded-md bg-slate-900/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95 sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))]"
-                    >
-                        {tideDepthMode && tideOffsetInfo
-                            ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
-                            : 'depths in metres at low tide (LAT)'}
-                        <span className="ml-1 text-gray-500">· key</span>
-                    </button>
-                )}
-                {/* Hydration chip — dark water that's a DOWNLOAD in
-                    flight must never read as "no chart here". */}
-                {encHydration.remaining > 0 && encVisible && !embedded && !pickerMode && !isPinView && (
-                    <div
-                        className="pointer-events-none absolute bottom-[calc(20rem+env(safe-area-inset-bottom))] left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg sm:bottom-[calc(7.25rem+env(safe-area-inset-bottom))]"
-                        aria-live="polite"
-                    >
-                        Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})
-                    </div>
-                )}
-                {/* Night-dim quick toggle (closing audit: the ☾ lived only at
-                    the BOTTOM of the chart-modes dropdown, behind a scroll —
-                    at night, when you need it, menus blind you first). One
-                    tap from the map; same persisted state as the menu row.
-                    Same 104px row as the zoom pill, tucked just off the
-                    compass rose's RIGHT edge (Shane 2026-07-17: on the other
-                    side of the rose, not the far side of the screen). The
-                    rose is fixed left 98px, 116px wide → right edge 214px;
-                    the moon sits at 224px with a ~10px gap. Zoom pill left,
-                    rose centre, moon just past it.
-                    PLANNING-ONLY (Shane 2026-07-17: "remove the half moon from
-                    the charts page — it is for the planning page only"): gated
-                    on coordCaptureMode so the bare browsing chart stays clean.
-                    The ☾ row inside the chart-modes menu still covers it there. */}
-                {/* NOT gated on encVisible (Shane 2026-07-18: "i have lost my half
-                    moon button"). It used to be, which meant the control vanished
-                    for anyone whose ENC master toggle was off — and since the
-                    plotting keel floor (e75104d0) force-shows the depth read while
-                    the tracer is up REGARDLESS of that toggle, the moon was
-                    disappearing exactly when the chart it dims was on screen.
-                    coordCaptureMode alone is the honest gate: if we're plotting,
-                    there is an ENC chart to dim. */}
-                {coordCaptureMode && !embedded && !pickerMode && !isPinView && (
-                    <button
-                        onClick={() => setNightDim(!nightDim)}
-                        aria-label="Toggle night dim"
-                        aria-pressed={nightDim}
-                        className="absolute top-[104px] left-[224px] z-[700] flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
-                        style={{
-                            background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
-                            borderColor: 'rgba(220, 80, 60, 0.35)',
-                            color: '#e07a5f',
-                            fontSize: 18,
-                        }}
-                    >
-                        ☾
-                    </button>
-                )}
-                {/* No-coverage chip — uncharted water at nav zoom must never
-                    read like the chart layer is merely off (2026-07-17 audit). */}
-                {encNoCoverage &&
-                    encHydration.remaining === 0 &&
-                    encVisible &&
-                    !embedded &&
-                    !pickerMode &&
-                    !isPinView && (
-                        <div
-                            className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-500/30 bg-slate-900/85 px-3 py-1 text-[11px] font-bold text-amber-300 shadow-lg"
-                            aria-live="polite"
-                        >
-                            No chart coverage here — depths unverified
-                        </div>
-                    )}
-                {/* Chart key — the legend for mere mortals (2026-07-11 #2).
-                    Auto-opens once on first charted render; afterwards via
-                    the ChartModes row. */}
-                {chartKeyOpen && !embedded && !pickerMode && !isPinView && (
-                    <div
-                        role="region"
-                        aria-label="Nautical chart key"
-                        className="absolute bottom-44 right-2 z-[9992] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
-                    >
-                        <div className="mb-2 flex items-center justify-between">
-                            <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">
-                                Chart key
-                            </span>
-                            <button
-                                onClick={() => setChartKeyOpen(false)}
-                                aria-label="Close chart key"
-                                className="flex min-h-[44px] min-w-[44px] items-center justify-center text-xs font-bold text-gray-400"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                        {/* CHART-MODE ramp only. Over imagery the DEPARE fills are at
-                            opacity 0 and the glaze paints instead, so showing this ramp
-                            there taught a legend for something not on the screen
-                            (audit 2026-07-19). */}
-                        {!imageryOn && (
-                            <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
-                                {(
-                                    [
-                                        [DEPARE_BAND_COLORS.drying, 'dries'],
-                                        [DEPARE_BAND_COLORS.b0to2, '0–2'],
-                                        [DEPARE_BAND_COLORS.b2to5, '2–5'],
-                                        [DEPARE_BAND_COLORS.b5to10, '5–10'],
-                                        [DEPARE_BAND_COLORS.b10to20, '10–20'],
-                                        [DEPARE_BAND_COLORS.b20to50, '20–50'],
-                                        [DEPARE_BAND_COLORS.b50plus, '50+'],
-                                    ] as const
-                                ).map(([hex, label]) => (
-                                    <div key={label} className="flex-1">
-                                        <div style={{ background: hex, height: 14 }} />
-                                        <div className="bg-slate-800 py-0.5 text-center text-[10px] font-bold text-gray-300">
-                                            {label}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        <div className="space-y-1 text-[10px] leading-snug text-gray-300">
-                            {!imageryOn && (
-                                <div>
-                                    Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.
-                                </div>
-                            )}
-                            {/* The datum flips with the tide toggle, so the sentence has
-                                to as well — while live tide is on these are NOT lowest-tide
-                                numbers, and saying so would be the one lie a skipper acts on
-                                directly (audit 2026-07-19). */}
-                            {tideDepthMode ? (
-                                <div>
-                                    Numbers are metres of water RIGHT NOW (charted + predicted tide) — 3₄ means 3.4 m.
-                                </div>
-                            ) : (
-                                <div>
-                                    Numbers are metres at the lowest tide (LAT) — 3₄ means 3.4 m. Olive numbers dry.
-                                </div>
-                            )}
-                            {imageryOn ? (
-                                // The keel-keyed glaze was never taught anywhere
-                                // (2026-07-12 audit). Gated on imageryOn, NOT
-                                // satelliteVisible: HYBRID is the boot base and the
-                                // plotting base, so gating on satellite-only taught
-                                // the paper-chart key on the very surface that paints
-                                // the glaze (Shane 2026-07-18).
-                                <div className="text-sky-200">
-                                    {/* NOT "draft + 0.5 m" (audit 2026-07-19). White begins
-                                        at the ROUTER HAZARD depth — buildDepareSatelliteOpacity
-                                        steps to white at h, and h = draft × 1.5 + 0.5
-                                        (HazardQueryService:106). draft+0.5 is the SAFETY depth,
-                                        which is where the amber band starts — so the old text
-                                        contradicted the very next clause, both of them claiming
-                                        to define the same edge. */}
-                                    Over imagery: bright white glaze = water with the router&apos;s full margin under
-                                    your keel (1½× draft + 0.5 m).
-                                    {/* The two decision-relevant washes were unexplained (cycle-7 re-audit #8).
-                                        Swatches use the real constants so they track the palette. */}
-                                    <span style={{ color: CAUTION_BAND_COLOR }}> Light amber</span> = margin-thin
-                                    (clears the keel but the router still flags it as a hazard);
-                                    <span style={{ color: SHALLOW_CAUTION_COLOR }}> amber</span> = too shallow;
-                                    <span style={{ color: DEPARE_BAND_COLORS.drying }}> khaki</span> = dries at low
-                                    tide. Bare imagery = no usable depth here — uncharted, unattributed, or surveyed too
-                                    coarsely for this zoom. Treat it as unsurveyed.
-                                </div>
-                            ) : (
-                                // COLOURS WERE INVERTED (audit 2026-07-19). This read
-                                // "The SLATE contour is your keel's limit" — but the
-                                // safety contour is AMBER #f97316 (EncVectorLayer:1165,
-                                // "the single most keel-load-bearing line") and #7d8e9b
-                                // slate is the ORDINARY contours. The key was naming the
-                                // keel limit by the colour of the other line, so a
-                                // skipper following it literally picks the wrong one.
-                                // "Slate" survived only in comments describing the value
-                                // that line USED to be.
-                                <div>
-                                    The <span className="font-bold text-orange-400">amber</span> contour is your
-                                    keel&apos;s limit; thin slate-grey lines join equal depths.
-                                </div>
-                            )}
-                            {!(Number(settings.vessel?.draft) > 0) && (
-                                <div className="text-amber-300">
-                                    Keel reads use a default 2.5 m draft — set your vessel in Settings.
-                                </div>
-                            )}
-                            {tideDepthMode && (
-                                <div className="text-teal-300">
-                                    Teal numbers = live tide depth is on (drying numbers stay olive).
-                                </div>
-                            )}
-                        </div>
-                        {/* Marks & lights — the buoyage vocabulary the chart
-                            renders and the popups decode. The key taught depth
-                            ONLY (mission-audit #3b); a helmsman had no static
-                            reference for what the coloured marks mean. */}
-                        <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-snug text-gray-300">
-                            <div className="flex items-center justify-between">
-                                <span className="font-black uppercase tracking-wider text-gray-200">
-                                    Marks &amp; lights
-                                </span>
-                                {/* Region is DERIVED per cell (ialaRegionForSourceHO →
-                                    baked into _icon), not a global assumption — a
-                                    region-B cell swaps red and green. And three keyed
-                                    rows are not in CLICKABLE_LAYER_IDS, so "tap to read"
-                                    was over-promising (audit 2026-07-19). */}
-                                <span className="text-[11px] text-gray-400">IALA-A here · most tap to read</span>
-                            </div>
-                            {/* REAL GLYPHS, not coloured dots (Shane 2026-07-19:
-                                "change the circle symbols for proper symbols").
-                                They come from getSeamarkIconDefs — the SAME asset the
-                                chart paints — so the key cannot drift from the chart.
-                                It had: two hexes for Cardinal that exist nowhere in the
-                                render stack, the BUOY palette on the light-sector row,
-                                an invented grey for Unknown, and a cardinal drawn as
-                                TWO bands when cardinals have three (a 50/50
-                                yellow-over-black dot literally asserts SOUTH).
-
-                                <img src=data-uri>, never inlined: 13 glyphs share
-                                `filter id="s"` and two more share id="g"/"vstripes", so
-                                inlining collapses every url(#s) onto the first match and
-                                breaks the safe-water stripes and the light glow.
-
-                                Area/line classes have no glyph, so they keep a swatch —
-                                but now imported from CAUTION_CLASS_COLOURS /
-                                LIGHT_COLOUR_HEX rather than hand-typed. */}
-                            <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                                {(
-                                    [
-                                        ['icon', 'sm-buoy-port', 'Port-hand (can)'],
-                                        ['icon', 'sm-buoy-starboard', 'Starboard (cone)'],
-                                        // All four, because one dot cannot say "cardinal".
-                                        ['icons4', 'cardinal', 'Cardinals (N E S W)'],
-                                        ['icon', 'sm-safe-water', 'Safe water'],
-                                        ['icon', 'sm-isolated-danger', 'Isolated danger'],
-                                        ['icon', 'sm-special', 'Special mark'],
-                                        // Rendered since the CATLAM pass, never keyed.
-                                        ['icon', 'sm-buoy-prefchan-stbd', 'Preferred channel'],
-                                        // Was ONE row for nine distinct INT1 glyphs.
-                                        ['icon', 'sm-hazard-wreck-dangerous', 'Wreck'],
-                                        ['icon', 'sm-hazard-rock', 'Rock / obstruction'],
-                                        ['icon', 'sm-light-major', 'Light'],
-                                        ['icon', 'sm-anchorage', 'Anchorage'],
-                                        ['icon', 'sm-mark-unknown', 'Unknown mark'],
-                                        // ── Areas + lines: no glyph, so a swatch is right.
-                                        ['sector', '', 'Light sector'],
-                                        ['swatch', CAUTION_DEFAULT_COLOUR, 'Restricted / caution'],
-                                        // CBLARE and PIPARE are separate match arms — a
-                                        // pipeline never paints the cable colour.
-                                        ['swatch', CAUTION_CLASS_COLOURS.CBLARE ?? '#7c3aed', 'Submarine cable'],
-                                        ['swatch', CAUTION_CLASS_COLOURS.PIPARE ?? '#5b21b6', 'Pipeline'],
-                                        [
-                                            'swatch',
-                                            CAUTION_CLASS_COLOURS.TSSLPT ?? '#d97706',
-                                            'TSS lane / precautionary',
-                                        ],
-                                        ['swatch', CAUTION_CLASS_COLOURS.TSEZNE ?? '#c2410c', 'TSS keep-out zone'],
-                                        ['swatch', CAUTION_CLASS_COLOURS.MARCUL ?? '#5f7a3a', 'Marine farm'],
-                                        ['swatch', CAUTION_CLASS_COLOURS.SBDARE ?? '#8a8a5a', 'Seabed type'],
-                                        ['swatch', CAUTION_CLASS_COLOURS.DWRTPT ?? '#0e7490', 'Deep-water route'],
-                                        ['swatch', '#3b82c4', 'Fairway edge'],
-                                        ['swatch', '#f59e0b', 'Leading line / track'],
-                                    ] as const
-                                ).map(([kind, key, label]) => (
-                                    <div
-                                        key={label}
-                                        // The cardinals row carries FOUR glyphs; at
-                                        // half-width its nowrap label ran straight over
-                                        // "Safe water" in the next column (Shane
-                                        // 2026-07-19: "a small overlap of letters").
-                                        // It takes the full row instead of the symbols
-                                        // being shrunk — below ~18px a topmark stops
-                                        // reading, which is the whole point of them.
-                                        className={`flex min-w-0 items-center gap-1.5 ${
-                                            kind === 'icons4' ? 'col-span-2' : ''
-                                        }`}
-                                    >
-                                        {kind === 'icon' ? (
-                                            <img
-                                                src={seamarkIconDataUri(key) ?? ''}
-                                                alt=""
-                                                aria-hidden
-                                                className="h-5 w-5 shrink-0"
-                                            />
-                                        ) : kind === 'icons4' ? (
-                                            <span className="flex shrink-0 -space-x-1">
-                                                {['north', 'east', 'south', 'west'].map((c) => (
-                                                    <img
-                                                        key={c}
-                                                        src={seamarkIconDataUri(`sm-cardinal-${c}`) ?? ''}
-                                                        alt=""
-                                                        aria-hidden
-                                                        className="h-5 w-5"
-                                                    />
-                                                ))}
-                                            </span>
-                                        ) : kind === 'sector' ? (
-                                            // Driven by the arc palette, not the buoy one.
-                                            <span
-                                                className="inline-block h-2.5 w-5 shrink-0 rounded-sm border border-white/25"
-                                                style={{
-                                                    background: `linear-gradient(90deg,${LIGHT_COLOUR_HEX.green ?? '#22c55e'} 34%,${LIGHT_COLOUR_HEX.white ?? '#f0e030'} 34%,${LIGHT_COLOUR_HEX.white ?? '#f0e030'} 66%,${LIGHT_COLOUR_HEX.red ?? '#ef4444'} 66%)`,
-                                                }}
-                                            />
-                                        ) : (
-                                            <span
-                                                className="inline-block h-2.5 w-5 shrink-0 rounded-sm border border-white/25"
-                                                style={{ background: key }}
-                                            />
-                                        )}
-                                        <span className="min-w-0 truncate">{label}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
-                {/* One-time disclaimer before the first enable ("needs a
-                    disclaimer of course"). */}
-                {showTideAck && (
-                    <div
-                        className="fixed inset-0 z-[10060] flex items-end justify-center bg-black/60 sm:items-center"
-                        onClick={() => setShowTideAck(false)}
-                    >
-                        <div
-                            className="w-full max-w-md rounded-t-3xl border border-teal-500/30 bg-slate-900 p-5 shadow-2xl sm:rounded-3xl"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="mb-2 text-sm font-black uppercase tracking-widest text-teal-300">
-                                Live tide depth
-                            </div>
-                            <p className="mb-3 text-[13px] leading-snug text-gray-200">
-                                Depths re-tint to charted depth + the predicted tide at the nearest station, refreshed
-                                every few minutes. Numbers turn teal so you always know you're not reading chart datum.
-                            </p>
-                            <p className="mb-4 text-[12px] leading-snug text-amber-300/90">
-                                It's a prediction, not a measurement: wind and pressure can move real water by 0.3 m or
-                                more, tide differs across a bay, and sand moves. Your sounder is the truth. Route checks
-                                stay on chart datum (LAT).
-                            </p>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setShowTideAck(false)}
-                                    className="flex-1 rounded-xl bg-white/5 py-2.5 text-[12px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        try {
-                                            localStorage.setItem(TIDE_ACK_KEY, new Date().toISOString());
-                                        } catch {
-                                            /* private mode — sheet just shows again next time */
-                                        }
-                                        setShowTideAck(false);
-                                        setTideDepthMode(true);
-                                    }}
-                                    className="flex-1 rounded-xl bg-teal-500/20 py-2.5 text-[12px] font-black uppercase tracking-wide text-teal-300 active:scale-95"
-                                >
-                                    Show live depths
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <ChartDepthControls
+                    surfaceVisible={!embedded && !pickerMode && !isPinView}
+                    plotting={coordCaptureMode}
+                    tideDepthMode={tideDepthMode}
+                    tideOffsetInfo={tideOffsetInfo}
+                    tideScrubQ={tideScrubQ}
+                    onTideScrubChange={setTideScrubQ}
+                    onToggleTideDepth={onToggleTideDepth}
+                    encCellCount={encCellCount}
+                    encVisible={encVisible}
+                    encHydration={encHydration}
+                    encNoCoverage={encNoCoverage}
+                    nightDim={nightDim}
+                    onNightDimChange={setNightDim}
+                    onToggleChartKey={() => setChartKeyOpen((open) => !open)}
+                />
+                <Suspense fallback={null}>
+                    <ChartKeyPanel
+                        visible={chartKeyOpen && !embedded && !pickerMode && !isPinView}
+                        imageryOn={imageryOn}
+                        tideDepthMode={tideDepthMode}
+                        draftConfigured={Number(settings.vessel?.draft) > 0}
+                        onClose={() => setChartKeyOpen(false)}
+                    />
+                </Suspense>
+                <LiveTideAckModal
+                    visible={showTideAck}
+                    onCancel={() => setShowTideAck(false)}
+                    onAccept={() => {
+                        setShowTideAck(false);
+                        setTideDepthMode(true);
+                    }}
+                />
                 {/* Chart modes — top-center one-tap layer presets so a
                     new user can go from blank chart to "Day Sail" or
                     "Storm Watch" in a single tap, instead of hunting
