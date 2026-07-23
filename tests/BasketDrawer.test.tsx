@@ -19,7 +19,7 @@ describe('BasketDrawer', () => {
 
         const dialog = screen.getByRole('dialog', { name: 'Your Basket (2)' });
         expect(dialog.parentElement).toHaveClass('z-[1100]');
-        expect(screen.getByText(/online checkout is not live yet/i)).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Checkout unavailable, coming soon' })).toBeDisabled();
+        expect(screen.getByText(/online checkout is disabled for this beta/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Checkout unavailable during beta' })).toBeDisabled();
     });
 });

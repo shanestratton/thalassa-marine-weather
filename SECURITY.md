@@ -18,6 +18,7 @@ Paid/general-purpose credentials for Open-Meteo, StormGlass, WorldTides, Gemini,
 
 Operationally:
 
+- `npm run build` rejects forbidden provider-secret names in active `.env` files and scans the generated web/native assets; `npm run ship` repeats the scan after Capacitor sync.
 - Restrict every public provider token in its provider dashboard.
 - Rotate a token immediately if its permissions or allowed origins are broader than intended.
 - Treat RLS and server quotas as the security boundary; client-side throttles are only UX and bandwidth protection.

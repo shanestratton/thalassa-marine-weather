@@ -24,6 +24,7 @@ describe('browser paid-secret boundary', () => {
             'VITE_WORLD_TIDES_API_KEY',
             'VITE_SPOONACULAR_KEY',
             'VITE_RAINBOW_API_KEY',
+            'VITE_OPEN_METEO_API_KEY',
         ];
         const violations: string[] = [];
         for (const file of roots.flatMap(sourceFiles)) {

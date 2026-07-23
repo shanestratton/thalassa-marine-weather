@@ -2,8 +2,7 @@
  * CheckoutModal — Thalassa Marketplace Checkout
  *
  * Marketplace payment bottom-sheet. Cash deals are available now; secure
- * escrow is intentionally presented as unavailable until the native Stripe
- * confirmation and handoff flow has passed end-to-end payment testing.
+ * escrow is explicitly disabled for the beta.
  */
 
 import React, { useRef } from 'react';
@@ -28,18 +27,11 @@ interface CheckoutModalProps {
     isOpen: boolean;
     onClose: () => void;
     onCashDeal: (listing: MarketplaceListing) => void;
-    onEscrowComplete?: (paymentIntentId: string) => void;
 }
 
 // --- COMPONENT ---
 
-export const CheckoutModal: React.FC<CheckoutModalProps> = ({
-    listing,
-    isOpen,
-    onClose,
-    onCashDeal,
-    onEscrowComplete: _onEscrowComplete,
-}) => {
+export const CheckoutModal: React.FC<CheckoutModalProps> = ({ listing, isOpen, onClose, onCashDeal }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(isOpen && listing !== null, {
         initialFocusRef: closeButtonRef,
@@ -47,9 +39,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     });
 
     if (!isOpen || !listing) return null;
-
-    const platformFee = listing.price * 0.06;
-    const totalWithFee = listing.price + platformFee;
 
     const handleCashDeal = () => {
         onCashDeal(listing);
@@ -144,13 +133,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                     {/* Option B: Secure Escrow */}
                     <button
-                        aria-label="Secure escrow coming soon"
+                        aria-label="Secure escrow unavailable during beta"
                         disabled
                         className="w-full p-4 rounded-2xl border-2 border-sky-500/20 bg-gradient-to-br from-sky-500/[0.04] to-sky-500/[0.02] text-left relative overflow-hidden opacity-70 cursor-not-allowed"
                     >
                         <div className="absolute top-2.5 right-3 px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-500/30">
                             <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">
-                                Coming soon
+                                Disabled in beta
                             </span>
                         </div>
 
@@ -160,36 +149,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             </div>
                             <div>
                                 <h3 className="text-sm font-bold text-white">Thalassa Secure Escrow</h3>
-                                <p className="text-[11px] text-sky-400 font-semibold">6% Platform Fee</p>
+                                <p className="text-[11px] text-sky-400 font-semibold">Not available in this beta</p>
                             </div>
                         </div>
-                        <p className="text-[11px] text-white/60 leading-relaxed pl-[52px] mb-3">
-                            Secure card holds stay unavailable until the native Stripe confirmation sheet and handoff
-                            flow have passed end-to-end payment testing.
+                        <p className="text-[11px] text-white/60 leading-relaxed pl-[52px]">
+                            Secure card holds are disabled for this beta. Use Cash on the Dock and arrange payment
+                            directly with the seller.
                         </p>
-
-                        {/* Fee breakdown */}
-                        <div className="ml-[52px] p-2.5 rounded-xl bg-black/20 border border-white/[0.06] space-y-1">
-                            <div className="flex justify-between text-[11px]">
-                                <span className="text-white/60">Item price</span>
-                                <span className="text-white/70 font-medium">
-                                    {formatPrice(listing.price, listing.currency)}
-                                </span>
-                            </div>
-                            <div className="flex justify-between text-[11px]">
-                                <span className="text-white/60">Escrow fee (6%)</span>
-                                <span className="text-sky-400/70 font-medium">
-                                    +{formatPrice(platformFee, listing.currency)}
-                                </span>
-                            </div>
-                            <div className="h-px bg-white/[0.08] my-1" />
-                            <div className="flex justify-between text-xs">
-                                <span className="text-white/60 font-semibold">Total hold</span>
-                                <span className="text-white font-bold">
-                                    {formatPrice(totalWithFee, listing.currency)}
-                                </span>
-                            </div>
-                        </div>
                     </button>
                 </div>
 

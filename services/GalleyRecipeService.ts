@@ -14,6 +14,7 @@ import { compressImage } from './ProfilePhotoService';
 import { createLogger } from '../utils/createLogger';
 import { authScopedStorageKey } from './authIdentityScope';
 import { safeExternalHttpUrl, safeImageUrl } from '../utils/safeUrl';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { fetchSpoonacular } from './spoonacularProxy';
 
 const log = createLogger('GalleyRecipe');
@@ -340,6 +341,9 @@ export function getRecipeImageUrl(spoonacularId: number | null, fallbackUrl: str
         const cached = getCachedImage(spoonacularId);
         if (cached) return cached;
     }
+    // Keep already-cached offline images usable, but never reach the
+    // provider CDN while the paid catalogue is disabled.
+    if (!FEATURE_VISIBILITY.spoonacular) return '';
     return fallbackUrl || `https://img.spoonacular.com/recipes/${spoonacularId}-480x360.jpg`;
 }
 
@@ -407,6 +411,8 @@ export async function getRecipeInstructions(spoonacularId: number | null): Promi
             // Stored instructions are not valid JSON — try fetching
         }
     }
+
+    if (!FEATURE_VISIBILITY.spoonacular) return [];
 
     // 2. Fetch through the server-side Spoonacular proxy. The paid API key
     // must never enter the Vite client bundle.
@@ -509,6 +515,7 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
     if (!Number.isInteger(days) || days < 1 || days > 30 || !Number.isInteger(crew) || crew < 1 || crew > 50) {
         return null;
     }
+    if (!FEATURE_VISIBILITY.spoonacular) return null;
 
     // Check cache first
     const cached = getCached(cacheKey(days, crew));
@@ -640,6 +647,7 @@ export async function getShoppingList(recipeIds: number[]): Promise<ShoppingItem
         (id) => Number.isSafeInteger(id) && id > 0 && id <= 2_147_483_647,
     );
     if (safeRecipeIds.length === 0 || safeRecipeIds.length > 20) return [];
+    if (!FEATURE_VISIBILITY.spoonacular) return [];
 
     // Check cache
     const listKey = `${CACHE_PREFIX}shop_${[...safeRecipeIds].sort((a, b) => a - b).join(',')}`;
@@ -931,6 +939,10 @@ async function searchCommunityRecipes(query: string, maxResults = 8): Promise<Ga
  * Search Spoonacular API for recipes.
  */
 async function searchSpoonacular(query: string, maxResults = 8): Promise<GalleyMeal[]> {
+    // Check before the provider cache so stale online results cannot leak
+    // back into a beta build after the integration has been disabled.
+    if (!FEATURE_VISIBILITY.spoonacular) return [];
+
     const resultLimit = Number.isInteger(maxResults) ? Math.min(12, Math.max(1, maxResults)) : 8;
 
     // Check cache first

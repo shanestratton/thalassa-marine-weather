@@ -25,26 +25,26 @@ describe('Spoonacular paid-API boundary', () => {
         expect(source).not.toMatch(/[?&]apiKey=/);
     });
 
-    it('sends a small operation envelope through the Supabase function client', async () => {
+    it('keeps the paid provider disabled before any Supabase invocation', async () => {
         invoke.mockResolvedValueOnce({ data: { results: [] }, error: null });
-        await expect(fetchSpoonacular('search', { query: 'fish curry', number: 5 })).resolves.toEqual({
-            results: [],
-        });
-        expect(invoke).toHaveBeenCalledWith('proxy-spoonacular', {
-            body: { operation: 'search', query: 'fish curry', number: 5 },
-        });
+        await expect(fetchSpoonacular('search', { query: 'fish curry', number: 5 })).resolves.toBeNull();
+        expect(invoke).not.toHaveBeenCalled();
     });
 
-    it('fails closed on function errors or malformed empty responses', async () => {
-        invoke.mockResolvedValueOnce({ data: null, error: { message: 'quota' } });
-        await expect(fetchSpoonacular('bulk', { recipe_ids: [1] })).resolves.toBeNull();
-        invoke.mockRejectedValueOnce(new Error('offline'));
-        await expect(fetchSpoonacular('information', { recipe_id: 1 })).resolves.toBeNull();
+    it('retains a fail-closed client boundary for any future activation', () => {
+        const source = readFileSync(resolve(process.cwd(), 'services/spoonacularProxy.ts'), 'utf8');
+        expect(source).toContain('!FEATURE_VISIBILITY.spoonacular || !supabase');
+        expect(source).toContain('return error || data == null ? null : data');
+        expect(source).toContain('catch');
     });
 
     it('uses a strict server operation allowlist, paid quota, timeout, and response cap', () => {
         const edge = readFileSync(resolve(process.cwd(), 'supabase/functions/proxy-spoonacular/index.ts'), 'utf8');
+        expect(edge).toContain("Deno.env.get('SPOONACULAR_ENABLED') !== 'true'");
         expect(edge).toContain("Deno.env.get('SPOONACULAR_API_KEY')");
+        expect(edge.indexOf("Deno.env.get('SPOONACULAR_ENABLED')")).toBeLessThan(
+            edge.indexOf("Deno.env.get('SPOONACULAR_API_KEY')"),
+        );
         expect(edge).toContain('requireAuthenticatedOrPublicQuota(');
         expect(edge).toContain("operation === 'information'");
         expect(edge).toContain("operation === 'bulk'");

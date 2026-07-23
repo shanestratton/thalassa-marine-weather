@@ -45,6 +45,9 @@ function boundedText(value: unknown, maxLength: number): string | null {
 Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method !== 'POST') return response({ error: 'POST required' }, 405);
+    if (Deno.env.get('SPOONACULAR_ENABLED') !== 'true') {
+        return response({ error: 'Online recipe provider is disabled during beta' }, 503);
+    }
 
     const caller = await requireAuthenticatedOrPublicQuota(req, 'spoonacular', 120, 20, 3600, true);
     if (caller instanceof Response) return withCors(caller, CORS);

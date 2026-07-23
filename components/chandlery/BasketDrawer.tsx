@@ -164,16 +164,17 @@ export const BasketDrawer: React.FC<BasketDrawerProps> = ({ open, onClose, lines
                             <span className="text-xl font-black text-white">${subtotal.toLocaleString()}</span>
                         </div>
                         <p id="chandlery-checkout-note" className="mb-3 text-xs leading-relaxed text-slate-400">
-                            Catalogue preview — online checkout is not live yet. Your basket stays saved on this device.
+                            Catalogue preview — online checkout is disabled for this beta. Your basket stays saved on
+                            this device.
                         </p>
                         <button
                             type="button"
                             disabled
                             aria-describedby="chandlery-checkout-note"
-                            aria-label="Checkout unavailable, coming soon"
+                            aria-label="Checkout unavailable during beta"
                             className="w-full h-12 rounded-xl border border-white/10 bg-white/[0.05] text-slate-400 font-bold cursor-not-allowed"
                         >
-                            Checkout coming soon
+                            Checkout disabled in beta
                         </button>
                     </div>
                 )}
