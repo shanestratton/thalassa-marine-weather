@@ -71,6 +71,54 @@ export const StormPicker: React.FC<StormPickerProps> = ({
     onClose,
     onClearStorms,
 }) => {
+    const dialogRef = React.useRef<HTMLDivElement>(null);
+    const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+    const priorFocusRef = React.useRef<HTMLElement | null>(null);
+
+    React.useEffect(() => {
+        if (!visible || typeof document === 'undefined') return;
+        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        closeButtonRef.current?.focus();
+        return () => {
+            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
+            priorFocusRef.current = null;
+        };
+    }, [visible]);
+
+    React.useEffect(() => {
+        if (!visible || typeof window === 'undefined') return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [visible, onClose]);
+
+    const trapFocus = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Tab') return;
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const targets = Array.from(
+            dialog.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+        );
+        if (targets.length === 0) {
+            event.preventDefault();
+            dialog.focus();
+            return;
+        }
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }, []);
+
     if (typeof document === 'undefined') return null;
 
     // Sort by distance — closest first is the most useful default for skippers.
@@ -91,28 +139,35 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                     transition={{ duration: 0.2 }}
                     className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60"
                     onClick={onClose}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Choose active cyclone"
+                    role="presentation"
                     style={{
                         paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)',
                         paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
                     }}
                 >
                     <motion.div
+                        ref={dialogRef}
                         initial={{ opacity: 0, scale: 0.95, y: -8 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: -8 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                         className="w-full max-w-md mx-4 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="storm-picker-title"
+                        tabIndex={-1}
+                        onKeyDown={trapFocus}
                     >
                         <div className="h-[2px] bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
 
                         {/* Header */}
                         <div className="flex items-center justify-between px-5 pt-4 pb-2">
                             <div>
-                                <h2 className="text-sm font-black text-white uppercase tracking-wider">
+                                <h2
+                                    id="storm-picker-title"
+                                    className="text-sm font-black text-white uppercase tracking-wider"
+                                >
                                     Active Cyclones
                                 </h2>
                                 <p className="text-[11px] text-gray-500 mt-0.5">
@@ -120,6 +175,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                 </p>
                             </div>
                             <button
+                                ref={closeButtonRef}
                                 onClick={onClose}
                                 aria-label="Close storm picker"
                                 className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"

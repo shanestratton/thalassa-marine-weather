@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { TideOffsetRead } from '../../services/TideOffsetService';
 import { triggerHaptic } from '../../utils/system';
 
@@ -175,18 +176,78 @@ export interface LiveTideAckModalProps {
 }
 
 export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckModalProps) {
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const cancelButtonRef = useRef<HTMLButtonElement>(null);
+    const priorFocusRef = useRef<HTMLElement | null>(null);
+
+    useEffect(() => {
+        if (!visible || typeof document === 'undefined') return;
+        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        cancelButtonRef.current?.focus();
+        return () => {
+            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
+            priorFocusRef.current = null;
+        };
+    }, [visible]);
+
+    useEffect(() => {
+        if (!visible || typeof window === 'undefined') return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onCancel();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [visible, onCancel]);
+
+    const trapFocus = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Tab') return;
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const targets = Array.from(
+            dialog.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+        );
+        if (targets.length === 0) {
+            event.preventDefault();
+            dialog.focus();
+            return;
+        }
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }, []);
+
     if (!visible) return null;
 
     return (
         <div
             className="fixed inset-0 z-[10060] flex items-end justify-center bg-black/60 sm:items-center"
             onClick={onCancel}
+            role="presentation"
         >
             <div
+                ref={dialogRef}
                 className="w-full max-w-md rounded-t-3xl border border-teal-500/30 bg-slate-900 p-5 shadow-2xl sm:rounded-3xl"
                 onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="live-tide-depth-title"
+                tabIndex={-1}
+                onKeyDown={trapFocus}
             >
-                <div className="mb-2 text-sm font-black uppercase tracking-widest text-teal-300">Live tide depth</div>
+                <h2
+                    id="live-tide-depth-title"
+                    className="mb-2 text-sm font-black uppercase tracking-widest text-teal-300"
+                >
+                    Live tide depth
+                </h2>
                 <p className="mb-3 text-[13px] leading-snug text-gray-200">
                     Depths re-tint to charted depth + the predicted tide at the nearest station, refreshed every few
                     minutes. Numbers turn teal so you always know you're not reading chart datum.
@@ -198,6 +259,7 @@ export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckMod
                 </p>
                 <div className="flex gap-2">
                     <button
+                        ref={cancelButtonRef}
                         onClick={onCancel}
                         className="flex-1 rounded-xl bg-white/5 py-2.5 text-[12px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
                     >

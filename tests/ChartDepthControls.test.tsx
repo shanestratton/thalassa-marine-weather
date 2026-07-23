@@ -128,4 +128,43 @@ describe('LiveTideAckModal', () => {
         expect(onAccept).toHaveBeenCalledOnce();
         expect(Number.isNaN(Date.parse(localStorage.getItem(TIDE_DEPTH_ACK_KEY) ?? ''))).toBe(false);
     });
+
+    it('acts as a keyboard-contained dialog and restores the control that opened it', () => {
+        const onCancel = vi.fn();
+        const { rerender } = render(
+            <>
+                <button>Enable live tide</button>
+                <LiveTideAckModal visible={false} onCancel={onCancel} onAccept={vi.fn()} />
+            </>,
+        );
+        const trigger = screen.getByRole('button', { name: 'Enable live tide' });
+        trigger.focus();
+
+        rerender(
+            <>
+                <button>Enable live tide</button>
+                <LiveTideAckModal visible onCancel={onCancel} onAccept={vi.fn()} />
+            </>,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Live tide depth' });
+        const cancel = screen.getByRole('button', { name: 'Cancel' });
+        const accept = screen.getByRole('button', { name: 'Show live depths' });
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(cancel).toHaveFocus();
+
+        fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true });
+        expect(accept).toHaveFocus();
+        fireEvent.keyDown(accept, { key: 'Tab' });
+        expect(cancel).toHaveFocus();
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(onCancel).toHaveBeenCalledOnce();
+
+        rerender(
+            <>
+                <button>Enable live tide</button>
+                <LiveTideAckModal visible={false} onCancel={onCancel} onAccept={vi.fn()} />
+            </>,
+        );
+        expect(trigger).toHaveFocus();
+    });
 });

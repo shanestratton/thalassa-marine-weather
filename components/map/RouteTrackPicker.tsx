@@ -17,7 +17,7 @@
  * Visuals match the rest of the chart-screen chip family — slate
  * translucent, blur, 16px radius, soft border.
  */
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
@@ -58,7 +58,11 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
 }) => {
     const [items, setItems] = useState<RouteOrTrack[] | null>(null);
     const [loading, setLoading] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
     const wrapRef = useRef<HTMLDivElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const priorFocusRef = useRef<HTMLElement | null>(null);
     const meta = VARIANT_META[variant];
     const deviceClass = useDeviceClass();
     const sheetMinWidth = pickByDevice(deviceClass, 280, 420);
@@ -73,10 +77,16 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
         if (!visible) return;
         let cancelled = false;
         setLoading(true);
+        setLoadError(null);
         fetchRoutesAndTracks()
             .then((res) => {
                 if (cancelled) return;
                 setItems(variant === 'route' ? res.routes : res.tracks);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setItems(null);
+                setLoadError(`Couldn't load ${meta.title.toLowerCase()} right now. Check the connection and retry.`);
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -84,7 +94,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [visible, variant]);
+    }, [visible, variant, reloadKey, meta.title]);
 
     // Outside-tap close.
     useEffect(() => {
@@ -100,6 +110,50 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
         };
     }, [visible, onClose]);
 
+    useEffect(() => {
+        if (!visible || typeof document === 'undefined') return;
+        priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        closeButtonRef.current?.focus();
+        return () => {
+            if (priorFocusRef.current?.isConnected) priorFocusRef.current.focus();
+            priorFocusRef.current = null;
+        };
+    }, [visible]);
+
+    useEffect(() => {
+        if (!visible || typeof window === 'undefined') return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [visible, onClose]);
+
+    const trapFocus = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Tab') return;
+        const dialog = wrapRef.current;
+        if (!dialog) return;
+        const targets = Array.from(
+            dialog.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+        );
+        if (targets.length === 0) {
+            event.preventDefault();
+            dialog.focus();
+            return;
+        }
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }, []);
+
     if (!visible) return null;
 
     return (
@@ -108,7 +162,10 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
             className="fixed left-1/2 chart-chip-centered z-[185] pointer-events-auto chart-chip-in"
             style={{ top: 'max(56px, calc(env(safe-area-inset-top) + 56px))' }}
             role="dialog"
+            aria-modal="true"
             aria-label={`${meta.title} picker`}
+            tabIndex={-1}
+            onKeyDown={trapFocus}
         >
             <div
                 className="flex flex-col"
@@ -143,6 +200,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                         </span>
                     </span>
                     <button
+                        ref={closeButtonRef}
                         onClick={onClose}
                         aria-label="Close picker"
                         className="opacity-60 hover:opacity-100"
@@ -165,6 +223,21 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                             style={{ padding: '14px 10px', color: 'rgba(255,255,255,0.7)' }}
                         >
                             {meta.emptyMsg}
+                        </div>
+                    )}
+                    {!loading && loadError && (
+                        <div
+                            role="alert"
+                            className="text-[11px] leading-snug"
+                            style={{ padding: '14px 10px', color: '#fbbf24' }}
+                        >
+                            <div>{loadError}</div>
+                            <button
+                                onClick={() => setReloadKey((current) => current + 1)}
+                                className="mt-2 rounded-md border border-amber-300/30 px-2.5 py-1 font-semibold text-amber-200"
+                            >
+                                Retry
+                            </button>
                         </div>
                     )}
                     {!loading &&

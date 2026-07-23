@@ -67,6 +67,7 @@ import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useTraceHistory } from './useTraceHistory';
 import { useTraceDraft } from './useTraceDraft';
+import { useActiveCyclones } from './useActiveCyclones';
 import { useAnchorageLayer } from './useAnchorageLayer';
 import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
@@ -200,13 +201,10 @@ import type { ActiveCyclone } from '../../services/weather/CycloneTrackingServic
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
-import { RouteTrackPicker } from './RouteTrackPicker';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { RadialHelmMenu } from './RadialHelmMenu';
-import { StormPicker } from './StormPicker';
 import { MapActionFabs } from './MapActionFabs';
 import { TimePicker24 } from '../passage/TimePicker24';
-import { MapWeatherControls } from './MapWeatherControls';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import {
@@ -278,6 +276,42 @@ const TraceReportLoading: React.FC = () => (
         className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-sky-200"
     >
         Opening route report…
+    </div>
+);
+const RouteTrackPicker = lazyRetry(
+    () => import('./RouteTrackPicker').then((m) => ({ default: m.RouteTrackPicker })),
+    'RouteTrackPicker',
+);
+const RouteTrackPickerLoading: React.FC<{ label: string }> = ({ label }) => (
+    <div
+        role="status"
+        aria-live="polite"
+        className="fixed left-1/2 top-20 z-[185] -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 text-center text-xs font-bold text-sky-200 shadow-xl"
+    >
+        {label}
+    </div>
+);
+const MapWeatherControls = lazyRetry(
+    () => import('./MapWeatherControls').then((m) => ({ default: m.MapWeatherControls })),
+    'MapWeatherControls',
+);
+const WeatherControlsLoading: React.FC = () => (
+    <div
+        role="status"
+        aria-live="polite"
+        className="absolute bottom-24 left-1/2 z-[510] -translate-x-1/2 rounded-full border border-white/10 bg-slate-900/85 px-3 py-2 text-xs font-bold text-sky-200 shadow-lg backdrop-blur-md"
+    >
+        Opening weather controls…
+    </div>
+);
+const StormPicker = lazyRetry(() => import('./StormPicker').then((m) => ({ default: m.StormPicker })), 'StormPicker');
+const StormPickerLoading: React.FC = () => (
+    <div
+        role="status"
+        aria-live="polite"
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-red-100"
+    >
+        Opening storm picker…
     </div>
 );
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -3461,11 +3495,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the layer menu can list them, but nothing renders until toggled on.
 
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
-    const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
     const skipAutoFlyRef = useRef(false);
     // Storm picker modal — opens when the user taps Storms in the radial menu
     // AND there are multiple active cyclones to choose from.
     const [stormPickerOpen, setStormPickerOpen] = useState(false);
+    const { cyclones: allCyclones } = useActiveCyclones(cycloneVisible || squallVisible || stormPickerOpen);
+    // The catalogue is now demand-loaded. Remember a skipper's first Storms
+    // tap while it arrives, so multiple systems still open the chooser on that
+    // same tap rather than making them tap the radial control again.
+    const cyclonePickerPendingRef = useRef(false);
+    useEffect(() => {
+        if (!cyclonePickerPendingRef.current || !cycloneVisible || allCyclones.length <= 1) return;
+        cyclonePickerPendingRef.current = false;
+        setStormPickerOpen(true);
+    }, [allCyclones.length, cycloneVisible]);
     /** One-time toast surfaced when PerfGuardian downtiered the device
      *  on the previous session. Cleared on dismiss / first render. */
     const [perfToast, setPerfToast] = useState<boolean>(() => consumePerfDowntierToast());
@@ -3623,28 +3666,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         const t = setTimeout(() => setPerfToast(false), 6500);
         return () => clearTimeout(t);
     }, [perfToast]);
-
-    // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
-    // Dynamic import — CycloneTrackingService is large and only needed after map loads
-    useEffect(() => {
-        let cancelled = false;
-        const load = async () => {
-            try {
-                const { fetchActiveCyclones } = await import('../../services/weather/CycloneTrackingService');
-                const cyclones = await fetchActiveCyclones();
-                if (!cancelled) setAllCyclones(cyclones);
-            } catch (e) {
-                console.warn('Suppressed:', e);
-                /* non-critical */
-            }
-        };
-        load();
-        const timer = setInterval(load, 30 * 60 * 1000);
-        return () => {
-            cancelled = true;
-            clearInterval(timer);
-        };
-    }, []);
 
     // Ref for weather layer toggle (populated after weather hook runs)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -5198,6 +5219,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 // only the closest one). With 0 or 1 storms, fall back to
                                 // the simple toggle.
                                 if (allCyclones.length > 1) {
+                                    cyclonePickerPendingRef.current = false;
                                     setStormPickerOpen(true);
                                     // Also enable the layer if it's off so the picked storm
                                     // becomes visible immediately.
@@ -5215,6 +5237,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 }
                                 // Single- or zero-storm case — plain toggle (existing behaviour)
                                 const willBeVisible = !cycloneVisible;
+                                cyclonePickerPendingRef.current = willBeVisible;
                                 setCycloneVisible(willBeVisible);
                                 if (willBeVisible) {
                                     setSquallVisible(false);
@@ -6710,23 +6733,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* Routes picker — saved planned passages from the
                     ships log. Selection becomes activeChartRoute; the
                     useRouteTrackLayer renders + fits bounds. */}
-                <RouteTrackPicker
-                    visible={routePickerOpen && !passage.showPassage && !embedded && !isPinView}
-                    variant="route"
-                    selectedId={activeChartRoute?.id ?? null}
-                    onSelect={(item) => setActiveChartRoute(item)}
-                    onClose={() => setRoutePickerOpen(false)}
-                />
+                {routePickerOpen && !passage.showPassage && !embedded && !isPinView && (
+                    <Suspense fallback={<RouteTrackPickerLoading label="Opening routes…" />}>
+                        <RouteTrackPicker
+                            visible
+                            variant="route"
+                            selectedId={activeChartRoute?.id ?? null}
+                            onSelect={(item) => setActiveChartRoute(item)}
+                            onClose={() => setRoutePickerOpen(false)}
+                        />
+                    </Suspense>
+                )}
 
                 {/* Tracks picker — actually-sailed passages. Same UX as
                     Routes; the two can be active simultaneously. */}
-                <RouteTrackPicker
-                    visible={trackPickerOpen && !passage.showPassage && !embedded && !isPinView}
-                    variant="track"
-                    selectedId={activeChartTrack?.id ?? null}
-                    onSelect={(item) => setActiveChartTrack(item)}
-                    onClose={() => setTrackPickerOpen(false)}
-                />
+                {trackPickerOpen && !passage.showPassage && !embedded && !isPinView && (
+                    <Suspense fallback={<RouteTrackPickerLoading label="Opening tracks…" />}>
+                        <RouteTrackPicker
+                            visible
+                            variant="track"
+                            selectedId={activeChartTrack?.id ?? null}
+                            onSelect={(item) => setActiveChartTrack(item)}
+                            onClose={() => setTrackPickerOpen(false)}
+                        />
+                    </Suspense>
+                )}
 
                 {/* Threat proximity banner — surfaces nearby lightning
                     or active cyclones with bearing + distance. The
@@ -7064,13 +7095,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                <MapWeatherControls
-                    weather={weather}
-                    visible={!isPinView && !embedded && weather.activeLayers.size > 0}
-                    embedded={embedded}
-                    controlsHidden={chartControlsHidden}
-                    onControlsHiddenChange={setChartControlsHidden}
-                />
+                {!isPinView && !embedded && weather.activeLayers.size > 0 && (
+                    <Suspense fallback={<WeatherControlsLoading />}>
+                        <MapWeatherControls
+                            weather={weather}
+                            visible
+                            embedded={embedded}
+                            controlsHidden={chartControlsHidden}
+                            onControlsHiddenChange={setChartControlsHidden}
+                        />
+                    </Suspense>
+                )}
             </div>
 
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
@@ -7108,19 +7143,23 @@ export const MapHub: React.FC<MapHubProps> = ({
             </Suspense>
 
             {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}
-            <StormPicker
-                visible={stormPickerOpen}
-                cyclones={allCyclones}
-                userLat={location.lat}
-                userLon={location.lon}
-                selectedStormName={closestStorm?.name ?? null}
-                onSelect={handleSelectStorm}
-                onClose={() => setStormPickerOpen(false)}
-                onClearStorms={() => {
-                    setCycloneVisible(false);
-                    setClosestStorm(null);
-                }}
-            />
+            {stormPickerOpen && (
+                <Suspense fallback={<StormPickerLoading />}>
+                    <StormPicker
+                        visible
+                        cyclones={allCyclones}
+                        userLat={location.lat}
+                        userLon={location.lon}
+                        selectedStormName={closestStorm?.name ?? null}
+                        onSelect={handleSelectStorm}
+                        onClose={() => setStormPickerOpen(false)}
+                        onClearStorms={() => {
+                            setCycloneVisible(false);
+                            setClosestStorm(null);
+                        }}
+                    />
+                </Suspense>
+            )}
         </div>
     );
 };
