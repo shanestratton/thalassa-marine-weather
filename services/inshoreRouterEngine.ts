@@ -77,6 +77,7 @@ import {
 } from './engine/geometry';
 import { aStar, chainCostM } from './engine/aStar';
 import { buildNavGridCached, snapWithPredicate, snapToNavigable, labelConnectedComponents } from './engine/navGrid';
+import { auditUnvouchedHardLand, MAX_UNVOUCHED_HARD_LAND_RUN_M } from './engine/safetyAudit';
 import {
     smoothPath,
     deStaggerCentred,
@@ -191,7 +192,7 @@ function routeInshoreMain(
         // failure: the pin sits behind a fixed bridge the vessel cannot pass.
         // Returning the strict route here would silently start the passage
         // 2 km away and hide the impassable structure.
-        if (relaxed.code === 'air-draft-blocked') return relaxed;
+        if (relaxed.code === 'air-draft-blocked' || relaxed.code === 'hard-land-crossing') return relaxed;
         return strict;
     }
     if (dropsProtectedCanalGateContract(strict, relaxed)) {
@@ -1361,6 +1362,36 @@ function routeInshoreOnce(
     let distM = 0;
     for (let i = 1; i < finalPolyline.length; i++) {
         distM += haversineM(finalPolyline[i - 1][1], finalPolyline[i - 1][0], finalPolyline[i][1], finalPolyline[i][0]);
+    }
+
+    // ── Exact-vector hard-land veto ─────────────────────────────────
+    // Grid rescues exist for small chart-alignment errors at marina mouths,
+    // but no emitted route may turn those rescues into a sustained crossing
+    // of source LNDARE. Re-check the FINAL post-splice geometry against the
+    // original vectors, independently of every grid carve. Overlapping
+    // DEPARE/DRGARE/FAIRWY means the sources disagree (caution, not an
+    // unambiguous land verdict); a >500 m unvouched run is an honest refusal.
+    // `permissive` is retained for deliberately partial synthetic/legacy
+    // layer packs; the live orchestrator always requests `strict`, where both
+    // missing-water and hard-land source verdicts are enforceable.
+    const hardLandAudit = strictUncharted ? auditUnvouchedHardLand(layers, finalPolyline) : null;
+    if (hardLandAudit && hardLandAudit.maxRunM > MAX_UNVOUCHED_HARD_LAND_RUN_M) {
+        const hardLandDebug = {
+            ...debug,
+            hardLandMaxRunM: Math.round(hardLandAudit.maxRunM),
+            hardLandTotalM: Math.round(hardLandAudit.totalM),
+            ...(hardLandAudit.maxRunStart && hardLandAudit.maxRunEnd
+                ? { hardLandRun: { start: hardLandAudit.maxRunStart, end: hardLandAudit.maxRunEnd } }
+                : {}),
+        } as RouteDebug;
+        engineLog.warn(
+            `[hardLand] final route crosses ${Math.round(hardLandAudit.maxRunM)} m continuously / ${Math.round(hardLandAudit.totalM)} m total of unvouched charted land${hardLandAudit.maxRunStart && hardLandAudit.maxRunEnd ? ` (${hardLandAudit.maxRunStart[1].toFixed(4)},${hardLandAudit.maxRunStart[0].toFixed(4)} → ${hardLandAudit.maxRunEnd[1].toFixed(4)},${hardLandAudit.maxRunEnd[0].toFixed(4)})` : ''} — REFUSING`,
+        );
+        return {
+            error: `No safe chart-vouched route: the only candidate crosses ${(hardLandAudit.maxRunM / 1000).toFixed(1)} km of charted land`,
+            code: 'hard-land-crossing',
+            debug: hardLandDebug,
+        };
     }
 
     // ── Engine-boundary water-vouched sweep (strict policy only) ─────

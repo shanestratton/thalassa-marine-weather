@@ -241,6 +241,13 @@ export interface RouteDebug {
      *  400 m coarse pre-check instead of the full fine-grid pass (reply 19
      *  fix 3 — strict refusals used to pay the whole 20-47 s build first). */
     coarsePrecheck?: boolean;
+    /** Longest continuous final-route run (metres) inside exact charted
+     * LNDARE without overlapping DEPARE/DRGARE/FAIRWY water evidence. */
+    hardLandMaxRunM?: number;
+    /** Total final-route distance (metres) across the same unvouched land. */
+    hardLandTotalM?: number;
+    /** Ends of the longest unvouched hard-land run, as [lon, lat]. */
+    hardLandRun?: { start: [number, number]; end: [number, number] };
     /** Grid-relaxation params the ACCEPTED pass was built with (absent =
      *  strict, no zones). The Phase 12 shadow router must look up the
      *  SAME grid — the cache key includes both — or relax-zone routes
@@ -359,6 +366,9 @@ export interface RouteFailure {
         | 'destination-out-of-bounds'
         | 'empty-grid'
         | 'uncharted-corridor'
+        /** The final emitted geometry would sustain a run across exact charted
+         * land with no overlapping water evidence. */
+        | 'hard-land-crossing'
         /** A fixed bridge with insufficient clearance for this vessel's air
          *  draft severs the only channel — the honest verdict is "no
          *  mast-safe route", never a cross-country workaround. */

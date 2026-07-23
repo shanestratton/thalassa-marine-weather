@@ -371,8 +371,15 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
         }
         const installed = listInstalled();
         console.log(`\ninstalled OC cells: ${installed.length}`);
+        const requestedPassage = process.env.BAY_SWEEP_ONLY?.trim().toLowerCase();
+        const passages = requestedPassage
+            ? PASSAGES.filter((passage) => passage.name.toLowerCase().includes(requestedPassage))
+            : PASSAGES;
+        if (requestedPassage && passages.length === 0) {
+            throw new Error(`BAY_SWEEP_ONLY did not match a passage: ${process.env.BAY_SWEEP_ONLY}`);
+        }
         const rows: string[] = [];
-        for (const p of PASSAGES) {
+        for (const p of passages) {
             const t0 = Date.now();
             let row = `\n### ${p.name}`;
             try {
@@ -430,6 +437,11 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
                         `  shallowRuns ${runs.length} [${runs.map((x) => (x.minDepthM === null ? '∅' : x.minDepthM.toFixed(1))).join(',')}]` +
                         `  caution ${(r.cautionMask ?? []).filter(Boolean).length}/${(r.cautionMask ?? []).length} segs` +
                         `  [${ms} ms, cells=${cells.join(',')}]`;
+                    if (p.name === 'Seaway → Paradise Point') {
+                        expect(hardLand, 'Seaway → Paradise Point must never emit an unvouched hard-land sample').toBe(
+                            0,
+                        );
+                    }
                 }
             } catch (err) {
                 row += `\n  THREW: ${err instanceof Error ? err.message : String(err)}`;
@@ -438,7 +450,7 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
             console.log(row);
         }
         console.log('\n=== SWEEP COMPLETE ===');
-        expect(rows.length).toBe(PASSAGES.length);
+        expect(rows.length).toBe(passages.length);
         // 300s cap like the sibling long diags (mooloolabaHomecoming,
         // tangaloomaLeads) — the 12-passage sweep runs ~110s with the Pi
         // up, and the suite-wide 20s default was failing it on time alone.
