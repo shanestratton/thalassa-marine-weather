@@ -356,22 +356,31 @@ $$;
 REVOKE ALL ON FUNCTION public.guard_grocery_purchase_delete()
     FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS trg_guard_grocery_purchase_insert
-    ON public.shopping_list;
-CREATE TRIGGER trg_guard_grocery_purchase_insert
-    BEFORE INSERT ON public.shopping_list
-    FOR EACH ROW EXECUTE FUNCTION public.guard_grocery_purchase_insert();
+-- Keep the replacement in one protocol statement. Some managed poolers reject
+-- a final DROP/CREATE pair when the migration transport prepares it as a batch.
+DO $$
+BEGIN
+    EXECUTE 'DROP TRIGGER IF EXISTS trg_guard_grocery_purchase_insert ON public.shopping_list';
+    EXECUTE $trigger$
+        CREATE TRIGGER trg_guard_grocery_purchase_insert
+        BEFORE INSERT ON public.shopping_list
+        FOR EACH ROW EXECUTE FUNCTION public.guard_grocery_purchase_insert()
+    $trigger$;
 
-DROP TRIGGER IF EXISTS trg_guard_grocery_purchase_delete
-    ON public.shopping_list;
-CREATE TRIGGER trg_guard_grocery_purchase_delete
-    BEFORE DELETE ON public.shopping_list
-    FOR EACH ROW EXECUTE FUNCTION public.guard_grocery_purchase_delete();
+    EXECUTE 'DROP TRIGGER IF EXISTS trg_guard_grocery_purchase_delete ON public.shopping_list';
+    EXECUTE $trigger$
+        CREATE TRIGGER trg_guard_grocery_purchase_delete
+        BEFORE DELETE ON public.shopping_list
+        FOR EACH ROW EXECUTE FUNCTION public.guard_grocery_purchase_delete()
+    $trigger$;
 
-DROP TRIGGER IF EXISTS trg_atomic_grocery_purchase
-    ON public.shopping_list;
-CREATE TRIGGER trg_atomic_grocery_purchase
-    BEFORE UPDATE
-    ON public.shopping_list
-    FOR EACH ROW
-    EXECUTE FUNCTION public.sync_grocery_purchase_inventory();
+    EXECUTE 'DROP TRIGGER IF EXISTS trg_atomic_grocery_purchase ON public.shopping_list';
+    EXECUTE $trigger$
+        CREATE TRIGGER trg_atomic_grocery_purchase
+        BEFORE UPDATE
+        ON public.shopping_list
+        FOR EACH ROW
+        EXECUTE FUNCTION public.sync_grocery_purchase_inventory()
+    $trigger$;
+END;
+$$;
