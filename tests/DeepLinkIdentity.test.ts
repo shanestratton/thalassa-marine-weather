@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
     consumeTracerAction,
     consumeTracerOpenRequest,
+    peekTracerOpenRequest,
     requestTracerOpen,
     type TracerOpenEventDetail,
 } from '../services/deepLink';
@@ -106,7 +107,9 @@ describe('tracer deep-link identity fence', () => {
         requestTracerOpen();
 
         expect(event.read().detail.identity).toBe(anonymous);
+        expect(peekTracerOpenRequest()).toBe(true);
         expect(consumeTracerOpenRequest(event.read())).toBe(true);
+        expect(peekTracerOpenRequest()).toBe(false);
         expect(consumeTracerAction()).toBeNull();
     });
 

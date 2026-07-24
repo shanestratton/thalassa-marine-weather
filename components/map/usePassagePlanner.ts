@@ -173,7 +173,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [speed, setSpeed] = useState(6);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
     const [settingPoint, setSettingPoint] = useState<'departure' | 'arrival' | null>(null);
-    const [showPassage, setShowPassage] = useState(false);
+    // A RoutePlanner handoff is staged before the tab changes. Read it during
+    // initial render (not in the mount effect) so the destination MapHub never
+    // paints one frame of the skipper's Chart overlays before becoming Plan.
+    const [showPassage, setShowPassage] = useState(() => peekPassageRequest() !== null);
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes

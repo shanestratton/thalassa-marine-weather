@@ -867,6 +867,18 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
     useEffect(() => {
         if (!map || !enabled) return;
 
+        let detailButtonTimer: ReturnType<typeof setTimeout> | null = null;
+        let detailModalCloseTimer: ReturnType<typeof setTimeout> | null = null;
+        let detailModal: HTMLDivElement | null = null;
+        const removeDetailModal = () => {
+            if (detailModalCloseTimer) {
+                clearTimeout(detailModalCloseTimer);
+                detailModalCloseTimer = null;
+            }
+            detailModal?.remove();
+            detailModal = null;
+        };
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const handleClick = (e: any) => {
             if (!e.features || e.features.length === 0) return;
@@ -1128,7 +1140,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
             // ── Attach detail modal click handler ──
             if (isPremium && intel?.metadata && modalData) {
-                setTimeout(() => {
+                if (detailButtonTimer) clearTimeout(detailButtonTimer);
+                detailButtonTimer = setTimeout(() => {
+                    detailButtonTimer = null;
                     const btn = document.getElementById(detailBtnId);
                     if (btn) {
                         btn.addEventListener('click', () => {
@@ -1136,17 +1150,25 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                             if (popupRef.current) popupRef.current.remove();
 
                             // Create full-screen modal overlay
+                            removeDetailModal();
+                            document.getElementById('vessel-detail-modal')?.remove();
                             const overlay = document.createElement('div');
                             overlay.id = 'vessel-detail-modal';
                             overlay.style.cssText = `position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:fadeIn 0.2s ease-out;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;`;
                             overlay.innerHTML = buildAisVesselDetailHtml(modalData);
 
                             document.body.appendChild(overlay);
+                            detailModal = overlay;
 
                             // Close handlers
                             const closeModal = () => {
                                 overlay.style.animation = 'fadeOut 0.2s ease-in';
-                                setTimeout(() => overlay.remove(), 200);
+                                if (detailModalCloseTimer) clearTimeout(detailModalCloseTimer);
+                                detailModalCloseTimer = setTimeout(() => {
+                                    overlay.remove();
+                                    if (detailModal === overlay) detailModal = null;
+                                    detailModalCloseTimer = null;
+                                }, 200);
                             };
                             overlay.addEventListener('click', (ev) => {
                                 if (ev.target === overlay) closeModal();
@@ -1183,6 +1205,11 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 popupRef.current.remove();
                 popupRef.current = null;
             }
+            if (detailButtonTimer) {
+                clearTimeout(detailButtonTimer);
+                detailButtonTimer = null;
+            }
+            removeDetailModal();
         };
     }, [map, enabled]);
 }

@@ -23,7 +23,7 @@ import { ShipLogService } from '../../services/ShipLogService';
 import type { ShipLogEntry } from '../../types';
 import { triggerHaptic } from '../../utils/system';
 import { useUI } from '../../context/UIContext';
-import { requestPassageMode, type PassageHandoffDetail } from '../../services/passageHandoff';
+import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } from '../../services/passageHandoff';
 import { PageHeader } from '../ui/PageHeader';
 import { getAuthIdentityScope } from '../../services/authIdentityScope';
 
@@ -245,9 +245,11 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 `${routeData.waypoints.length > 2 ? ` via ${routeData.waypoints.length - 2} waypoints` : ''}`,
         );
 
-        // Navigate to map and hand off the passage. Sticky request —
-        // survives the map view's lazy mount (services/passageHandoff).
+        // Stage before navigation so the destination MapHub suppresses chart
+        // overlays on its very first frame. The delayed broadcast still wakes
+        // an already-mounted destination and preserves the existing handoff.
         const operationScope = getAuthIdentityScope();
+        stagePassageRequest(detail, operationScope);
         setPage('map');
         setTimeout(() => {
             requestPassageMode(detail, operationScope);

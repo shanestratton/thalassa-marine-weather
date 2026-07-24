@@ -79,4 +79,24 @@ describe('useChartCatalog identity boundary', () => {
             enabled: true,
         });
     });
+
+    it('suppresses catalog layers for Plan without changing the saved Chart selection', async () => {
+        const { mapRef, sources } = mapHarness();
+        const rendered = renderHook(({ visible }: { visible: boolean }) => useChartCatalog(mapRef, true, visible), {
+            initialProps: { visible: true },
+        });
+
+        await waitFor(() => expect(sources.has('chart-catalog-linz-charts')).toBe(true));
+
+        rendered.rerender({ visible: false });
+        await waitFor(() => expect(sources.has('chart-catalog-linz-charts')).toBe(false));
+        expect(rendered.result.current.hasEnabledCharts).toBe(false);
+        expect(
+            ChartCatalogService.getSources(getAuthIdentityScope()).find((source) => source.id === 'linz-charts'),
+        ).toMatchObject({ enabled: true });
+
+        rendered.rerender({ visible: true });
+        await waitFor(() => expect(sources.has('chart-catalog-linz-charts')).toBe(true));
+        expect(rendered.result.current.hasEnabledCharts).toBe(true);
+    });
 });

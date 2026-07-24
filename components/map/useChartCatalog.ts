@@ -44,7 +44,7 @@ interface ScopedSources {
     sources: ChartSource[];
 }
 
-export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
+export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, visible = true) {
     const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
     const hydratedSources = useMemo(() => {
         ChartCatalogService.initialize(identityScope);
@@ -111,14 +111,14 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        const enabledIds = new Set(sources.filter((s) => s.enabled && s.tileUrl).map((s) => s.id));
+        const enabledIds = new Set(sources.filter((s) => visible && s.enabled && s.tileUrl).map((s) => s.id));
 
         // Add new layers
         for (const src of sources) {
             const sourceId = `${SOURCE_PREFIX}${src.id}`;
             const layerId = `${LAYER_PREFIX}${src.id}`;
 
-            if (src.enabled && src.tileUrl) {
+            if (visible && src.enabled && src.tileUrl) {
                 // Mapbox sources are immutable. A key rotation changes the
                 // tile URL, so remove the old source before adding its safe
                 // replacement.
@@ -198,7 +198,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                 sourceUrlsRef.current.delete(id);
             }
         }
-    }, [mapRef, mapReady, sources]);
+    }, [mapRef, mapReady, sources, visible]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -275,7 +275,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         [identityScope],
     );
 
-    const hasEnabledCharts = sources.some((s) => s.enabled && s.tileUrl);
+    const hasEnabledCharts = visible && sources.some((s) => s.enabled && s.tileUrl);
 
     return {
         sources,

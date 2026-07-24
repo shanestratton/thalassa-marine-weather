@@ -18,6 +18,12 @@ export interface MapHubProps {
     minimalLabels?: boolean;
     /** Embedded mode: no overlays, no interactions, static centered view */
     embedded?: boolean;
+    /**
+     * Passage-planning surface: keep the planning chart, navigation marks and
+     * route furniture, but suppress every optional browsing overlay without
+     * changing the Chart page's persisted selections.
+     */
+    cleanPlanningMap?: boolean;
     /** Hide the Route Tracer button/panel — for host pages with their own
      *  bottom CTA (the Plan page's "Slide to Calculate Route" sat exactly
      *  under the tracer button, Shane 2026-07-08). */
@@ -30,6 +36,19 @@ export interface MapHubProps {
     pickerMode?: boolean;
     /** Label shown in the picker banner (e.g. "Select Origin") */
     pickerLabel?: string;
+}
+
+/**
+ * Chart browsing and passage planning share MapHub, but they must not share
+ * optional overlay visibility. Keep this as a pure derivation so entering Plan
+ * can never erase the skipper's persisted Chart choices.
+ */
+export function shouldSuppressChartOverlays(
+    cleanPlanningMap: boolean,
+    tracing: boolean,
+    showingPassage: boolean,
+): boolean {
+    return cleanPlanningMap || tracing || showingPassage;
 }
 
 export type WeatherLayer =

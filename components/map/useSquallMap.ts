@@ -59,14 +59,39 @@ export function useSquallMap(
     const prevMaxZoomRef = useRef<number | null>(null);
     const zoomSnapRef = useRef<(() => void) | null>(null);
     const lastRefreshAtRef = useRef<number>(0);
-    const inflightRef = useRef(false);
+    const loadSessionRef = useRef(0);
+    const inflightControllerRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
+        const loadSession = ++loadSessionRef.current;
+        const isCurrentLoadSession = () => visible && loadSessionRef.current === loadSession;
+        const cancelInflightLoad = () => {
+            const controller = inflightControllerRef.current;
+            if (!controller) return;
+            controller.abort();
+            if (inflightControllerRef.current === controller) {
+                inflightControllerRef.current = null;
+            }
+        };
+        const startLoad = () => {
+            if (inflightControllerRef.current) {
+                log.info('Squall snapshot fetch already in flight — skipping');
+                return;
+            }
+            const controller = new AbortController();
+            inflightControllerRef.current = controller;
+            void loadSquallTiles(map, lastRefreshAtRef, controller, isCurrentLoadSession).finally(() => {
+                if (inflightControllerRef.current === controller) {
+                    inflightControllerRef.current = null;
+                }
+            });
+        };
 
         // ── Teardown when hidden ──
         if (!visible) {
+            cancelInflightLoad();
             cleanupLayers(map);
             isSetUp.current = false;
             if (refreshTimer.current) {
@@ -123,17 +148,21 @@ export function useSquallMap(
             log.warn('⛈️ Squall map active — fetching Rainbow snapshot');
 
             // Kick off the first Rainbow load.
-            void loadSquallTiles(map, lastRefreshAtRef, inflightRef);
+            startLoad();
         }
 
         // Auto-refresh every 5 min so the user always sees recent cells.
         if (!refreshTimer.current) {
             refreshTimer.current = setInterval(() => {
-                void loadSquallTiles(map, lastRefreshAtRef, inflightRef);
+                startLoad();
             }, REFRESH_INTERVAL_MS);
         }
 
         return () => {
+            if (loadSessionRef.current === loadSession) {
+                loadSessionRef.current += 1;
+            }
+            cancelInflightLoad();
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
@@ -189,61 +218,62 @@ export function useSquallMap(
 async function loadSquallTiles(
     map: mapboxgl.Map,
     lastRefreshAtRef: React.MutableRefObject<number>,
-    inflightRef: React.MutableRefObject<boolean>,
+    controller: AbortController,
+    isCurrentLoadSession: () => boolean,
 ): Promise<void> {
-    if (inflightRef.current) {
-        log.info('Squall snapshot fetch already in flight — skipping');
+    const isCurrent = () => !controller.signal.aborted && isCurrentLoadSession();
+    if (!isCurrent()) return;
+
+    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+    if (!supabaseUrl) {
+        log.warn('Supabase URL missing — cannot fetch Rainbow snapshot');
         return;
     }
-    inflightRef.current = true;
+
+    // Use the same snapshot endpoint the rain layer hits. Pi
+    // passthrough so the boat fleet shares one fetch.
+    const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
+    const piUrl = piCache.passthroughUrl(upstream, SNAPSHOT_TTL_MS, 'rainbow-snapshot');
+
+    // The same controller handles both the 3s timeout and a Chart → Plan
+    // transition. Aborting alone is not sufficient because a mocked/cached
+    // response may still settle; the session guard below is the final fence
+    // before any Mapbox mutation.
+    const timer = setTimeout(() => controller.abort(), 3000);
+    let snapshot: number | null = null;
     try {
-        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-        if (!supabaseUrl) {
-            log.warn('Supabase URL missing — cannot fetch Rainbow snapshot');
+        const res = await fetch(piUrl ?? upstream, { signal: controller.signal });
+        if (!isCurrent()) return;
+        if (!res.ok) {
+            log.warn(`Rainbow snapshot HTTP ${res.status}`);
             return;
         }
-
-        // Use the same snapshot endpoint the rain layer hits. Pi
-        // passthrough so the boat fleet shares one fetch.
-        const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
-        const piUrl = piCache.passthroughUrl(upstream, SNAPSHOT_TTL_MS, 'rainbow-snapshot');
-
-        // Hard 3s timeout so a cold Supabase doesn't lock the layer.
-        const timeoutCtrl = new AbortController();
-        const timer = setTimeout(() => timeoutCtrl.abort(), 3000);
-        let snapshot: number | null = null;
-        try {
-            const res = await fetch(piUrl ?? upstream, { signal: timeoutCtrl.signal });
-            clearTimeout(timer);
-            if (!res.ok) {
-                log.warn(`Rainbow snapshot HTTP ${res.status}`);
-                return;
-            }
-            const data = await res.json();
-            snapshot = data.snapshot ?? null;
-        } catch (err) {
+        const data = await res.json();
+        if (!isCurrent()) return;
+        snapshot = data.snapshot ?? null;
+    } catch (err) {
+        if (!controller.signal.aborted) {
             log.warn('Rainbow snapshot fetch failed/timed out', err);
-            return;
-        } finally {
-            clearTimeout(timer);
         }
-
-        if (!snapshot) {
-            log.warn('Rainbow snapshot empty');
-            return;
-        }
-
-        log.warn(`Squall snapshot ${snapshot} — mounting tile layer`);
-        mountSquallLayer(map, supabaseUrl, snapshot);
-        lastRefreshAtRef.current = Date.now();
-        // Publish to a window-scoped ref so the SquallLegend chip's
-        // age indicator can update without us threading a callback or
-        // store through the React tree just for one number.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__thalassaSquallLastRefreshAt = lastRefreshAtRef.current;
+        return;
     } finally {
-        inflightRef.current = false;
+        clearTimeout(timer);
     }
+
+    if (!snapshot) {
+        log.warn('Rainbow snapshot empty');
+        return;
+    }
+    if (!isCurrent()) return;
+
+    log.warn(`Squall snapshot ${snapshot} — mounting tile layer`);
+    mountSquallLayer(map, supabaseUrl, snapshot);
+    lastRefreshAtRef.current = Date.now();
+    // Publish to a window-scoped ref so the SquallLegend chip's
+    // age indicator can update without us threading a callback or
+    // store through the React tree just for one number.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__thalassaSquallLastRefreshAt = lastRefreshAtRef.current;
 }
 
 /**

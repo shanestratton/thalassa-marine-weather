@@ -22,6 +22,7 @@ interface PassageBannerProps {
         routeAnalysis: { totalDistance: number; estimatedDuration: number } | null;
         departureTime: string | null;
         setShowPassage: (v: boolean) => void;
+        clearRoute: () => void;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         isoResultRef: React.MutableRefObject<any>;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -302,6 +303,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     {/* Close button — 36×36 hit area for thumb tapping. */}
                     <button
                         onClick={() => {
+                            passage.clearRoute();
                             passage.setShowPassage(false);
                             window.dispatchEvent(new CustomEvent('thalassa:passage-clear'));
                             triggerHaptic('light');

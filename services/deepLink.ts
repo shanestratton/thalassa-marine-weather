@@ -133,6 +133,16 @@ export function requestTracerOpen(
 }
 
 /**
+ * Whether the current identity has a tracer request waiting to be consumed.
+ * Used only for first-render presentation so a cold Plan → Map handoff starts
+ * clean instead of briefly painting the skipper's Chart overlays.
+ */
+export function peekTracerOpenRequest(): boolean {
+    const request = pendingTracerRequest;
+    return !!request && isAuthIdentityScopeCurrent(request.identity);
+}
+
+/**
  * Claim the current identity's request. Event-driven consumers should pass the
  * event so a delayed/replayed A event can never claim a newer B request.
  */
