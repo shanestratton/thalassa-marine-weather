@@ -50,6 +50,7 @@ import { ShipLogService } from '../services/ShipLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
+import { excludeSuggestedRoutes } from '../utils/voyageStats';
 import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -220,6 +221,43 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         () => (state.summaries ?? []).filter((s) => s.isPlannedRoute && s.voyageId),
         [state.summaries],
     );
+    // The Log is the factual record of where the boat has actually been.
+    // Keep saved plans resident in the raw state — cast-off choices, followed
+    // route geometry and planned-vs-sailed overlays still need them — but do
+    // not present them as completed voyages. Check both summary classification
+    // and entry source so offline-only plans (not yet in the summary RPC) are
+    // excluded too.
+    const plannedVoyageIds = React.useMemo(() => {
+        const ids = new Set<string>();
+        for (const summary of state.summaries ?? []) {
+            if (summary.isPlannedRoute && summary.voyageId) ids.add(summary.voyageId);
+        }
+        for (const entry of state.entries) {
+            if (entry.source === 'planned_route' && entry.voyageId) ids.add(entry.voyageId);
+        }
+        return ids;
+    }, [state.entries, state.summaries]);
+    const loggedVoyages = React.useMemo(
+        () => listVoyages.filter((summary) => !summary.isPlannedRoute && !plannedVoyageIds.has(summary.voyageId)),
+        [listVoyages, plannedVoyageIds],
+    );
+    const loggedEntries = React.useMemo(
+        () =>
+            state.entries.filter(
+                (entry) =>
+                    entry.source !== 'planned_route' && (!entry.voyageId || !plannedVoyageIds.has(entry.voyageId)),
+            ),
+        [plannedVoyageIds, state.entries],
+    );
+    const loggedFilteredEntries = React.useMemo(
+        () =>
+            filteredEntries.filter(
+                (entry) =>
+                    entry.source !== 'planned_route' && (!entry.voyageId || !plannedVoyageIds.has(entry.voyageId)),
+            ),
+        [filteredEntries, plannedVoyageIds],
+    );
+    const loggedArchivedVoyages = React.useMemo(() => excludeSuggestedRoutes(archivedVoyages), [archivedVoyages]);
 
     // Latest trustworthy fix of the voyage being recorded. Used only to choose
     // WHICH WAY ROUND to offer a there-and-back route (below) — same "ignore
@@ -362,10 +400,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (!state.selectedVoyageId) {
             // The exact followed route has its own layer. Omit any resident
             // sparse saved-plan rows so the same violet line is not drawn
-            // twice in the all-voyages view.
+            // twice. Other saved plans are also omitted: the all-voyages map
+            // is a historical track map, not a route library.
             return omitFollowedVoyageId
-                ? state.entries.filter((entry) => entry.voyageId !== omitFollowedVoyageId)
-                : state.entries;
+                ? loggedEntries.filter((entry) => entry.voyageId !== omitFollowedVoyageId)
+                : loggedEntries;
         }
         const overlayMatchedPlan = matchedPlannedId != null && matchedPlannedId !== followedVoyageId;
         return state.entries.filter(
@@ -374,7 +413,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 (entry.voyageId === state.selectedVoyageId ||
                     (overlayMatchedPlan && entry.voyageId === matchedPlannedId)),
         );
-    }, [state.entries, state.selectedVoyageId, matchedPlannedId, followedVoyageId, trackViewerShowsFollowedRoute]);
+    }, [
+        state.entries,
+        state.selectedVoyageId,
+        loggedEntries,
+        matchedPlannedId,
+        followedVoyageId,
+        trackViewerShowsFollowedRoute,
+    ]);
 
     // Load the matched planned route's points when the track map opens so
     // they're resident for the overlay.
@@ -538,7 +584,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const scoped = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : state.entries;
+            : loggedEntries;
         if (scoped.filter((e) => e.latitude && e.longitude).length < 2) {
             toast.error('Not enough track to make a card yet');
             return;
@@ -556,7 +602,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [identityScope, state.selectedVoyageId, state.entries, shareAutoTitle, toast]);
+    }, [identityScope, loggedEntries, state.selectedVoyageId, state.entries, shareAutoTitle, toast]);
 
     // Destructure frequently used state for JSX readability.
     // `isRapidMode` and `isPrecisionMode` no longer destructured here
@@ -622,7 +668,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             return;
         }
 
-        const targetEntries = selectedVoyageId ? entries.filter((e) => e.voyageId === selectedVoyageId) : entries;
+        const targetEntries = selectedVoyageId ? entries.filter((e) => e.voyageId === selectedVoyageId) : loggedEntries;
 
         if (targetEntries.length === 0) return;
 
@@ -675,7 +721,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 if (isAuthIdentityScopeCurrent(effectScope)) log.warn('fallback to empty:', e);
             }
         })();
-    }, [actionSheet, selectedVoyageId, entries, identityScope]);
+    }, [actionSheet, selectedVoyageId, entries, identityScope, loggedEntries]);
 
     useEffect(() => {
         // Reset only when the identity actually changes. A one-shot "mounted"
@@ -743,7 +789,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             // drilled into it). 2026-05-20.
                             const scopedEntries = selectedVoyageId
                                 ? filteredEntries.filter((e) => e.voyageId === selectedVoyageId)
-                                : filteredEntries.filter((e) => e.source !== 'planned_route');
+                                : loggedFilteredEntries;
 
                             let scopedDistance = 0;
                             if (selectedVoyageId) {
@@ -782,7 +828,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             entries={
                                 selectedVoyageId
                                     ? filteredEntries.filter((e) => e.voyageId === selectedVoyageId)
-                                    : filteredEntries
+                                    : loggedFilteredEntries
                             }
                         />
                     </div>
@@ -865,7 +911,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' });
                                                     setShowMenu(false);
                                                 }}
-                                                disabled={entries.length === 0}
+                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
                                             <MenuBtn
                                                 icon="🗺"
@@ -874,7 +920,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     dispatch({ type: 'SHOW_TRACK_MAP', show: true });
                                                     setShowMenu(false);
                                                 }}
-                                                disabled={entries.length === 0}
+                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
                                             <MenuBtn
                                                 icon="📤"
@@ -883,7 +929,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' });
                                                     setShowMenu(false);
                                                 }}
-                                                disabled={entries.length === 0}
+                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
                                             <MenuBtn
                                                 icon="📥"
@@ -900,7 +946,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' });
                                                     setShowMenu(false);
                                                 }}
-                                                disabled={entries.length === 0}
+                                                disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
                                         </div>
                                     </>
@@ -1370,7 +1416,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     live in one place: the gauge tile grid. */}
 
                                 {/* Past Voyage Cards */}
-                                {loading && listVoyages.length === 0 ? (
+                                {loading && loggedVoyages.length === 0 ? (
                                     /* History still hydrating (cache miss / first network
                                        load) — skeleton cards, NOT the "Begin Your Log"
                                        empty state, and never a page-wide spinner: the
@@ -1387,7 +1433,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             </div>
                                         ))}
                                     </div>
-                                ) : listVoyages.length === 0 ? (
+                                ) : loggedVoyages.length === 0 ? (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
                                         {/* Decorative maritime line art */}
                                         <div className="relative w-24 h-24 mb-6">
@@ -1437,7 +1483,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 ) : (
-                                    listVoyages.map((summary) => (
+                                    loggedVoyages.map((summary) => (
                                         <VoyageCard
                                             suppressMiniMap={showTrackMap || liveMapExpanded}
                                             recordBadge={
@@ -1478,7 +1524,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 )}
 
                                 {/* ── Archived Voyages ── */}
-                                {archivedVoyages.length > 0 && (
+                                {loggedArchivedVoyages.length > 0 && (
                                     <div className="mt-4">
                                         <button
                                             aria-label="Toggle archived voyages"
@@ -1503,7 +1549,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     Archived Voyages
                                                 </span>
                                                 <span className="text-[11px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">
-                                                    {archivedVoyages.length}
+                                                    {loggedArchivedVoyages.length}
                                                 </span>
                                             </div>
                                             <svg
@@ -1523,7 +1569,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                                         {showArchived && (
                                             <div className="mt-2 space-y-2">
-                                                {archivedVoyages.map((voyage) => (
+                                                {loggedArchivedVoyages.map((voyage) => (
                                                     <div
                                                         key={voyage.voyageId}
                                                         className="rounded-2xl bg-slate-900/30 backdrop-blur-md border border-amber-500/10 p-4 flex items-center justify-between"
@@ -1789,10 +1835,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         dispatch({ type: 'SELECT_VOYAGE', voyageId: id });
                     }}
                     onShowStats={() => dispatch({ type: 'SHOW_STATS', show: true })}
-                    entries={entries}
+                    entries={loggedEntries}
                     selectedVoyageId={selectedVoyageId}
                     currentVoyageId={currentVoyageId ?? null}
-                    voyageGroups={listVoyages}
+                    voyageGroups={loggedVoyages}
                 />
             )}
 

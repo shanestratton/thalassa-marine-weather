@@ -1240,12 +1240,36 @@ export function useLogPageState() {
 
     // ── Export / Share ───────────────────────────────────────────────────────
 
+    // The Log is a record of what actually happened. Suggested routes stay in
+    // the underlying state because cast-off and planned-vs-sailed comparison
+    // need them, but an unscoped Log export/share must never quietly mix those
+    // plans into the sailed record. Check both provenance and the summary flag:
+    // old/offline rows are not guaranteed to carry source on every point.
+    const plannedVoyageIdsForPresentation = useMemo(() => {
+        const ids = new Set(
+            state.summaries.filter((summary) => summary.isPlannedRoute).map((summary) => summary.voyageId),
+        );
+        for (const entry of state.entries) {
+            if (entry.source === 'planned_route' && entry.voyageId) ids.add(entry.voyageId);
+        }
+        return ids;
+    }, [state.entries, state.summaries]);
+    const loggedEntriesForPresentation = useMemo(
+        () =>
+            state.entries.filter(
+                (entry) =>
+                    entry.source !== 'planned_route' &&
+                    (!entry.voyageId || !plannedVoyageIdsForPresentation.has(entry.voyageId)),
+            ),
+        [plannedVoyageIdsForPresentation, state.entries],
+    );
+
     const handleExportCSV = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const targetEntries = state.selectedVoyageId
-            ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : [...state.entries];
+            ? loggedEntriesForPresentation.filter((e) => e.voyageId === state.selectedVoyageId)
+            : loggedEntriesForPresentation;
         const { exportToCSV } = await import('../utils/logExport');
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         exportToCSV(targetEntries, 'ships_log.csv', {
@@ -1255,14 +1279,14 @@ export function useLogPageState() {
                 if (isAuthIdentityScopeCurrent(actionScope)) toast.error(err);
             },
         });
-    }, [identityScope, state.selectedVoyageId, state.entries, toast]);
+    }, [identityScope, loggedEntriesForPresentation, state.selectedVoyageId, toast]);
 
     const handleShare = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const targetEntries = state.selectedVoyageId
-            ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : [...state.entries];
+            ? loggedEntriesForPresentation.filter((e) => e.voyageId === state.selectedVoyageId)
+            : loggedEntriesForPresentation;
         const { sharePDF } = await import('../utils/logExport');
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         await sharePDF(
@@ -1279,8 +1303,8 @@ export function useLogPageState() {
         );
     }, [
         identityScope,
+        loggedEntriesForPresentation,
         state.selectedVoyageId,
-        state.entries,
         settings.vessel,
         settings.vesselUnits,
         settings.units,
@@ -1295,8 +1319,8 @@ export function useLogPageState() {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         const targetEntries = state.selectedVoyageId
-            ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : state.entries;
+            ? loggedEntriesForPresentation.filter((e) => e.voyageId === state.selectedVoyageId)
+            : loggedEntriesForPresentation;
         if (targetEntries.length === 0) return;
         const voyageName = state.selectedVoyageId ? `Voyage ${state.selectedVoyageId.slice(0, 8)}` : 'All Voyages';
         const gpxXml = exportVoyageAsGPX(targetEntries, voyageName, settings.vessel?.name);
@@ -1311,7 +1335,7 @@ export function useLogPageState() {
             log.warn('GPX export failed:', e);
             toast.error('Could not export the GPX file — try again.');
         }
-    }, [dispatch, identityScope, state.selectedVoyageId, state.entries, settings.vessel?.name, toast]);
+    }, [dispatch, identityScope, loggedEntriesForPresentation, state.selectedVoyageId, settings.vessel?.name, toast]);
 
     const handleImportGPXFile = useCallback(
         async (file: File) => {
@@ -1349,8 +1373,8 @@ export function useLogPageState() {
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
             const targetEntries = state.selectedVoyageId
-                ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-                : state.entries;
+                ? loggedEntriesForPresentation.filter((e) => e.voyageId === state.selectedVoyageId)
+                : loggedEntriesForPresentation;
             if (targetEntries.length === 0) {
                 toast.error('No entries to share');
                 return;
@@ -1376,7 +1400,7 @@ export function useLogPageState() {
                 }
             }
         },
-        [dispatch, identityScope, state.selectedVoyageId, state.entries, toast],
+        [dispatch, identityScope, loggedEntriesForPresentation, state.selectedVoyageId, toast],
     );
 
     // ── Derived State ───────────────────────────────────────────────────────
@@ -1423,8 +1447,9 @@ export function useLogPageState() {
     // (any entry with source='planned_route') excluded. Added 2026-05-20:
     // suggested routes are aspirational, not logged miles, so they must
     // NOT inflate the stats totals (top gauge tiles + the 3-dot Stats
-    // sheet). They still appear in `voyageGroups` so the route cards
-    // remain visible in the list — this is purely for stat aggregation.
+    // sheet). They remain in the raw `voyageGroups` data for cast-off
+    // choices and planned-vs-sailed overlays; LogPage filters them from
+    // the factual voyage list at its presentation boundary.
     // Predicate lives in utils/voyageStats so the rule stays testable
     // and consistent across every stat surface.
     const sailedVoyageGroups = useMemo(() => excludeSuggestedRoutes(voyageGroups), [voyageGroups]);
@@ -1461,10 +1486,10 @@ export function useLogPageState() {
 
     const hasNonDeviceEntries = useMemo(() => {
         const targetEntries = state.selectedVoyageId
-            ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
-            : state.entries;
+            ? loggedEntriesForPresentation.filter((e) => e.voyageId === state.selectedVoyageId)
+            : loggedEntriesForPresentation;
         return targetEntries.some((e) => e.source && e.source !== 'device');
-    }, [state.entries, state.selectedVoyageId]);
+    }, [loggedEntriesForPresentation, state.selectedVoyageId]);
 
     // Total distance: sum each voyage's max cumulative distance
     const totalDistance = useMemo(() => {

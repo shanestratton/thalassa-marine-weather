@@ -17,6 +17,7 @@ import {
     CalendarGridIcon,
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
+import { toast } from './Toast';
 import { MapHub } from './map/MapHub';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
@@ -25,7 +26,7 @@ import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
-import { requestTracerOpen } from '../services/deepLink';
+import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/deepLink';
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
@@ -49,6 +50,15 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import type { SavedRouteLibraryItem } from '../services/savedRouteLibrary';
+
+interface RoutePickerItem {
+    key: string;
+    title: string;
+    sub: string;
+    go: () => void;
+    remove?: () => Promise<boolean>;
+}
 
 export const RoutePlanner: React.FC<{
     onTriggerUpgrade: () => void;
@@ -218,13 +228,16 @@ export const RoutePlanner: React.FC<{
     const [routePicker, setRoutePicker] = useState<null | {
         kind: 'voyage' | 'saved';
         loading: boolean;
-        items: Array<{ key: string; title: string; sub: string; go: () => void }>;
+        checkingCompatibility: boolean;
+        items: RoutePickerItem[];
         scope: AuthIdentityScope;
     }>(null);
     const routePickerRequestRef = useRef(0);
+    const [routePickerDelete, setRoutePickerDelete] = useState<{ key: string; busy: boolean } | null>(null);
     const routePickerCloseRef = useRef<HTMLButtonElement>(null);
     const closeRoutePicker = useCallback(() => {
         routePickerRequestRef.current += 1;
+        setRoutePickerDelete(null);
         setRoutePicker(null);
     }, []);
     const routePickerDialogRef = useFocusTrap(routePicker !== null, {
@@ -235,6 +248,7 @@ export const RoutePlanner: React.FC<{
         () =>
             subscribeAuthIdentityScope(() => {
                 routePickerRequestRef.current += 1;
+                setRoutePickerDelete(null);
                 setRoutePicker(null);
             }),
         [],
@@ -244,31 +258,75 @@ export const RoutePlanner: React.FC<{
             const pickerScope = getAuthIdentityScope();
             if (!isAuthIdentityScopeCurrent(pickerScope)) return;
             const requestId = ++routePickerRequestRef.current;
-            setRoutePicker({ kind, loading: true, items: [], scope: pickerScope });
+            let lastSavedItems: RoutePickerItem[] = [];
+            setRoutePickerDelete(null);
+            setRoutePicker({ kind, loading: true, checkingCompatibility: false, items: [], scope: pickerScope });
             try {
                 if (kind === 'saved') {
-                    const { loadSavedTraces } = await import('../services/routeTracer');
+                    const { deleteLogbookRouteFromLibrary, loadSavedRouteLibrary } =
+                        await import('../services/savedRouteLibrary');
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
                         return;
                     }
-                    const items = loadSavedTraces().map((t) => ({
-                        key: t.id,
-                        title: t.name,
-                        sub: `${t.points.length} pins · saved ${new Date(t.updatedAt ?? t.createdAt).toLocaleDateString(
-                            'en-AU',
-                            { day: 'numeric', month: 'short' },
-                        )}`,
-                        go: () => {
-                            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
-                            requestTracerOpen({ kind: 'load-saved', id: t.id }, pickerScope);
-                            if (!isAuthIdentityScopeCurrent(pickerScope)) return;
-                            setPage('map');
-                        },
-                    }));
+                    const toPickerItems = (library: readonly SavedRouteLibraryItem[]): RoutePickerItem[] =>
+                        library.map((route) => {
+                            const savedLabel = new Date(route.timestamp).toLocaleDateString('en-AU', {
+                                day: 'numeric',
+                                month: 'short',
+                            });
+                            return {
+                                key: route.key,
+                                title: route.label,
+                                sub:
+                                    route.source === 'saved-trace'
+                                        ? `${route.points.length} pins · saved ${savedLabel}`
+                                        : `${route.sublabel} · recovered from Log${route.isLocal ? ' · local' : ''}`,
+                                go: () => {
+                                    if (!isAuthIdentityScopeCurrent(pickerScope)) return;
+                                    if (route.source === 'saved-trace') {
+                                        requestTracerOpen({ kind: 'load-saved', id: route.routeId }, pickerScope);
+                                    } else {
+                                        requestTracerOpen(
+                                            { kind: 'load-logbook-route', voyageId: route.voyageId },
+                                            pickerScope,
+                                        );
+                                    }
+                                    if (!isAuthIdentityScopeCurrent(pickerScope)) return;
+                                    setPage('map');
+                                },
+                                ...(route.source === 'logbook-route'
+                                    ? {
+                                          remove: () => deleteLogbookRouteFromLibrary(route.voyageId, pickerScope),
+                                      }
+                                    : {}),
+                            };
+                        });
+                    const library = await loadSavedRouteLibrary(pickerScope, (canonical) => {
+                        if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
+                            return;
+                        }
+                        lastSavedItems = toPickerItems(canonical);
+                        // Canonical/offline-first rows paint immediately.
+                        // Historical Log compatibility keeps loading quietly.
+                        setRoutePicker({
+                            kind,
+                            loading: false,
+                            checkingCompatibility: true,
+                            items: lastSavedItems,
+                            scope: pickerScope,
+                        });
+                    });
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
                         return;
                     }
-                    setRoutePicker({ kind, loading: false, items, scope: pickerScope });
+                    lastSavedItems = toPickerItems(library);
+                    setRoutePicker({
+                        kind,
+                        loading: false,
+                        checkingCompatibility: false,
+                        items: lastSavedItems,
+                        scope: pickerScope,
+                    });
                 } else {
                     const { fetchSeaVoyageChoices } = await import('../services/shiplog/RoutesAndTracks');
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
@@ -292,16 +350,73 @@ export const RoutePlanner: React.FC<{
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
                         return;
                     }
-                    setRoutePicker({ kind, loading: false, items, scope: pickerScope });
+                    setRoutePicker({
+                        kind,
+                        loading: false,
+                        checkingCompatibility: false,
+                        items,
+                        scope: pickerScope,
+                    });
                 }
             } catch (err) {
                 log.warn(`route picker load failed: ${err instanceof Error ? err.message : String(err)}`);
                 if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) return;
-                setRoutePicker({ kind, loading: false, items: [], scope: pickerScope });
+                setRoutePicker({
+                    kind,
+                    loading: false,
+                    checkingCompatibility: false,
+                    items: kind === 'saved' ? lastSavedItems : [],
+                    scope: pickerScope,
+                });
             }
         },
         [setPage],
     );
+
+    const handleRoutePickerRemove = useCallback(
+        async (item: RoutePickerItem) => {
+            if (!item.remove || routePickerDelete?.busy) return;
+            if (routePickerDelete?.key !== item.key) {
+                setRoutePickerDelete({ key: item.key, busy: false });
+                return;
+            }
+
+            const actionScope = getAuthIdentityScope();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setRoutePickerDelete({ key: item.key, busy: true });
+            const removed = await item.remove();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            if (!removed) {
+                setRoutePickerDelete(null);
+                toast.error('Could not delete that saved route');
+                return;
+            }
+
+            setRoutePicker((current) =>
+                current ? { ...current, items: current.items.filter((candidate) => candidate.key !== item.key) } : null,
+            );
+            setRoutePickerDelete(null);
+            toast.success('Saved route deleted');
+        },
+        [routePickerDelete],
+    );
+
+    // Vessel → Passage Planning can hand the Plan tab a one-shot request to
+    // open this existing library immediately. Consume on mount rather than
+    // adding another route list (or another control over the planning map).
+    const autoOpenSavedRoutesRef = useRef<boolean | null>(null);
+    useEffect(() => {
+        // React StrictMode replays effect setup/cleanup. Retain the consumed
+        // answer in a ref so the replay can supersede a cancelled first load
+        // instead of losing the one-shot navigation intent.
+        autoOpenSavedRoutesRef.current ??= consumeSavedRoutesLibraryOpen();
+        if (!autoOpenSavedRoutesRef.current) return;
+        // Defer one task so StrictMode's first setup can be cleanly cancelled;
+        // the replay schedules the real open with no abandoned picker request
+        // racing it.
+        const timer = window.setTimeout(() => void openRoutePicker('saved'), 0);
+        return () => window.clearTimeout(timer);
+    }, [openRoutePicker]);
 
     // Drive/Walk modes removed 2026-05-17 — Thalassa is a marine
     // planner; road routing is Apple Maps' job, and the three-mode
@@ -1048,24 +1163,72 @@ export const RoutePlanner: React.FC<{
                                     <div className="py-6 text-center text-[12px] text-gray-400">
                                         {routePicker.kind === 'voyage'
                                             ? 'No sea voyages in the log yet.'
-                                            : 'No saved routes yet — plot one and Save it.'}
+                                            : routePicker.checkingCompatibility
+                                              ? 'Checking older Log plans…'
+                                              : 'No saved routes yet — plot one and Save it.'}
                                     </div>
                                 ) : (
-                                    routePicker.items.map((it) => (
-                                        <button
-                                            key={it.key}
-                                            onClick={it.go}
-                                            className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left transition-transform active:scale-[0.98]"
-                                        >
-                                            <span className="min-w-0">
-                                                <span className="block truncate text-sm font-bold text-gray-100">
-                                                    {it.title}
-                                                </span>
-                                                <span className="block text-[11px] text-gray-400">{it.sub}</span>
-                                            </span>
-                                            <span className="ml-auto text-gray-500">›</span>
-                                        </button>
-                                    ))
+                                    <>
+                                        {routePicker.items.map((it) => {
+                                            const deleteArmed = routePickerDelete?.key === it.key;
+                                            const deleteBusy = deleteArmed && routePickerDelete.busy;
+                                            const anyDeleteBusy = routePickerDelete?.busy === true;
+                                            return (
+                                                <div
+                                                    key={it.key}
+                                                    className="flex w-full overflow-hidden rounded-xl border border-white/10 bg-white/5"
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        disabled={anyDeleteBusy}
+                                                        onClick={() => {
+                                                            setRoutePickerDelete(null);
+                                                            it.go();
+                                                        }}
+                                                        className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+                                                    >
+                                                        <span className="min-w-0">
+                                                            <span className="block truncate text-sm font-bold text-gray-100">
+                                                                {it.title}
+                                                            </span>
+                                                            <span className="block text-[11px] text-gray-400">
+                                                                {it.sub}
+                                                            </span>
+                                                        </span>
+                                                        <span className="ml-auto text-gray-500">›</span>
+                                                    </button>
+                                                    {it.remove && (
+                                                        <button
+                                                            type="button"
+                                                            disabled={anyDeleteBusy}
+                                                            aria-label={
+                                                                deleteArmed
+                                                                    ? `Confirm delete ${it.title}`
+                                                                    : `Delete ${it.title}`
+                                                            }
+                                                            onClick={() => void handleRoutePickerRemove(it)}
+                                                            className={`min-w-[4.75rem] border-l px-2 text-[11px] font-black uppercase tracking-wide transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                                                                deleteArmed
+                                                                    ? 'border-red-400/30 bg-red-500/20 text-red-200'
+                                                                    : 'border-white/10 text-red-300'
+                                                            }`}
+                                                        >
+                                                            {deleteBusy
+                                                                ? 'Deleting…'
+                                                                : deleteArmed
+                                                                  ? 'Confirm'
+                                                                  : 'Delete'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                        {routePicker.checkingCompatibility && (
+                                            <div className="px-2 py-1 text-center text-[10px] font-medium text-gray-500">
+                                                Checking older Log plans…
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+    consumeSavedRoutesLibraryOpen,
     consumeTracerAction,
     consumeTracerOpenRequest,
     peekTracerOpenRequest,
+    requestSavedRoutesLibraryOpen,
     requestTracerOpen,
     type TracerOpenEventDetail,
 } from '../services/deepLink';
@@ -54,6 +56,17 @@ describe('tracer deep-link identity fence', () => {
         setAuthIdentityScope('account-b');
 
         expect(consumeTracerAction()).toBeNull();
+    });
+
+    it('carries a legacy logbook-route action through the tracer identity fence', () => {
+        const eventA = captureNextTracerEvent();
+        requestTracerOpen({ kind: 'load-logbook-route', voyageId: 'planned-account-a' });
+
+        expect(consumeTracerOpenRequest(eventA.read())).toBe(true);
+        expect(consumeTracerAction()).toEqual({
+            kind: 'load-logbook-route',
+            voyageId: 'planned-account-a',
+        });
     });
 
     it('rejects stale events without consuming the current account request', () => {
@@ -111,6 +124,25 @@ describe('tracer deep-link identity fence', () => {
         expect(consumeTracerOpenRequest(event.read())).toBe(true);
         expect(peekTracerOpenRequest()).toBe(false);
         expect(consumeTracerAction()).toBeNull();
+    });
+
+    it('consumes the Saved Routes library intent exactly once', () => {
+        requestSavedRoutesLibraryOpen();
+
+        expect(consumeSavedRoutesLibraryOpen()).toBe(true);
+        expect(consumeSavedRoutesLibraryOpen()).toBe(false);
+    });
+
+    it('clears Saved Routes library intent on identity change and rejects stale producers', () => {
+        const accountA = getAuthIdentityScope();
+        requestSavedRoutesLibraryOpen(accountA);
+
+        const accountB = setAuthIdentityScope('account-b');
+        requestSavedRoutesLibraryOpen(accountA);
+        expect(consumeSavedRoutesLibraryOpen()).toBe(false);
+
+        requestSavedRoutesLibraryOpen(accountB);
+        expect(consumeSavedRoutesLibraryOpen()).toBe(true);
     });
 
     it('fences old listeners that consume without passing the event', () => {

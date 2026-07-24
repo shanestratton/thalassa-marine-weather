@@ -4,9 +4,10 @@
  *
  * Planned/suggested routes are persisted as ship-log entries with
  * `source='planned_route'` (see services/shiplog/PassagePlanSave). They
- * must STILL appear as cards in the log list, but must NOT count toward
+ * remain available as raw data for route following and planned-vs-sailed
+ * overlays, but must NOT appear as factual Log voyages or count toward
  * sailed-mileage totals (distance / time at sea / voyage count). Mixing
- * them in inflated every stat surface — fixed 2026-05-20.
+ * them in inflated every stat surface.
  *
  * Kept as named, decoupled predicates (minimal entry shape, no
  * ShipLogEntry import) so the "planned routes don't count as sailed

@@ -634,6 +634,50 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
 }
 
 /**
+ * Delete only a voyage's ship-log rows.
+ *
+ * Recovered routes in Plan are compatibility mirrors, not ownership of the
+ * linked Passage Planning record. This path keeps the same durable local
+ * tombstone and cloud retry guarantees as deleteVoyage(), but deliberately
+ * suppresses linked-plan cascade metadata so it can never delete a draft or
+ * abort an active passage.
+ */
+export async function deleteVoyageLogOnly(voyageId: string): Promise<boolean> {
+    const scope = getAuthIdentityScope();
+    if (!voyageId || !isAuthIdentityScopeCurrent(scope)) return false;
+
+    try {
+        await deleteVoyageFromOfflineQueue(voyageId, { cascadeLinkedPlan: false });
+    } catch (error) {
+        if (isAuthIdentityScopeCurrent(scope)) {
+            log.error('deleteVoyageLogOnly: could not persist local deletion intent', error);
+        }
+        return false;
+    }
+    if (!isAuthIdentityScopeCurrent(scope)) return false;
+
+    if (supabase) {
+        try {
+            const authenticated = await verifyCurrentUser(scope);
+            if (authenticated) {
+                const confirmed = await attemptVoyageCloudDeletion(voyageId, authenticated);
+                if (!isAuthenticatedScopeCurrent(authenticated)) return false;
+                if (!confirmed) {
+                    log.warn('deleteVoyageLogOnly: cloud delete remains pending in the durable retry ledger');
+                }
+            }
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) {
+                log.error('deleteVoyageLogOnly: DB delete failed', error);
+            }
+        }
+    }
+
+    invalidateRoutesAndTracks(scope);
+    return isAuthIdentityScopeCurrent(scope);
+}
+
+/**
  * Delete a single entry by ID (from both DB and offline queue).
  */
 export async function deleteEntry(entryId: string): Promise<boolean> {
