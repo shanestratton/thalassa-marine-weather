@@ -51,6 +51,22 @@ export function shouldSuppressChartOverlays(
     return cleanPlanningMap || tracing || showingPassage;
 }
 
+/**
+ * The nautical chart key is planning furniture, not a Chart-page overlay.
+ * The Plan journey owns both RoutePlanner's clean map and the tracer surface
+ * it hands off to. Do not use the broader planning classification: a computed
+ * passage can also be displayed on Chart without opening the Plan tracer.
+ */
+export function shouldShowPlanChartKey(
+    cleanPlanningMap: boolean,
+    planTracerActive: boolean,
+    embedded: boolean,
+    pickerMode: boolean,
+    pinView: boolean,
+): boolean {
+    return (cleanPlanningMap || planTracerActive) && !embedded && !pickerMode && !pinView;
+}
+
 export type WeatherLayer =
     | 'none'
     | 'rain'

@@ -118,6 +118,13 @@ describe('ChartDepthControls', () => {
         expect(screen.queryByText(/coverage/)).not.toBeInTheDocument();
     });
 
+    it('hides the chart key on the browsing chart while leaving chart controls intact', () => {
+        render(<ChartDepthControls {...props({ chartKeyVisible: false })} />);
+
+        expect(screen.getByRole('button', { name: /Live tide depth is on/ })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /chart colours/ })).not.toBeInTheDocument();
+    });
+
     it('renders nothing map-relative when every map control is hidden', () => {
         render(
             <ChartDepthControls

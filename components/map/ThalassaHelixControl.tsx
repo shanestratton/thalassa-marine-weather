@@ -641,7 +641,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                     className="ml-auto text-[11px] font-bold uppercase tracking-widest"
                                     style={{ color: `${accent}90` }}
                                 >
-                                    ● Live
+                                    {frameLabel === 'Live' ? '● Live' : frameLabel}
                                 </span>
                             </div>
                         )}

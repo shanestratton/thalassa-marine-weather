@@ -70,6 +70,7 @@ import {
     RAINVIEWER_MAP_TILE_SIZE,
     RAINVIEWER_NATIVE_MAX_ZOOM,
 } from '../../services/weather/api/rainviewerTiles';
+import { windForecastHoursForGrid } from './windTimeAxis';
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
 
 /**
@@ -125,6 +126,7 @@ export function useWeatherLayers(
     planMode = false,
 ) {
     const windState = useWindStore();
+    const windForecastHours = useMemo(() => windForecastHoursForGrid(windState.grid), [windState.grid]);
 
     // Multi-layer support — users can toggle multiple layers simultaneously.
     // Max 3 active layers for mobile performance.
@@ -259,8 +261,10 @@ export function useWeatherLayers(
     const windEngineRef = useRef<WindParticleLayer | null>(null);
     const windGridRef = useRef<WindGrid | null>(null);
     const windMarkersRef = useRef<mapboxgl.Marker[]>([]);
-    /** Actual GFS forecast hours for each timeline index (e.g. [0,3,6,9,12,18,24,36,48,72]) */
-    const windForecastHoursRef = useRef<number[]>([0]);
+    /** Actual forecast hours for each timeline index. The active grid owns
+     *  this axis; plain Open-Meteo grids fall back to sequential hours. */
+    const windForecastHoursRef = useRef<number[]>(windForecastHours);
+    windForecastHoursRef.current = windForecastHours;
 
     // ── Unified Rain + Forecast scrubber ──
     interface UnifiedRainFrame {
@@ -364,11 +368,12 @@ export function useWeatherLayers(
 
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
-    const [windTotalHours, setWindTotalHours] = useState(48);
+    const [windTotalHours, setWindTotalHours] = useState(0);
     const [windPlaying, setWindPlaying] = useState(false);
     const [windReady, setWindReady] = useState(false);
     const [windMaxSpeed, setWindMaxSpeed] = useState(30);
     /** The wind scrubber index that corresponds to 'now' (current time) */
+    const [windNowIdx, setWindNowIdx] = useState(0);
     const windNowIdxRef = useRef(0);
     /** GFS model run time for dynamic 'now' recomputation */
     const windRefTimeRef = useRef<string | null>(null);
@@ -403,6 +408,54 @@ export function useWeatherLayers(
         }
         return bestIdx;
     }, []);
+
+    /**
+     * Keep every wind timeline consumer attached to the grid that is actually
+     * in WindStore. activate() is not the only publisher: viewport refreshes,
+     * model switches and offline loads can replace the grid later.
+     */
+    useEffect(() => {
+        const currentGrid = windState.grid;
+        if (!currentGrid || windForecastHours.length === 0) {
+            windGridRef.current = null;
+            windRefTimeRef.current = null;
+            windNowIdxRef.current = 0;
+            setWindNowIdx(0);
+            setWindTotalHours(0);
+            setWindReady(false);
+            setWindPlaying(false);
+            setWindHourInternal(0);
+            if (WindStore.getState().hour !== 0) WindStore.setState({ hour: 0 });
+            return;
+        }
+
+        windGridRef.current = currentGrid;
+        setWindTotalHours(windForecastHours.length);
+        setWindReady(true);
+
+        const refTimeMs = currentGrid.refTime ? new Date(currentGrid.refTime).getTime() : Number.NaN;
+        const hasValidRefTime = Number.isFinite(refTimeMs);
+        const nextNowIdx = hasValidRefTime ? computeNowIndex(currentGrid.refTime!, windForecastHours) : 0;
+        windRefTimeRef.current = hasValidRefTime ? currentGrid.refTime! : null;
+        windNowIdxRef.current = nextNowIdx;
+        setWindNowIdx(nextNowIdx);
+
+        const manualAge = Date.now() - windUserScrubbedTimeRef.current;
+        const userRecentlyScrubbed = windUserScrubbedRef.current && manualAge < 5 * 60 * 1000;
+        if (!userRecentlyScrubbed) windUserScrubbedRef.current = false;
+
+        setWindHourInternal((previous) => {
+            const clampedPrevious = Math.max(0, Math.min(previous, windForecastHours.length - 1));
+            const next = userRecentlyScrubbed ? clampedPrevious : nextNowIdx;
+            if (WindStore.getState().hour !== next) WindStore.setState({ hour: next });
+            return next;
+        });
+
+        log.info(
+            `[WindScrubber] Grid metadata synced: totalHours=${windForecastHours.length}, ` +
+                `nowIndex=${nextNowIdx}, forecastHour=${windForecastHours[nextNowIdx]}`,
+        );
+    }, [windState.grid, windForecastHours, computeNowIndex]);
 
     // GRIB download
     const [isGribDownloading, setIsGribDownloading] = useState(false);
@@ -818,55 +871,22 @@ export function useWeatherLayers(
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
         if ((!activeLayers.has('wind') && !activeLayers.has('velocity')) || !mapReady) return;
-        setWindHour(0);
+        setWindHourInternal(0);
+        windUserScrubbedRef.current = false;
+        windUserScrubbedTimeRef.current = 0;
+        if (WindStore.getState().hour !== 0) WindStore.setState({ hour: 0 });
 
         // Small delay to let the geolock flyTo settle
         const windTimer = setTimeout(() => {
             const m = mapRef.current;
             if (!m) return;
-            WindDataController.activate(m)
-                .then(() => {
-                    const { grid: currentGrid } = WindStore.getState();
-                    if (!currentGrid) {
-                        log.warn('activate() resolved but no grid in store');
-                        return;
-                    }
-                    windGridRef.current = currentGrid;
-                    const GFS_HOURS = [0, 3, 6, 9, 12, 18, 24, 36, 48, 72];
-                    windForecastHoursRef.current = GFS_HOURS.slice(0, currentGrid.totalHours);
-                    setWindTotalHours(currentGrid.totalHours);
-                    setWindReady(true);
-
-                    // ── Default scrubber to "now" ──
-                    // Compute hours since GFS model run, find closest forecast index
-                    if (currentGrid.refTime) {
-                        windRefTimeRef.current = currentGrid.refTime;
-                        const fhrs = windForecastHoursRef.current;
-                        const bestIdx = computeNowIndex(currentGrid.refTime, fhrs);
-                        setWindHourInternal(bestIdx);
-                        WindStore.setState({ hour: bestIdx });
-                        windNowIdxRef.current = bestIdx;
-                        // Reset manual scrub flag on fresh GRIB load
-                        windUserScrubbedRef.current = false;
-                        const ageMs = Date.now() - new Date(currentGrid.refTime).getTime();
-                        const ageHours = ageMs / (60 * 60 * 1000);
-                        log.info(
-                            `[WindScrubber] Auto-set to "now": refTime=${currentGrid.refTime}, age=${ageHours.toFixed(1)}h, index=${bestIdx} (forecast hour ${fhrs[bestIdx]})`,
-                        );
-                    }
-
-                    log.info(
-                        `[WindScrubber] Grid loaded: totalHours=${currentGrid.totalHours}, u.length=${currentGrid.u.length}`,
-                    );
-                })
-                .catch((err) => {
-                    log.warn('activate() failed:', err);
-                });
+            void WindDataController.activate(m).catch((err) => {
+                log.warn('activate() failed:', err);
+            });
         }, 800);
         return () => clearTimeout(windTimer);
-        // Re-runs on model/field switch too: setModel()/setField() clear the
-        // grid, and re-running activate() re-fetches via the right source and
-        // re-anchors the scrubber to "now".
+        // Re-runs on model/field switch too. Grid metadata is synchronised by
+        // the windState.grid effect above, including later viewport refreshes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, windState.model, windState.field]);
 
@@ -883,6 +903,7 @@ export function useWeatherLayers(
             // Always update the now-index reference
             if (newNowIdx !== oldNowIdx) {
                 windNowIdxRef.current = newNowIdx;
+                setWindNowIdx(newNowIdx);
             }
 
             // Auto-advance scrubber to track real time:
@@ -1980,7 +2001,9 @@ export function useWeatherLayers(
         setWindReady,
         windMaxSpeed,
         setWindMaxSpeed,
+        windForecastHours,
         windForecastHoursRef,
+        windNowIdx,
         windNowIdxRef,
         // Model + field switcher (chart wind overlay)
         windModel: windState.model,

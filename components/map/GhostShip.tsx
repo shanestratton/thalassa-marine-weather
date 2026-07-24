@@ -10,6 +10,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createGhostShipEl } from '../../utils/createMarkerEl';
+import { windHoursFromNow } from './windTimeAxis';
 
 interface GhostShipProps {
     map: mapboxgl.Map | null;
@@ -21,7 +22,7 @@ interface GhostShipProps {
     speed: number;
     /** Current wind forecast hour (fractional float from time-slider) */
     windHour: number;
-    /** Wind forecast hours array — maps slider index to actual GFS hours */
+    /** Active grid's forecast-hour axis — maps slider index to real hours */
     windForecastHours: number[];
     /** Index that represents "now" in the wind slider */
     windNowIdx: number;
@@ -142,12 +143,13 @@ export function GhostShip({
         const marker = getOrCreateMarker();
         if (!marker || !elRef.current) return;
 
-        // Compute elapsed hours since departure
-        // windHour is a slider index, windForecastHours maps it to actual GFS forecast hours
-        const roundedIdx = Math.round(windHour);
-        const actualForecastHour = windForecastHours[roundedIdx] ?? roundedIdx;
-        const nowForecastHour = windForecastHours[windNowIdx] ?? 0;
-        const hoursFromNow = actualForecastHour - nowForecastHour;
+        // Compute elapsed hours since departure. Use the same active-grid axis
+        // as the scrubber label, including fractional playback frames.
+        const hoursFromNow = windHoursFromNow(windForecastHours, windHour, windNowIdx);
+        if (hoursFromNow === null) {
+            elRef.current.style.display = 'none';
+            return;
+        }
 
         // Compute elapsed time from departure
         const depTime = departureTime ? new Date(departureTime).getTime() : Date.now();
