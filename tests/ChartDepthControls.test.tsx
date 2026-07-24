@@ -6,6 +6,7 @@ import {
     TIDE_DEPTH_ACK_KEY,
     type ChartDepthControlsProps,
 } from '../components/map/ChartDepthControls';
+import { ChartKeyPanel } from '../components/map/ChartKeyPanel';
 
 const triggerHaptic = vi.hoisted(() => vi.fn());
 vi.mock('../utils/system', () => ({ triggerHaptic }));
@@ -13,6 +14,7 @@ vi.mock('../utils/system', () => ({ triggerHaptic }));
 function props(overrides: Partial<ChartDepthControlsProps> = {}): ChartDepthControlsProps {
     return {
         surfaceVisible: true,
+        chartKeyVisible: true,
         plotting: false,
         tideDepthMode: true,
         tideOffsetInfo: {
@@ -98,10 +100,40 @@ describe('ChartDepthControls', () => {
         expect(screen.getByText('No chart coverage here — depths unverified')).toBeInTheDocument();
     });
 
-    it('renders nothing map-relative when the map surface is hidden', () => {
-        render(<ChartDepthControls {...props({ surfaceVisible: false, plotting: true, encNoCoverage: true })} />);
+    it('keeps only the chart key available on a clean planning surface', () => {
+        const input = props({
+            surfaceVisible: false,
+            chartKeyVisible: true,
+            plotting: true,
+            encHydration: { total: 4, remaining: 2 },
+            encNoCoverage: true,
+        });
+        render(<ChartDepthControls {...input} />);
+
+        fireEvent.click(screen.getByRole('button', { name: /chart colours/ }));
+        expect(input.onToggleChartKey).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('button', { name: 'Toggle night dim' })).not.toBeInTheDocument();
+        expect(screen.queryByText(/LIVE DEPTH/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Chart downloading/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/coverage/)).not.toBeInTheDocument();
+    });
+
+    it('renders nothing map-relative when every map control is hidden', () => {
+        render(
+            <ChartDepthControls
+                {...props({ surfaceVisible: false, chartKeyVisible: false, plotting: true, encNoCoverage: true })}
+            />,
+        );
         expect(screen.queryByRole('button')).not.toBeInTheDocument();
         expect(screen.queryByText(/coverage/)).not.toBeInTheDocument();
+    });
+});
+
+describe('ChartKeyPanel', () => {
+    it('stacks above the Plan tracer card and compass rose', () => {
+        render(<ChartKeyPanel visible imageryOn={false} tideDepthMode={false} draftConfigured onClose={vi.fn()} />);
+
+        expect(screen.getByRole('region', { name: 'Nautical chart key' })).toHaveClass('z-[9997]');
     });
 });
 
