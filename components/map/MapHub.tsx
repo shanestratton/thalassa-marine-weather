@@ -6810,6 +6810,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     data, chart fell back to LAT. Tap = kill switch. */}
                 <ChartDepthControls
                     surfaceVisible={!planningSurface && !embedded && !pickerMode && !isPinView}
+                    chartKeyVisible={!embedded && !pickerMode && !isPinView}
                     plotting={coordCaptureMode}
                     tideDepthMode={tideDepthMode}
                     tideOffsetInfo={tideOffsetInfo}
@@ -6826,7 +6827,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel
-                        visible={chartKeyOpen && !planningSurface && !embedded && !pickerMode && !isPinView}
+                        // Plan deliberately keeps this one reference available:
+                        // it opens above the tracer card without restoring any
+                        // optional Chart layers or the rest of the depth chrome.
+                        visible={chartKeyOpen && !embedded && !pickerMode && !isPinView}
                         imageryOn={imageryOn}
                         tideDepthMode={tideDepthMode}
                         draftConfigured={Number(settings.vessel?.draft) > 0}

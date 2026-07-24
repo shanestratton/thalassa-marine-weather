@@ -6,7 +6,10 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 export const TIDE_DEPTH_ACK_KEY = 'thalassa_tide_depth_ack_v1';
 
 export interface ChartDepthControlsProps {
+    /** Browsing-only depth/tide chrome. */
     surfaceVisible: boolean;
+    /** The chart vocabulary remains useful while plotting on the Plan surface. */
+    chartKeyVisible: boolean;
     plotting: boolean;
     tideDepthMode: boolean;
     tideOffsetInfo: TideOffsetRead | null;
@@ -28,6 +31,7 @@ export interface ChartDepthControlsProps {
  */
 export function ChartDepthControls({
     surfaceVisible,
+    chartKeyVisible,
     plotting,
     tideDepthMode,
     tideOffsetInfo,
@@ -116,7 +120,7 @@ export function ChartDepthControls({
                 </>
             )}
 
-            {encCellCount > 0 && encVisible && surfaceVisible && (
+            {encCellCount > 0 && encVisible && chartKeyVisible && (
                 <button
                     onClick={() => {
                         triggerHaptic('light');

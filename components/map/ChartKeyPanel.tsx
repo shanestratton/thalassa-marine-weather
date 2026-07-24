@@ -23,7 +23,10 @@ export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigur
         <div
             role="region"
             aria-label="Nautical chart key"
-            className="absolute bottom-44 right-2 z-[9992] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
+            // Tracer card = 9995 and compass rose = 9996. The key is an
+            // explicitly-opened planning reference, so it must sit above both
+            // while remaining below blocking sheets/modals (10050+).
+            className="absolute bottom-44 right-2 z-[9997] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
         >
             <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">Chart key</span>
