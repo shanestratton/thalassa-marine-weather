@@ -5764,16 +5764,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 !coordCaptureMode || panelFolded
                                     ? undefined
                                     : 'calc(max(env(safe-area-inset-top) + 124px, 148px) + 8px)',
-                            // SITS ON THE SCRUBBER, open or folded (Shane 2026-07-18:
-                            // "right on top of the scrubber... balance nicely").
-                            // Scrubber bottom 5.4rem + its ~44px height puts its top
-                            // edge at ~130px, so 8.8rem (~141px) leaves a ~10px seam.
-                            // Folded used to sit 2rem higher to clear the slider; with
-                            // the card deliberately docked to it that lift is now the
-                            // thing to avoid — one value keeps the column stable when
-                            // Done folds it, instead of the header jumping.
+                            // The chart key now lives in the left rail between the
+                            // tracer and detail scrubber. Scrubber bottom 5.4rem + its
+                            // ~44px height puts its top edge at ~130px; the key starts
+                            // at 8.8rem and is 44px high. A 12rem tracer bottom leaves
+                            // a deliberate ~7px seam above it, keeping the three cards
+                            // visibly stacked whether the tracer is open or folded.
                             bottom: coordCaptureMode
-                                ? 'calc(8.8rem + env(safe-area-inset-bottom))'
+                                ? 'calc(12rem + env(safe-area-inset-bottom))'
                                 : 'calc(6rem + env(safe-area-inset-bottom))',
                         }}
                     >
