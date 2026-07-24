@@ -343,7 +343,7 @@ describe('useVoyageForm identity ownership', () => {
         expect(mocks.precomputeIsochrone).toHaveBeenCalledWith(
             { lat: -27.4, lon: 153.1 },
             { lat: -26.4, lon: 153.2 },
-            '2026-07-24',
+            new Date().toLocaleDateString('en-CA'),
             calculationScope,
         );
         rendered.unmount();

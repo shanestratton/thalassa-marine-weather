@@ -2,11 +2,9 @@
  * MapboxVelocityOverlay — Bridges leaflet-velocity-ts onto a Mapbox GL map.
  *
  * Data pipeline:
- *   1. Grabs map center → builds Supabase edge function URL
- *   2. Fetches live GFS wind data (GRIB2 → JSON via edge function)
- *   3. Caches response in browser Cache API ('thalassa-wind-cache')
- *   4. Falls back to cached data when offline
- *   5. Renders animated wind particles via leaflet-velocity-ts
+ *   1. Receives the selected model's reactive WindStore grid
+ *   2. Converts its current (possibly fractional) forecast frame to U/V records
+ *   3. Renders animated wind particles via leaflet-velocity-ts
  *
  * Cleanup: removes velocity layer, destroys Leaflet map, removes overlay div.
  *
@@ -14,9 +12,11 @@
  *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible={activeLayer === 'velocity'} />
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
+import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
 import { WIND_COLORS, WIND_MAX_MS } from './windRamp';
+import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 
 const log = createLogger('MapboxVelocityOverlay');
 import L from 'leaflet';
@@ -26,55 +26,11 @@ import 'leaflet/dist/leaflet.css';
 // because it expects window.L to exist at import time.
 // Type declaration is in src/leaflet-velocity-ts.d.ts
 
-// ── Config ────────────────────────────────────────────────────
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY) as string;
-const WIND_CACHE_NAME = 'thalassa-wind-cache';
-const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
-
-/** GRIB2 record: one U- or V-component of wind data */
-interface GribHeader {
-    nx: number;
-    ny: number;
-    dx: number;
-    dy: number;
-    lo1: number;
-    lo2?: number;
-    la1: number;
-    la2?: number;
-    parameterCategory?: number;
-    parameterNumber?: number;
-    parameterNumberName?: string;
-    refTime?: string;
-}
-
-interface GribRecord {
-    header: GribHeader;
-    data: number[];
-}
-
-/** WindGrid from WindStore — multi-hour wind field */
-interface WindGrid {
-    u: Float32Array[];
-    v: Float32Array[];
-    width: number;
-    height: number;
-    lats: number[];
-    lons: number[];
-    north: number;
-    south: number;
-    east: number;
-    west: number;
-    totalHours: number;
-}
-
 interface MapboxVelocityOverlayProps {
     mapboxMap: mapboxgl.Map | null;
     visible: boolean;
     windHour?: number;
     windGrid?: WindGrid;
-    hideBadge?: boolean;
 }
 
 // Speed-graded wind particle scale — blue → cyan → green → orange → red →
@@ -107,7 +63,7 @@ const PARTICLE_LINE_WIDTH = 1;
 
 // ── Helper: Create velocity layer ─────────────────────────────
 
-function createVelocityLayer(data: GribRecord[]): L.Layer {
+function createVelocityLayer(data: VelocityGribRecord[]): L.Layer {
     return (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
@@ -119,6 +75,38 @@ function createVelocityLayer(data: GribRecord[]): L.Layer {
         particlelineWidth: PARTICLE_LINE_WIDTH,
         colorScale: WIND_COLORS,
     });
+}
+
+type MutableVelocityLayer = L.Layer & {
+    _windy?: { setData: (data: VelocityGribRecord[]) => void };
+    setData?: (data: VelocityGribRecord[]) => void;
+};
+
+function removeVelocityLayer(map: L.Map, layer: L.Layer | null): void {
+    if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+}
+
+function applyVelocityData(map: L.Map, layer: L.Layer | null, data: VelocityGribRecord[]): L.Layer {
+    if (!layer) {
+        const created = createVelocityLayer(data);
+        created.addTo(map);
+        return created;
+    }
+
+    const mutableLayer = layer as MutableVelocityLayer;
+    if (mutableLayer._windy) {
+        mutableLayer._windy.setData(data);
+        return layer;
+    }
+    if (mutableLayer.setData) {
+        mutableLayer.setData(data);
+        return layer;
+    }
+
+    removeVelocityLayer(map, layer);
+    const replacement = createVelocityLayer(data);
+    replacement.addTo(map);
+    return replacement;
 }
 
 // ── Helper: Wind speed heat map (Mapbox image source) ─────────
@@ -145,12 +133,14 @@ function ktsToColor(kts: number): [number, number, number] {
     return [178, 64, 76];
 }
 
-function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
+function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void {
     const uRecord = windData.find(
-        (d: GribRecord) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
+        (d: VelocityGribRecord) =>
+            d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
     );
     const vRecord = windData.find(
-        (d: GribRecord) => d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3,
+        (d: VelocityGribRecord) =>
+            d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3,
     );
     if (!uRecord || !vRecord) {
         return;
@@ -364,95 +354,6 @@ function removeHeatMap(map: mapboxgl.Map): void {
     }
 }
 
-// ── Helper: Relative time formatter ──────────────────────────
-
-function formatRelativeTime(isoString: string): string {
-    const then = new Date(isoString).getTime();
-    const now = Date.now();
-    const diffMs = now - then;
-    const mins = Math.floor(diffMs / 60_000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins} min${mins > 1 ? 's' : ''} ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs} hr${hrs > 1 ? 's' : ''} ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days} day${days > 1 ? 's' : ''} ago`;
-}
-
-// ── Helper: Fetch with Cache API offline fallback ─────────────
-
-interface WindFetchResult {
-    data: GribRecord[];
-    source: 'live' | 'cached' | 'static';
-}
-
-async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
-    // Use actual viewport bounds with generous padding
-    const bounds = map.getBounds()!;
-    const latSpan = bounds.getNorth() - bounds.getSouth();
-    const lonSpan = bounds.getEast() - bounds.getWest();
-
-    let north: number, south: number, west: number, east: number;
-
-    if (latSpan > 60) {
-        // Zoomed out enough to see continents — request full global coverage
-        north = 90;
-        south = -90;
-        west = -180;
-        east = 180;
-    } else {
-        // Regional view — 30% padding
-        const latPad = latSpan * 0.3;
-        const lonPad = lonSpan * 0.3;
-        north = Math.min(bounds.getNorth() + latPad, 90);
-        south = Math.max(bounds.getSouth() - latPad, -90);
-        west = bounds.getWest() - lonPad;
-        east = bounds.getEast() + lonPad;
-
-        // Dateline handling: if viewport crosses 180° meridian,
-        // west > east (e.g. west=170, east=-170). Request full longitude.
-        if (west > east) {
-            west = -180;
-            east = 180;
-        }
-    }
-
-    const body = JSON.stringify({ north, south, east, west });
-    const cacheKey = `${SUPABASE_URL}${EDGE_FN_PATH}?n=${north.toFixed(0)}&s=${south.toFixed(0)}&w=${west.toFixed(0)}&e=${east.toFixed(0)}`;
-
-    try {
-        const res = await fetch(`${SUPABASE_URL}${EDGE_FN_PATH}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                apikey: SUPABASE_KEY,
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-            },
-            body,
-        });
-
-        if (!res.ok) throw new Error(`Edge function HTTP ${res.status}`);
-
-        const cache = await caches.open(WIND_CACHE_NAME);
-        // Cache with a key based on the bounds
-        await cache.put(cacheKey, res.clone());
-
-        return { data: await res.json(), source: 'live' };
-    } catch (err) {
-        const cache = await caches.open(WIND_CACHE_NAME);
-        const cached = await cache.match(cacheKey);
-
-        if (cached) {
-            return { data: await cached.json(), source: 'cached' };
-        }
-
-        const fallback = await fetch('/wind_test.json');
-        if (fallback.ok) return { data: await fallback.json(), source: 'static' };
-
-        throw new Error('No wind data available (online or cached)');
-    }
-}
-
 // ── Component ─────────────────────────────────────────────────
 
 export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
@@ -460,7 +361,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     visible,
     windHour = 0,
     windGrid,
-    hideBadge = false,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -474,153 +374,45 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const windGridPropRef = useRef(windGrid);
     windHourRef.current = windHour;
     windGridPropRef.current = windGrid;
-    const [windData, setWindData] = useState<GribRecord[] | null>(null);
-    const windDataRef = useRef<GribRecord[] | null>(null);
-    const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
-        refTime: null,
-        source: null,
-    });
 
-    const lastFetchZoom = useRef<number | null>(null);
-    const fetchingRef = useRef(false);
-    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // ── Fetch wind data for current viewport ─────────────────────
+    // The selected WindStore grid is the sole particle source. This effect
+    // covers grid/hour updates after Leaflet setup, including the first frame.
+    // If a model switch clears the grid, remove the old model immediately
+    // rather than leaving plausible-looking but incorrectly labelled wind.
     useEffect(() => {
-        if (!visible || !mapboxMap) return;
-        let cancelled = false;
+        const leafletMap = leafletMapRef.current;
+        if (!leafletMap) return;
 
-        const doFetch = async () => {
-            if (fetchingRef.current) return;
-            fetchingRef.current = true;
-            try {
-                const result = await fetchWindData(mapboxMap);
-                if (!cancelled) {
-                    setWindData(result.data);
-                    lastFetchZoom.current = mapboxMap.getZoom();
-                    const refTime = result.data?.[0]?.header?.refTime ?? null;
-                    const _h = result.data?.[0]?.header;
-                    setDataInfo({ refTime, source: result.source });
-                }
-            } catch (err) {
-                log.error('[VelocityOverlay] All data sources failed:', err);
-            } finally {
-                fetchingRef.current = false;
-            }
-        };
-
-        // Only re-fetch when zoom changes significantly — panning within the
-        // same zoom level doesn't need new data (fetchWindData uses generous padding).
-        const onMoveEnd = () => {
-            const currentZoom = mapboxMap.getZoom();
-            const zoomDelta = Math.abs(currentZoom - (lastFetchZoom.current ?? currentZoom));
-            if (zoomDelta < 1) return; // Skip re-fetch for minor zoom/pan
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(() => doFetch(), 600);
-        };
-
-        doFetch();
-        mapboxMap.on('moveend', onMoveEnd);
-
-        return () => {
-            cancelled = true;
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-            mapboxMap.off('moveend', onMoveEnd);
-        };
-    }, [visible, mapboxMap]);
-
-    useEffect(() => {
-        if (!windGrid || !velocityLayerRef.current || !leafletMapRef.current) return;
-        const hFloat = Math.min(windHour, windGrid.totalHours - 1);
-        if (hFloat < 0) return;
-
-        const h0 = Math.floor(hFloat);
-        const h1 = Math.min(h0 + 1, windGrid.totalHours - 1);
-        const lerp = hFloat - h0; // 0.0 to ~0.9
-
-        // Get source data for both hours
-        const u0 = windGrid.u[h0];
-        const v0 = windGrid.v[h0];
-        const u1 = windGrid.u[h1];
-        const v1 = windGrid.v[h1];
-        if (!u0 || !v0) return;
-
-        const nx = windGrid.width;
-        const ny = windGrid.height;
-
-        const dx = windGrid.lons.length > 1 ? Math.abs(windGrid.lons[1] - windGrid.lons[0]) : 1;
-        const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
-
-        // Interpolate U/V between hours, flip rows
-        const uFlipped = new Array(nx * ny);
-        const vFlipped = new Array(nx * ny);
-        for (let row = 0; row < ny; row++) {
-            const srcRow = ny - 1 - row; // flip south→north to north→south
-            const dstRow = row * nx;
-            for (let col = 0; col < nx; col++) {
-                const di = dstRow + col;
-                const si = srcRow * nx + col;
-                if (lerp < 0.01 || !u1 || !v1) {
-                    uFlipped[di] = u0[si];
-                    vFlipped[di] = v0[si];
-                } else {
-                    uFlipped[di] = u0[si] * (1 - lerp) + u1[si] * lerp;
-                    vFlipped[di] = v0[si] * (1 - lerp) + v1[si] * lerp;
-                }
-            }
+        const nextData = windGridFrameToVelocityData(windGrid, windHour);
+        if (!nextData) {
+            removeVelocityLayer(leafletMap, velocityLayerRef.current);
+            velocityLayerRef.current = null;
+            if (overlayRef.current) overlayRef.current.style.opacity = '0';
+            return;
         }
 
-        const header = {
-            nx,
-            ny,
-            dx,
-            dy,
-            lo1: windGrid.west,
-            lo2: windGrid.east,
-            la1: windGrid.north,
-            la2: windGrid.south,
-            parameterCategory: 2,
-            parameterNumber: 2,
-            parameterNumberName: 'U-component_of_wind',
-        };
-
-        const newData = [
-            { header: { ...header, parameterNumber: 2, parameterNumberName: 'U-component_of_wind' }, data: uFlipped },
-            { header: { ...header, parameterNumber: 3, parameterNumberName: 'V-component_of_wind' }, data: vFlipped },
-        ];
-
-        // Update wind data smoothly — bypass clearAndRestart to keep particles alive.
-        // Particles naturally pick up new wind vectors on their next animation frame.
         try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const vl = velocityLayerRef.current as any;
-            if (vl._windy) {
-                vl._windy.setData(newData);
-            } else if (typeof vl.setData === 'function') {
-                vl.setData(newData);
-            } else {
-                // Fallback: recreate layer
-                if (leafletMapRef.current.hasLayer(velocityLayerRef.current)) {
-                    leafletMapRef.current.removeLayer(velocityLayerRef.current);
-                }
-                const layer = createVelocityLayer(newData);
-                layer.addTo(leafletMapRef.current);
-                velocityLayerRef.current = layer;
-            }
-
-            // Re-sync viewport to ensure wind stays geolocked
-            if (syncRef.current) syncRef.current();
+            velocityLayerRef.current = applyVelocityData(leafletMap, velocityLayerRef.current, nextData);
+            if (overlayRef.current) overlayRef.current.style.opacity = '1';
+            syncRef.current?.();
         } catch (err) {
-            log.error('[VelocityOverlay] Failed to update forecast hour:', err);
+            // Never leave the previous model painted after a renderer update
+            // fails. A plausible old field with a newly-selected model label is
+            // more dangerous than an honestly empty overlay.
+            removeVelocityLayer(leafletMap, velocityLayerRef.current);
+            velocityLayerRef.current = null;
+            if (overlayRef.current) overlayRef.current.style.opacity = '0';
+            log.error('[VelocityOverlay] Failed to apply selected wind grid:', err);
         }
     }, [windHour, windGrid]);
 
     // ── Heat map layer DISABLED — clean dark map with particles only ──
     // useEffect(() => {
-    //     if (!mapboxMap || !visible || !windData) return;
-    //     try { injectHeatMap(mapboxMap, windData); } catch (err) { log.error('[HeatMap]', err); }
-    //     return () => { removeHeatMap(mapboxMap); };
-    // }, [mapboxMap, visible, windData]);
+    //     const data = windGridFrameToVelocityData(windGrid, windHour);
+    //     if (!mapboxMap || !visible || !data) return;
+    //     try { injectHeatMap(mapboxMap, data); } catch (err) { log.error('[HeatMap]', err); }
+    //     return () => removeHeatMap(mapboxMap);
+    // }, [mapboxMap, visible, windGrid, windHour]);
 
     // ── Zoom-based particle visibility (heatmap disabled) ──
     useEffect(() => {
@@ -642,55 +434,12 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
     }, [mapboxMap, visible]);
 
-    // ── Inject wind data into existing velocity layer (no teardown) ──
-    useEffect(() => {
-        windDataRef.current = windData;
-        if (!windData || !leafletMapRef.current) return;
-
-        // If velocity layer doesn't exist yet (data arrived after overlay setup), create it now
-        if (!velocityLayerRef.current) {
-            try {
-                const vLayer = createVelocityLayer(windData);
-                vLayer.addTo(leafletMapRef.current);
-                velocityLayerRef.current = vLayer;
-                // Fade in the overlay
-                if (overlayRef.current) {
-                    overlayRef.current.style.opacity = '1';
-                }
-                if (syncRef.current) syncRef.current();
-            } catch (err) {
-                log.warn('[VelocityOverlay] Failed to create velocity layer on data arrival:', err);
-            }
-            return;
-        }
-
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const vl = velocityLayerRef.current as any;
-            if (vl._windy) {
-                vl._windy.setData(windData);
-            } else if (typeof vl.setData === 'function') {
-                vl.setData(windData);
-            } else {
-                // Fallback: recreate layer
-                if (leafletMapRef.current.hasLayer(velocityLayerRef.current)) {
-                    leafletMapRef.current.removeLayer(velocityLayerRef.current);
-                }
-                const layer = createVelocityLayer(windData);
-                layer.addTo(leafletMapRef.current);
-                velocityLayerRef.current = layer;
-            }
-            if (syncRef.current) syncRef.current();
-        } catch (err) {
-            log.warn('[VelocityOverlay] Failed to inject new wind data:', err);
-        }
-    }, [windData]);
-
     // ── Create/destroy particle overlay ──────────────────────────
     useEffect(() => {
         if (!mapboxMap || !visible) return;
 
         let cancelled = false;
+        let snapTimer: ReturnType<typeof setTimeout> | null = null;
 
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
@@ -764,12 +513,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             const mapPane = lMap.getPane('mapPane');
             if (mapPane) mapPane.style.background = 'transparent';
 
-            // Inject velocity layer via helper — use current data or an empty placeholder
-            const initialData = windDataRef.current ?? windData ?? [];
-            if (initialData.length > 0) {
-                const vLayer = createVelocityLayer(initialData);
-                vLayer.addTo(lMap);
-                velocityLayerRef.current = vLayer;
+            // The grid/hour effect may have run before the async Leaflet plugin
+            // was ready. Read the refs here to cover that race, including hour 0.
+            const initialData = windGridFrameToVelocityData(windGridPropRef.current, windHourRef.current);
+            if (initialData) {
+                velocityLayerRef.current = applyVelocityData(lMap, null, initialData);
             }
 
             // ── Anchor-point geo-locking (performance optimised) ──
@@ -831,10 +579,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.on('resize', onResize);
 
             // Single deferred re-sync after zoom/move ends (replaces heavy 200ms×10 interval)
-            let snapTimer: ReturnType<typeof setTimeout> | null = null;
             const onViewEnd = () => {
                 if (snapTimer) clearTimeout(snapTimer);
                 snapTimer = setTimeout(() => {
+                    if (cancelled) return;
                     syncFull();
                     snapTimer = null;
                 }, 300);
@@ -857,79 +605,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 if (cancelled) return;
                 lMap.invalidateSize();
                 syncFull();
-                // Fade in now that position is settled
-                if (overlayRef.current) overlayRef.current.style.opacity = '1';
+                // Fade in only when a selected-model grid has produced a layer.
+                if (overlayRef.current && velocityLayerRef.current) overlayRef.current.style.opacity = '1';
             }, 600);
-
-            // ── Apply current windHour from grid (fixes race condition) ──
-            // The windHour effect may have already fired (and bailed because
-            // velocityLayerRef was null during async setup). Re-apply now.
-            const curGrid = windGridPropRef.current;
-            const curHour = windHourRef.current;
-            if (curGrid && curHour > 0) {
-                try {
-                    const hFloat = Math.min(curHour, curGrid.totalHours - 1);
-                    const h0 = Math.floor(hFloat);
-                    const h1 = Math.min(h0 + 1, curGrid.totalHours - 1);
-                    const lp = hFloat - h0;
-                    const u0 = curGrid.u[h0];
-                    const v0 = curGrid.v[h0];
-                    const u1 = curGrid.u[h1];
-                    const v1 = curGrid.v[h1];
-                    if (u0 && v0) {
-                        const nx = curGrid.width;
-                        const ny = curGrid.height;
-                        const uF = new Array(nx * ny);
-                        const vF = new Array(nx * ny);
-                        for (let row = 0; row < ny; row++) {
-                            const srcRow = ny - 1 - row;
-                            const dstRow = row * nx;
-                            for (let col = 0; col < nx; col++) {
-                                const di = dstRow + col;
-                                const si = srcRow * nx + col;
-                                if (lp < 0.01 || !u1 || !v1) {
-                                    uF[di] = u0[si];
-                                    vF[di] = v0[si];
-                                } else {
-                                    uF[di] = u0[si] * (1 - lp) + u1[si] * lp;
-                                    vF[di] = v0[si] * (1 - lp) + v1[si] * lp;
-                                }
-                            }
-                        }
-                        const dxG = curGrid.lons.length > 1 ? Math.abs(curGrid.lons[1] - curGrid.lons[0]) : 1;
-                        const dyG = curGrid.lats.length > 1 ? Math.abs(curGrid.lats[1] - curGrid.lats[0]) : 1;
-                        const hdr = {
-                            nx,
-                            ny,
-                            dx: dxG,
-                            dy: dyG,
-                            lo1: curGrid.west,
-                            lo2: curGrid.east,
-                            la1: curGrid.north,
-                            la2: curGrid.south,
-                            parameterCategory: 2,
-                            parameterNumber: 2,
-                            parameterNumberName: 'U-component_of_wind',
-                        };
-                        const initData = [
-                            {
-                                header: { ...hdr, parameterNumber: 2, parameterNumberName: 'U-component_of_wind' },
-                                data: uF,
-                            },
-                            {
-                                header: { ...hdr, parameterNumber: 3, parameterNumberName: 'V-component_of_wind' },
-                                data: vF,
-                            },
-                        ];
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const vlInit = velocityLayerRef.current as any;
-                        if (vlInit._windy) vlInit._windy.setData(initData);
-                        log.info(`[VelocityOverlay] Applied windHour=${curHour} from grid after async setup`);
-                    }
-                } catch (err) {
-                    log.warn('[VelocityOverlay] Failed to apply initial windHour:', err);
-                }
-            }
         };
 
         setup().catch((err) => log.error('[VelocityOverlay] Setup failed:', err));
@@ -937,6 +615,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         // ── Cleanup ──────────────────────────────────────────────
         return () => {
             cancelled = true;
+            if (snapTimer) {
+                clearTimeout(snapTimer);
+                snapTimer = null;
+            }
 
             try {
                 if (moveRef.current) mapboxMap.off('move', moveRef.current);
@@ -990,40 +672,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
             overlayRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapboxMap, visible]);
 
-    // ── Data freshness badge ─────────────────────────────────────
-    if (!visible || !dataInfo.refTime || hideBadge) return null;
-
-    const isOffline = dataInfo.source === 'cached' || dataInfo.source === 'static';
-    const ageStr = formatRelativeTime(dataInfo.refTime);
-
-    const isSmallContainer = mapboxMap?.getContainer()?.clientHeight
-        ? mapboxMap.getContainer().clientHeight < 300
-        : false;
-
-    return (
-        <div
-            className={`absolute ${isSmallContainer ? 'top-2 left-2' : 'top-14 left-4'} z-[600] flex items-center gap-2 px-3 py-1.5 rounded-xl border shadow-lg text-[11px] font-bold`}
-            style={{
-                background: isOffline ? 'rgba(30, 30, 30, 0.85)' : 'rgba(15, 23, 42, 0.85)',
-                borderColor: isOffline ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255, 255, 255, 0.1)',
-                color: isOffline ? '#fbbf24' : '#94a3b8',
-            }}
-        >
-            {/* Status dot */}
-            <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{
-                    background: isOffline ? '#f59e0b' : '#22c55e',
-                    boxShadow: isOffline ? '0 0 6px rgba(245, 158, 11, 0.6)' : '0 0 6px rgba(34, 197, 94, 0.6)',
-                }}
-            />
-            {/* Label */}
-            <span>
-                {isOffline ? '📡 Offline · ' : ''}GFS {ageStr}
-            </span>
-        </div>
-    );
+    return null;
 };

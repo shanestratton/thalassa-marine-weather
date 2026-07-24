@@ -42,6 +42,62 @@ interface CachedBounds {
 
 let lastFetchedBounds: CachedBounds | null = null;
 
+/**
+ * Monotonic fence for every asynchronous wind load.
+ *
+ * Model/field changes clear WindStore.grid immediately, but the request they
+ * replace cannot always be aborted (CapacitorHttp ignores AbortSignal). An
+ * older request must therefore prove that it is still the newest request and
+ * still belongs to the same model/field/mode before it may publish anything.
+ */
+let windRequestGeneration = 0;
+
+interface WindRequestContext {
+    generation: number;
+    isGlobalMode: boolean;
+    model: ReturnType<typeof WindStore.getState>['model'];
+    field: ReturnType<typeof WindStore.getState>['field'];
+}
+
+function isCurrentWindRequest(request: WindRequestContext): boolean {
+    const current = WindStore.getState();
+    return (
+        request.generation === windRequestGeneration &&
+        current.isGlobalMode === request.isGlobalMode &&
+        current.model === request.model &&
+        current.field === request.field
+    );
+}
+
+/**
+ * A request that is going to replace the currently-painted field must remove
+ * that field before it starts. Keeping a last-known grid while loading sounds
+ * friendly, but without a visible provenance/freshness treatment it makes an
+ * offline or failed refresh look live. The particle overlay reads `grid`
+ * directly, so null is the only truthful loading/error state.
+ */
+function beginWindGridLoad(request: WindRequestContext): boolean {
+    if (!isCurrentWindRequest(request)) return false;
+    WindStore.setState({
+        grid: null,
+        totalHours: 0,
+        hour: 0,
+        loading: true,
+        error: null,
+    });
+    return true;
+}
+
+function clearRenderableWindGrid(): void {
+    WindStore.setState({
+        grid: null,
+        totalHours: 0,
+        hour: 0,
+        loading: false,
+        error: null,
+    });
+}
+
 function boundsChangedSignificantly(a: CachedBounds, b: CachedBounds): boolean {
     // Re-fetch if view shifted by more than 20% or zoom changed by >1
     const latSpan = a.north - a.south;
@@ -81,26 +137,35 @@ export const WindDataController = {
      * Registers map listeners for online mode, loads file for offline mode.
      */
     async activate(map: mapboxgl.Map) {
+        const generation = ++windRequestGeneration;
         const { isGlobalMode, model, field } = WindStore.getState();
         // Non-GFS models and the gust field come from Open-Meteo's point-batch
         // API, which can't do full-earth — they're always VIEWPORT-bounded and
         // so must re-fetch on pan even in global mode. Only GFS sustained wind
         // gets the fetch-once full-earth GRIB in global mode.
-        const viewportBound = !isGlobalMode || model !== 'gfs' || field === 'gust';
+        const viewportBound = model !== 'gfs' || field === 'gust';
 
         clearMoveListener(map);
-        await this.fetchOnline(map);
-        if (viewportBound) {
+        // Viewport wind must listen before the initial request starts. A model
+        // fetch can take up to 30 seconds; registering after await loses any
+        // moveend that occurs while it is loading and publishes the abandoned
+        // viewport until the user moves a second time.
+        if (isGlobalMode && viewportBound) {
             this.registerMoveListener(map);
         }
+
+        if (isGlobalMode) await this.fetchOnline(map, generation);
+        else await this.fetchOffline(generation);
     },
 
     /**
      * Deactivate: remove map listeners, clear state.
      */
     deactivate(map: mapboxgl.Map) {
+        windRequestGeneration += 1;
         clearMoveListener(map);
         lastFetchedBounds = null;
+        clearRenderableWindGrid();
     },
 
     /**
@@ -108,10 +173,13 @@ export const WindDataController = {
      * In global mode, always fetches the full Earth grid.
      * In passage mode, fetches for the visible viewport.
      */
-    async fetchOnline(map: mapboxgl.Map) {
+    async fetchOnline(map: mapboxgl.Map, generation: number = ++windRequestGeneration): Promise<boolean> {
         const { isGlobalMode, model, field } = WindStore.getState();
+        const request: WindRequestContext = { generation, isGlobalMode, model, field };
+        if (!isCurrentWindRequest(request)) return false;
+
         const bounds = map.getBounds();
-        if (!bounds) return;
+        if (!bounds) return isCurrentWindRequest(request);
 
         const currentZoom = map.getZoom();
 
@@ -150,7 +218,7 @@ export const WindDataController = {
                 !isCacheStale(lastFetchedBounds) &&
                 WindStore.getState().grid
             ) {
-                return;
+                return isCurrentWindRequest(request);
             }
             if (lastFetchedBounds && isCacheStale(lastFetchedBounds)) {
                 const ageMin = Math.round((Date.now() - lastFetchedBounds.fetchedAt) / 60000);
@@ -166,7 +234,7 @@ export const WindDataController = {
             east = currentBounds.east + lonPad;
         }
 
-        WindStore.setLoading(true);
+        if (!beginWindGridLoad(request)) return false;
 
         try {
             // ── Open-Meteo gridded path (non-GFS model, or gust field) ──
@@ -175,6 +243,7 @@ export const WindDataController = {
             // client-side when the gust field is active.
             if (useOpenMeteoGridded) {
                 const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
+                if (!isCurrentWindRequest(request)) return false;
                 // Adaptive resolution: fine when zoomed in, but coarsen for wide
                 // viewports so a zoomed-out (or global) view doesn't explode into
                 // thousands of Open-Meteo point batches. Cap ~24 cells per side.
@@ -186,10 +255,13 @@ export const WindDataController = {
                     30_000,
                     'om-model-grid',
                 );
+                if (!isCurrentWindRequest(request)) return false;
                 if (grid && field === 'gust') {
                     const { applyGustField } = await import('./windFieldTransforms');
+                    if (!isCurrentWindRequest(request)) return false;
                     grid = applyGustField(grid);
                 }
+                if (!isCurrentWindRequest(request)) return false;
                 if (grid) {
                     lastFetchedBounds = { north, south, west, east, zoom: currentZoom, fetchedAt: Date.now() };
                     WindStore.setGrid(grid);
@@ -199,7 +271,7 @@ export const WindDataController = {
                 } else {
                     WindStore.setError(`No ${model.toUpperCase()} wind data for this area`);
                 }
-                return;
+                return true;
             }
 
             // Primary: Supabase GFS GRIB2 edge function (reliable).
@@ -236,12 +308,16 @@ export const WindDataController = {
                 30_000,
                 'fetch-wind-grid',
             );
+            if (!isCurrentWindRequest(request)) return false;
 
             if (res.ok) {
                 const buffer = await res.arrayBuffer();
+                if (!isCurrentWindRequest(request)) return false;
                 if (buffer.byteLength > 200) {
                     const { decodeGrib2WindMultiHour } = await import('./decodeGrib2Wind');
+                    if (!isCurrentWindRequest(request)) return false;
                     const grid = decodeGrib2WindMultiHour(buffer);
+                    if (!isCurrentWindRequest(request)) return false;
 
                     lastFetchedBounds = {
                         north,
@@ -255,47 +331,60 @@ export const WindDataController = {
                     log.info(
                         `[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours, refTime=${grid.refTime || 'n/a'}`,
                     );
-                    return;
+                    return true;
                 }
             }
 
             // If edge function failed, fall back to Open-Meteo
+            if (!isCurrentWindRequest(request)) return false;
             log.warn('[WindController] Edge function failed, trying Open-Meteo fallback');
             const fallbackGrid = isGlobalMode
                 ? await fetchGlobalWindField()
                 : await fetchWindGrid(north, south, west, east, currentZoom);
 
+            if (!isCurrentWindRequest(request)) return false;
             if (fallbackGrid) {
                 lastFetchedBounds = { north, south, west, east, zoom: currentZoom, fetchedAt: Date.now() };
                 WindStore.setGrid(fallbackGrid);
             } else {
                 WindStore.setError('No wind data available');
             }
+            return true;
         } catch (e) {
+            if (!isCurrentWindRequest(request)) return false;
             log.error('[WindController] Fetch failed:', e);
             WindStore.setError(`Failed to fetch wind data: ${e instanceof Error ? e.message : 'Unknown error'}`);
+            return true;
         }
     },
 
     /**
      * Offline pipeline: load pre-parsed .wind.bin from device storage.
      */
-    async fetchOffline() {
-        const { localGribPath } = WindStore.getState();
+    async fetchOffline(generation: number = ++windRequestGeneration): Promise<boolean> {
+        const { localGribPath, isGlobalMode, model, field } = WindStore.getState();
+        const request: WindRequestContext = { generation, isGlobalMode, model, field };
+        if (!beginWindGridLoad(request)) return false;
 
         if (!localGribPath) {
-            WindStore.setError('No downloaded wind data available. Use the GRIB downloader to get passage wind data.');
-            return;
+            if (isCurrentWindRequest(request)) {
+                WindStore.setError(
+                    'No downloaded wind data available. Use the GRIB downloader to get passage wind data.',
+                );
+            }
+            return true;
         }
-
-        WindStore.setLoading(true);
 
         try {
             const grid = await loadLocalWindFile(localGribPath);
+            if (!isCurrentWindRequest(request)) return false;
             WindStore.setGrid(grid);
+            return true;
         } catch (e) {
+            if (!isCurrentWindRequest(request)) return false;
             log.error('[WindController] Offline load failed:', e);
             WindStore.setError(`Failed to load wind file: ${e instanceof Error ? e.message : 'Unknown error'}`);
+            return true;
         }
     },
 

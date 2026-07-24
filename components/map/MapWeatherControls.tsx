@@ -16,6 +16,7 @@ import { isCmemsSstEnabled } from './useSstRasterLayer';
 import { isCmemsChlEnabled } from './useChlRasterLayer';
 import { isCmemsSeaIceEnabled } from './useSeaIceRasterLayer';
 import { isCmemsMldEnabled } from './useMldRasterLayer';
+import { isUsableWindGrid, windHoursFromNow } from './windTimeAxis';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -115,10 +116,10 @@ export function MapWeatherControls({
                     onScrub={(index: number) => {
                         weather.setRainFrameIndex(index);
                         const frame = weather.unifiedFramesRef.current[index];
-                        if (!frame || weather.windForecastHoursRef.current.length === 0) return;
+                        if (!frame || weather.windForecastHours.length === 0) return;
 
-                        const forecastHours = weather.windForecastHoursRef.current;
-                        const windNowIndex = weather.windNowIdxRef.current;
+                        const forecastHours = weather.windForecastHours;
+                        const windNowIndex = weather.windNowIdx;
                         const rainNowIndex = weather.rainNowIdxRef.current;
                         // Rain frames are 10 minutes apart; choose the nearest
                         // available wind frame rather than assuming hourly data.
@@ -186,24 +187,47 @@ export function MapWeatherControls({
                 onScrubStart = () => weather.setIsPlaying(false);
                 applyFrame = weather.applyFrame;
             } else if (activeLayer === 'wind') {
-                const forecastHours = weather.windForecastHoursRef.current;
-                const windNowIndex = weather.windNowIdxRef.current;
-                const roundedIndex = Math.round(weather.windHour);
-                frameIndex = weather.windHour;
-                totalFrames = weather.windTotalHours;
-                const relativeHours =
-                    (forecastHours[roundedIndex] ?? roundedIndex) - (forecastHours[windNowIndex] ?? 0);
-                if (roundedIndex === windNowIndex || relativeHours === 0) {
-                    frameLabel = 'Now';
-                    sublabel = 'Current';
+                const forecastHours = weather.windForecastHours;
+                const usableGrid = isUsableWindGrid(weather.windState.grid);
+
+                if (weather.windState.error) {
+                    totalFrames = 1;
+                    frameLabel = 'Unavailable';
+                    sublabel = 'Wind data';
+                } else if (weather.windState.loading || (usableGrid && !weather.windReady)) {
+                    totalFrames = 1;
+                    frameLabel = 'Loading…';
+                    sublabel = 'Wind data';
+                    isLoading = true;
+                } else if (!usableGrid || forecastHours.length === 0) {
+                    totalFrames = 1;
+                    frameLabel = 'Unavailable';
+                    sublabel = 'Wind data';
                 } else {
-                    frameLabel = relativeHours > 0 ? `+${relativeHours}h` : `${relativeHours}h`;
-                    sublabel = relativeHours > 0 ? 'Forecast' : 'Past';
+                    const windNowIndex = weather.windNowIdx;
+                    const roundedIndex = Math.round(weather.windHour);
+                    const relativeHours = windHoursFromNow(forecastHours, roundedIndex, windNowIndex);
+                    frameIndex = weather.windHour;
+                    totalFrames = forecastHours.length;
+                    if (roundedIndex === windNowIndex || relativeHours === 0) {
+                        frameLabel = 'Now';
+                        sublabel = 'Current';
+                    } else if (relativeHours !== null) {
+                        const displayHours = Number.isInteger(relativeHours)
+                            ? relativeHours
+                            : Number(relativeHours.toFixed(1));
+                        frameLabel = displayHours > 0 ? `+${displayHours}h` : `${displayHours}h`;
+                        sublabel = displayHours > 0 ? 'Forecast' : 'Past';
+                    } else {
+                        totalFrames = 1;
+                        frameLabel = 'Unavailable';
+                        sublabel = 'Wind data';
+                    }
+                    isPlaying = weather.windPlaying;
+                    onScrub = weather.setWindHour;
+                    onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
+                    onScrubStart = () => weather.setWindPlaying(false);
                 }
-                isPlaying = weather.windPlaying;
-                onScrub = weather.setWindHour;
-                onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
-                onScrubStart = () => weather.setWindPlaying(false);
             } else if (activeLayer === 'currents' && isCmemsCurrentsEnabled()) {
                 frameIndex = weather.currentsHour;
                 totalFrames = weather.currentsTotalHours;

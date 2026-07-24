@@ -95,7 +95,7 @@ thalassa-marine-weather/
 | **Backend**      | Supabase (Auth, PostgreSQL, Realtime, Storage, Edge Functions)                              |
 | **Native**       | Capacitor (iOS/Android) — GPS, keyboard, haptics, background location                       |
 | **Weather APIs** | WeatherKit, NOAA NOMADS/GRIB, OpenMeteo, OpenWeatherMap, RainViewer, Rainbow.ai, StormGlass |
-| **Testing**      | Vitest + React Testing Library (914 tests, 56 suites, 4 E2E specs)                          |
+| **Testing**      | Vitest + React Testing Library + browser E2E specs                                          |
 | **Linting**      | ESLint + Prettier + lint-staged + Husky pre-commit hooks                                    |
 | **Monitoring**   | Sentry error tracking, createLogger service                                                 |
 | **Analysis**     | rollup-plugin-visualizer (bundle-stats.html)                                                |
@@ -109,7 +109,7 @@ Copy `.env.example` to `.env` and configure:
 | Variable                   | Required | Description                                       |
 | -------------------------- | -------- | ------------------------------------------------- |
 | `VITE_SUPABASE_URL`        | ✅       | Supabase project URL                              |
-| `VITE_SUPABASE_ANON_KEY`   | ✅       | Supabase anonymous key (public, RLS-protected)    |
+| `VITE_SUPABASE_KEY`        | ✅       | Supabase publishable key (public, RLS-protected)  |
 | `VITE_MAPBOX_ACCESS_TOKEN` | ✅       | Mapbox GL access token for map rendering          |
 | `VITE_OWM_API_KEY`         | ⚡       | OpenWeatherMap API key (temp/cloud tile overlays) |
 | `VITE_APP_VERSION`         | —        | App version string (auto-set by CI)               |

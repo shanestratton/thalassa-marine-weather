@@ -50,6 +50,7 @@ import {
     type WeatherLayer,
     getActiveLayerFrameZoom,
     LAYER_FRAME_ZOOM,
+    shouldShowPlanChartKey,
     shouldSuppressChartOverlays,
 } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
@@ -403,9 +404,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // router while the auto-router earns trust, and the flywheel that
     // turned Shane's 29 Mooloolaba taps into the shipped fairway. A ref
     // mirrors the flag so the map tap closure never reads a stale value.
-    const [coordCaptureMode, setCoordCaptureMode] = useState(
+    // A successful requestTracerOpen handoff is the durable ownership signal
+    // for the Plan journey. Keep it separate from coordCaptureMode so a future
+    // direct Chart tracer cannot accidentally inherit Plan-only furniture.
+    const [planTracerActive, setPlanTracerActive] = useState(
         () => !embedded && !pickerMode && !hideTracer && !isPinView && peekTracerOpenRequest(),
     );
+    const [coordCaptureMode, setCoordCaptureMode] = useState(() => planTracerActive);
     const tracerHandoffTimersRef = useRef<Set<number>>(new Set());
     /**
      * Re-entry ticket for the trace-layer sync effect when it ran before the
@@ -816,6 +821,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             const requestScope = getAuthIdentityScope();
             if (!isAuthIdentityScopeCurrent(requestScope)) return;
             setWeatherInspectMode(false);
+            setPlanTracerActive(true);
             setCoordCaptureMode(true);
             // PLAN-page front-door actions (Shane 2026-07-16): the punter
             // already PICKED the route in the planner's modal — load it
@@ -902,9 +908,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         // the pins persist and the 🧭 pill brings them back, so Charts can simply
         // close the tracer and hand over the bare chart, exactly like the other
         // tabs do. It does NOT clear the trace.
-        const close = () => setCoordCaptureMode(false);
+        const close = () => {
+            setPlanTracerActive(false);
+            setCoordCaptureMode(false);
+        };
         const unsubscribeIdentity = subscribeAuthIdentityScope(() => {
             clearHandoffTimers();
+            setPlanTracerActive(false);
             setCoordCaptureMode(false);
         });
         open();
@@ -2791,6 +2801,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // every downstream layer sees a planning surface from frame one.
     const passage = usePassagePlanner(mapRef, mapReady);
     const planningSurface = shouldSuppressChartOverlays(cleanPlanningMap, coordCaptureMode, passage.showPassage);
+    const planChartKeyVisible = shouldShowPlanChartKey(
+        cleanPlanningMap,
+        planTracerActive,
+        embedded,
+        pickerMode,
+        isPinView,
+    );
     const browseWeatherInspectMode = weatherInspectMode && !planningSurface;
     const deviceMode = useDeviceMode();
     // Map state persisted across Charts tab switches so the user comes
@@ -3547,24 +3564,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSeamarkVisible(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    // ── Chart key (the legend for mere mortals, 2026-07-11) ──
-    // Auto-opens ONCE when charted water first renders (punters don't
-    // know khaki means "dries" or what LAT is); after that it lives
-    // behind the ChartModes row. Session state + a seen-flag.
+    // ── Plan chart key ──
+    // Deliberately user-opened on the Plan-owned map. It must never appear on
+    // Chart, including as a one-shot auto-open when ENC cells first hydrate.
     const [chartKeyOpen, setChartKeyOpen] = useState(false);
-    useEffect(() => {
-        // encVisible gate (review minor): never auto-open (or burn the
-        // one-shot flag) over a map that isn't showing the chart.
-        if (encCellCount === 0 || !encVisible || embedded || pickerMode || isPinView || planningSurface) return;
-        try {
-            if (!localStorage.getItem('thalassa_chart_key_seen_v1')) {
-                localStorage.setItem('thalassa_chart_key_seen_v1', new Date().toISOString());
-                setChartKeyOpen(true);
-            }
-        } catch {
-            /* private mode — no auto-open, row still works */
-        }
-    }, [encCellCount, encVisible, embedded, pickerMode, isPinView, planningSurface]);
     // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
     const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
         'thalassa_map_chart_controls_hidden',
@@ -5339,8 +5342,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
                         windHour={weather.windHour}
-                        windGrid={weather.windGridRef?.current ?? undefined}
-                        hideBadge={passage.showPassage}
+                        windGrid={weather.windState.grid ?? undefined}
                     />
                 )}
 
@@ -5353,8 +5355,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             departureTime={passage.departureTime || new Date().toISOString()}
                             speed={passage.speed}
                             windHour={weather.windHour}
-                            windForecastHours={weather.windForecastHoursRef.current}
-                            windNowIdx={weather.windNowIdxRef.current}
+                            windForecastHours={weather.windForecastHours}
+                            windNowIdx={weather.windNowIdx}
                             visible={
                                 (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')) &&
                                 passage.showPassage &&
@@ -6818,7 +6820,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     data, chart fell back to LAT. Tap = kill switch. */}
                 <ChartDepthControls
                     surfaceVisible={!planningSurface && !embedded && !pickerMode && !isPinView}
-                    chartKeyVisible={!embedded && !pickerMode && !isPinView}
+                    chartKeyVisible={planChartKeyVisible}
                     plotting={coordCaptureMode}
                     tideDepthMode={tideDepthMode}
                     tideOffsetInfo={tideOffsetInfo}
@@ -6838,7 +6840,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // Plan deliberately keeps this one reference available:
                         // it opens above the tracer card without restoring any
                         // optional Chart layers or the rest of the depth chrome.
-                        visible={chartKeyOpen && !embedded && !pickerMode && !isPinView}
+                        visible={chartKeyOpen && planChartKeyVisible}
                         imageryOn={imageryOn}
                         tideDepthMode={tideDepthMode}
                         draftConfigured={Number(settings.vessel?.draft) > 0}
