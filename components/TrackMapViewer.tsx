@@ -33,6 +33,8 @@ import {
 } from '../services/shiplog/trackViz';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal } from './ui/OverlayPortal';
+import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
+import { sanitizeRouteCoordinates, type RouteCoordinate } from '../utils/routeCoordinates';
 
 // Base-map tile templates: light Voyager by day, dark by night watch.
 // Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
@@ -44,6 +46,8 @@ interface TrackMapViewerProps {
     isOpen: boolean;
     onClose: () => void;
     entries: ShipLogEntry[];
+    /** Immediate follow-store geometry, independent of saved logbook rows. */
+    followedRouteCoords?: readonly RouteCoordinate[];
 }
 
 // Conditions popup for tap-for-conditions. Shows what was logged at the
@@ -77,7 +81,8 @@ const VESSEL_ICON_HTML = `<div style="
     box-shadow: 0 0 12px rgba(0,240,255,0.6), 0 2px 8px rgba(0,0,0,0.4);
 "></div>`;
 
-export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpen, onClose, entries }) => {
+export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) => {
+    const { isOpen, onClose, entries, followedRouteCoords } = props;
     const mapRef = useRef<HTMLDivElement>(null);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
@@ -86,6 +91,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     });
     const mapInstanceRef = useRef<L.Map | null>(null);
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
+    const followedRouteLayerGroupRef = useRef<L.LayerGroup | null>(null);
+    const displayedTrackCoordsRef = useRef<[number, number][]>([]);
+    const displayedFollowedRouteCoordsRef = useRef<[number, number][]>([]);
     const hasFitBoundsRef = useRef(false);
     const baseTileRef = useRef<L.TileLayer | null>(null);
     const seamarkTileRef = useRef<L.TileLayer | null>(null);
@@ -134,10 +142,19 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // not vertices; including them made the playback vessel (and the
         // polyline) zig-zag to positions out of sequence.
         const valid = entries.filter(isTrackworthyEntry);
-        const sorted = [...valid].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        // When a planned route is overlaid with a sailed voyage, playback and
+        // statistics must describe the recorded voyage only. The drawing code
+        // below still renders both groups independently.
+        const sailed = valid.filter((entry) => entry.source !== 'planned_route');
+        const playbackEntries = sailed.length >= 2 ? sailed : valid;
+        const sorted = [...playbackEntries].sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
         sortedEntriesRef.current = sorted;
         return sorted;
     }, [entries]);
+
+    const sanitizedFollowedRoute = useMemo(() => sanitizeRouteCoordinates(followedRouteCoords), [followedRouteCoords]);
 
     // Speed sparkline geometry (memoized — the 20 Hz playback cursor must
     // NOT recompute the whole path). Drawn in a fixed 240×34 viewBox.
@@ -229,6 +246,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         ).addTo(map);
         seamarkTileRef.current = seamark;
 
+        const followedRoutePane = map.createPane(FOLLOWED_ROUTE_PANE);
+        followedRoutePane.style.zIndex = '390';
+        followedRoutePane.style.pointerEvents = 'none';
+
+        followedRouteLayerGroupRef.current = L.layerGroup().addTo(map);
+
         // Layer group for track data
         const layerGroup = L.layerGroup().addTo(map);
         layerGroupRef.current = layerGroup;
@@ -280,6 +303,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 mapInstanceRef.current.remove();
                 mapInstanceRef.current = null;
                 layerGroupRef.current = null;
+                followedRouteLayerGroupRef.current = null;
+                displayedTrackCoordsRef.current = [];
+                displayedFollowedRouteCoordsRef.current = [];
                 trailLayerRef.current = null;
                 vesselMarkerRef.current = null;
                 baseTileRef.current = null;
@@ -316,6 +342,35 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         }
     }, [isOpen]);
 
+    const fitDisplayGeometry = useCallback(() => {
+        const map = mapInstanceRef.current;
+        if (!map || hasFitBoundsRef.current) return;
+        const displayLatLngs = [...displayedFollowedRouteCoordsRef.current, ...displayedTrackCoordsRef.current];
+        if (displayLatLngs.length >= 2) {
+            map.fitBounds(L.latLngBounds(displayLatLngs), {
+                padding: [40, 40],
+                maxZoom: 16,
+                animate: false,
+            });
+            hasFitBoundsRef.current = true;
+        } else if (displayLatLngs.length === 1) {
+            map.setView(displayLatLngs[0], 14, { animate: false });
+            hasFitBoundsRef.current = true;
+        }
+    }, []);
+
+    // Route geometry has its own layer group so a dense saved curve is not
+    // rebuilt on every live-track poll.
+    useEffect(() => {
+        if (!isOpen) return;
+        const layerGroup = followedRouteLayerGroupRef.current;
+        if (!layerGroup) return;
+        layerGroup.clearLayers();
+        displayedFollowedRouteCoordsRef.current = addFollowedRouteLayer(layerGroup, sanitizedFollowedRoute);
+        hasFitBoundsRef.current = false;
+        fitDisplayGeometry();
+    }, [fitDisplayGeometry, isOpen, sanitizedFollowedRoute]);
+
     // Update track layers when entries change
     const updateTrackLayers = useCallback(() => {
         const map = mapInstanceRef.current;
@@ -328,15 +383,32 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // entries); polyline VERTICES only from trackworthy ones — pins
         // sit at past positions and bend the line backwards (zig-zag).
         const validEntries = entries.filter((e) => isPlausibleTrackPoint(e.latitude, e.longitude));
-        if (validEntries.length < 2) return;
+        if (validEntries.length < 2) {
+            if (displayedTrackCoordsRef.current.length > 0) hasFitBoundsRef.current = false;
+            displayedTrackCoordsRef.current = [];
+            fitDisplayGeometry();
+            return;
+        }
 
         const sorted = [...validEntries].sort(
             (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
         const lineEntries = sorted.filter(isTrackworthyEntry);
-        if (lineEntries.length < 2) return;
+        if (lineEntries.length < 2) {
+            if (displayedTrackCoordsRef.current.length > 0) hasFitBoundsRef.current = false;
+            displayedTrackCoordsRef.current = [];
+            fitDisplayGeometry();
+            return;
+        }
 
         const trackCoords = lineEntries.map((e) => [e.latitude!, e.longitude!] as [number, number]);
+        const isFirstTrackPaint = displayedTrackCoordsRef.current.length === 0;
+        displayedTrackCoordsRef.current = trackCoords;
+        if (isFirstTrackPaint && displayedFollowedRouteCoordsRef.current.length >= 2) {
+            // The route-only effect may have framed first; include the track as
+            // soon as its first two fixes become drawable.
+            hasFitBoundsRef.current = false;
+        }
 
         const addSegment = (coords: [number, number][], color: string, isPlannedRoute: boolean) => {
             if (coords.length < 2) return;
@@ -495,12 +567,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             }).addTo(layerGroup);
         });
 
-        // Fit bounds on first load only
-        if (!hasFitBoundsRef.current) {
-            const bounds = L.latLngBounds(trackCoords);
-            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16, animate: false });
-            hasFitBoundsRef.current = true;
-        }
+        // Fit the union once: the followed route and the recorded track stay
+        // visible without snapping the user's viewport on each live fix.
+        fitDisplayGeometry();
 
         // Create vessel marker for playback (initially hidden)
         if (!vesselMarkerRef.current && map) {
@@ -516,7 +585,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             });
             vesselMarkerRef.current = marker;
         }
-    }, [entries, colorMode]);
+    }, [entries, colorMode, fitDisplayGeometry]);
 
     // Trigger layer update. The debounce only needs to outlast React's
     // commit — the old 300 ms was a visible beat of blank map on every
@@ -730,10 +799,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
     if (!isOpen) return null;
 
-    // Nothing to draw until at least two trackworthy entries hydrate —
-    // updateTrackLayers bails below 2 as well, so the map is genuinely
-    // blank. Show a loading state instead of '0.0 NM · 0 pts'.
-    const isTrackLoading = sortedEntries.length < 2;
+    // Route geometry can arrive synchronously before the first GPS fix. In
+    // that state the map is useful (and should be visible), but playback and
+    // recorded-track controls remain hidden until two real fixes exist.
+    const hasPlaybackTrack = sortedEntries.length >= 2;
+    const hasFollowedRoute = sanitizedFollowedRoute.length >= 2;
+    const isTrackLoading = !hasPlaybackTrack && !hasFollowedRoute;
 
     // Stats. Distance = MAX cumulative, matching every other surface
     // (VoyageHeader, voyage cards) — the last-sorted entry is the
@@ -802,19 +873,23 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                         <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
                             Voyage Track
                         </h2>
-                        {!isTrackLoading && (
+                        {hasPlaybackTrack ? (
                             <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
                                 <span>{totalDistance} NM</span>
                                 <span>{sortedEntries.length} pts</span>
                                 {maxWindKt !== null && <span>max {maxWindKt} kt</span>}
                             </div>
-                        )}
+                        ) : hasFollowedRoute ? (
+                            <div className="mt-0.5 text-[11px] font-medium text-violet-200/80">
+                                Followed route · waiting for recorded fixes
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             )}
 
             {/* Top-right controls — colour mode + day/night */}
-            {!showHUD && !isTrackLoading && (
+            {!showHUD && hasPlaybackTrack && (
                 <div
                     className="absolute right-3 z-[1002] flex flex-col gap-2 items-end"
                     style={{ top: 'max(16px, env(safe-area-inset-top))' }}
@@ -841,7 +916,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             )}
 
             {/* Wind legend — only in wind mode, honest "forecast" framing */}
-            {!showHUD && !isTrackLoading && colorMode === 'wind' && (
+            {!showHUD && hasPlaybackTrack && colorMode === 'wind' && (
                 <div
                     className="absolute left-3 z-[1001] rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl pointer-events-none"
                     style={{ bottom: '12px' }}
@@ -1164,38 +1239,54 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 )}
 
                 {/* Legend dots — bottom of map */}
-                {!isTrackLoading && (
+                {(hasPlaybackTrack || hasFollowedRoute) && (
                     <div
                         aria-label="Track legend"
                         className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 rounded-lg px-3 py-1.5"
                     >
-                        <div className="flex items-center gap-1">
-                            <div aria-hidden="true" className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                            <span className="text-[11px] text-slate-400">Start</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <div aria-hidden="true" className="w-2 h-2 rounded-full bg-red-500"></div>
-                            <span className="text-[11px] text-slate-400">End</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <div aria-hidden="true" className="w-2 h-2 rounded-full bg-amber-500"></div>
-                            <span className="text-[11px] text-slate-400">Turn</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <div
-                                aria-hidden="true"
-                                className="w-2 h-2 rounded-full"
-                                style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}
-                            ></div>
-                            <span className="text-[11px] text-slate-400">Vessel</span>
-                        </div>
+                        {hasFollowedRoute && (
+                            <div className="flex items-center gap-1">
+                                <div
+                                    aria-hidden="true"
+                                    className="h-0.5 w-3 rounded-full bg-violet-300 shadow-[0_0_4px_rgba(167,139,250,0.8)]"
+                                />
+                                <span className="text-[11px] text-slate-400">Route</span>
+                            </div>
+                        )}
+                        {hasPlaybackTrack && (
+                            <>
+                                <div className="flex items-center gap-1">
+                                    <div aria-hidden="true" className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                    <span className="text-[11px] text-slate-400">Start</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <div aria-hidden="true" className="w-2 h-2 rounded-full bg-red-500"></div>
+                                    <span className="text-[11px] text-slate-400">End</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <div aria-hidden="true" className="w-2 h-2 rounded-full bg-amber-500"></div>
+                                    <span className="text-[11px] text-slate-400">Turn</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <div
+                                        aria-hidden="true"
+                                        className="w-2 h-2 rounded-full"
+                                        style={{
+                                            background: '#00f0ff',
+                                            boxShadow: '0 0 4px rgba(0,240,255,0.5)',
+                                        }}
+                                    ></div>
+                                    <span className="text-[11px] text-slate-400">Vessel</span>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
             </div>
 
             {/* ═══ SPEED SPARKLINE — sits just above the scrubber, cursor
                 tracks the playback position ═══ */}
-            {!isTrackLoading && sparkline.path && (
+            {hasPlaybackTrack && sparkline.path && (
                 <div
                     className="absolute left-2 right-2 z-[1001] px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
                     style={{
@@ -1237,7 +1328,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             )}
 
             {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
-            {!isTrackLoading && (
+            {hasPlaybackTrack && (
                 <div
                     className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
                     style={{

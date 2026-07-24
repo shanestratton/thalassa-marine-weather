@@ -8,6 +8,8 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useToast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { buildFollowRoutePlanFromRoute } from '../../services/shiplog/followRoutePlan';
+import { useFollowRouteStore } from '../../stores/followRouteStore';
 
 /**
  * DeparturePrompts — the two "at departure" nudges:
@@ -138,9 +140,15 @@ export const DeparturePrompts: React.FC = () => {
         const operationScope = getAuthIdentityScope();
         const { voyageId: vid, plan } = planPrompt;
         setPlanPrompt(null);
+        const localPlan = buildFollowRoutePlanFromRoute(plan);
+        if (localPlan && isAuthIdentityScopeCurrent(operationScope)) {
+            useFollowRouteStore.getState().startFollowing(localPlan, plan.id, plan.points);
+        }
         const ok = await VoyageLogService.setVoyagePlanLink(vid, plan.id);
         if (!isAuthIdentityScopeCurrent(operationScope)) return;
-        if (ok) toast.success(`Linked — your page now tracks ${plan.label}`);
+        if (ok) toast.success(`Following ${plan.label} — linked on your public page`);
+        else if (localPlan)
+            toast.error(VoyageLogService.lastError ?? 'Following locally — public link failed; try Settings later');
         else toast.error(VoyageLogService.lastError ?? 'Link failed — try from Settings later');
     }, [planPrompt, toast]);
 

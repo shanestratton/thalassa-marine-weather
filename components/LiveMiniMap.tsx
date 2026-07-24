@@ -17,9 +17,15 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
 import { isTrackworthyEntry } from '../services/shiplog/helpers';
+import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
+import type { RouteCoordinate } from '../utils/routeCoordinates';
+
+const EMPTY_ROUTE_COORDS: readonly RouteCoordinate[] = [];
 
 interface LiveMiniMapProps {
     entries: ShipLogEntry[];
+    /** Route currently being followed. Drawn independently beneath the GPS track. */
+    followedRouteCoords?: readonly RouteCoordinate[];
     height?: number | string; // px number or CSS string like '100%'
     isLive?: boolean; // Show pulsing vessel dot at latest position
     className?: string;
@@ -41,10 +47,21 @@ interface LiveMiniMapProps {
 }
 
 export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
-    ({ entries, height = 160, isLive = false, className = '', onTap, freeZoom = false }) => {
+    ({
+        entries,
+        followedRouteCoords = EMPTY_ROUTE_COORDS,
+        height = 160,
+        isLive = false,
+        className = '',
+        onTap,
+        freeZoom = false,
+    }) => {
         const containerRef = useRef<HTMLDivElement>(null);
         const mapRef = useRef<L.Map | null>(null);
-        const layerGroupRef = useRef<L.LayerGroup | null>(null);
+        const trackLayerGroupRef = useRef<L.LayerGroup | null>(null);
+        const followedRouteLayerGroupRef = useRef<L.LayerGroup | null>(null);
+        const trackCoordsRef = useRef<[number, number][]>([]);
+        const followedRouteLatLngsRef = useRef<[number, number][]>([]);
         const hasFitRef = useRef(false);
         // Set once the user manually zooms/pans a free-zoom map — stops
         // the live auto-follow from snapping their view back.
@@ -110,8 +127,14 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 opacity: 0.8,
             }).addTo(map);
 
-            const layerGroup = L.layerGroup().addTo(map);
-            layerGroupRef.current = layerGroup;
+            // Keep the followed plan below the recorded track even when a
+            // weather refresh redraws it after the track has already painted.
+            const followedRoutePane = map.createPane(FOLLOWED_ROUTE_PANE);
+            followedRoutePane.style.zIndex = '390';
+            followedRoutePane.style.pointerEvents = 'none';
+
+            followedRouteLayerGroupRef.current = L.layerGroup().addTo(map);
+            trackLayerGroupRef.current = L.layerGroup().addTo(map);
             mapRef.current = map;
 
             // Tap-to-expand/collapse. Leaflet only fires 'click' on clean
@@ -133,7 +156,10 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 ro.disconnect();
                 map.remove();
                 mapRef.current = null;
-                layerGroupRef.current = null;
+                trackLayerGroupRef.current = null;
+                followedRouteLayerGroupRef.current = null;
+                trackCoordsRef.current = [];
+                followedRouteLatLngsRef.current = [];
                 hasFitRef.current = false;
                 userMovedRef.current = false;
             };
@@ -142,10 +168,51 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
 
-        // Update layers when entries change
+        const fitVisibleGeometry = useCallback(() => {
+            const map = mapRef.current;
+            if (!map) return;
+            if (freeZoom && userMovedRef.current) return;
+
+            const visible = [...followedRouteLatLngsRef.current, ...trackCoordsRef.current];
+            if (visible.length === 0) {
+                hasFitRef.current = false;
+                return;
+            }
+
+            const autoFollow = isLive;
+            if (!autoFollow && hasFitRef.current) return;
+
+            if (visible.length >= 2) {
+                map.fitBounds(L.latLngBounds(visible), {
+                    padding: [16, 16],
+                    maxZoom: 15,
+                    animate: false,
+                });
+            } else {
+                map.setView(visible[0], 14, { animate: false });
+            }
+            hasFitRef.current = true;
+        }, [freeZoom, isLive]);
+
+        // The route changes only when follow mode starts/stops or its weather
+        // refresh lands. It deliberately has its own group so dense geometry
+        // is not destroyed and recreated on every live GPS poll.
+        const updateFollowedRoute = useCallback(() => {
+            const layerGroup = followedRouteLayerGroupRef.current;
+            if (!mapRef.current || !layerGroup) return;
+
+            layerGroup.clearLayers();
+            followedRouteLatLngsRef.current = addFollowedRouteLayer(layerGroup, followedRouteCoords);
+            // A newly selected/replaced route deserves a fresh frame. A user
+            // who has manually moved the fullscreen map keeps their viewport.
+            if (!(freeZoom && userMovedRef.current)) hasFitRef.current = false;
+            fitVisibleGeometry();
+        }, [fitVisibleGeometry, followedRouteCoords, freeZoom]);
+
+        // Update the recorded track without touching the followed-route layer.
         const updateLayers = useCallback(() => {
             const map = mapRef.current;
-            const lg = layerGroupRef.current;
+            const lg = trackLayerGroupRef.current;
             if (!map || !lg) return;
 
             lg.clearLayers();
@@ -154,11 +221,16 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // and made the LIVE map zig-zag even after the full viewer
             // was fixed; (0,0) placeholders draw across the planet.
             const valid = entries.filter(isTrackworthyEntry);
-            if (valid.length === 0) return;
+            if (valid.length === 0) {
+                trackCoordsRef.current = [];
+                fitVisibleGeometry();
+                return;
+            }
 
             const sorted = [...valid].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
             const coords = sorted.map((e) => [e.latitude!, e.longitude!] as [number, number]);
+            trackCoordsRef.current = coords;
             const isPlanned = sorted.some((e) => e.source === 'planned_route');
 
             // Glow + core, matching the chart-page tracer and the public
@@ -228,22 +300,12 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 }).addTo(lg);
             }
 
-            // Fit bounds. Auto-follow keeps the live boat framed every
-            // tick — but in free-zoom mode, once the user has moved the
-            // map we stop re-fitting so their zoom/pan sticks. The first
-            // fit (hasFitRef) always runs to frame the track on open.
-            const autoFollow = isLive && !(freeZoom && userMovedRef.current);
-            if (coords.length >= 2) {
-                if (autoFollow || !hasFitRef.current) {
-                    const bounds = L.latLngBounds(coords);
-                    map.fitBounds(bounds, { padding: [16, 16], maxZoom: 15, animate: false });
-                    hasFitRef.current = true;
-                }
-            } else if (coords.length === 1 && (autoFollow || !hasFitRef.current)) {
-                map.setView(coords[0], 14, { animate: false });
-                hasFitRef.current = true;
-            }
-        }, [entries, isLive, freeZoom]);
+            fitVisibleGeometry();
+        }, [entries, fitVisibleGeometry, isLive]);
+
+        useEffect(() => {
+            updateFollowedRoute();
+        }, [updateFollowedRoute]);
 
         useEffect(() => {
             const timer = setTimeout(updateLayers, 100);
