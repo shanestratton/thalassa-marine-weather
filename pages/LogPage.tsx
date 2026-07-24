@@ -40,10 +40,16 @@ import { ShipLogEntry } from '../types';
 
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
-import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
+import {
+    computePersonalRecords,
+    matchPlannedRouteByCoords,
+    type VoyageSummary,
+} from '../services/shiplog/VoyageSummary';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
+import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
+import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -59,6 +65,37 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import type { RouteCoordinate } from '../utils/routeCoordinates';
+
+const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
+const FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS = 10_000;
+
+/** Do not trap the cast-off sheet behind an unbounded marine-data request.
+ *  Late fulfilments are consumed but ignored, so they cannot resurrect a
+ *  selection after the UI has unlocked. */
+function withFollowRouteLoadDeadline<T>(promise: Promise<T>): Promise<T | null> {
+    return new Promise<T | null>((resolve, reject) => {
+        let settled = false;
+        const timer = window.setTimeout(() => {
+            settled = true;
+            resolve(null);
+        }, FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS);
+        promise.then(
+            (value) => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -79,6 +116,7 @@ const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const [pageStateScope, setPageStateScope] = useState(identityScope);
+    const previousIdentityScopeRef = useRef(identityScope);
     const pageBelongsToCurrentIdentity =
         pageStateScope.key === identityScope.key &&
         pageStateScope.generation === identityScope.generation &&
@@ -158,11 +196,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // to the active voyage (setVoyagePlanLink); "Just recording" skips it.
     // One prompt per voyage — a ref so re-renders don't re-open it.
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
+    const [followPromptLoadingId, setFollowPromptLoadingId] = React.useState<string | null>(null);
     const followPromptedRef = React.useRef<string | null>(null);
+    const followSelectionGenerationRef = React.useRef(0);
     const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
     const dismissFollowPrompt = React.useCallback(() => {
-        if (isAuthIdentityScopeCurrent(identityScope)) setFollowPromptVoyageId(null);
-    }, [identityScope]);
+        if (followPromptLoadingId !== null) return;
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        // "Just recording" (including Escape/backdrop dismissal) is an
+        // explicit no-route choice for this cast-off. Clear any route that
+        // was already active before tracking began so it cannot continue to
+        // appear on the Log maps contrary to that choice.
+        followSelectionGenerationRef.current += 1;
+        const follow = useFollowRouteStore.getState();
+        if (follow.isFollowing) follow.stopFollowing();
+        setFollowPromptVoyageId(null);
+    }, [followPromptLoadingId, identityScope]);
     const followPromptDialogRef = useFocusTrap<HTMLDivElement>(followPromptVoyageId !== null, {
         initialFocusRef: followPromptDismissRef,
         onEscape: dismissFollowPrompt,
@@ -198,6 +247,74 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         () => collapseReversedRoutes(plannedSummaries, currentFix),
         [plannedSummaries, currentFix],
     );
+
+    /**
+     * Start local follow mode from recovered saved geometry. Resident entries
+     * can start immediately; otherwise the caller remains in a visible loading
+     * state while this fetches the voyage. Summary endpoints alone are not
+     * drawn because a straight chord can cross land or shoals.
+     */
+    const followPlannedRouteLocally = React.useCallback(
+        async (summary: VoyageSummary): Promise<boolean> => {
+            const actionScope = identityScope;
+            const voyageId = summary.voyageId;
+            if (!voyageId || !isAuthIdentityScopeCurrent(actionScope)) return false;
+
+            const selectionGeneration = ++followSelectionGenerationRef.current;
+            const initialFollow = useFollowRouteStore.getState();
+            const initialFingerprint = {
+                isFollowing: initialFollow.isFollowing,
+                voyageId: initialFollow.voyageId,
+                startedAt: initialFollow.startedAt,
+            };
+            const residentEntries = state.entries.filter((entry) => entry.voyageId === voyageId);
+            const residentRoute = groupByVoyage(residentEntries, new Set([voyageId])).find(
+                (route) => route.id === voyageId,
+            );
+            const residentPlan = residentRoute ? buildFollowRoutePlanFromRoute(residentRoute) : null;
+            let residentStartedAt: string | null = null;
+            if (residentRoute && residentPlan) {
+                useFollowRouteStore.getState().startFollowing(residentPlan, voyageId, residentRoute.points);
+                residentStartedAt = useFollowRouteStore.getState().startedAt;
+            }
+
+            try {
+                const fetchedRoute = await withFollowRouteLoadDeadline(fetchVoyageAsTrack(voyageId));
+                if (
+                    selectionGeneration !== followSelectionGenerationRef.current ||
+                    !isAuthIdentityScopeCurrent(actionScope)
+                ) {
+                    return false;
+                }
+
+                const current = useFollowRouteStore.getState();
+                const expectedFollowStillCurrent = residentStartedAt
+                    ? current.isFollowing && current.voyageId === voyageId && current.startedAt === residentStartedAt
+                    : current.isFollowing === initialFingerprint.isFollowing &&
+                      current.voyageId === initialFingerprint.voyageId &&
+                      current.startedAt === initialFingerprint.startedAt;
+                if (!expectedFollowStillCurrent) return false;
+
+                if (!fetchedRoute) return residentPlan !== null;
+                const exactPlan = buildFollowRoutePlanFromRoute(fetchedRoute);
+                if (!exactPlan) return residentPlan !== null;
+                current.startFollowing(exactPlan, voyageId, fetchedRoute.points);
+                return true;
+            } catch (error) {
+                log.warn('Could not hydrate followed route geometry:', error);
+                const current = useFollowRouteStore.getState();
+                return (
+                    residentPlan !== null &&
+                    selectionGeneration === followSelectionGenerationRef.current &&
+                    isAuthIdentityScopeCurrent(actionScope) &&
+                    current.isFollowing &&
+                    current.voyageId === voyageId &&
+                    current.startedAt === residentStartedAt
+                );
+            }
+        },
+        [identityScope, state.entries],
+    );
     React.useEffect(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
@@ -226,43 +343,44 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return matchPlannedRouteByCoords(sailed, summaries);
     }, [state.selectedVoyageId, state.summaries]);
 
-    // The route CURRENTLY BEING FOLLOWED (Shane 2026-07-23: "when we are
-    // following a route, we need it to show up on the log page in the large
-    // map"). The tracer's Sail flow and the Follow button both persist the plan
-    // as a planned_route voyage and stash its logbook id in followRouteStore;
-    // TrackMapViewer already draws source==='planned_route' as the route line,
-    // partitioned per voyageId. So this is purely a wiring gap: the log page
-    // just never read the store. Unlike matchedPlannedId (which needs BOTH end
-    // coords and so can only match a COMPLETED voyage), this shows the route
-    // mid-passage. Empty until the background save lands the id — the store is
-    // a live selector, so it appears on its own when it does.
-    const followedPlanId = useFollowRouteStore((s) => (s.isFollowing && s.voyageId ? s.voyageId : null));
+    // Immediate, reactive follow geometry. This works before (or without) a
+    // background logbook save assigning a voyage id, updates on weather-route
+    // refresh, and clears atomically when follow mode stops.
+    const followedRouteCoords = useFollowRouteStore((s) =>
+        s.isFollowing && s.routeCoords.length >= 2 ? s.routeCoords : NO_FOLLOWED_ROUTE,
+    );
+    const followedVoyageId = useFollowRouteStore((s) => (s.isFollowing ? s.voyageId : null));
+    const trackViewerShowsFollowedRoute =
+        !state.selectedVoyageId ||
+        state.selectedVoyageId === state.currentVoyageId ||
+        state.selectedVoyageId === followedVoyageId ||
+        (followedVoyageId != null && matchedPlannedId === followedVoyageId);
+    const trackViewerFollowedRouteCoords = trackViewerShowsFollowedRoute ? followedRouteCoords : NO_FOLLOWED_ROUTE;
 
     const trackMapEntries = React.useMemo(() => {
+        const omitFollowedVoyageId = trackViewerShowsFollowedRoute ? followedVoyageId : null;
         if (!state.selectedVoyageId) {
-            // No voyage picked: show everything, which already includes the
-            // followed route's points once they are resident (loaded below).
-            return state.entries;
+            // The exact followed route has its own layer. Omit any resident
+            // sparse saved-plan rows so the same violet line is not drawn
+            // twice in the all-voyages view.
+            return omitFollowedVoyageId
+                ? state.entries.filter((entry) => entry.voyageId !== omitFollowedVoyageId)
+                : state.entries;
         }
+        const overlayMatchedPlan = matchedPlannedId != null && matchedPlannedId !== followedVoyageId;
         return state.entries.filter(
-            (e) =>
-                e.voyageId === state.selectedVoyageId ||
-                (matchedPlannedId != null && e.voyageId === matchedPlannedId) ||
-                (followedPlanId != null && e.voyageId === followedPlanId),
+            (entry) =>
+                entry.voyageId !== omitFollowedVoyageId &&
+                (entry.voyageId === state.selectedVoyageId ||
+                    (overlayMatchedPlan && entry.voyageId === matchedPlannedId)),
         );
-    }, [state.entries, state.selectedVoyageId, matchedPlannedId, followedPlanId]);
+    }, [state.entries, state.selectedVoyageId, matchedPlannedId, followedVoyageId, trackViewerShowsFollowedRoute]);
 
     // Load the matched planned route's points when the track map opens so
     // they're resident for the overlay.
     useEffect(() => {
         if (state.showTrackMap && matchedPlannedId) void loadVoyageEntries(matchedPlannedId);
     }, [state.showTrackMap, matchedPlannedId, loadVoyageEntries]);
-
-    // Same, for the route being followed — its full points must be resident or
-    // there is nothing for TrackMapViewer to draw.
-    useEffect(() => {
-        if (state.showTrackMap && followedPlanId) void loadVoyageEntries(followedPlanId);
-    }, [state.showTrackMap, followedPlanId, loadVoyageEntries]);
 
     // Career personal records — derived purely from voyage summaries.
     const records = React.useMemo(() => computePersonalRecords(state.summaries ?? []), [state.summaries]);
@@ -560,8 +678,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     }, [actionSheet, selectedVoyageId, entries, identityScope]);
 
     useEffect(() => {
+        // Reset only when the identity actually changes. A one-shot "mounted"
+        // ref is not sufficient because React StrictMode replays mount effects
+        // in development and would clear a cast-off prompt on the replay.
+        const previous = previousIdentityScopeRef.current;
+        if (previous.key === identityScope.key && previous.generation === identityScope.generation) return;
+        previousIdentityScopeRef.current = identityScope;
         setPageStateScope(identityScope);
         setFollowPromptVoyageId(null);
+        setFollowPromptLoadingId(null);
         followPromptedRef.current = null;
         setShowMenu(false);
         setShowArchived(false);
@@ -1060,6 +1185,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 {!liveMapExpanded && !showTrackMap && (
                                                     <LiveMiniMap
                                                         entries={activeEntries}
+                                                        followedRouteCoords={followedRouteCoords}
                                                         height="100%"
                                                         isLive={true}
                                                         onTap={openLiveMap}
@@ -1115,6 +1241,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 >
                                                     <LiveMiniMap
                                                         entries={activeEntries}
+                                                        followedRouteCoords={followedRouteCoords}
                                                         height="100%"
                                                         isLive={true}
                                                         freeZoom={true}
@@ -1341,6 +1468,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 dispatch({ type: 'SELECT_VOYAGE', voyageId: summary.voyageId });
                                                 dispatch({ type: 'SHOW_TRACK_MAP', show: true });
                                             }}
+                                            onFollowPlannedRoute={followPlannedRouteLocally}
                                             onNeedEntries={() => loadVoyageEntries(summary.voyageId)}
                                             filteredEntries={filteredEntries}
                                             onDeleteEntry={handleDeleteEntry}
@@ -1587,6 +1715,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 isOpen={showTrackMap}
                 onClose={() => dispatch({ type: 'SHOW_TRACK_MAP', show: false })}
                 entries={trackMapEntries}
+                followedRouteCoords={trackViewerFollowedRouteCoords}
             />
 
             {/* Community Track Browser */}
@@ -1668,10 +1797,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             )}
 
             {/* Cast-off "Follow a route?" sheet — appears when a fresh voyage
-                starts and there are suggested routes to broadcast (Shane
-                2026-07-17). Tapping one publishes it to the public page; "Just
-                recording" skips. Publish-only (v1): the route also draws on
-                your own chart via the card's FOLLOW button. */}
+                starts and there are suggested routes to follow and broadcast.
+                "Just recording" skips both local follow mode and publication. */}
             {followPromptVoyageId &&
                 // PORTALLED TO <body> — the reason two position fixes missed.
                 // PageTransition animates this page with translate3d, and a
@@ -1718,27 +1845,66 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         key={s.voyageId}
                                         summary={s}
                                         reversible={reversible}
+                                        loading={followPromptLoadingId === s.voyageId}
+                                        disabled={followPromptLoadingId !== null}
                                         onPick={() => {
                                             const actionScope = identityScope;
                                             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                            void publishFollowedRoute(s.voyageId)
-                                                .then((result) => {
+                                            setFollowPromptLoadingId(s.voyageId);
+                                            void (async () => {
+                                                try {
+                                                    const started = await followPlannedRouteLocally(s);
                                                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                    if (result === 'linked')
-                                                        toast.success('Your public page now follows this route');
-                                                    else
+                                                    if (!started) {
                                                         toast.error(
-                                                            'Couldn’t publish — try the Follow button, or Settings',
+                                                            'Couldn’t load this saved route — please try again',
                                                         );
-                                                })
-                                                .catch((error) => {
-                                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                    log.warn('Could not publish followed route:', error);
-                                                    toast.error(
-                                                        'Couldn’t publish — try the Follow button, or Settings',
-                                                    );
-                                                });
-                                            dismissFollowPrompt();
+                                                        return;
+                                                    }
+
+                                                    // Local follow mode is the cockpit-critical
+                                                    // action. Close immediately once its exact
+                                                    // geometry is active; public-page publication
+                                                    // may continue in the background without
+                                                    // trapping the modal behind a slow network.
+                                                    setFollowPromptLoadingId(null);
+                                                    setFollowPromptVoyageId(null);
+                                                    try {
+                                                        const result = await publishFollowedRoute(s.voyageId);
+                                                        if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                        if (result === 'linked') {
+                                                            toast.success('Your public page now follows this route');
+                                                        } else if (result === 'not-tracking') {
+                                                            toast.info(
+                                                                'Following locally — start tracking to update your public page',
+                                                            );
+                                                        } else {
+                                                            toast.error(
+                                                                'Following locally — couldn’t update your public page',
+                                                            );
+                                                        }
+                                                    } catch (error) {
+                                                        if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                        log.warn(
+                                                            'Followed locally but could not publish route:',
+                                                            error,
+                                                        );
+                                                        toast.error(
+                                                            'Following locally — couldn’t update your public page',
+                                                        );
+                                                    }
+                                                } finally {
+                                                    if (isAuthIdentityScopeCurrent(actionScope)) {
+                                                        setFollowPromptLoadingId(null);
+                                                    }
+                                                }
+                                            })().catch((error) => {
+                                                if (isAuthIdentityScopeCurrent(actionScope)) {
+                                                    log.warn('Could not start followed route:', error);
+                                                    toast.error('Couldn’t load this saved route — please try again');
+                                                    setFollowPromptLoadingId(null);
+                                                }
+                                            });
                                         }}
                                     />
                                 ))}
@@ -1747,9 +1913,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 <button
                                     ref={followPromptDismissRef}
                                     onClick={dismissFollowPrompt}
-                                    className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95"
+                                    disabled={followPromptLoadingId !== null}
+                                    className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95 disabled:cursor-wait disabled:opacity-50"
                                 >
-                                    Just recording
+                                    {followPromptLoadingId ? 'Loading route…' : 'Just recording'}
                                 </button>
                             </div>
                         </div>

@@ -17,6 +17,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import { sanitizeRouteCoordinates, type RouteCoordinate } from '../utils/routeCoordinates';
 
 const log = createLogger('FollowRoute');
 
@@ -40,7 +41,7 @@ export interface FollowRouteState {
 }
 
 interface FollowRouteActions {
-    startFollowing: (plan: VoyagePlan, voyageId: string) => void;
+    startFollowing: (plan: VoyagePlan, voyageId: string, routeCoords?: readonly RouteCoordinate[]) => void;
     stopFollowing: () => void;
     refreshRoute: () => Promise<void>;
     acceptRouteChange: () => void;
@@ -72,23 +73,46 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
     return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
-/** A plan whose geometry came from the Route Tracer — the skipper validated
- *  the exact line, so it is locked against any downstream re-routing. */
-function isTracedPlan(plan: VoyagePlan): boolean {
-    return (plan.routeGeoJSON?.properties as Record<string, unknown> | null | undefined)?._source === 'route-tracer';
+/** A plan carrying an exact line chosen by the skipper. Route Tracer plans
+ *  are validated pin-by-pin; saved Logbook routes preserve their original
+ *  dense curve. Neither may be silently replaced by weather re-routing. */
+function hasLockedRouteGeometry(plan: VoyagePlan): boolean {
+    const source = (plan.routeGeoJSON?.properties as Record<string, unknown> | null | undefined)?._source;
+    return source === 'route-tracer' || source === 'saved-logbook-route' || source === 'explicit-follow-route';
+}
+
+/** Supplying explicit follow coordinates means the caller has already chosen
+ *  the line to sail. Persist that line on the plan itself so a restore or
+ *  scheduled refresh cannot fall back to sparse endpoints and replace it. */
+function withExplicitRouteGeometry(plan: VoyagePlan, routeCoords: readonly RouteCoordinate[]): VoyagePlan {
+    const properties = (plan.routeGeoJSON?.properties as Record<string, unknown> | null | undefined) ?? {};
+    const source = properties._source;
+    return {
+        ...plan,
+        routeGeoJSON: {
+            type: 'Feature',
+            properties: {
+                ...properties,
+                _source:
+                    source === 'route-tracer' || source === 'saved-logbook-route' ? source : 'explicit-follow-route',
+            },
+            geometry: {
+                type: 'LineString',
+                coordinates: routeCoords.map((point) => [point.lon, point.lat]),
+            },
+        },
+    };
 }
 
 function computeRouteFromPlan(plan: VoyagePlan): { lat: number; lon: number }[] {
-    // TRACED routes: the routeGeoJSON geometry is AUTHORITATIVE — the line
-    // the skipper validated leg-by-leg must be followed exactly, never
-    // re-derived from waypoints (Route Tracer prime directive #3: "the line
-    // you validated is the line you sail"). Scoped to traced plans because
-    // mergeWeatherRoute rewrites WAYPOINTS without touching routeGeoJSON —
-    // preferring it unconditionally would show weather-refreshed planned
-    // passages their STALE pre-optimisation line.
+    // Locked routes: routeGeoJSON is AUTHORITATIVE — it is either the exact
+    // line the skipper validated or the dense curve recovered from a saved
+    // Logbook route. Scope this carefully because mergeWeatherRoute rewrites
+    // WAYPOINTS without touching routeGeoJSON; preferring it for ordinary
+    // weather-routed plans would show their stale pre-optimisation line.
     const geo = plan.routeGeoJSON?.geometry?.coordinates;
-    if (isTracedPlan(plan) && Array.isArray(geo) && geo.length >= 2) {
-        return (geo as [number, number][]).map(([lon, lat]) => ({ lat, lon }));
+    if (hasLockedRouteGeometry(plan) && Array.isArray(geo) && geo.length >= 2) {
+        return sanitizeRouteCoordinates((geo as [number, number][]).map(([lon, lat]) => ({ lat, lon })));
     }
     const waypoints: { lat: number; lon: number }[] = [];
     if (plan.originCoordinates) waypoints.push(plan.originCoordinates);
@@ -98,11 +122,11 @@ function computeRouteFromPlan(plan: VoyagePlan): { lat: number; lon: number }[] 
         });
     }
     if (plan.destinationCoordinates) waypoints.push(plan.destinationCoordinates);
-    if (waypoints.length < 2) return waypoints;
+    if (waypoints.length < 2) return sanitizeRouteCoordinates(waypoints);
     try {
-        return generateSeaRoute(waypoints);
+        return sanitizeRouteCoordinates(generateSeaRoute(waypoints));
     } catch {
-        return waypoints;
+        return sanitizeRouteCoordinates(waypoints);
     }
 }
 
@@ -179,7 +203,17 @@ function loadFromStorage(scope: AuthIdentityScope = getAuthIdentityScope()): Fol
                 clearStorage(scope); // zombie — drop rather than resume
                 return null;
             }
-            return { ...parsed, isRefreshing: false };
+            const routeCoords = sanitizeRouteCoordinates(parsed.routeCoords);
+            if (routeCoords.length < 2) {
+                clearStorage(scope);
+                return null;
+            }
+            return {
+                ...parsed,
+                routeCoords,
+                previousRouteCoords: sanitizeRouteCoordinates(parsed.previousRouteCoords),
+                isRefreshing: false,
+            };
         }
     } catch {
         /* corrupted */
@@ -204,14 +238,16 @@ let followMutationGeneration = 0;
 export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>()((set, get) => ({
     ...(loadFromStorage() || INITIAL_STATE),
 
-    startFollowing: (plan, voyageId) => {
+    startFollowing: (plan, voyageId, explicitRouteCoords) => {
         followMutationGeneration += 1;
         const scope = getAuthIdentityScope();
         log.info(`Starting follow mode: ${plan.origin} → ${plan.destination}`);
-        const routeCoords = computeRouteFromPlan(plan);
+        const suppliedRoute = sanitizeRouteCoordinates(explicitRouteCoords);
+        const followedPlan = suppliedRoute.length >= 2 ? withExplicitRouteGeometry(plan, suppliedRoute) : plan;
+        const routeCoords = suppliedRoute.length >= 2 ? suppliedRoute : computeRouteFromPlan(followedPlan);
         const newState: FollowRouteState = {
             isFollowing: true,
-            voyagePlan: plan,
+            voyagePlan: followedPlan,
             routeCoords,
             previousRouteCoords: [],
             voyageId,
@@ -249,12 +285,11 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
             );
         };
 
-        // TRACED routes are GEOMETRY-LOCKED: the skipper validated that exact
-        // line leg-by-leg, and the weather optimiser is allowed to move points
-        // up to 30 NM off the centreline — running it here silently replaced a
-        // validated trace with an unvalidated one (adversarial audit,
-        // 2026-07-08). Weather refresh for traces is a timestamp-only no-op.
-        if (isTracedPlan(s.voyagePlan)) {
+        // Exact routes are GEOMETRY-LOCKED: the weather optimiser is allowed
+        // to move points up to 30 NM off the centreline, so running it here
+        // could silently replace a validated trace or saved dense curve with
+        // an unvalidated line. Their refresh is a timestamp-only no-op.
+        if (hasLockedRouteGeometry(s.voyagePlan)) {
             if (!refreshIsCurrent()) return;
             const newState: FollowRouteState = { ...get(), lastRefresh: new Date().toISOString(), isRefreshing: false };
             set(newState);

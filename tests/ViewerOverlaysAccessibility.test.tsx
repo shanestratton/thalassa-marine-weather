@@ -13,9 +13,22 @@ vi.mock('../services/PiCacheService', () => ({
     },
 }));
 
-vi.mock('leaflet', () => {
+const trackMapLeaflet = vi.hoisted(() => {
+    const groups: Array<ReturnType<typeof makeLayer>> = [];
+
+    function makeLayer() {
+        const layer = {
+            addTo: vi.fn(),
+            bringToFront: vi.fn(),
+            clearLayers: vi.fn(),
+        };
+        layer.addTo.mockReturnValue(layer);
+        return layer;
+    }
+
     const map = {
         closePopup: vi.fn(),
+        createPane: vi.fn(() => ({ style: {} })),
         fitBounds: vi.fn(),
         hasLayer: vi.fn(() => false),
         invalidateSize: vi.fn(),
@@ -27,27 +40,38 @@ vi.mock('leaflet', () => {
     map.setView.mockReturnValue(map);
     map.on.mockReturnValue(map);
 
-    const makeLayer = () => {
-        const layer = {
-            addTo: vi.fn(),
-            bringToFront: vi.fn(),
-            clearLayers: vi.fn(),
-        };
-        layer.addTo.mockReturnValue(layer);
-        return layer;
-    };
+    const layerGroup = vi.fn(() => {
+        const group = makeLayer();
+        groups.push(group);
+        return group;
+    });
 
     return {
+        groups,
+        map,
+        circleMarker: vi.fn(makeLayer),
+        divIcon: vi.fn(() => ({})),
+        latLngBounds: vi.fn(() => ({})),
+        layerGroup,
+        marker: vi.fn(makeLayer),
+        polyline: vi.fn(makeLayer),
+        popup: vi.fn(makeLayer),
+        tileLayer: vi.fn(makeLayer),
+    };
+});
+
+vi.mock('leaflet', () => {
+    return {
         default: {
-            circleMarker: vi.fn(makeLayer),
-            divIcon: vi.fn(() => ({})),
-            latLngBounds: vi.fn(() => ({})),
-            layerGroup: vi.fn(makeLayer),
-            map: vi.fn(() => map),
-            marker: vi.fn(makeLayer),
-            polyline: vi.fn(makeLayer),
-            popup: vi.fn(makeLayer),
-            tileLayer: vi.fn(makeLayer),
+            circleMarker: trackMapLeaflet.circleMarker,
+            divIcon: trackMapLeaflet.divIcon,
+            latLngBounds: trackMapLeaflet.latLngBounds,
+            layerGroup: trackMapLeaflet.layerGroup,
+            map: vi.fn(() => trackMapLeaflet.map),
+            marker: trackMapLeaflet.marker,
+            polyline: trackMapLeaflet.polyline,
+            popup: trackMapLeaflet.popup,
+            tileLayer: trackMapLeaflet.tileLayer,
         },
     };
 });
@@ -113,6 +137,51 @@ function TrackMapHarness() {
 }
 
 describe('viewer overlay accessibility', () => {
+    it('shows and draws a followed route before the recorded voyage has two fixes', async () => {
+        trackMapLeaflet.groups.length = 0;
+        trackMapLeaflet.polyline.mockClear();
+        trackMapLeaflet.latLngBounds.mockClear();
+        trackMapLeaflet.map.fitBounds.mockClear();
+        render(
+            <TrackMapViewer
+                isOpen
+                onClose={() => {}}
+                entries={[]}
+                followedRouteCoords={[
+                    { lat: -27.5, lon: 153 },
+                    { lat: -23.9, lon: 152.4 },
+                ]}
+            />,
+        );
+
+        expect(screen.getByText('Followed route · waiting for recorded fixes')).toBeInTheDocument();
+        expect(screen.queryByText('Loading track…')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Play track' })).not.toBeInTheDocument();
+        expect(screen.getByText('Route')).toBeInTheDocument();
+        await vi.waitFor(() => expect(trackMapLeaflet.polyline).toHaveBeenCalledTimes(2));
+        expect(trackMapLeaflet.polyline).toHaveBeenNthCalledWith(
+            1,
+            [
+                [-27.5, 153],
+                [-23.9, 152.4],
+            ],
+            expect.objectContaining({ color: '#a78bfa', pane: 'followed-route-pane' }),
+        );
+        expect(trackMapLeaflet.polyline).toHaveBeenNthCalledWith(
+            2,
+            [
+                [-27.5, 153],
+                [-23.9, 152.4],
+            ],
+            expect.objectContaining({ color: '#c4b5fd', pane: 'followed-route-pane' }),
+        );
+        expect(trackMapLeaflet.latLngBounds).toHaveBeenCalledWith([
+            [-27.5, 153],
+            [-23.9, 152.4],
+        ]);
+        expect(trackMapLeaflet.map.fitBounds).toHaveBeenCalled();
+    });
+
     it('contains photo viewer focus, supports keyboard navigation, and restores its opener', () => {
         render(<PhotoLightboxHarness />);
 

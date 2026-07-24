@@ -128,6 +128,82 @@ describe('navigation singleton identity isolation', () => {
         expect(useFollowRouteStore.getState().voyagePlan?.overview).toBe('account A original');
     });
 
+    it('uses and persists explicit saved-route geometry without regenerating it', async () => {
+        const scope = setAuthIdentityScope('account-a');
+        const exactRoute = [
+            { lat: -27.5, lon: 153 },
+            { lat: -27.5, lon: 153 },
+            { lat: Number.NaN, lon: 153.1 },
+            { lat: -26.8, lon: 152.7 },
+            { lat: -23.9, lon: 152.4 },
+        ];
+
+        useFollowRouteStore.getState().startFollowing(plan('saved curve'), 'planned-voyage', exactRoute);
+
+        expect(useFollowRouteStore.getState().routeCoords).toEqual([
+            { lat: -27.5, lon: 153 },
+            { lat: -26.8, lon: 152.7 },
+            { lat: -23.9, lon: 152.4 },
+        ]);
+        expect(
+            JSON.parse(localStorage.getItem(authScopedStorageKey('thalassa_follow_route', scope)) ?? '{}').routeCoords,
+        ).toEqual([
+            { lat: -27.5, lon: 153 },
+            { lat: -26.8, lon: 152.7 },
+            { lat: -23.9, lon: 152.4 },
+        ]);
+        expect(useFollowRouteStore.getState().voyagePlan?.routeGeoJSON).toMatchObject({
+            properties: { _source: 'explicit-follow-route' },
+            geometry: {
+                coordinates: [
+                    [153, -27.5],
+                    [152.7, -26.8],
+                    [152.4, -23.9],
+                ],
+            },
+        });
+
+        await useFollowRouteStore.getState().refreshRoute();
+
+        expect(weatherMocks.enhanceVoyagePlanWithWeather).not.toHaveBeenCalled();
+        expect(useFollowRouteStore.getState().routeCoords).toEqual([
+            { lat: -27.5, lon: 153 },
+            { lat: -26.8, lon: 152.7 },
+            { lat: -23.9, lon: 152.4 },
+        ]);
+    });
+
+    it('keeps a saved Logbook curve geometry-locked during its scheduled refresh', async () => {
+        setAuthIdentityScope('account-a');
+        const savedPlan: VoyagePlan = {
+            ...plan('saved Logbook curve'),
+            routeGeoJSON: {
+                type: 'Feature',
+                properties: { _source: 'saved-logbook-route' },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [153, -27.5],
+                        [152.7, -26.8],
+                        [152.4, -23.9],
+                    ],
+                },
+            },
+        };
+
+        useFollowRouteStore.getState().startFollowing(savedPlan, 'planned-voyage');
+        await useFollowRouteStore.getState().refreshRoute();
+
+        expect(weatherMocks.enhanceVoyagePlanWithWeather).not.toHaveBeenCalled();
+        expect(useFollowRouteStore.getState().routeCoords).toEqual([
+            { lat: -27.5, lon: 153 },
+            { lat: -26.8, lon: 152.7 },
+            { lat: -23.9, lon: 152.4 },
+        ]);
+        expect(useFollowRouteStore.getState().routeChanged).toBe(false);
+        expect(useFollowRouteStore.getState().isRefreshing).toBe(false);
+    });
+
     it('rejects an explicitly fenced passage-store callback from an old account', () => {
         const accountA = setAuthIdentityScope('account-a');
         PassageStore.setFromRoute({ routeName: 'A draft' }, accountA);

@@ -5,12 +5,45 @@
  * We mock the heavy dependencies and test rendering & key interactions.
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 
 const logPageStateOverrides = vi.hoisted(() => ({
     state: {} as Record<string, unknown>,
+    hook: {} as Record<string, unknown>,
 }));
+
+const followRouteMock = vi.hoisted(() => {
+    const state = {
+        isFollowing: false,
+        voyageId: null as string | null,
+        routeCoords: [] as Array<{ lat: number; lon: number }>,
+        startedAt: null as string | null,
+        startFollowing: vi.fn(),
+        stopFollowing: vi.fn(),
+    };
+    state.startFollowing.mockImplementation(
+        (_plan: unknown, voyageId: string, routeCoords: Array<{ lat: number; lon: number }>) => {
+            state.isFollowing = true;
+            state.voyageId = voyageId;
+            state.routeCoords = routeCoords;
+            state.startedAt = '2026-07-23T00:00:00.000Z';
+        },
+    );
+    state.stopFollowing.mockImplementation(() => {
+        state.isFollowing = false;
+        state.voyageId = null;
+        state.routeCoords = [];
+        state.startedAt = null;
+    });
+    const hook = Object.assign((selector: (value: typeof state) => unknown) => selector(state), {
+        getState: () => state,
+    });
+    return { state, hook };
+});
+
+const fetchVoyageAsTrackMock = vi.hoisted(() => vi.fn());
+const publishFollowedRouteMock = vi.hoisted(() => vi.fn());
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -33,8 +66,27 @@ vi.mock('../services/weather/api/geocoding', () => ({
 }));
 
 vi.mock('../components/Toast', () => ({
-    useToast: () => ({ showToast: vi.fn(), ToastContainer: () => null }),
+    useToast: () => ({
+        showToast: vi.fn(),
+        success: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        ToastContainer: () => null,
+    }),
     toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock('../stores/followRouteStore', () => ({
+    useFollowRouteStore: followRouteMock.hook,
+}));
+
+vi.mock('../services/shiplog/RoutesAndTracks', () => ({
+    fetchVoyageAsTrack: fetchVoyageAsTrackMock,
+    groupByVoyage: vi.fn(() => []),
+}));
+
+vi.mock('../services/shiplog/publishFollowedRoute', () => ({
+    publishFollowedRoute: publishFollowedRouteMock,
 }));
 
 vi.mock('../utils/lazyRetry', () => ({
@@ -44,8 +96,42 @@ vi.mock('../utils/lazyRetry', () => ({
 // ── Mock heavy sub-components (paths relative to pages/LogPage.tsx) ──
 vi.mock('../components/AddEntryModal', () => ({ AddEntryModal: () => null }));
 vi.mock('../components/EditEntryModal', () => ({ EditEntryModal: () => null }));
-vi.mock('../components/TrackMapViewer', () => ({ TrackMapViewer: () => <div data-testid="track-map">TrackMap</div> }));
-vi.mock('../components/LiveMiniMap', () => ({ LiveMiniMap: () => <div data-testid="live-mini-map">LiveMap</div> }));
+vi.mock('../components/TrackMapViewer', () => ({
+    TrackMapViewer: ({
+        isOpen,
+        entries,
+        followedRouteCoords,
+    }: {
+        isOpen: boolean;
+        entries?: Array<{ voyageId?: string }>;
+        followedRouteCoords?: Array<{ lat: number; lon: number }>;
+    }) =>
+        isOpen ? (
+            <div
+                data-testid="track-map"
+                data-followed-route={JSON.stringify(followedRouteCoords ?? [])}
+                data-entry-voyages={JSON.stringify((entries ?? []).map((entry) => entry.voyageId))}
+            >
+                TrackMap
+            </div>
+        ) : null,
+}));
+vi.mock('../components/LiveMiniMap', () => ({
+    LiveMiniMap: ({
+        followedRouteCoords,
+        freeZoom,
+    }: {
+        followedRouteCoords?: Array<{ lat: number; lon: number }>;
+        freeZoom?: boolean;
+    }) => (
+        <div
+            data-testid={freeZoom ? 'large-live-map' : 'small-live-map'}
+            data-followed-route={JSON.stringify(followedRouteCoords ?? [])}
+        >
+            LiveMap
+        </div>
+    ),
+}));
 vi.mock('../components/DeleteVoyageModal', () => ({ DeleteVoyageModal: () => null }));
 vi.mock('../components/CommunityTrackBrowser', () => ({ CommunityTrackBrowser: () => null }));
 vi.mock('../components/VoyageStatsPanel', () => ({
@@ -64,8 +150,19 @@ vi.mock('../components/Icons', () => ({
 
 // Sub-components from pages/log/ — use path relative to test file
 vi.mock('../pages/log/LogSubComponents', () => ({
-    VoyageCard: ({ summary }: { summary: { voyageId: string } }) => (
-        <div data-testid={`voyage-${summary.voyageId}`}>Voyage {summary.voyageId}</div>
+    VoyageCard: ({
+        summary,
+        onFollowPlannedRoute,
+    }: {
+        summary: { voyageId: string; isPlannedRoute?: boolean };
+        onFollowPlannedRoute: (summary: unknown) => Promise<boolean>;
+    }) => (
+        <div data-testid={`voyage-${summary.voyageId}`}>
+            Voyage {summary.voyageId}
+            {summary.isPlannedRoute && (
+                <button onClick={() => void onFollowPlannedRoute(summary)}>Follow card {summary.voyageId}</button>
+            )}
+        </div>
     ),
     StatBox: ({ label }: { label: string }) => <div data-testid="stat-box">{label}</div>,
     MenuBtn: ({ label, onClick }: { label: string; onClick: () => void }) => (
@@ -73,8 +170,8 @@ vi.mock('../pages/log/LogSubComponents', () => ({
             {label}
         </button>
     ),
-    FollowRouteChoice: ({ summary }: { summary: { voyageId: string } }) => (
-        <button>Follow route {summary.voyageId}</button>
+    FollowRouteChoice: ({ summary, onPick }: { summary: { voyageId: string }; onPick: () => void }) => (
+        <button onClick={onPick}>Follow route {summary.voyageId}</button>
     ),
 }));
 vi.mock('../pages/log/VoyageDialogs', () => ({ VoyageChoiceDialog: () => null, StopVoyageDialog: () => null }));
@@ -265,15 +362,29 @@ vi.mock('../hooks/useLogPageState', () => ({
         archivedVoyages: [],
         handleArchiveVoyage: vi.fn(),
         handleUnarchiveVoyage: vi.fn(),
+        ...logPageStateOverrides.hook,
     }),
 }));
 
 import { LogPage } from '../pages/LogPage';
 
 describe('LogPage', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
         for (const key of Object.keys(logPageStateOverrides.state)) delete logPageStateOverrides.state[key];
+        for (const key of Object.keys(logPageStateOverrides.hook)) delete logPageStateOverrides.hook[key];
+        Object.assign(followRouteMock.state, {
+            isFollowing: false,
+            voyageId: null,
+            routeCoords: [],
+            startedAt: null,
+        });
+        fetchVoyageAsTrackMock.mockResolvedValue(null);
+        publishFollowedRouteMock.mockResolvedValue('linked');
     });
 
     it('renders without crashing', () => {
@@ -340,6 +451,124 @@ describe('LogPage', () => {
         expect(opener).toHaveFocus();
     });
 
+    it('shows live followed-route geometry on the compact and expanded maps', () => {
+        const route = [
+            { lat: -27.5, lon: 153 },
+            { lat: -27.45, lon: 153.08 },
+            { lat: -27.4, lon: 153.16 },
+        ];
+        Object.assign(followRouteMock.state, {
+            isFollowing: true,
+            // Route Tracer intentionally follows before its background save
+            // can assign an id; geometry must still render immediately.
+            voyageId: '',
+            routeCoords: route,
+        });
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [
+                {
+                    id: 'fix-1',
+                    voyageId: 'active-voyage',
+                    latitude: -27.5,
+                    longitude: 153,
+                    timestamp: '2026-07-23T00:00:00.000Z',
+                },
+                {
+                    id: 'fix-2',
+                    voyageId: 'active-voyage',
+                    latitude: -27.49,
+                    longitude: 153.01,
+                    timestamp: '2026-07-23T00:01:00.000Z',
+                },
+            ],
+        });
+
+        render(<LogPage />);
+        expect(screen.getByTestId('small-live-map')).toHaveAttribute('data-followed-route', JSON.stringify(route));
+        expect(screen.queryByTestId('track-map')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand live map' }));
+        expect(screen.getByTestId('large-live-map')).toHaveAttribute('data-followed-route', JSON.stringify(route));
+    });
+
+    it('updates and clears followed-route geometry without leaking stale coordinates', () => {
+        const view = () => <LogPage />;
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [
+                {
+                    id: 'fix-1',
+                    voyageId: 'active-voyage',
+                    latitude: -27.5,
+                    longitude: 153,
+                    timestamp: '2026-07-23T00:00:00.000Z',
+                },
+            ],
+        });
+        Object.assign(followRouteMock.state, {
+            isFollowing: true,
+            voyageId: 'plan-1',
+            routeCoords: [
+                { lat: -27.5, lon: 153 },
+                { lat: -27.4, lon: 153.1 },
+            ],
+        });
+
+        const { rerender } = render(view());
+        const refreshed = [
+            { lat: -27.5, lon: 153 },
+            { lat: -27.42, lon: 153.12 },
+            { lat: -27.3, lon: 153.2 },
+        ];
+        followRouteMock.state.routeCoords = refreshed;
+        rerender(view());
+        expect(screen.getByTestId('small-live-map')).toHaveAttribute('data-followed-route', JSON.stringify(refreshed));
+
+        followRouteMock.state.isFollowing = false;
+        rerender(view());
+        expect(screen.getByTestId('small-live-map')).toHaveAttribute('data-followed-route', '[]');
+    });
+
+    it('shows the followed route in an open current-voyage map but not an unrelated historical map', () => {
+        const route = [
+            { lat: -27.5, lon: 153 },
+            { lat: -27.4, lon: 153.1 },
+        ];
+        Object.assign(followRouteMock.state, {
+            isFollowing: true,
+            voyageId: 'planned-voyage',
+            routeCoords: route,
+        });
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            showTrackMap: true,
+            currentVoyageId: 'active-voyage',
+            selectedVoyageId: 'active-voyage',
+            entries: [
+                { id: 'active', voyageId: 'active-voyage' },
+                { id: 'plan', voyageId: 'planned-voyage' },
+                { id: 'old', voyageId: 'old-voyage' },
+            ],
+        });
+
+        const { rerender } = render(<LogPage />);
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-followed-route', JSON.stringify(route));
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-entry-voyages', '["active-voyage"]');
+
+        logPageStateOverrides.state.selectedVoyageId = 'old-voyage';
+        rerender(<LogPage />);
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-followed-route', '[]');
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-entry-voyages', '["old-voyage"]');
+
+        logPageStateOverrides.state.selectedVoyageId = null;
+        rerender(<LogPage />);
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-followed-route', JSON.stringify(route));
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-entry-voyages', '["active-voyage","old-voyage"]');
+    });
+
     it('contains the follow-route prompt, defaults to recording, and restores its opener on Escape', () => {
         const view = () => (
             <>
@@ -393,5 +622,290 @@ describe('LogPage', () => {
 
         expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
+    });
+
+    it('keeps the cast-off route prompt open through React StrictMode effect replay', async () => {
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+
+        render(
+            <React.StrictMode>
+                <LogPage />
+            </React.StrictMode>,
+        );
+
+        expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+    });
+
+    it('clears a previously followed route when the skipper chooses Just recording', async () => {
+        Object.assign(followRouteMock.state, {
+            isFollowing: true,
+            voyageId: 'old-planned-route',
+            routeCoords: [
+                { lat: -27.5, lon: 153 },
+                { lat: -27.4, lon: 153.1 },
+            ],
+        });
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Just recording' }));
+
+        expect(followRouteMock.state.stopFollowing).toHaveBeenCalledTimes(1);
+        expect(followRouteMock.state.isFollowing).toBe(false);
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+    });
+
+    it('does not publish a cast-off choice when its local route geometry cannot be loaded', async () => {
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'missing-planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        fetchVoyageAsTrackMock.mockResolvedValue(null);
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Follow route missing-planned-voyage' }));
+
+        await waitFor(() => expect(fetchVoyageAsTrackMock).toHaveBeenCalledWith('missing-planned-voyage'));
+        expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+    });
+
+    it('unlocks a stalled cast-off prompt and ignores geometry that arrives after the deadline', async () => {
+        vi.useFakeTimers();
+        let resolveRoute!: (route: {
+            id: string;
+            label: string;
+            sublabel: string;
+            points: Array<{ lat: number; lon: number }>;
+            bbox: [number, number, number, number];
+            timestamp: number;
+            distanceNm: number;
+            isLocal: boolean;
+            kind: 'sea';
+        }) => void;
+        fetchVoyageAsTrackMock.mockReturnValue(
+            new Promise((resolve) => {
+                resolveRoute = resolve;
+            }),
+        );
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'slow-planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByRole('button', { name: 'Follow route slow-planned-voyage' }));
+        expect(screen.getByRole('button', { name: 'Loading route…' })).toBeDisabled();
+
+        await act(async () => {
+            vi.advanceTimersByTime(10_000);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(screen.getByRole('button', { name: 'Just recording' })).toBeEnabled();
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+
+        await act(async () => {
+            resolveRoute({
+                id: 'slow-planned-voyage',
+                label: 'Late route',
+                sublabel: 'Planned',
+                points: [
+                    { lat: -27.5, lon: 153 },
+                    { lat: -27.4, lon: 153.1 },
+                ],
+                bbox: [153, -27.5, 153.1, -27.4],
+                timestamp: Date.now(),
+                distanceNm: 12,
+                isLocal: false,
+                kind: 'sea',
+            });
+            await Promise.resolve();
+        });
+
+        expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+    });
+
+    it('hydrates exact geometry when Follow is chosen from a collapsed planned-route card', async () => {
+        const summary = {
+            voyageId: 'planned-card-route',
+            entryCount: 3,
+            startedAt: '2026-07-23T00:00:00.000Z',
+            endedAt: '2026-07-23T03:00:00.000Z',
+            totalDistanceNM: 12,
+            avgSpeedKts: 4,
+            hasManual: false,
+            isPlannedRoute: true,
+            isImported: false,
+            firstLat: -27.5,
+            firstLon: 153,
+            lastLat: -23.9,
+            lastLon: 152.4,
+            firstIsOnWater: true,
+        };
+        const exactPoints = [
+            { lat: -27.5, lon: 153 },
+            { lat: -26.2, lon: 152.7 },
+            { lat: -23.9, lon: 152.4 },
+        ];
+        logPageStateOverrides.hook.listVoyages = [summary];
+        fetchVoyageAsTrackMock.mockResolvedValue({
+            id: summary.voyageId,
+            label: 'Newport → Lady Musgrave',
+            sublabel: 'Planned · 12 NM',
+            points: exactPoints,
+            bbox: [152.4, -27.5, 153, -23.9],
+            timestamp: Date.parse(summary.startedAt),
+            distanceNm: 12,
+            durationHours: 3,
+            isLocal: false,
+            kind: 'sea',
+        });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByRole('button', { name: 'Follow card planned-card-route' }));
+
+        await waitFor(() =>
+            expect(followRouteMock.state.startFollowing).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    origin: 'Newport',
+                    destination: 'Lady Musgrave',
+                }),
+                summary.voyageId,
+                exactPoints,
+            ),
+        );
+    });
+
+    it('starts local follow mode when a route is chosen from the Log cast-off prompt', async () => {
+        let resolvePublication!: (result: 'linked') => void;
+        publishFollowedRouteMock.mockReturnValue(
+            new Promise((resolve) => {
+                resolvePublication = resolve;
+            }),
+        );
+        fetchVoyageAsTrackMock.mockResolvedValue({
+            id: 'planned-voyage',
+            label: 'Newport → Lady Musgrave',
+            sublabel: 'Planned · 12 NM',
+            points: [
+                { lat: -27.5, lon: 153 },
+                { lat: -26.2, lon: 152.7 },
+                { lat: -23.9, lon: 152.4 },
+            ],
+            bbox: [152.4, -27.5, 153, -23.9],
+            timestamp: Date.parse('2026-07-23T00:00:00.000Z'),
+            distanceNm: 12,
+            durationHours: 3,
+            isLocal: false,
+            kind: 'sea',
+        });
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [
+                {
+                    id: 'active-fix',
+                    voyageId: 'active-voyage',
+                    latitude: -27.5,
+                    longitude: 153,
+                    timestamp: '2026-07-23T00:00:00.000Z',
+                },
+            ],
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    startedAt: '2026-07-23T00:00:00.000Z',
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -23.9,
+                    lastLon: 152.4,
+                },
+            ],
+        });
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Follow route planned-voyage' }));
+
+        await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalledTimes(1));
+        expect(followRouteMock.state.startFollowing).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                origin: 'Newport',
+                destination: 'Lady Musgrave',
+            }),
+            'planned-voyage',
+            [
+                { lat: -27.5, lon: 153 },
+                { lat: -26.2, lon: 152.7 },
+                { lat: -23.9, lon: 152.4 },
+            ],
+        );
+        expect(publishFollowedRouteMock).toHaveBeenCalledWith('planned-voyage');
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+
+        await act(async () => {
+            resolvePublication('linked');
+            await Promise.resolve();
+        });
     });
 });

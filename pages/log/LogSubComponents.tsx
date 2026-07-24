@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CompassIcon, WindIcon } from '../../components/Icons';
-import { ShipLogEntry, VoyagePlan } from '../../types';
+import { ShipLogEntry } from '../../types';
 import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { useEndpointNames } from './useEndpointNames';
@@ -130,8 +130,10 @@ export const FollowRouteChoice: React.FC<{
     summary: VoyageSummary;
     /** This route has a saved reverse, collapsed into this row. */
     reversible?: boolean;
+    loading?: boolean;
+    disabled?: boolean;
     onPick: () => void;
-}> = ({ summary, reversible = false, onPick }) => {
+}> = ({ summary, reversible = false, loading = false, disabled = false, onPick }) => {
     const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
     const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
     const { startLabel, endLabel } = useEndpointNames(first, last);
@@ -147,7 +149,9 @@ export const FollowRouteChoice: React.FC<{
     return (
         <button
             onClick={onPick}
-            className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99]"
+            disabled={disabled}
+            aria-busy={loading}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60"
         >
             <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">
                 🧭 {routeName}
@@ -162,7 +166,7 @@ export const FollowRouteChoice: React.FC<{
                 )}
             </span>
             <span className="shrink-0 text-[11px] font-bold text-sky-300">
-                {summary.totalDistanceNM.toFixed(1)} NM · {summary.entryCount} pts
+                {loading ? 'Loading route…' : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
             </span>
         </button>
     );
@@ -171,83 +175,68 @@ export const FollowRouteChoice: React.FC<{
 // ── FollowRouteButton — appears on planned route voyage cards ──
 
 const FollowRouteButton: React.FC<{
-    voyage: { voyageId: string; entries: ShipLogEntry[] };
-    startLabel: string | null;
-    endLabel: string | null;
-    onNeedEntries?: () => void;
-}> = ({ voyage, startLabel, endLabel, onNeedEntries }) => {
-    const { isFollowing, voyageId: followingVoyageId, startFollowing } = useFollowRoute();
+    voyageId: string;
+    onFollow: () => Promise<boolean>;
+}> = ({ voyageId, onFollow }) => {
+    const { isFollowing, voyageId: followingVoyageId } = useFollowRoute();
     const toast = useToast();
-    const isThisFollowed = isFollowing && followingVoyageId === voyage.voyageId;
+    const [isStarting, setIsStarting] = useState(false);
+    const isThisFollowed = isFollowing && followingVoyageId === voyageId;
 
-    // Planned-route points may not be resident yet (the list is summary-
-    // driven). Request a lazy-load the first time this button mounts so
-    // the follow action has the waypoints it needs.
-    useEffect(() => {
-        if (voyage.entries.length === 0) onNeedEntries?.();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const handleFollow = useCallback(() => {
-        if (isThisFollowed) return;
-
-        const sorted = [...voyage.entries].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-        );
-        const first = sorted[0];
-        const last = sorted[sorted.length - 1];
-
-        if (!first || !last) return;
-
-        // Reconstruct VoyagePlan from log entries
-        const waypoints = sorted.slice(1, -1).map((e) => ({
-            coordinates: { lat: e.latitude, lon: e.longitude },
-            name: e.waypointName || `WP`,
-            windSpeed: e.windSpeed || undefined,
-            windDirection: undefined,
-            waveHeight: undefined,
-            depth: undefined,
-            bearing: e.courseDeg || undefined,
-        }));
-
-        const plan: VoyagePlan = {
-            origin: startLabel || first.waypointName || `${first.latitude.toFixed(2)}, ${first.longitude.toFixed(2)}`,
-            destination: endLabel || last.waypointName || `${last.latitude.toFixed(2)}, ${last.longitude.toFixed(2)}`,
-            departureDate: first.timestamp,
-            originCoordinates: { lat: first.latitude, lon: first.longitude },
-            destinationCoordinates: { lat: last.latitude, lon: last.longitude },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            waypoints: waypoints as any,
-            distanceApprox: `${Math.max(0, ...voyage.entries.map((e) => e.cumulativeDistanceNM || 0)).toFixed(1)} NM`,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            durationApprox: '' as any,
-            overview: `Planned route from ${startLabel || 'origin'} to ${endLabel || 'destination'}`,
-        };
-
-        startFollowing(plan, voyage.voyageId);
-        // Publish to the PUBLIC page (Shane 2026-07-17) — tied to an active
-        // voyage (option A). Following a different route mid-voyage re-links,
-        // so the public page swaps to it; following while not tracking just
-        // draws the chart line with a hint to cast off.
-        void publishFollowedRoute(voyage.voyageId).then((result) => {
-            if (result === 'linked') toast.success('Your public page now follows this route');
-            else if (result === 'not-tracking')
-                toast.info('Following on your chart — Slide to Start Tracking to show it on your public page');
-            else toast.error(VoyageLogService.lastError ?? 'Couldn’t publish — try Settings → Voyage Log');
-        });
-    }, [voyage, startLabel, endLabel, isThisFollowed, startFollowing, toast]);
+    const handleFollow = useCallback(async () => {
+        if (isThisFollowed || isStarting) return;
+        setIsStarting(true);
+        try {
+            let started = false;
+            try {
+                started = await onFollow();
+            } catch (error) {
+                log.warn('Could not load followed route:', error);
+            }
+            if (!started) {
+                toast.error('Couldn’t load this saved route — please try again');
+                return;
+            }
+            // Publish to the PUBLIC page (Shane 2026-07-17) — tied to an
+            // active voyage (option A). Following a different route mid-
+            // voyage re-links, so the public page swaps to it; following
+            // while not tracking just draws the chart line with a hint.
+            try {
+                const result = await publishFollowedRoute(voyageId);
+                if (result === 'linked') toast.success('Your public page now follows this route');
+                else if (result === 'not-tracking')
+                    toast.info('Following on your chart — Slide to Start Tracking to show it on your public page');
+                else toast.error(VoyageLogService.lastError ?? 'Following locally — couldn’t update your public page');
+            } catch (error) {
+                log.warn('Followed locally but could not publish route:', error);
+                toast.error('Following locally — couldn’t update your public page');
+            }
+        } finally {
+            setIsStarting(false);
+        }
+    }, [isThisFollowed, isStarting, onFollow, toast, voyageId]);
 
     return (
         <button
-            aria-label={isThisFollowed ? 'Currently following this route' : 'Follow this route'}
-            onClick={handleFollow}
-            disabled={isThisFollowed}
+            aria-label={
+                isThisFollowed
+                    ? 'Currently following this route'
+                    : isStarting
+                      ? 'Loading saved route'
+                      : 'Follow this route'
+            }
+            onClick={() => void handleFollow()}
+            disabled={isThisFollowed || isStarting}
             className={`w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 transition-colors ${
                 isThisFollowed
                     ? 'text-emerald-400 bg-emerald-500/10'
-                    : 'text-sky-400 hover:text-sky-300 hover:bg-white/5'
+                    : isStarting
+                      ? 'text-sky-300 bg-sky-500/10'
+                      : 'text-sky-400 hover:text-sky-300 hover:bg-white/5'
             }`}
-            title={isThisFollowed ? 'Currently following this route' : 'Follow this route'}
+            title={
+                isThisFollowed ? 'Currently following this route' : isStarting ? 'Loading route' : 'Follow this route'
+            }
         >
             {isThisFollowed ? (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -267,7 +256,7 @@ const FollowRouteButton: React.FC<{
                 </svg>
             )}
             <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">
-                {isThisFollowed ? 'Active' : 'Follow'}
+                {isThisFollowed ? 'Active' : isStarting ? 'Loading' : 'Follow'}
             </span>
         </button>
     );
@@ -287,6 +276,8 @@ export const VoyageCard: React.FC<{
     onDelete: () => void;
     onArchive: () => void;
     onShowMap: () => void;
+    /** Follow this saved plan using its recovered dense route geometry. */
+    onFollowPlannedRoute: (summary: VoyageSummary) => Promise<boolean>;
     /** Request this voyage's full points be lazy-loaded (planned actions). */
     onNeedEntries?: () => void;
     /**
@@ -311,6 +302,7 @@ export const VoyageCard: React.FC<{
         onDelete,
         onArchive,
         onShowMap,
+        onFollowPlannedRoute,
         onNeedEntries,
         suppressMiniMap,
         recordBadge,
@@ -322,6 +314,7 @@ export const VoyageCard: React.FC<{
         // --- Swipe-to-reveal actions ---
         const [swipeOffset, setSwipeOffset] = useState(0);
         const touchStartX = useRef(0);
+        const plannedEntriesRequestedRef = useRef(false);
         const deleteThreshold = 160; // wide enough for both Archive + Delete buttons
         const handleSwipeStart = (e: React.TouchEvent) => {
             touchStartX.current = e.touches[0].clientX;
@@ -355,6 +348,18 @@ export const VoyageCard: React.FC<{
         const avgSpeed = summary.avgSpeedKts;
         const isImported = summary.isImported;
         const isPlannedRoute = summary.isPlannedRoute;
+
+        // Planned cards keep GPX and timeline points warm even while
+        // collapsed. This used to happen incidentally inside the Follow
+        // button; keep it explicit so refactoring that action cannot leave
+        // the adjacent GPX export with an empty route.
+        useEffect(() => {
+            if (!isPlannedRoute || entries.length > 0 || plannedEntriesRequestedRef.current || !onNeedEntries) {
+                return;
+            }
+            plannedEntriesRequestedRef.current = true;
+            onNeedEntries();
+        }, [entries.length, isPlannedRoute, onNeedEntries]);
 
         // Synthetic first/last coordinate carriers for geocoding + the
         // FollowRoute plan (full points arrive lazily via `entries`).
@@ -641,12 +646,7 @@ export const VoyageCard: React.FC<{
                             </button>
                         )}
                         {isPlannedRoute && (
-                            <FollowRouteButton
-                                voyage={{ voyageId, entries }}
-                                startLabel={startLabel}
-                                endLabel={endLabel}
-                                onNeedEntries={onNeedEntries}
-                            />
+                            <FollowRouteButton voyageId={voyageId} onFollow={() => onFollowPlannedRoute(summary)} />
                         )}
                     </div>
                 </div>
