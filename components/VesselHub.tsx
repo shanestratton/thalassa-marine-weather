@@ -4,7 +4,9 @@
  * Layout (top → bottom):
  *   Hero band:           vessel name · voyage state · position fix · time-since-fix
  *   Quick Actions:       6-tile 2-up grid — log book, diary, anchor, guardian, MOB, radio
- *   Passage Planning:    voyage prep + GPX import + Notices
+ *   Skipper device:      publishing authority
+ *   Passage Planning:    voyage prep, directly below Skipper device
+ *   Boat Binder:         GPX import + inventory + reference
  *   (Diary now lives inside Quick Actions — see the 6-tile grid above.)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
@@ -97,7 +99,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     //                   your-voyage features sit prominently below
     //                   Watch Status rather than hidden in the Log
     //                   kebab or buried inside Wardroom)
-    //   - Boat Binder  (collapsed: Passage / Inventory / Reference rows)
+    //   - Boat Binder  (collapsed: imports / inventory / reference rows)
     //   - Atmosphere   (collapsed: Music — Scuttlebutt moved out to
     //                   Sharing 2026-05-17, section renamed from
     //                   "Wardroom" to "Atmosphere" the same day. The
@@ -503,24 +505,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <BinderSubLabel>Passage</BinderSubLabel>
                     <div style={GLASS.listContainer}>
                         <OfficeRow
-                            icon={<CrewIcon color="#cbd5e1" />}
-                            label="Passage Planning"
-                            status={
-                                passageCrewCount > 0
-                                    ? `${passageCrewCount} crew`
-                                    : pendingCrewInvites > 0
-                                      ? `${pendingCrewInvites} Pending`
-                                      : 'Plan Your Voyage'
-                            }
-                            statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('crew');
-                            }}
-                            badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                        />
-                        <ListDivider />
-                        <OfficeRow
                             icon={<GpxIcon color="#cbd5e1" />}
                             label="Import GPX"
                             status="OpenCPN • Navionics"
@@ -733,11 +717,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* The 4-bucket IA (2026-05-17) reordered the
                     sections so Quick Actions (daily ops) sits at the
-                    top of the hub, followed by Boat Binder (passage
-                    prep + binder material), Wardroom (social/comfort),
-                    and Settings & Connect (config). The old standalone
-                    "Passage Planning" section's two rows moved into
-                    the Passage subgroup of Boat Binder below. */}
+                    top of the hub, followed by the Skipper Device and
+                    Passage Planning, then Boat Binder (imports + vessel
+                    records), Wardroom (social/comfort), and Settings &
+                    Connect (config). */}
 
                     {/* ═══════════════════════════════════════════ */}
                     {/* WATCH STATUS — live operational status grid  */}
@@ -936,6 +919,31 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     updateSettings={updateSettings}
                 />
 
+                {/* PASSAGE PLANNING — deliberately one tap from the Vessel
+                    home, directly below the publishing-authority card. It used
+                    to be inside Boat Binder, which made an operational voyage
+                    workflow look like stored paperwork. Import GPX remains in
+                    the Binder; planning the voyage belongs on the live hub. */}
+                <div className="mb-4" style={GLASS.listContainer}>
+                    <OfficeRow
+                        icon={<CrewIcon color="#cbd5e1" />}
+                        label="Passage Planning"
+                        status={
+                            passageCrewCount > 0
+                                ? `${passageCrewCount} crew`
+                                : pendingCrewInvites > 0
+                                  ? `${pendingCrewInvites} Pending`
+                                  : 'Plan Your Voyage'
+                        }
+                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('crew');
+                        }}
+                        badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                    />
+                </div>
+
                 {/* SHARING — Diary + Scuttlebutt               */}
                 {/* (Added 2026-05-17.) Diary used to be buried */}
                 {/* in the Log-tab kebab menu, which was wrong: */}
@@ -1032,7 +1040,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* BOAT BINDER — passage / inventory / reference   */}
+                {/* BOAT BINDER — imports / inventory / reference   */}
                 {/* (4-bucket IA, 2026-05-17). Sailor's mental    */}
                 {/* model: the physical binder every cruiser keeps */}
                 {/* with vessel docs, equipment registry, log,    */}
