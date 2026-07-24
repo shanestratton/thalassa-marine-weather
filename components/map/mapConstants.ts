@@ -93,11 +93,10 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
 /**
  * The framing zoom each forecast overlay claims when switched on.
  *
- * PER LAYER, because these fields are not read at the same scale. Wind,
- * currents and rain are sampled for the VISIBLE viewport and describe local
- * conditions, so they want a regional frame — 7.5 is also past
- * WindDataController's `currentZoom > 6` branch, where wind drops to 0.5 deg
- * spacing instead of the wide-viewport fallback.
+ * PER LAYER, because these fields are not read at the same scale. Wind opens
+ * at z5 for a broad regional read (Shane 2026-07-24); its controller
+ * deliberately uses the wide-viewport grid at that scale. Currents and rain
+ * retain the tighter z7.5 local frame.
  *
  * PRESSURE is the exception and gets 2.0 (Shane 2026-07-22). Isobars are a
  * SYNOPTIC read: the useful question is where the high and the low sit and
@@ -108,19 +107,26 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
  * 'velocity' is the legacy alias for wind — both keys must appear or the edge
  * is undetectable whenever the layer is stored under the older name.
  *
- * LIVES HERE, not in MapHub, because it has TWO consumers that must agree:
- * MapHub eases to this zoom on the layer's off->on edge, and useWeatherLayers
- * sets the map's minZoom floor while the layer is up. When they disagreed the
- * floor silently won — Mapbox clamps easeTo at call time, so pressure's 2.0
- * ease landed at the old floor of 3 and the tap looked like it did nothing.
+ * LIVES HERE, not in MapHub, so every layer's framing decision has one source
+ * of truth. MapHub consumes the full table; useWeatherLayers additionally
+ * derives pressure's minZoom floor from its entry. When those pressure values
+ * disagreed, Mapbox clamped easeTo at call time and the tap looked ineffective.
  */
 export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
-    wind: 7.5,
-    velocity: 7.5,
+    wind: 5,
+    velocity: 5,
     currents: 7.5,
     rain: 7.5,
     pressure: 2.0,
 };
+
+/** Resolve the first active overlay's authoritative framing zoom. */
+export function getActiveLayerFrameZoom(activeLayers: ReadonlySet<WeatherLayer>): number | undefined {
+    for (const layer of Object.keys(LAYER_FRAME_ZOOM) as WeatherLayer[]) {
+        if (activeLayers.has(layer)) return LAYER_FRAME_ZOOM[layer];
+    }
+    return undefined;
+}
 
 // ── Tile sources ──
 function getOwmKey(): string {

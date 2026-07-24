@@ -45,7 +45,13 @@ import { MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 import { promoteTraceLayers } from './isobarLayerSetup';
 
-import { type MapHubProps, type WeatherLayer, LAYER_FRAME_ZOOM, shouldSuppressChartOverlays } from './mapConstants';
+import {
+    type MapHubProps,
+    type WeatherLayer,
+    getActiveLayerFrameZoom,
+    LAYER_FRAME_ZOOM,
+    shouldSuppressChartOverlays,
+} from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
@@ -4410,13 +4416,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // recentre on the selected location. User-driven pans don't change
     // weatherCoords, so their pan sticks.
     //
-    // First centre jumps instantly at ZOOM 10 — the golden size (Shane
+    // The first centre uses the active overlay's framing zoom when one exists;
+    // otherwise it jumps instantly to ZOOM 10 — the golden chart size (Shane
     // 2026-07-16: every nav mark visible, local water fills the screen). This
-    // effect fires right after boot, so it must agree with useMapInit's
-    // GOLDEN_BOOT_ZOOM or it silently clobbers it (the "zoom is not working"
-    // bug: it jumped back out to the Aus+NZ fit). Subsequent centres preserve
-    // the user's current zoom so we don't yank them out of a harbour view.
+    // matters when default-on wind is restored before weatherCoords resolves:
+    // a later z10 recenter must not overwrite wind's z5 frame. Subsequent
+    // centres preserve the user's zoom so we don't yank them out of a harbour.
     const GOLDEN_BOOT_ZOOM = 10;
+    const activeWeatherLayersRef = useRef<ReadonlySet<WeatherLayer>>(new Set());
     const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
     useEffect(() => {
         const map = mapRef.current;
@@ -4432,9 +4439,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ausNzFitZoom = (map as any).__ausNzMinZoom ?? map.getMinZoom();
         const isFirst = last === null;
+        const activeLayerFrameZoom = getActiveLayerFrameZoom(activeWeatherLayersRef.current);
         map.jumpTo({
             center: [weatherCoords.lon, weatherCoords.lat],
-            zoom: isFirst ? GOLDEN_BOOT_ZOOM : Math.max(map.getZoom(), ausNzFitZoom),
+            zoom: isFirst ? (activeLayerFrameZoom ?? GOLDEN_BOOT_ZOOM) : Math.max(map.getZoom(), ausNzFitZoom),
         });
         if (!isFirst) {
             map.easeTo({ center: [weatherCoords.lon, weatherCoords.lat], duration: 600 });
@@ -4561,6 +4569,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location, planningSurface);
+    activeWeatherLayersRef.current = weather.userLayers;
     weatherRef.current = weather;
 
     // ── Clear Follow Route when passage mode activates ──
@@ -4737,9 +4746,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     /**
      * Ease to the layer's own framing zoom on its OFF -> ON edge.
      *
-     * This lived inside the tap handlers and behaved backwards (Shane
-     * 2026-07-22: "when i turn off the wind, it zooms to 7.5, but when i turn
-     * it on, it doesnt change"). Two reasons, and the effect fixes both:
+     * This lived inside the tap handlers and behaved backwards: turning wind
+     * off could trigger its framing zoom while turning it on did nothing. Two
+     * reasons, and the effect fixes both:
      *
      *  1. helmSelectInGroup had NO on/off test — the radial menu drives these
      *     through selectInGroup, and selecting the already-active layer turns
@@ -4777,11 +4786,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         const m = mapRef.current;
         if (!m) return;
         try {
-            // A SNAP, not a floor (Shane 2026-07-22: "even if you are above
-            // zoom 7.5, that it still goes to 7.5 — they can zoom in from
-            // there if they wish"). Switching one of these on is a deliberate
-            // change of task, so it gets a known frame every time rather than
-            // one that depends on where you happened to be.
+            // A SNAP, not a floor. Switching one of these on is a deliberate
+            // change of task, so it gets the layer's known frame every time
+            // rather than one that depends on where you happened to be.
             m.easeTo({ zoom, duration: 600 });
         } catch {
             /* map mid-teardown */
