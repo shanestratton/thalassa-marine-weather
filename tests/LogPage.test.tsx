@@ -135,7 +135,11 @@ vi.mock('../components/LiveMiniMap', () => ({
 vi.mock('../components/DeleteVoyageModal', () => ({ DeleteVoyageModal: () => null }));
 vi.mock('../components/CommunityTrackBrowser', () => ({ CommunityTrackBrowser: () => null }));
 vi.mock('../components/VoyageStatsPanel', () => ({
-    VoyageStatsPanel: () => <div data-testid="voyage-stats">Stats</div>,
+    VoyageStatsPanel: ({ entries }: { entries: Array<{ voyageId?: string }> }) => (
+        <div data-testid="voyage-stats" data-entry-voyages={JSON.stringify(entries.map((entry) => entry.voyageId))}>
+            Stats
+        </div>
+    ),
 }));
 vi.mock('../components/ui/SlideToAction', () => ({
     SlideToAction: ({ label }: { label: string }) => <button data-testid="slide-to-action">{label}</button>,
@@ -180,7 +184,11 @@ vi.mock('../pages/log/GpsDisclaimerModal', () => ({ GpsDisclaimerModal: () => nu
 vi.mock('../pages/log/ImportSheet', () => ({ ImportSheet: () => null }));
 vi.mock('../pages/log/ShareSheet', () => ({ ShareSheet: () => null }));
 vi.mock('../pages/log/ShareFormSheet', () => ({ ShareFormSheet: () => null }));
-vi.mock('../pages/log/StatsSheet', () => ({ StatsSheet: () => null }));
+vi.mock('../pages/log/StatsSheet', () => ({
+    StatsSheet: ({ voyageGroups }: { voyageGroups: Array<{ voyageId: string }> }) => (
+        <div data-testid="stats-sheet" data-voyages={JSON.stringify(voyageGroups.map((voyage) => voyage.voyageId))} />
+    ),
+}));
 
 vi.mock('@capacitor/preferences', () => ({
     Preferences: { get: vi.fn().mockResolvedValue({ value: null }), set: vi.fn(), remove: vi.fn() },
@@ -403,6 +411,108 @@ describe('LogPage', () => {
         expect(screen.getByTestId('voyage-v2')).toBeDefined();
     });
 
+    it('shows actual and imported tracks but hides planned routes from the main Log list', () => {
+        logPageStateOverrides.hook.listVoyages = [
+            {
+                voyageId: 'actual-voyage',
+                isPlannedRoute: false,
+                isImported: false,
+            },
+            {
+                voyageId: 'planned-voyage',
+                isPlannedRoute: true,
+                isImported: false,
+            },
+            {
+                voyageId: 'imported-track',
+                isPlannedRoute: false,
+                isImported: true,
+            },
+        ];
+        logPageStateOverrides.state.summaries = logPageStateOverrides.hook.listVoyages;
+
+        render(<LogPage />);
+
+        expect(screen.getByTestId('voyage-actual-voyage')).toBeInTheDocument();
+        expect(screen.getByTestId('voyage-imported-track')).toBeInTheDocument();
+        expect(screen.queryByTestId('voyage-planned-voyage')).not.toBeInTheDocument();
+    });
+
+    it('shows the genuine empty Log state when only planned routes exist', () => {
+        const planned = {
+            voyageId: 'planned-only',
+            isPlannedRoute: true,
+            isImported: false,
+        };
+        logPageStateOverrides.hook.listVoyages = [planned];
+        logPageStateOverrides.state.summaries = [planned];
+
+        render(<LogPage />);
+
+        expect(screen.getByText('Begin Your Log')).toBeInTheDocument();
+        expect(screen.queryByTestId('voyage-planned-only')).not.toBeInTheDocument();
+    });
+
+    it('hides a route when entry provenance is newer than a stale non-planned summary', () => {
+        const staleSummary = {
+            voyageId: 'stale-planned-route',
+            isPlannedRoute: false,
+            isImported: false,
+        };
+        logPageStateOverrides.hook.listVoyages = [staleSummary];
+        Object.assign(logPageStateOverrides.state, {
+            summaries: [staleSummary],
+            entries: [
+                {
+                    id: 'planned-entry',
+                    voyageId: 'stale-planned-route',
+                    source: 'planned_route',
+                },
+            ],
+        });
+
+        render(<LogPage />);
+
+        expect(screen.getByText('Begin Your Log')).toBeInTheDocument();
+        expect(screen.queryByTestId('voyage-stale-planned-route')).not.toBeInTheDocument();
+    });
+
+    it('hides planned routes from the archived Log count and rows', () => {
+        logPageStateOverrides.hook.archivedVoyages = [
+            {
+                voyageId: 'actual-archive',
+                entries: [
+                    {
+                        id: 'actual-archive-entry',
+                        voyageId: 'actual-archive',
+                        source: 'device',
+                        timestamp: '2026-01-01T00:00:00.000Z',
+                        cumulativeDistanceNM: 8,
+                    },
+                ],
+            },
+            {
+                voyageId: 'planned-archive',
+                entries: [
+                    {
+                        id: 'planned-archive-entry',
+                        voyageId: 'planned-archive',
+                        source: 'planned_route',
+                        timestamp: '2026-01-02T00:00:00.000Z',
+                        cumulativeDistanceNM: 12,
+                    },
+                ],
+            },
+        ];
+
+        render(<LogPage />);
+
+        const toggle = screen.getByRole('button', { name: 'Toggle archived voyages' });
+        expect(toggle).toHaveTextContent('1');
+        fireEvent.click(toggle);
+        expect(screen.getAllByRole('button', { name: 'Unarchive voyage' })).toHaveLength(1);
+    });
+
     it('accepts onBack callback without crashing', () => {
         const onBack = vi.fn();
         expect(() => {
@@ -567,6 +677,86 @@ describe('LogPage', () => {
         rerender(<LogPage />);
         expect(screen.getByTestId('track-map')).toHaveAttribute('data-followed-route', JSON.stringify(route));
         expect(screen.getByTestId('track-map')).toHaveAttribute('data-entry-voyages', '["active-voyage","old-voyage"]');
+    });
+
+    it('excludes stored plans from the all-voyages map', () => {
+        Object.assign(logPageStateOverrides.state, {
+            showTrackMap: true,
+            selectedVoyageId: null,
+            entries: [
+                { id: 'actual', voyageId: 'actual-voyage', source: 'device' },
+                { id: 'plan', voyageId: 'planned-voyage', source: 'planned_route' },
+            ],
+            summaries: [
+                { voyageId: 'actual-voyage', isPlannedRoute: false },
+                { voyageId: 'planned-voyage', isPlannedRoute: true },
+            ],
+        });
+
+        render(<LogPage />);
+
+        expect(screen.getByTestId('track-map')).toHaveAttribute('data-entry-voyages', '["actual-voyage"]');
+    });
+
+    it('preserves a matched planned overlay when a sailed voyage is selected', () => {
+        Object.assign(logPageStateOverrides.state, {
+            showTrackMap: true,
+            selectedVoyageId: 'actual-voyage',
+            entries: [
+                { id: 'actual', voyageId: 'actual-voyage', source: 'device' },
+                { id: 'plan', voyageId: 'planned-voyage', source: 'planned_route' },
+            ],
+            summaries: [
+                {
+                    voyageId: 'actual-voyage',
+                    isPlannedRoute: false,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+
+        render(<LogPage />);
+
+        expect(screen.getByTestId('track-map')).toHaveAttribute(
+            'data-entry-voyages',
+            '["actual-voyage","planned-voyage"]',
+        );
+    });
+
+    it('excludes planned routes from all-voyages detailed statistics and the stats picker', () => {
+        const actualEntry = { id: 'actual', voyageId: 'actual-voyage', source: 'device' };
+        const plannedEntry = { id: 'plan', voyageId: 'planned-voyage', source: 'planned_route' };
+        const actualSummary = { voyageId: 'actual-voyage', isPlannedRoute: false };
+        const plannedSummary = { voyageId: 'planned-voyage', isPlannedRoute: true };
+        Object.assign(logPageStateOverrides.state, {
+            showStats: true,
+            selectedVoyageId: null,
+            entries: [actualEntry, plannedEntry],
+            summaries: [actualSummary, plannedSummary],
+        });
+        Object.assign(logPageStateOverrides.hook, {
+            filteredEntries: [actualEntry, plannedEntry],
+            listVoyages: [actualSummary, plannedSummary],
+        });
+
+        const { rerender } = render(<LogPage />);
+        expect(screen.getByTestId('voyage-stats')).toHaveAttribute('data-entry-voyages', '["actual-voyage"]');
+
+        logPageStateOverrides.state.showStats = false;
+        logPageStateOverrides.state.actionSheet = 'stats';
+        rerender(<LogPage />);
+        expect(screen.getByTestId('stats-sheet')).toHaveAttribute('data-voyages', '["actual-voyage"]');
     });
 
     it('contains the follow-route prompt, defaults to recording, and restores its opener on Escape', () => {
@@ -781,57 +971,6 @@ describe('LogPage', () => {
 
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
         expect(publishFollowedRouteMock).not.toHaveBeenCalled();
-    });
-
-    it('hydrates exact geometry when Follow is chosen from a collapsed planned-route card', async () => {
-        const summary = {
-            voyageId: 'planned-card-route',
-            entryCount: 3,
-            startedAt: '2026-07-23T00:00:00.000Z',
-            endedAt: '2026-07-23T03:00:00.000Z',
-            totalDistanceNM: 12,
-            avgSpeedKts: 4,
-            hasManual: false,
-            isPlannedRoute: true,
-            isImported: false,
-            firstLat: -27.5,
-            firstLon: 153,
-            lastLat: -23.9,
-            lastLon: 152.4,
-            firstIsOnWater: true,
-        };
-        const exactPoints = [
-            { lat: -27.5, lon: 153 },
-            { lat: -26.2, lon: 152.7 },
-            { lat: -23.9, lon: 152.4 },
-        ];
-        logPageStateOverrides.hook.listVoyages = [summary];
-        fetchVoyageAsTrackMock.mockResolvedValue({
-            id: summary.voyageId,
-            label: 'Newport → Lady Musgrave',
-            sublabel: 'Planned · 12 NM',
-            points: exactPoints,
-            bbox: [152.4, -27.5, 153, -23.9],
-            timestamp: Date.parse(summary.startedAt),
-            distanceNm: 12,
-            durationHours: 3,
-            isLocal: false,
-            kind: 'sea',
-        });
-
-        render(<LogPage />);
-        fireEvent.click(screen.getByRole('button', { name: 'Follow card planned-card-route' }));
-
-        await waitFor(() =>
-            expect(followRouteMock.state.startFollowing).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    origin: 'Newport',
-                    destination: 'Lady Musgrave',
-                }),
-                summary.voyageId,
-                exactPoints,
-            ),
-        );
     });
 
     it('starts local follow mode when a route is chosen from the Log cast-off prompt', async () => {

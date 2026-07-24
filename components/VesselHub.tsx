@@ -42,6 +42,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import { requestSavedRoutesLibraryOpen } from '../services/deepLink';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
@@ -459,6 +460,57 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         void loadPassageCrew();
     }, [loadPassageCrew]);
     useRealtimeSync('vessel_crew', loadPassageCrew);
+
+    // ── Saved-route library count ──
+    // This is the canonical tracer/saved_routes library shown on the Plan
+    // page, not the old planned_* Log mirror. Read local storage first so the
+    // Vessel card is useful offline, then pull-merge the account copy. Every
+    // async boundary is fenced to the identity that started it: route names
+    // and even their count are private account data.
+    const [savedRouteCount, setSavedRouteCount] = useState(0);
+    useEffect(() => {
+        let cancelled = false;
+        let requestId = 0;
+
+        const refresh = (scope: AuthIdentityScope) => {
+            const thisRequest = ++requestId;
+            // Hide the previous account's count synchronously. The local read
+            // below restores the new account's count as soon as its chunk is
+            // available, before any network round-trip.
+            setSavedRouteCount(0);
+
+            void (async () => {
+                try {
+                    const { loadSavedTraces } = await import('../services/routeTracer');
+                    if (cancelled || thisRequest !== requestId || !isAuthIdentityScopeCurrent(scope)) {
+                        return;
+                    }
+                    setSavedRouteCount(loadSavedTraces(scope).length);
+
+                    const { syncSavedRoutes } = await import('../services/savedRoutesSync');
+                    if (cancelled || thisRequest !== requestId || !isAuthIdentityScopeCurrent(scope)) {
+                        return;
+                    }
+                    const merged = await syncSavedRoutes();
+                    if (cancelled || thisRequest !== requestId || !isAuthIdentityScopeCurrent(scope)) {
+                        return;
+                    }
+                    setSavedRouteCount(merged.length);
+                } catch {
+                    // Offline/import failure: retain the local count if it was
+                    // already recovered, otherwise the honest empty state.
+                }
+            })();
+        };
+
+        refresh(getAuthIdentityScope());
+        const unsubscribeIdentity = subscribeAuthIdentityScope((next) => refresh(next));
+        return () => {
+            cancelled = true;
+            requestId += 1;
+            unsubscribeIdentity();
+        };
+    }, []);
 
     // ── Anchor display ──
     // anchorRadius comes from `snapshot.swingRadius`, which is computed
@@ -941,6 +993,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             onNavigate('crew');
                         }}
                         badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                    />
+                    <ListDivider />
+                    <OfficeRow
+                        icon={<MapChartIcon color="#fbbf24" />}
+                        label="Saved Routes"
+                        status={savedRouteCount > 0 ? `${savedRouteCount} saved` : 'Open library'}
+                        statusColor={savedRouteCount > 0 ? '#fbbf24' : '#94a3b8'}
+                        onClick={() => {
+                            triggerHaptic('light');
+                            const scope = getAuthIdentityScope();
+                            requestSavedRoutesLibraryOpen(scope);
+                            if (isAuthIdentityScopeCurrent(scope)) {
+                                // `voyage` is the real top-level Plan tab.
+                                // The similarly named `route` view is a
+                                // Vessel sub-page and would light the wrong
+                                // bottom-nav destination.
+                                onNavigate('voyage');
+                            }
+                        }}
                     />
                 </div>
 

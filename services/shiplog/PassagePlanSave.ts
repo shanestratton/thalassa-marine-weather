@@ -200,7 +200,9 @@ async function queuePassageBatch(
 
 /**
  * Save a passage plan's route to the logbook as a "planned_route" voyage.
- * These entries show as suggested/uncharted tracks with restricted actions.
+ * These entries remain raw compatibility data for cast-off following,
+ * planned-vs-sailed comparison, and recovery in Plan's Saved Routes library.
+ * They are intentionally not presented as completed voyages in the Log.
  */
 export async function savePassagePlanToLogbook(inputPlan: import('../../types').VoyagePlan): Promise<string | null> {
     const operationScope = getAuthIdentityScope();

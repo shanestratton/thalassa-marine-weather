@@ -61,6 +61,10 @@ export function initialViewFromUrl(): string | null {
 export type TracerOpenAction =
     | { kind: 'paste' }
     | { kind: 'load-saved'; id: string }
+    /** Open a historical planned-route mirror from the Plan library. The
+     *  voyage id is resolved to exact geometry only after MapHub consumes this
+     *  identity-owned request. */
+    | { kind: 'load-logbook-route'; voyageId: string }
     | { kind: 'load-voyage'; choice: import('./shiplog/RoutesAndTracks').SeaVoyageChoice }
     /** Plot the NEXT leg of a trip: pin 1 pre-dropped + LOCKED at the
      *  previous leg's exact final coordinates (Shane 2026-07-17). */
@@ -79,6 +83,14 @@ let nextTracerRequestId = 0;
 let pendingTracerRequest: PendingTracerRequest | null = null;
 let approvedTracerRequest: PendingTracerRequest | null = null;
 const dispatchingTracerRequestIds: number[] = [];
+
+// ── Pending Saved Routes library request ─────────────────────────
+// Vessel's Passage Planning card navigates to the Plan tab and asks its
+// existing modal to open. The Plan component is normally not mounted at the
+// time of the tap, so this is a one-shot identity-owned intent rather than a
+// window event. It contains no route geometry, but even the fact that an
+// account has private routes belongs to the same auth-generation fence.
+let pendingSavedRoutesLibraryIdentity: AuthIdentityScope | null = null;
 
 function sameIdentity(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
     return left.key === right.key && left.generation === right.generation;
@@ -169,10 +181,29 @@ export function consumeTracerAction(): TracerOpenAction | null {
     return request.action;
 }
 
+/**
+ * Ask the next/current Plan front door to open its Saved Routes library.
+ * A delayed caller may pass the identity it began under; stale producers are
+ * ignored rather than relabelled as the currently active account.
+ */
+export function requestSavedRoutesLibraryOpen(expectedScope: AuthIdentityScope = getAuthIdentityScope()): void {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+    pendingSavedRoutesLibraryIdentity = expectedScope;
+}
+
+/** Consume the current identity's one-shot Saved Routes library intent. */
+export function consumeSavedRoutesLibraryOpen(): boolean {
+    const identity = pendingSavedRoutesLibraryIdentity;
+    if (!identity) return false;
+    pendingSavedRoutesLibraryIdentity = null;
+    return isAuthIdentityScopeCurrent(identity);
+}
+
 // These handoffs can contain private saved-route ids and voyage labels. The
 // auth store flips this fence before publishing the next user, so remove every
 // reference synchronously rather than waiting for a React consumer to remount.
 subscribeAuthIdentityScope(() => {
     pendingTracerRequest = null;
     approvedTracerRequest = null;
+    pendingSavedRoutesLibraryIdentity = null;
 });

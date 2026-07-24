@@ -2832,9 +2832,13 @@ export async function getOfflineEntries(): Promise<ShipLogEntry[]> {
 /**
  * Delete entries from offline queue by voyage ID.
  */
-export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<boolean> {
+export async function deleteVoyageFromOfflineQueue(
+    voyageId: string,
+    options: { cascadeLinkedPlan?: boolean } = {},
+): Promise<boolean> {
     const state = getQueueState();
     if (!voyageId) return false;
+    const cascadeLinkedPlan = options.cascadeLinkedPlan !== false;
     bumpVoyageEpoch(state, voyageId);
     try {
         return await withVoyageOperationLock(state, voyageId, async () => {
@@ -2883,7 +2887,13 @@ export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<bo
                 log.warn(`Voyage ${voyageId} queue cleanup remains pending`, error);
                 return true;
             }
-            const routeDay = plannedVoyageDay(voyageId);
+            // A Log-page voyage delete owns the linked Passage Planning
+            // lifecycle too, but Plan's recovered-route library must be able
+            // to discard only its historical ship_logs mirror. In that
+            // route-only mode, deliberately omit every cascade hint from the
+            // durable tombstone so later sync retries cannot delete a draft
+            // passage or abort an active one.
+            const routeDay = cascadeLinkedPlan ? plannedVoyageDay(voyageId) : null;
             const routeName = routeDay ? inferPlannedRouteName(queue, voyageId) : null;
             const plannedVoyageId = routeDay ? inferPlannedVoyageId(queue, voyageId) : null;
             if ((routeName && routeDay) || plannedVoyageId) {

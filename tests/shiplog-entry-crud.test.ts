@@ -11,6 +11,7 @@ import {
     getArchivedEntries,
     getAllEntriesForCareer,
     deleteVoyage,
+    deleteVoyageLogOnly,
     deleteEntry,
     importGPXVoyage,
     unarchiveVoyage,
@@ -384,6 +385,21 @@ describe('deleteVoyage', () => {
 
         await expect(deleteVoyage('planned_9999999999999999_bad')).resolves.toBe(true);
         expect(mockDeleteVoyageOffline).toHaveBeenCalledWith('planned_9999999999999999_bad');
+    });
+});
+
+describe('deleteVoyageLogOnly', () => {
+    it('uses a non-cascading tombstone while preserving durable cloud deletion', async () => {
+        mockAuthUser('user-1');
+
+        await expect(deleteVoyageLogOnly('planned_1750000000000_route')).resolves.toBe(true);
+        expect(mockDeleteVoyageOffline).toHaveBeenCalledWith('planned_1750000000000_route', {
+            cascadeLinkedPlan: false,
+        });
+        expect(mockAttemptVoyageCloudDeletion).toHaveBeenCalledWith(
+            'planned_1750000000000_route',
+            expect.objectContaining({ userId: 'user-1' }),
+        );
     });
 });
 

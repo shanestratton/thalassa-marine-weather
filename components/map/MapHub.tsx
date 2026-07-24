@@ -167,6 +167,7 @@ import {
     type SavedTrace,
 } from '../../services/routeTracer';
 import { consumeTracerOpenRequest, consumeTracerAction, peekTracerOpenRequest } from '../../services/deepLink';
+import { loadLogbookRouteForEditing } from '../../services/savedRouteLibrary';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 import {
     getAuthIdentityScope,
@@ -835,6 +836,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             } else if (action?.kind === 'load-voyage') {
                 setLegAnchor(null);
                 void loadVoyageAsTrace(action.choice, requestScope);
+            } else if (action?.kind === 'load-logbook-route') {
+                void loadLogbookRouteAsTrace(action.voyageId, requestScope);
             } else if (action?.kind === 'load-saved') {
                 const t = loadSavedTraces().find((x) => x.id === action.id);
                 if (t && t.points.length >= 2) {
@@ -1694,10 +1697,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                 else if (result === 'toolarge') flashTraceFeedback('Saved here — over 200 pins, too long to sync');
                 else if (result === 'error') flashTraceFeedback('Saved here — cloud sync will retry later');
             });
-            // Suggested-route mirror (Shane 2026-07-15: "when we save a
-            // route, it should automatically save as a suggested route in
-            // the log page") — the same planned_% logbook write Sail does,
-            // minus the follow. Background under a JS deadline; the
+            // Planned-route compatibility mirror — the same planned_%
+            // logbook write Sail does, minus the follow. It powers cast-off
+            // choices, planned-vs-sailed comparison, and legacy recovery in
+            // Plan's Saved Routes library; it is no longer a factual Log
+            // voyage card. Background under a JS deadline; the
             // label+day duplicate guard makes same-day re-saves quiet
             // no-ops instead of twins.
             void (async () => {
@@ -2359,6 +2363,45 @@ export const MapHub: React.FC<MapHubProps> = ({
             flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
         },
         [flashTraceFeedback, rebaseHistoryRef, setCapturedCoords],
+    );
+    // Historical planned-route mirror → editable tracer. Unlike sailed-voyage
+    // imports, this must keep the exact stored curve: simplifying a planned
+    // route can move it across a depth contour, mark or headland.
+    const loadLogbookRouteAsTrace = useCallback(
+        async (voyageId: string, expectedScope: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+            triggerHaptic('medium');
+            flashTraceFeedback('Loading saved route…');
+
+            const route = await loadLogbookRouteForEditing(voyageId, expectedScope);
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+            if (!route) {
+                flashTraceFeedback('Could not load that route — try again online');
+                return;
+            }
+
+            setLegAnchor(null);
+            setSelectedPin(null);
+            setOverwriteArm(null);
+            setShowSavedTraces(false);
+            rebaseHistoryRef.current = true;
+            setCapturedCoords(route.points);
+            setTraceName(route.name);
+            setSavedTraces(loadSavedTraces(expectedScope));
+
+            const fit = () => mapRef.current && fitTraceBounds(mapRef.current, route.points);
+            if (mapRef.current) {
+                if (isAuthIdentityScopeCurrent(expectedScope)) fit();
+            } else {
+                const timer = window.setTimeout(() => {
+                    tracerHandoffTimersRef.current.delete(timer);
+                    if (isAuthIdentityScopeCurrent(expectedScope)) fit();
+                }, 1_200);
+                tracerHandoffTimersRef.current.add(timer);
+            }
+            flashTraceFeedback(`Opened "${route.name}" from Log — Save to keep it here`);
+        },
+        [flashTraceFeedback, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
     );
     // ── Route Tracer validation (lives below the settings declaration —
     // the dep arrays read settings.vessel at render time) ──

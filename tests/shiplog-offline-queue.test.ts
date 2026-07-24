@@ -502,6 +502,32 @@ describe('deleteVoyageFromOfflineQueue', () => {
         });
     });
 
+    it('omits linked-passage cascade metadata for a route-only deletion', async () => {
+        const voyageId = 'planned_1750000000000_route_only';
+        await queueOfflineEntry({
+            voyageId,
+            linkedPlanId: 'active-passage-must-survive',
+            waypointName: 'Brisbane',
+            timestamp: '2025-06-15T00:00:00.000Z',
+        });
+        await queueOfflineEntry({
+            voyageId,
+            linkedPlanId: 'active-passage-must-survive',
+            waypointName: 'Moreton',
+            timestamp: '2025-06-15T01:00:00.000Z',
+        });
+
+        await deleteVoyageFromOfflineQueue(voyageId, { cascadeLinkedPlan: false });
+
+        const tombstoneKey = authScopedStorageKey('ship_log_deleted_voyages', getAuthIdentityScope());
+        const stone = JSON.parse(store[tombstoneKey])[voyageId];
+        expect(stone).not.toHaveProperty('planned_route_name');
+        expect(stone).not.toHaveProperty('planned_route_day');
+        expect(stone).not.toHaveProperty('planned_voyage_id');
+        expect(stone).not.toHaveProperty('cascade_link_unavailable_at');
+        expect(await getOfflineEntries()).toEqual([]);
+    });
+
     it('durably accepts an idempotent delete even when no local entries remain', async () => {
         const deleted = await deleteVoyageFromOfflineQueue('nonexistent');
         expect(deleted).toBe(true);
