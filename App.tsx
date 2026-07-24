@@ -898,7 +898,11 @@ const App: React.FC = () => {
                                 className="absolute z-[601] pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
                                 style={{
                                     top: 'calc(env(safe-area-inset-top) + 8px)',
-                                    left: '16px',
+                                    // The zoom readout now shares this top row.
+                                    // Keep the offline indicator beside it rather
+                                    // than allowing the two left-side pills to
+                                    // overlap on a chart with no signal.
+                                    left: '88px',
                                 }}
                                 title="Offline — using cached charts"
                                 aria-label="Offline"
