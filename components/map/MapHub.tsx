@@ -185,6 +185,7 @@ import {
     CHARTS_FAB_CATEGORY_VISIBLE,
     COURSE_FRAME_VISIBLE,
     NEAR_DIRECT_CAP,
+    OFFLINE_AREA_FAB_VISIBLE,
     SAIL_IT_BUTTON_VISIBLE,
     TIDE_ADOPT_FACTOR,
     TRACE_CLUSTER_SPAN_M,
@@ -7137,39 +7138,40 @@ export const MapHub: React.FC<MapHubProps> = ({
                 </Suspense>
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
-                    Below the ℹ button on the right rail. Opens a modal that
-                    pre-caches raster map tiles (OSM + OpenSeaMap) for the
-                    current view, routed through the boat Pi if available.
-                    Hidden while TRACING (routing-page declutter, 2026-07-17). */}
+                    The FAB is parked behind OFFLINE_AREA_FAB_VISIBLE while
+                    the modal remains wired for the offline recovery card.
+                    Flip the flag to restore the Chart-page entry point. */}
                 {!embedded && !pickerMode && !isPinView && !planningSurface && (
                     <>
-                        <button
-                            onClick={() => {
-                                triggerHaptic('light');
-                                setShowOfflineArea(true);
-                            }}
-                            // Right-rail column — sits at top-[128px], directly below the
-                            // SysStatus button. Above the Radial Helm FAB (top-[192px]) so
-                            // opening the radial menu doesn't fan upward into the top-center
-                            // mode chip.
-                            className="absolute z-[700] top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                            aria-label="Download offline map area"
-                            title="Download offline area"
-                        >
-                            <svg
-                                className="w-5 h-5 text-sky-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.8}
+                        {OFFLINE_AREA_FAB_VISIBLE && (
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setShowOfflineArea(true);
+                                }}
+                                // Right-rail column — sits at top-[128px], directly below the
+                                // SysStatus button. Above the Radial Helm FAB (top-[192px]) so
+                                // opening the radial menu doesn't fan upward into the top-center
+                                // mode chip.
+                                className="absolute z-[700] top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                                aria-label="Download offline map area"
+                                title="Download offline area"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M12 3v12m0 0l-4-4m4 4l4-4M4.5 17.25V19.5A1.5 1.5 0 006 21h12a1.5 1.5 0 001.5-1.5v-2.25"
-                                />
-                            </svg>
-                        </button>
+                                <svg
+                                    className="w-5 h-5 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.8}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M12 3v12m0 0l-4-4m4 4l4-4M4.5 17.25V19.5A1.5 1.5 0 006 21h12a1.5 1.5 0 001.5-1.5v-2.25"
+                                    />
+                                </svg>
+                            </button>
+                        )}
                         <Suspense fallback={null}>
                             <OfflineAreaModal
                                 isOpen={showOfflineArea}
