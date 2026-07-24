@@ -37,6 +37,19 @@ export interface PassageHandoffDetail {
 const pendingByIdentity = new Map<string, PassageHandoffDetail>();
 
 /**
+ * Record a request before changing pages, without broadcasting it to any
+ * MapHub that still belongs to the page being left. The destination MapHub can
+ * therefore render its very first frame as a planning surface.
+ */
+export function stagePassageRequest(
+    detail: PassageHandoffDetail,
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
+): void {
+    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+    pendingByIdentity.set(expectedScope.key, detail);
+}
+
+/**
  * Record a passage request and broadcast it. Already-mounted MapHubs
  * react to the event immediately; not-yet-mounted ones pick the
  * request up via peekPassageRequest() in their mount effect.
@@ -45,8 +58,8 @@ export function requestPassageMode(
     detail: PassageHandoffDetail,
     expectedScope: AuthIdentityScope = getAuthIdentityScope(),
 ): void {
+    stagePassageRequest(detail, expectedScope);
     if (!isAuthIdentityScopeCurrent(expectedScope)) return;
-    pendingByIdentity.set(expectedScope.key, detail);
     try {
         window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
     } catch {

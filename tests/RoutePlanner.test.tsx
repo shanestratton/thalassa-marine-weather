@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const routePlannerState = vi.hoisted(() => ({
     isMapOpen: false,
     setIsMapOpen: vi.fn(),
+    voyagePlan: null as Record<string, unknown> | null,
 }));
 
 vi.mock('../utils/createLogger', () => ({
@@ -48,7 +49,7 @@ vi.mock('../hooks/useVoyageForm', () => ({
         handleOriginLocation: vi.fn(),
         handleMapSelect: vi.fn(),
         openMap: vi.fn(),
-        voyagePlan: null,
+        voyagePlan: routePlannerState.voyagePlan,
         vessel: null,
         isPro: true,
         mapboxToken: 'test-token',
@@ -62,7 +63,11 @@ vi.mock('../context/UIContext', () => ({
     }),
 }));
 vi.mock('../components/map/MapHub', () => ({
-    MapHub: () => <div data-testid="map-hub">Map</div>,
+    MapHub: (props: { cleanPlanningMap?: boolean }) => (
+        <div data-testid="map-hub" data-clean-planning-map={String(props.cleanPlanningMap === true)}>
+            Map
+        </div>
+    ),
 }));
 vi.mock('../components/Icons', () => ({
     MapPinIcon: () => <span>📍</span>,
@@ -72,6 +77,7 @@ vi.mock('../components/Icons', () => ({
     LockIcon: () => <span>🔒</span>,
     CompassIcon: () => <span>🧭</span>,
     CalendarIcon: () => <span>📅</span>,
+    CalendarGridIcon: () => <span>🗓️</span>,
     ClockIcon: () => <span>🕐</span>,
 }));
 
@@ -81,6 +87,7 @@ describe('RoutePlanner', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         routePlannerState.isMapOpen = false;
+        routePlannerState.voyagePlan = null;
     });
 
     it('renders without crashing', () => {
@@ -133,6 +140,27 @@ describe('RoutePlanner', () => {
             </>,
         );
         expect(opener).toHaveFocus();
+    });
+
+    it('marks both planner-owned map surfaces as clean planning maps', () => {
+        routePlannerState.isMapOpen = true;
+        routePlannerState.voyagePlan = {
+            origin: 'Brisbane',
+            destination: 'Moreton Island',
+            originCoordinates: { lat: -27.4698, lon: 153.0251 },
+            destinationCoordinates: { lat: -27.163, lon: 153.442 },
+            distanceApprox: '24 NM',
+            durationApprox: '4h',
+            waypoints: [],
+        };
+
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+
+        const maps = screen.getAllByTestId('map-hub');
+        expect(maps).toHaveLength(2);
+        for (const map of maps) {
+            expect(map).toHaveAttribute('data-clean-planning-map', 'true');
+        }
     });
 
     it('contains the route picker, closes it with Escape, and restores focus', async () => {

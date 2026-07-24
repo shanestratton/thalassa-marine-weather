@@ -266,6 +266,7 @@ export function useTideStationLayer(
     const moveEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastFetchCenter = useRef<{ lat: number; lon: number } | null>(null);
     const stationsCache = useRef<TideStation[]>([]);
+    const loadGenerationRef = useRef(0);
 
     const closePopup = useCallback(() => {
         if (popupRef.current) {
@@ -319,6 +320,7 @@ export function useTideStationLayer(
     const loadForViewport = useCallback(
         async (map: mapboxgl.Map) => {
             if (map.getZoom() < MIN_ZOOM) return;
+            const generation = loadGenerationRef.current;
 
             const center = map.getCenter();
 
@@ -334,6 +336,7 @@ export function useTideStationLayer(
             lastFetchCenter.current = { lat: center.lat, lon: center.lng };
 
             const stations = await fetchNearbyStations(center.lat, center.lng);
+            if (generation !== loadGenerationRef.current) return;
             log.info(
                 `[load] Found ${stations.length} stations near ${center.lat.toFixed(2)}, ${center.lng.toFixed(2)}`,
             );
@@ -347,6 +350,10 @@ export function useTideStationLayer(
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
+        // Invalidate any viewport request started by the previous visibility
+        // session. A response that lands while Plan owns the map must not
+        // update a newly-restored Chart source later.
+        loadGenerationRef.current += 1;
 
         if (visible) {
             if (!map.getSource(SOURCE_ID)) {
@@ -354,6 +361,17 @@ export function useTideStationLayer(
                     type: 'geojson',
                     data: { type: 'FeatureCollection', features: [] },
                 });
+            }
+            // The source is recreated after Plan suppression. Restore the last
+            // successful station set immediately; otherwise the <50 km fetch
+            // guard can leave an enabled Tide Stations layer permanently empty
+            // until the skipper pans a long way.
+            if (stationsCache.current.length > 0) {
+                updateMapSource(stationsCache.current);
+            } else {
+                // No data to seed means any remembered centre belongs to a
+                // request that never produced usable output. Allow a refetch.
+                lastFetchCenter.current = null;
             }
 
             // Outer glow
@@ -420,6 +438,7 @@ export function useTideStationLayer(
             if (map.getLayer(LAYER_GLOW)) map.removeLayer(LAYER_GLOW);
             if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
             setStationCount(0);
+            setLoading(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapRef, mapReady, visible]);

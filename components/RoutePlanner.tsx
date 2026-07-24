@@ -36,7 +36,7 @@ import { PlanOnWebHint } from './passage/PlanOnWebHint';
 // the chart plotting. The old origin/destination/date form + calculate flow is
 // PARKED behind this flag (wiring intact) — flip to true to resurrect.
 const LEGACY_PLANNER_FORM = false;
-import { requestPassageMode, type PassageHandoffDetail } from '../services/passageHandoff';
+import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } from '../services/passageHandoff';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
@@ -362,6 +362,10 @@ export const RoutePlanner: React.FC<{
             }
             log.info('[AutoNav] Route calculated, switching to main map', { departureName, arrivalName });
             const operationScope = getAuthIdentityScope();
+            // Stage before navigation so the new MapHub's first render already
+            // knows it is a clean passage-planning surface. Broadcast after the
+            // transition as before for an already-mounted destination map.
+            stagePassageRequest(detail, operationScope);
             setPage('map');
             // requestPassageMode records a STICKY pending request as well as
             // dispatching the event — a MapHub whose lazy chunk is still
@@ -409,6 +413,7 @@ export const RoutePlanner: React.FC<{
                             <MapHub
                                 mapboxToken={mapboxToken}
                                 hideTracer
+                                cleanPlanningMap
                                 pickerMode={!!mapSelectionTarget}
                                 pickerLabel={
                                     mapSelectionTarget
@@ -843,6 +848,7 @@ export const RoutePlanner: React.FC<{
                                         }
                                         log.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
                                         const operationScope = getAuthIdentityScope();
+                                        stagePassageRequest(detail, operationScope);
                                         setPage('map');
                                         // Sticky request — survives the map view's lazy mount
                                         // (see AutoNav above / services/passageHandoff).
@@ -864,6 +870,7 @@ export const RoutePlanner: React.FC<{
                             mapboxToken={mapboxToken}
                             pickerMode={false}
                             embedded
+                            cleanPlanningMap
                             initialZoom={5}
                             center={
                                 voyagePlan.originCoordinates

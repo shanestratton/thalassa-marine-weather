@@ -160,6 +160,7 @@ export function useWeatherLayers(
      */
     const EMPTY_LAYERS = useMemo(() => new Set<WeatherLayer>(), []);
     const activeLayers = planMode ? EMPTY_LAYERS : userLayers;
+    const userKey = [...userLayers].sort().join(',');
 
     // Toggle a layer on/off. 'none' clears all layers.
     const toggleLayer = useCallback((layer: WeatherLayer) => {
@@ -1170,16 +1171,19 @@ export function useWeatherLayers(
         // rule of thumb. Keep the current map centre so we don't yank the
         // user away from wherever they were already looking; only ease the
         // zoom if the user isn't already there or deeper.
-        if (layerCount > 0 && prevLayerCountRef.current === 0) {
+        if (!planMode && layerCount > 0 && prevLayerCountRef.current === 0) {
             const currentZoom = map.getZoom();
             const centre = map.getCenter();
             if (currentZoom < 4.5) {
                 map.flyTo({ center: [centre.lng, centre.lat], zoom: 5, duration: 800 });
             }
         }
-        prevLayerCountRef.current = layerCount;
+        // Suppression is presentation-only. Remember the user's real layer
+        // count while Plan is open so returning to Chart is not mistaken for a
+        // fresh activation (which used to trigger an unwanted camera jump).
+        prevLayerCountRef.current = planMode ? userLayers.size : layerCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapReady, embedded, activeKey]);
+    }, [mapReady, embedded, activeKey, userKey, planMode]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {

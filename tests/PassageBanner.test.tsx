@@ -5,7 +5,7 @@
  * This is the newly extracted component from MapHub.
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../utils/createLogger', () => ({
@@ -24,6 +24,7 @@ vi.mock('../services/gpxService', () => ({
 }));
 
 import { PassageBanner } from '../components/map/PassageBanner';
+import { clearPassageRequest, peekPassageRequest, stagePassageRequest } from '../services/passageHandoff';
 
 const baseProps = {
     passage: {
@@ -33,6 +34,7 @@ const baseProps = {
         routeAnalysis: { totalDistance: 520, estimatedDuration: 72 },
         departureTime: '2026-03-25T08:00:00Z',
         setShowPassage: vi.fn(),
+        clearRoute: vi.fn(),
         isoResultRef: { current: null },
         turnWaypointsRef: { current: [] },
         speed: 6,
@@ -45,7 +47,10 @@ const baseProps = {
 };
 
 describe('PassageBanner', () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+        vi.clearAllMocks();
+        clearPassageRequest();
+    });
 
     it('renders without crashing', () => {
         const { container } = render(<PassageBanner {...baseProps} />);
@@ -78,6 +83,32 @@ describe('PassageBanner', () => {
             const { rerender } = render(<PassageBanner {...baseProps} />);
             rerender(<PassageBanner {...baseProps} />);
         }).not.toThrow();
+    });
+
+    it('clears the sticky passage request before hiding the planner', () => {
+        stagePassageRequest({
+            departure: { lat: -27.5, lon: 153, name: 'Brisbane' },
+            arrival: { lat: -20, lon: 148.7, name: 'Airlie Beach' },
+        });
+        const clearRoute = vi.fn(() => clearPassageRequest());
+        const setShowPassage = vi.fn();
+
+        render(
+            <PassageBanner
+                {...baseProps}
+                passage={{
+                    ...baseProps.passage,
+                    clearRoute,
+                    setShowPassage,
+                }}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Close passage planner' }));
+
+        expect(clearRoute).toHaveBeenCalledOnce();
+        expect(setShowPassage).toHaveBeenCalledWith(false);
+        expect(clearRoute.mock.invocationCallOrder[0]).toBeLessThan(setShowPassage.mock.invocationCallOrder[0]);
+        expect(peekPassageRequest()).toBeNull();
     });
 
     // ── Routing notice band (field bug 2026-06-12: refusals were
