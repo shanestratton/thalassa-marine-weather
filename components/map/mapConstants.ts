@@ -110,9 +110,10 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
  * The framing zoom each forecast overlay claims when switched on.
  *
  * PER LAYER, because these fields are not read at the same scale. Wind opens
- * at z5 for a broad regional read (Shane 2026-07-24); its controller
- * deliberately uses the wide-viewport grid at that scale. Currents and rain
- * retain the tighter z7.5 local frame.
+ * at z5 for a broad regional read (Shane 2026-07-24); rain uses the same
+ * regional frame (Shane 2026-07-25). Its controller deliberately uses the
+ * wide-viewport grid at that scale. Currents retain the tighter z7.5 local
+ * frame.
  *
  * PRESSURE is the exception and gets 2.0 (Shane 2026-07-22). Isobars are a
  * SYNOPTIC read: the useful question is where the high and the low sit and
@@ -132,7 +133,7 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
     wind: 5,
     velocity: 5,
     currents: 7.5,
-    rain: 7.5,
+    rain: 5,
     pressure: 2.0,
 };
 
