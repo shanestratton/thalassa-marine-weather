@@ -13,6 +13,8 @@ interface NavButtonProps {
     icon: React.ReactNode;
     /** Button label text */
     label: string;
+    /** Longer accessible name when the compact visual label is an acronym. */
+    ariaLabel?: string;
     /** Whether this tab is currently active */
     active: boolean;
     /** Click handler */
@@ -26,14 +28,14 @@ interface NavButtonProps {
  * Neon "New Wave" aesthetic with electric cyan glow.
  * Minimum 44×44 touch target for vessel movement/pitching safety.
  */
-export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onClick, badge }) => (
+export const NavButton: React.FC<NavButtonProps> = ({ icon, label, ariaLabel, active, onClick, badge }) => (
     <button
         onClick={() => {
             if (!active) triggerHaptic('light');
             onClick();
         }}
         onTouchStart={() => {}} // Forces immediate touch response
-        aria-label={`Navigate to ${label}`}
+        aria-label={ariaLabel ?? `Navigate to ${label}`}
         aria-current={active ? 'page' : undefined}
         role="tab"
         aria-selected={active}

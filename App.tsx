@@ -1049,17 +1049,18 @@ const App: React.FC = () => {
                                         <MapIcon className="w-7 h-7" />
                                     </div>
                                 }
-                                label="Charts"
+                                label="OBS"
+                                ariaLabel="Navigate to Charts and observations"
                                 // Plotting lives on the map surface but BELONGS to
                                 // Plan: "Slide to Start Plotting" does setPage('map'),
-                                // which lit Charts and made the tab bar contradict the
+                                // which lit OBS and made the tab bar contradict the
                                 // journey the skipper is on (Shane 2026-07-18). While
                                 // the tracer is up the highlight stays on Plan.
                                 active={currentView === 'map' && !tracerActive}
                                 onClick={() => {
                                     mapFromWxRef.current = false;
                                     // Already ON the map while plotting, so setPage
-                                    // alone is inert — Charts was the one tab that
+                                    // alone is inert — OBS was the one tab that
                                     // could not be reached from the tracer. Close the
                                     // tracer instead; MapHub keeps the pins and offers
                                     // the 🧭 pill to resume, so this costs nothing.
@@ -1077,7 +1078,7 @@ const App: React.FC = () => {
                                 inline to #67E8F9 (cyan-300) so the
                                 SVG's currentColor stroke matches the
                                 cyan hue baked into the PNG nav icons
-                                (Glass, Charts, Vessel). */}
+                                (Glass, OBS, Vessel). */}
                             <NavButton
                                 icon={
                                     <div
@@ -1095,7 +1096,7 @@ const App: React.FC = () => {
                                 // Stays lit through the whole plan journey — the
                                 // front door (voyage) AND the plotting surface the
                                 // slide hands you to (map + tracer). Mirror of the
-                                // Charts gate above; the two can't both be lit.
+                                // OBS gate above; the two can't both be lit.
                                 active={currentView === 'voyage' || (currentView === 'map' && tracerActive)}
                                 onClick={() => setPage('voyage')}
                             />
