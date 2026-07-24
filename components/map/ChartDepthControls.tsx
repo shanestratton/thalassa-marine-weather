@@ -127,7 +127,16 @@ export function ChartDepthControls({
                         onToggleChartKey();
                     }}
                     aria-label="What the chart colours and numbers mean"
-                    className="absolute bottom-[calc(17rem+env(safe-area-inset-bottom))] left-1/2 z-[9980] flex min-h-[44px] -translate-x-1/2 items-center whitespace-nowrap rounded-md bg-slate-900/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 active:scale-95 sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))]"
+                    // The Plan map keeps its working controls in one left rail:
+                    // tracer → chart key → detail scrubber. When the tracer is
+                    // not active, the key simply occupies the scrubber's rail
+                    // position rather than floating in the map centre.
+                    className="absolute left-3 z-[9996] flex min-h-[44px] w-72 items-center justify-center whitespace-nowrap rounded-xl border border-white/10 bg-slate-900/85 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 shadow-lg backdrop-blur-sm active:scale-95"
+                    style={{
+                        bottom: plotting
+                            ? 'calc(8.8rem + env(safe-area-inset-bottom))'
+                            : 'calc(5.4rem + env(safe-area-inset-bottom))',
+                    }}
                 >
                     {tideDepthMode && tideOffsetInfo
                         ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`

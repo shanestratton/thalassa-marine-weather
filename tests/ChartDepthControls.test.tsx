@@ -118,6 +118,14 @@ describe('ChartDepthControls', () => {
         expect(screen.queryByText(/coverage/)).not.toBeInTheDocument();
     });
 
+    it('docks the Plan chart-key trigger on the shared left rail', () => {
+        render(<ChartDepthControls {...props({ surfaceVisible: false, chartKeyVisible: true, plotting: true })} />);
+
+        const key = screen.getByRole('button', { name: /chart colours/ });
+        expect(key).toHaveClass('left-3', 'w-72', 'z-[9996]');
+        expect(key).toHaveStyle({ bottom: 'calc(8.8rem + env(safe-area-inset-bottom))' });
+    });
+
     it('hides the chart key on the browsing chart while leaving chart controls intact', () => {
         render(<ChartDepthControls {...props({ chartKeyVisible: false })} />);
 
