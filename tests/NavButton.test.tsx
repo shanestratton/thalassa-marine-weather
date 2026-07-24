@@ -18,6 +18,20 @@ describe('NavButton', () => {
         expect(screen.getByText('Wx')).toBeInTheDocument();
     });
 
+    it('supports a descriptive accessible name for compact labels', () => {
+        render(
+            <NavButton
+                icon={<span>🗺</span>}
+                label="OBS"
+                ariaLabel="Navigate to Charts and observations"
+                active={false}
+                onClick={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByRole('tab', { name: 'Navigate to Charts and observations' })).toBeInTheDocument();
+    });
+
     it('renders the icon', () => {
         render(<NavButton icon={<span data-testid="icon">🗺</span>} label="Map" active={false} onClick={vi.fn()} />);
         expect(screen.getByTestId('icon')).toBeInTheDocument();
