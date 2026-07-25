@@ -10,6 +10,7 @@ vi.mock('../utils/createLogger', () => ({
 import { useWeatherLayers } from '../components/map/useWeatherLayers';
 
 const STORAGE_KEY = 'thalassa_active_layers';
+const WIND_PARTICLES_STORAGE_KEY = 'thalassa_wind_particles_enabled';
 const LOCATION = { lat: -27.4698, lon: 153.0251 };
 const mapRef = { current: null } as MutableRefObject<mapboxgl.Map | null>;
 
@@ -68,5 +69,23 @@ describe('useWeatherLayers plan-mode boundary', () => {
         expect(sortedLayers(chart.result.current.activeLayers)).toEqual(['rain', 'wind']);
         expect(sortedLayers(chart.result.current.userLayers)).toEqual(['rain', 'wind']);
         expect(storedLayers()).toEqual(['rain', 'wind']);
+    });
+
+    it('persists particle motion independently of the selected wind layer', async () => {
+        const chart = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, false));
+
+        expect(chart.result.current.windParticlesEnabled).toBe(false);
+        act(() => {
+            chart.result.current.setWindParticlesEnabled(true);
+        });
+        await waitFor(() => expect(localStorage.getItem(WIND_PARTICLES_STORAGE_KEY)).toBe('1'));
+        expect(chart.result.current.windParticlesEnabled).toBe(true);
+        expect(sortedLayers(chart.result.current.userLayers)).toContain('wind');
+
+        act(() => {
+            chart.result.current.setWindParticlesEnabled(false);
+        });
+        await waitFor(() => expect(localStorage.getItem(WIND_PARTICLES_STORAGE_KEY)).toBe('0'));
+        expect(chart.result.current.windParticlesEnabled).toBe(false);
     });
 });

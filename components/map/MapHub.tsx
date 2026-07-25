@@ -5376,6 +5376,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
+                        particlesEnabled={weather.windParticlesEnabled}
                         windHour={weather.windHour}
                         windGrid={weather.windState.grid ?? undefined}
                     />

@@ -106,15 +106,24 @@ vi.mock('../utils/createLogger', () => ({
 interface MapboxHarness {
     container: HTMLDivElement;
     emit: (event: string) => void;
+    layers: Map<string, unknown>;
     listenerCount: (event: string) => number;
     listeners: Map<string, Set<MapHandler>>;
+    sources: Map<string, { options: unknown; updateImage: ReturnType<typeof vi.fn> }>;
     map: {
+        addLayer: ReturnType<typeof vi.fn>;
+        addSource: ReturnType<typeof vi.fn>;
         getCenter: ReturnType<typeof vi.fn>;
         getContainer: ReturnType<typeof vi.fn>;
+        getLayer: ReturnType<typeof vi.fn>;
+        getSource: ReturnType<typeof vi.fn>;
+        getStyle: ReturnType<typeof vi.fn>;
         getZoom: ReturnType<typeof vi.fn>;
         off: ReturnType<typeof vi.fn>;
         on: ReturnType<typeof vi.fn>;
         project: ReturnType<typeof vi.fn>;
+        removeLayer: ReturnType<typeof vi.fn>;
+        removeSource: ReturnType<typeof vi.fn>;
     };
 }
 
@@ -123,14 +132,41 @@ function createMapboxHarness(): MapboxHarness {
     container.dataset.testMapboxVelocity = 'true';
     document.body.appendChild(container);
     const listeners = new Map<string, Set<MapHandler>>();
+    const sources = new Map<string, { options: unknown; updateImage: ReturnType<typeof vi.fn> }>();
+    const layers = new Map<string, unknown>();
     const map = {
+        addLayer: vi.fn(),
+        addSource: vi.fn(),
         getCenter: vi.fn(() => ({ lat: -27, lng: 153 })),
         getContainer: vi.fn(() => container),
+        getLayer: vi.fn(),
+        getSource: vi.fn(),
+        getStyle: vi.fn(() => ({ layers: [{ id: 'place-label', type: 'symbol' }] })),
         getZoom: vi.fn(() => 5),
         off: vi.fn(),
         on: vi.fn(),
         project: vi.fn(() => ({ x: 100, y: 80 })),
+        removeLayer: vi.fn(),
+        removeSource: vi.fn(),
     };
+    map.addSource.mockImplementation((id: string, options: unknown) => {
+        sources.set(id, { options, updateImage: vi.fn() });
+        return map;
+    });
+    map.getSource.mockImplementation((id: string) => sources.get(id));
+    map.addLayer.mockImplementation((layer: { id: string }) => {
+        layers.set(layer.id, layer);
+        return map;
+    });
+    map.getLayer.mockImplementation((id: string) => layers.get(id));
+    map.removeLayer.mockImplementation((id: string) => {
+        layers.delete(id);
+        return map;
+    });
+    map.removeSource.mockImplementation((id: string) => {
+        sources.delete(id);
+        return map;
+    });
     map.on.mockImplementation((event: string, handler: MapHandler) => {
         const handlers = listeners.get(event) ?? new Set<MapHandler>();
         handlers.add(handler);
@@ -149,9 +185,11 @@ function createMapboxHarness(): MapboxHarness {
         emit: (event: string) => {
             for (const handler of [...(listeners.get(event) ?? [])]) handler();
         },
+        layers,
         listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
         listeners,
         map,
+        sources,
     };
 }
 
@@ -180,6 +218,24 @@ function invalidGrid(): WindGrid {
         v: [],
         speed: [],
         totalHours: 0,
+    };
+}
+
+function heatmapGrid(): WindGrid {
+    return {
+        u: [new Float32Array([2, 4, 6, 8]), new Float32Array([4, 6, 8, 10])],
+        v: [new Float32Array([1, 3, 5, 7]), new Float32Array([3, 5, 7, 9])],
+        speed: [new Float32Array([2, 4, 6, 8]), new Float32Array([4, 6, 8, 10])],
+        width: 2,
+        height: 2,
+        lats: [-28, -26],
+        lons: [152, 154],
+        north: -26,
+        south: -28,
+        west: 152,
+        east: 154,
+        totalHours: 2,
+        refTime: 'heatmap',
     };
 }
 
@@ -327,5 +383,117 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
         expect(secondLeafletMap.remove).toHaveBeenCalledOnce();
         expect(mapbox.container.children).toHaveLength(0);
         expect(mocks.logger.error).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the particle engine fully unmounted until animation is enabled', async () => {
+        const mapbox = createMapboxHarness();
+        const mapCallsBefore = mocks.leaflet.map.mock.calls.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                particlesEnabled={false}
+                windGrid={windGrid(18, 'icon')}
+                windHour={0}
+            />,
+        );
+
+        expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore);
+        expect(mapbox.listeners.size).toBe(0);
+        expect(mapbox.container.children).toHaveLength(0);
+
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                particlesEnabled
+                windGrid={windGrid(18, 'icon')}
+                windHour={0}
+            />,
+        );
+
+        await waitFor(() => expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore + 1));
+        const leafletMap = mocks.leafletMaps[mapCallsBefore];
+        expect(mapbox.listeners.size).toBeGreaterThan(0);
+
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                particlesEnabled={false}
+                windGrid={windGrid(18, 'icon')}
+                windHour={0}
+            />,
+        );
+
+        await waitFor(() => expect(leafletMap.remove).toHaveBeenCalledOnce());
+        expect(mapbox.listeners.size).toBe(0);
+        expect(mapbox.container.children).toHaveLength(0);
+    });
+
+    it('keeps the static wind field rendered and updates it in place while particles are off', async () => {
+        const canvasContext = () =>
+            ({
+                createImageData: (width: number, height: number) => ({
+                    data: new Uint8ClampedArray(width * height * 4),
+                }),
+                drawImage: vi.fn(),
+                imageSmoothingEnabled: false,
+                imageSmoothingQuality: 'low',
+                putImageData: vi.fn(),
+                scale: vi.fn(),
+                translate: vi.fn(),
+            }) as unknown as CanvasRenderingContext2D;
+        const getContext = vi
+            .spyOn(HTMLCanvasElement.prototype, 'getContext')
+            .mockImplementation(() => canvasContext());
+        const toDataUrl = vi
+            .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+            .mockReturnValue('data:image/png;base64,wind-field');
+
+        try {
+            const mapbox = createMapboxHarness();
+            const mapCallsBefore = mocks.leaflet.map.mock.calls.length;
+            const view = render(
+                <MapboxVelocityOverlay
+                    mapboxMap={mapbox.map as never}
+                    visible
+                    particlesEnabled={false}
+                    windGrid={heatmapGrid()}
+                    windHour={0}
+                />,
+            );
+
+            await waitFor(() => expect(mapbox.sources.get('wind-heatmap-src')).toBeDefined());
+            expect(mapbox.layers.get('wind-heatmap-layer')).toMatchObject({
+                id: 'wind-heatmap-layer',
+                type: 'raster',
+            });
+            expect(mapbox.map.addLayer).toHaveBeenCalledWith(expect.any(Object), 'place-label');
+            expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore);
+
+            const source = mapbox.sources.get('wind-heatmap-src');
+            if (!source) throw new Error('Expected the static wind source');
+            const sourceAdds = mapbox.map.addSource.mock.calls.length;
+            view.rerender(
+                <MapboxVelocityOverlay
+                    mapboxMap={mapbox.map as never}
+                    visible
+                    particlesEnabled={false}
+                    windGrid={heatmapGrid()}
+                    windHour={1}
+                />,
+            );
+
+            await waitFor(() => expect(source.updateImage).toHaveBeenCalledOnce());
+            expect(mapbox.map.addSource).toHaveBeenCalledTimes(sourceAdds);
+
+            view.unmount();
+            expect(mapbox.sources.size).toBe(0);
+            expect(mapbox.layers.size).toBe(0);
+        } finally {
+            getContext.mockRestore();
+            toDataUrl.mockRestore();
+        }
     });
 });
