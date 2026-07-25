@@ -33,6 +33,11 @@ import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
 import { TIER_INFO } from './services/SubscriptionService';
 import { SafeImage } from './components/ui/SafeImage';
+import {
+    GLASS_BRAND_ROW_HEIGHT_PX,
+    GLASS_TOP_CARD_GAP_PX,
+    getGlassTopLayout,
+} from './components/dashboard/glassLayout';
 
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
@@ -353,6 +358,7 @@ const App: React.FC = () => {
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     const showHeader = !['map', 'warnings'].includes(currentView);
     const isDashboard = currentView === 'dashboard';
+    const glassTopLayout = getGlassTopLayout(isMobileLandscape);
 
     // --- AUTH: deferred to action-time, NOT boot-time ---
     // The previous hard gate (boot → SignInScreen) traded a real UX cost
@@ -508,11 +514,14 @@ const App: React.FC = () => {
                 {showHeader && (
                     <header
                         className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-[105] ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} pt-[max(1rem,env(safe-area-inset-top))]`}
-                        style={{ paddingBottom: isDashboard ? 0 : undefined, gap: '8px' }}
+                        style={{ paddingBottom: isDashboard ? 0 : undefined, gap: `${GLASS_TOP_CARD_GAP_PX}px` }}
                     >
                         {/* Logo row — same style on all pages */}
-                        <div className="flex items-start justify-between pointer-events-auto">
-                            <div className="flex items-center space-x-2">
+                        <div
+                            className="flex items-start justify-between pointer-events-auto shrink-0"
+                            style={isDashboard ? { height: `${GLASS_BRAND_ROW_HEIGHT_PX}px` } : undefined}
+                        >
+                            <div className="flex min-w-0 items-center space-x-2">
                                 {/* Bumped 40 → 46 → 51 → 64 px (2026-05-19).
                                     Combined with the app-icon SVG mark-scale
                                     bump (0.49 → 0.55), the in-app header now
@@ -525,9 +534,9 @@ const App: React.FC = () => {
                                     height={64}
                                     className="w-[64px] h-[64px] rounded-lg"
                                 />
-                                <div>
+                                <div className="min-w-0">
                                     <div className="flex items-center gap-1">
-                                        <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                                        <h2 className="truncate text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
                                             Thalassa
                                         </h2>
                                         {settings.subscriptionTier && settings.subscriptionTier !== 'free' && (
@@ -542,15 +551,15 @@ const App: React.FC = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-[11px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md flex items-center gap-1.5">
-                                        The Sailor's Assistant
+                                    <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md">
+                                        <span className="min-w-0 flex-1 truncate">The Sailor&apos;s Assistant</span>
                                         {/* Subtle offline indicator — tiny amber wifi-slash next
                                             to the tagline, matching the chip already inside the
                                             Glass page's location pill. Replaces the loud
                                             full-width "NO SIGNAL" strip. */}
                                         {isOffline && (
                                             <span
-                                                className="inline-flex items-center gap-1 text-amber-400/80"
+                                                className="inline-flex shrink-0 items-center gap-1 text-amber-400/80"
                                                 title="Offline — using cached data"
                                                 aria-label="Offline"
                                             >
@@ -578,7 +587,7 @@ const App: React.FC = () => {
                             </div>
 
                             {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right */}
-                            <div className="flex items-center gap-2 pointer-events-auto">
+                            <div className="flex shrink-0 items-center gap-2 pointer-events-auto">
                                 {canUseBosunVoice && (
                                     <button
                                         onClick={() => setPage('voice')}
@@ -604,7 +613,8 @@ const App: React.FC = () => {
                         {/* Search bar — only shown on dashboard (non-registered views without explicit flag) */}
                         {!activeViewConfig && currentView !== 'map' && (
                             <div
-                                className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
+                                className={`flex w-full items-center gap-3 md:w-auto ${isDashboard ? '' : isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
+                                style={isDashboard ? { height: `${glassTopLayout.locationCardHeightPx}px` } : undefined}
                             >
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
