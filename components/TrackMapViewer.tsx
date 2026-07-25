@@ -961,7 +961,11 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
 
             {/* Map Container */}
             <div className="relative flex-1 min-h-0">
-                <div ref={mapRef} className="absolute inset-0" style={{ background: '#dce6ea' }} />
+                <div
+                    ref={mapRef}
+                    className="thalassa-log-leaflet-map absolute inset-0"
+                    style={{ background: '#dce6ea' }}
+                />
 
                 {/* Loading overlay — entries still hydrating, nothing on the map yet */}
                 {isTrackLoading && (

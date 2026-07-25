@@ -2981,6 +2981,17 @@ body,
 .tmv-deepwater img {
     filter: saturate(2.2) brightness(0.84) contrast(1.08);
 }
+
+/* Leaflet's upstream `plus-lighter` / `-webkit-optimize-contrast` tile
+   workarounds can turn a fractional iOS WebKit tile join into a bright,
+   ruler-straight horizontal seam across satellite imagery. Keep ordinary
+   interpolation and source compositing inside Ship's Log maps so both the
+   opaque satellite base and transparent seamark grid meet cleanly. */
+.thalassa-log-leaflet-map.leaflet-container img.leaflet-tile {
+    image-rendering: auto;
+    mix-blend-mode: normal;
+}
+
 @keyframes metric-swap-enter {
     from {
         opacity: 0;

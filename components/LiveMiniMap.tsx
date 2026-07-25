@@ -315,7 +315,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
         return (
             <div
                 ref={containerRef}
-                className={`w-full rounded-xl overflow-hidden border border-white/5 ${onTap ? 'cursor-pointer' : ''} ${className}`}
+                className={`thalassa-log-leaflet-map live-mini-map w-full rounded-xl overflow-hidden border border-white/5 ${onTap ? 'cursor-pointer' : ''} ${className}`}
                 style={{ height, background: '#dce6ea' }}
             />
         );
