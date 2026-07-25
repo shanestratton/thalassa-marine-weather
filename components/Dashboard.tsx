@@ -30,6 +30,7 @@ import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
+import { glassSafeTopOffset, getGlassTopLayout } from './dashboard/glassLayout';
 
 import { useSettings } from '../context/SettingsContext';
 // useWeather removed with the StalenessBanner — re-add if a new Glass-page
@@ -147,6 +148,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const isOffshore = offshore.isOffshore;
     const isExpanded =
         isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
+    const glassTopLayout = getGlassTopLayout(Boolean(props.isMobileLandscape));
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -831,11 +833,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         {/* MAIN CAROUSEL / GRID */}
                         {!isDetailMode && (
                             <div className="absolute inset-0">
-                                {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
-                                {/* App Header height is ~108px. With 18px gap (was 10px + 8px extra), top should be 126px */}
+                                {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall.
+                                    It starts one shared Glass gap below the location card. */}
                                 <div
                                     className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
-                                    style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}
+                                    style={{ top: glassSafeTopOffset(glassTopLayout.compactHeaderTopPx) }}
                                 >
                                     <div className="pointer-events-auto">
                                         <CompactHeaderRow
@@ -866,20 +868,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     </div>
                                 </div>
 
-                                {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
+                                {/* Covers the fixed card stack until the scrollable forecast deck. */}
                                 <div
                                     className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300"
                                     style={{
                                         height: isExpanded
-                                            ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
-                                            : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
+                                            ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
+                                            : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
                                     }}
                                 ></div>
 
-                                {/* FIXED HEADER - Positioned 7px below CompactHeaderRow (126 + 40 + 7 = 173) */}
+                                {/* Conditions header — held to the same 8px Glass rhythm. */}
                                 <div
                                     className="fixed left-0 right-0 z-[110] px-4"
-                                    style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}
+                                    style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
                                 >
                                     <HeroHeader
                                         data={safeActive}
@@ -917,7 +919,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     />
                                 </div>
 
-                                {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243)
+                                {/* CURRENT CONDITIONS CARD - Collapsed mode only.
                                 Transition choreography:
                                 - 200ms ease-out per user spec (feels crisp, not laggy)
                                 - translateY(-14px) gives a perceptible glide without going too
@@ -931,7 +933,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 <div
                                     className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
                                     style={{
-                                        top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
+                                        top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
                                         opacity: !isExpanded ? 1 : 0,
                                         transform: !isExpanded ? 'translateY(0)' : 'translateY(-14px)',
                                         pointerEvents: !isExpanded ? 'auto' : 'none',
@@ -941,13 +943,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
                                 </div>
 
-                                {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243)
+                                {/* FIXED WIDGETS - Slide down when expanded.
                                 Same transition semantics as CurrentConditionsCard above so the
                                 two layers cross-fade in sync. */}
                                 <div
                                     className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
                                     style={{
-                                        top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
+                                        top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
                                         opacity: isExpanded ? 1 : 0,
                                         transform: isExpanded ? 'translateY(0)' : 'translateY(-14px)',
                                         pointerEvents: isExpanded ? 'auto' : 'none',
@@ -970,17 +972,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     />
                                 </div>
 
-                                {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
-                                {/* MATH: 
-                                Expanded Top: 243 (widgets) + 160 (height) + 9 (gap) = 412px
-                                Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
-                            */}
+                                {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space.
+                                    Its top is calculated from the rendered card heights so it
+                                    preserves the same 8px gap in either dashboard mode. */}
                                 <div
-                                    className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0"
+                                    className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0"
                                     style={{
                                         top: isExpanded
-                                            ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
-                                            : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
+                                            ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
+                                            : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
                                         bottom: 'calc(env(safe-area-inset-bottom) + 124px)',
                                     }}
                                 >
