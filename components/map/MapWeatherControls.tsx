@@ -66,6 +66,21 @@ export function MapWeatherControls({
             : weather.activeLayers.has(key as WeatherLayer),
     );
     const showTimeline = !controlsHidden;
+    const hasWindLayer = activeWeatherLayers.includes('wind');
+    // Keep the wind controls available when Wind is paired with Rain. The
+    // timeline intentionally changes to Rain in that combination, but wind
+    // model and particle motion remain meaningful controls.
+    const windFieldControls =
+        showTimeline && hasWindLayer ? (
+            <WindModelFieldSelector
+                model={weather.windModel}
+                onModelChange={weather.setWindModel}
+                particlesEnabled={weather.windParticlesEnabled}
+                onParticlesEnabledChange={weather.setWindParticlesEnabled}
+                loading={weather.windState.loading}
+                embedded={embedded}
+            />
+        ) : null;
 
     // Wind + rain share a deliberately-short rain timeline. Keep the wind
     // frame close to the selected radar frame rather than replaying a stale
@@ -311,14 +326,6 @@ export function MapWeatherControls({
 
             content = (
                 <>
-                    {activeLayer === 'wind' && (
-                        <WindModelFieldSelector
-                            model={weather.windModel}
-                            onModelChange={weather.setWindModel}
-                            loading={weather.windState.loading}
-                            embedded={embedded}
-                        />
-                    )}
                     {!isLoading && (
                         <ThalassaHelixControl
                             activeLayer={activeLayer}
@@ -345,6 +352,7 @@ export function MapWeatherControls({
 
     return (
         <>
+            {windFieldControls}
             {content}
             {showRainViewerAttribution && (
                 <a

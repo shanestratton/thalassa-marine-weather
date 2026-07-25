@@ -1,5 +1,5 @@
 /**
- * WindModelFieldSelector — compact model + field switcher for the animated
+ * WindModelFieldSelector — compact model + particle-motion switcher for the
  * wind chart layer.
  *
  * Flips the animated overlay between weather MODELS. The list is
@@ -44,12 +44,14 @@ const MODELS = WIND_OVERLAY_MODELS.map((id) => {
 interface WindModelFieldSelectorProps {
     model: WeatherModelId;
     onModelChange: (model: WeatherModelId) => void;
+    particlesEnabled: boolean;
+    onParticlesEnabledChange: (enabled: boolean) => void;
     loading?: boolean;
     embedded?: boolean;
 }
 
 export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = memo(
-    ({ model, onModelChange, loading = false, embedded = false }) => {
+    ({ model, onModelChange, particlesEnabled, onParticlesEnabledChange, loading = false, embedded = false }) => {
         return (
             <div
                 className="absolute z-[500]"
@@ -89,8 +91,38 @@ export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = mem
                         })}
                     </div>
 
-                    {/* Loading pip while the new grid streams in */}
-                    <div className="flex items-center justify-end">
+                    <div className="flex items-center gap-1 max-w-[68vw]">
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-label="Particles animation"
+                            aria-checked={particlesEnabled}
+                            onClick={() => onParticlesEnabledChange(!particlesEnabled)}
+                            className={
+                                'min-h-[44px] flex-1 flex items-center justify-between gap-3 rounded-xl border px-2.5 text-[10px] font-black uppercase tracking-wide transition-colors active:scale-[0.98] ' +
+                                (particlesEnabled
+                                    ? 'border-sky-400/40 bg-sky-500/20 text-sky-100'
+                                    : 'border-white/[0.08] bg-white/[0.04] text-gray-300')
+                            }
+                        >
+                            <span>Particles animation</span>
+                            <span
+                                aria-hidden
+                                className={
+                                    'relative h-5 w-9 shrink-0 rounded-full transition-colors ' +
+                                    (particlesEnabled ? 'bg-sky-400' : 'bg-slate-600')
+                                }
+                            >
+                                <span
+                                    className={
+                                        'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ' +
+                                        (particlesEnabled ? 'translate-x-[18px]' : 'translate-x-0.5')
+                                    }
+                                />
+                            </span>
+                        </button>
+
+                        {/* Loading pip while the new grid streams in */}
                         <span
                             className={
                                 'w-2 h-2 rounded-full shrink-0 transition-opacity ' +

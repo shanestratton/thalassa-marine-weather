@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_LAYERS, restoreActiveLayers } from '../components/map/useWeatherLayers';
+import { DEFAULT_LAYERS, restoreActiveLayers, restoreWindParticlesEnabled } from '../components/map/useWeatherLayers';
 
 describe('restoreActiveLayers', () => {
     it('opens on wind when nothing is stored (first run)', () => {
@@ -52,5 +52,13 @@ describe('restoreActiveLayers', () => {
         expect([...restoreActiveLayers('not json')]).toEqual(['wind']);
         expect([...restoreActiveLayers('{"nope":true}')]).toEqual(['wind']);
         expect([...restoreActiveLayers('null')]).toEqual(['wind']);
+    });
+});
+
+describe('restoreWindParticlesEnabled', () => {
+    it('starts calm and restores only an explicit particle choice', () => {
+        expect(restoreWindParticlesEnabled(null)).toBe(false);
+        expect(restoreWindParticlesEnabled('0')).toBe(false);
+        expect(restoreWindParticlesEnabled('1')).toBe(true);
     });
 });

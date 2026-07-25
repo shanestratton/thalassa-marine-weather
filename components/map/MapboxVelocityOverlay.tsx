@@ -4,18 +4,20 @@
  * Data pipeline:
  *   1. Receives the selected model's reactive WindStore grid
  *   2. Converts its current (possibly fractional) forecast frame to U/V records
- *   3. Renders animated wind particles via leaflet-velocity-ts
+ *   3. Renders a static wind-speed heatmap below labels
+ *   4. Optionally renders animated particles via leaflet-velocity-ts
  *
- * Cleanup: removes velocity layer, destroys Leaflet map, removes overlay div.
+ * Cleanup: removes the heatmap plus the optional velocity layer/Leaflet overlay.
  *
  * Usage:
- *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible={activeLayer === 'velocity'} />
+ *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible particlesEnabled={particlesOn} />
  */
 
 import React, { useEffect, useRef } from 'react';
 import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
-import { WIND_COLORS, WIND_MAX_MS } from './windRamp';
+import { WIND_COLORS, WIND_MAX_MS, windColorForKt } from './windRamp';
+import { buildWindHeatmapSegments } from './windHeatmapSegments';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 
 const log = createLogger('MapboxVelocityOverlay');
@@ -29,6 +31,8 @@ import 'leaflet/dist/leaflet.css';
 interface MapboxVelocityOverlayProps {
     mapboxMap: mapboxgl.Map | null;
     visible: boolean;
+    /** Static wind speed stays on; this controls only the animated overlay. */
+    particlesEnabled?: boolean;
     windHour?: number;
     windGrid?: WindGrid;
 }
@@ -113,27 +117,100 @@ function applyVelocityData(map: L.Map, layer: L.Layer | null, data: VelocityGrib
 
 const HEATMAP_SOURCE = 'wind-heatmap-src';
 const HEATMAP_LAYER = 'wind-heatmap-layer';
+const HEATMAP_PIXEL_ALPHA = 148;
+const HEATMAP_RASTER_OPACITY = 0.72;
 
-/** Monochrome color stops: [maxKts, r, g, b] */
-const BEAUFORT_STOPS: [number, number, number, number][] = [
-    [5, 15, 18, 23], // calm — near-black
-    [10, 30, 33, 40], // light — dark slate
-    [15, 50, 53, 60], // moderate — mid slate
-    [20, 75, 78, 84], // fresh — grey
-    [25, 107, 107, 110], // strong — light grey
-    [30, 140, 102, 76], // gale — muted amber
-    [40, 166, 76, 71], // storm — muted coral
-    [999, 178, 64, 76], // violent — warm red
-];
+type ImageSourceUpdate = {
+    updateImage?: (options: { url: string; coordinates: unknown }) => void;
+};
 
-function ktsToColor(kts: number): [number, number, number] {
-    for (const [max, r, g, b] of BEAUFORT_STOPS) {
-        if (kts <= max) return [r, g, b];
-    }
-    return [178, 64, 76];
+function canRenderHeatMap(map: mapboxgl.Map | null): map is mapboxgl.Map {
+    const candidate = map as unknown as {
+        addLayer?: unknown;
+        addSource?: unknown;
+        getLayer?: unknown;
+        getSource?: unknown;
+        removeLayer?: unknown;
+        removeSource?: unknown;
+    } | null;
+    return Boolean(
+        candidate &&
+        typeof candidate.addLayer === 'function' &&
+        typeof candidate.addSource === 'function' &&
+        typeof candidate.getLayer === 'function' &&
+        typeof candidate.getSource === 'function' &&
+        typeof candidate.removeLayer === 'function' &&
+        typeof candidate.removeSource === 'function',
+    );
 }
 
-function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void {
+function hexToRgb(hex: string): [number, number, number] {
+    const normalized = hex.replace('#', '');
+    const value = Number.parseInt(normalized, 16);
+    return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+}
+
+function heatmapSourceId(suffix: '' | '_r'): string {
+    return `${HEATMAP_SOURCE}${suffix}`;
+}
+
+function heatmapLayerId(suffix: '' | '_r'): string {
+    return `${HEATMAP_LAYER}${suffix}`;
+}
+
+function removeHeatMapSegment(map: mapboxgl.Map, suffix: '' | '_r'): void {
+    const layerId = heatmapLayerId(suffix);
+    const sourceId = heatmapSourceId(suffix);
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+}
+
+/** Keep wind below the navigation and label chrome, regardless of base style. */
+function heatmapBeforeLayerId(map: mapboxgl.Map): string | undefined {
+    try {
+        const styleMap = map as unknown as {
+            getStyle?: () => { layers?: Array<{ id: string; type?: string }> };
+        };
+        return styleMap.getStyle?.().layers?.find((layer) => layer.type === 'symbol')?.id;
+    } catch {
+        return undefined;
+    }
+}
+
+function upsertHeatMapImage(
+    map: mapboxgl.Map,
+    suffix: '' | '_r',
+    url: string,
+    coordinates: [[number, number], [number, number], [number, number], [number, number]],
+    beforeLayerId: string | undefined,
+): void {
+    const sourceId = heatmapSourceId(suffix);
+    const layerId = heatmapLayerId(suffix);
+    const existingSource = map.getSource(sourceId) as ImageSourceUpdate | undefined;
+    if (existingSource?.updateImage) {
+        existingSource.updateImage({ url, coordinates });
+    } else {
+        map.addSource(sourceId, { type: 'image', url, coordinates });
+    }
+
+    if (!map.getLayer(layerId)) {
+        map.addLayer(
+            {
+                id: layerId,
+                type: 'raster',
+                source: sourceId,
+                paint: {
+                    'raster-opacity': HEATMAP_RASTER_OPACITY,
+                    'raster-fade-duration': 0,
+                    'raster-resampling': 'linear',
+                },
+            },
+            beforeLayerId,
+        );
+    }
+}
+
+function updateHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void {
     const uRecord = windData.find(
         (d: VelocityGribRecord) =>
             d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
@@ -143,13 +220,23 @@ function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void
             d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3,
     );
     if (!uRecord || !vRecord) {
+        removeHeatMap(map);
         return;
     }
 
     const header = uRecord.header;
-    const nx = header.nx;
-    const ny = header.ny;
-    const lo1 = header.lo1;
+    const nx = Math.floor(header.nx);
+    const ny = Math.floor(header.ny);
+    if (nx < 2 || ny < 2 || uRecord.data.length < nx * ny || vRecord.data.length < nx * ny) {
+        removeHeatMap(map);
+        return;
+    }
+    const segments = buildWindHeatmapSegments({ columns: nx, west: header.lo1, east: header.lo2 });
+    if (segments.length === 0) {
+        removeHeatMap(map);
+        return;
+    }
+
     const la1 = header.la1;
     const la2 = header.la2 ?? la1 - (ny - 1) * header.dy;
 
@@ -157,7 +244,8 @@ function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void
     const canvas = document.createElement('canvas');
     canvas.width = nx;
     canvas.height = ny;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const imgData = ctx.createImageData(nx, ny);
     for (let y = 0; y < ny; y++) {
         for (let x = 0; x < nx; x++) {
@@ -165,12 +253,12 @@ function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void
             const u = uRecord.data[i] ?? 0;
             const v = vRecord.data[i] ?? 0;
             const speedKts = Math.sqrt(u * u + v * v) * 1.94384;
-            const [r, g, b] = ktsToColor(speedKts);
+            const [r, g, b] = hexToRgb(windColorForKt(speedKts));
             const px = i * 4;
             imgData.data[px] = r;
             imgData.data[px + 1] = g;
             imgData.data[px + 2] = b;
-            imgData.data[px + 3] = 40;
+            imgData.data[px + 3] = HEATMAP_PIXEL_ALPHA;
         }
     }
     ctx.putImageData(imgData, 0, 0);
@@ -179,24 +267,24 @@ function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void
     const MERCATOR_LAT_LIMIT = 85.0;
     const north = Math.min(Math.max(la1, la2), MERCATOR_LAT_LIMIT);
     const south = Math.max(Math.min(la1, la2), -MERCATOR_LAT_LIMIT);
-    const west = lo1;
-    const east = lo1 + (nx - 1) * header.dx;
     const flipY = la1 < la2;
 
-    // Compute actual longitude span (handles wrapping: west=48°, east=-121° → span=191°)
-    let lonSpan = east - west;
-    if (lonSpan < 0) lonSpan += 360; // Handle wrapped/negative east values
-
-    // Helper: slice a column range from the canvas, upscale, return dataURL
-    const sliceToDataUrl = (startX: number, w: number) => {
+    // Mapbox image sources do not wrap cleanly across a global field. The
+    // segmenter keeps each image within a hemisphere and shares the seam pixel
+    // between neighbours, so no one-column / one-degree gap shows through.
+    const sliceToDataUrl = (startX: number, endX: number) => {
+        const width = endX - startX + 1;
         const slice = document.createElement('canvas');
-        slice.width = w;
+        slice.width = width;
         slice.height = ny;
-        slice.getContext('2d')!.drawImage(canvas, startX, 0, w, ny, 0, 0, w, ny);
+        const sliceContext = slice.getContext('2d');
+        if (!sliceContext) return null;
+        sliceContext.drawImage(canvas, startX, 0, width, ny, 0, 0, width, ny);
         const sm = document.createElement('canvas');
-        sm.width = w * 2;
+        sm.width = width * 2;
         sm.height = ny * 2;
-        const sc = sm.getContext('2d')!;
+        const sc = sm.getContext('2d');
+        if (!sc) return null;
         sc.imageSmoothingEnabled = true;
         sc.imageSmoothingQuality = 'high';
         if (flipY) {
@@ -207,148 +295,35 @@ function _injectHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void
         return sm.toDataURL('image/png');
     };
 
-    // Clean up any previous heat map layers
-    removeHeatMap(map);
-
-    const crossesDateLine = east > 180 && lonSpan <= 180;
-
-    if (crossesDateLine) {
-        // Split at 180° into two image sources
-        const splitCol = Math.ceil((180 - west) / header.dx);
-        const leftW = splitCol;
-        const rightW = nx - splitCol;
-
-        // Left: west → 180°
-        map.addSource(HEATMAP_SOURCE, {
-            type: 'image',
-            url: sliceToDataUrl(0, leftW),
-            coordinates: [
-                [west, north],
-                [180, north],
-                [180, south],
-                [west, south],
-            ],
-        });
-        map.addLayer({
-            id: HEATMAP_LAYER,
-            type: 'raster',
-            source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
-        });
-
-        // Right: -180° → (east - 360)
-        const rSrc = HEATMAP_SOURCE + '_r';
-        const rLyr = HEATMAP_LAYER + '_r';
-        map.addSource(rSrc, {
-            type: 'image',
-            url: sliceToDataUrl(splitCol, rightW),
-            coordinates: [
-                [-180, north],
-                [east - 360, north],
-                [east - 360, south],
-                [-180, south],
-            ],
-        });
-        map.addLayer({
-            id: rLyr,
-            type: 'raster',
-            source: rSrc,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
-        });
-    } else if (lonSpan > 180) {
-        // ── Global GFS data: lon 0°→359.5° ──
-        // Must split into two ≤180° image sources for Mapbox.
-        // GFS columns 0..359   → Eastern Hemisphere  (0°→180°)
-        // GFS columns 360..719 → Western Hemisphere  (-180°→0°)
-        const dx = header.dx;
-
-        // Eastern hemisphere: 0° → 180°
-        const eastColStart = 0;
-        const eastColEnd = Math.round(180 / dx); // col 360
-        const eastSliceW = eastColEnd - eastColStart;
-
-        // Western hemisphere: columns 360..719 represent 180°→359.5° which is -180°→-0.5°
-        const westColStart = eastColEnd;
-        const westColEnd = nx;
-        const westSliceW = westColEnd - westColStart;
-
-        // Western Hemisphere first (behind in layer order)
-        if (westSliceW > 0) {
-            const westLonMin = -180;
-            const westLonMax = west + (westColEnd - 1) * dx - 360; // ≈ -0.5°
-
-            map.addSource(HEATMAP_SOURCE, {
-                type: 'image',
-                url: sliceToDataUrl(westColStart, westSliceW),
-                coordinates: [
-                    [westLonMin, north],
-                    [westLonMax, north],
-                    [westLonMax, south],
-                    [westLonMin, south],
-                ],
-            });
-            map.addLayer({
-                id: HEATMAP_LAYER,
-                type: 'raster',
-                source: HEATMAP_SOURCE,
-                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
-            });
-        }
-
-        // Eastern Hemisphere
-        if (eastSliceW > 0) {
-            const eastLonMin = 0;
-            const eastLonMax = 180;
-
-            const rSrc = HEATMAP_SOURCE + '_r';
-            const rLyr = HEATMAP_LAYER + '_r';
-            map.addSource(rSrc, {
-                type: 'image',
-                url: sliceToDataUrl(eastColStart, eastSliceW),
-                coordinates: [
-                    [eastLonMin, north],
-                    [eastLonMax, north],
-                    [eastLonMax, south],
-                    [eastLonMin, south],
-                ],
-            });
-            map.addLayer({
-                id: rLyr,
-                type: 'raster',
-                source: rSrc,
-                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
-            });
-        }
-    } else {
-        // Standard single image — fits within 180° span
-        const url = sliceToDataUrl(0, nx);
-        map.addSource(HEATMAP_SOURCE, {
-            type: 'image',
+    const beforeLayerId = heatmapBeforeLayerId(map);
+    const activeSuffixes = new Set<'' | '_r'>();
+    for (const segment of segments) {
+        const url = sliceToDataUrl(segment.startColumn, segment.endColumn);
+        if (!url) continue;
+        activeSuffixes.add(segment.sourceSuffix);
+        upsertHeatMapImage(
+            map,
+            segment.sourceSuffix,
             url,
-            coordinates: [
-                [west, north],
-                [east, north],
-                [east, south],
-                [west, south],
+            [
+                [segment.west, north],
+                [segment.east, north],
+                [segment.east, south],
+                [segment.west, south],
             ],
-        });
-        map.addLayer({
-            id: HEATMAP_LAYER,
-            type: 'raster',
-            source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
-        });
+            beforeLayerId,
+        );
+    }
+
+    for (const suffix of ['' as const, '_r' as const]) {
+        if (!activeSuffixes.has(suffix)) removeHeatMapSegment(map, suffix);
     }
 }
 
 function removeHeatMap(map: mapboxgl.Map): void {
     try {
-        if (map.getLayer(HEATMAP_LAYER)) map.removeLayer(HEATMAP_LAYER);
-        if (map.getSource(HEATMAP_SOURCE)) map.removeSource(HEATMAP_SOURCE);
-        const rLyr = HEATMAP_LAYER + '_r';
-        const rSrc = HEATMAP_SOURCE + '_r';
-        if (map.getLayer(rLyr)) map.removeLayer(rLyr);
-        if (map.getSource(rSrc)) map.removeSource(rSrc);
+        removeHeatMapSegment(map, '');
+        removeHeatMapSegment(map, '_r');
     } catch (_) {
         /* ok */
     }
@@ -359,6 +334,7 @@ function removeHeatMap(map: mapboxgl.Map): void {
 export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     mapboxMap,
     visible,
+    particlesEnabled = true,
     windHour = 0,
     windGrid,
 }) => {
@@ -380,6 +356,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // If a model switch clears the grid, remove the old model immediately
     // rather than leaving plausible-looking but incorrectly labelled wind.
     useEffect(() => {
+        if (!particlesEnabled) return;
         const leafletMap = leafletMapRef.current;
         if (!leafletMap) return;
 
@@ -404,19 +381,45 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             if (overlayRef.current) overlayRef.current.style.opacity = '0';
             log.error('[VelocityOverlay] Failed to apply selected wind grid:', err);
         }
-    }, [windHour, windGrid]);
+    }, [windHour, windGrid, particlesEnabled]);
 
-    // ── Heat map layer DISABLED — clean dark map with particles only ──
-    // useEffect(() => {
-    //     const data = windGridFrameToVelocityData(windGrid, windHour);
-    //     if (!mapboxMap || !visible || !data) return;
-    //     try { injectHeatMap(mapboxMap, data); } catch (err) { log.error('[HeatMap]', err); }
-    //     return () => removeHeatMap(mapboxMap);
-    // }, [mapboxMap, visible, windGrid, windHour]);
-
-    // ── Zoom-based particle visibility (heatmap disabled) ──
+    // The static heatmap is intentionally quantised to whole forecast frames.
+    // Particles can interpolate smoothly, but turning every scrubber fraction
+    // into a fresh PNG would churn the main thread and make this "calm" mode
+    // less battery-friendly than the animation it replaces.
+    const heatmapFrame = Math.round(windHour);
     useEffect(() => {
-        if (!mapboxMap || !visible) return;
+        if (!mapboxMap || !canRenderHeatMap(mapboxMap)) return;
+        if (!visible) {
+            removeHeatMap(mapboxMap);
+            return;
+        }
+
+        const data = windGridFrameToVelocityData(windGrid, heatmapFrame);
+        if (!data) {
+            removeHeatMap(mapboxMap);
+            return;
+        }
+
+        try {
+            updateHeatMap(mapboxMap, data);
+        } catch (err) {
+            removeHeatMap(mapboxMap);
+            log.error('[HeatMap] Failed to render wind field:', err);
+        }
+    }, [mapboxMap, visible, windGrid, heatmapFrame]);
+
+    // Tear down only when the owning map changes or this overlay unmounts.
+    // Updating a forecast frame uses ImageSource.updateImage() above, avoiding
+    // the visible remove/re-add flash the old implementation would cause.
+    useEffect(() => {
+        if (!mapboxMap || !canRenderHeatMap(mapboxMap)) return;
+        return () => removeHeatMap(mapboxMap);
+    }, [mapboxMap]);
+
+    // ── Zoom-based particle visibility ───────────────────────────
+    useEffect(() => {
+        if (!mapboxMap || !visible || !particlesEnabled) return;
         const MIN_PARTICLE_ZOOM = 1; // Match wind layer minZoom
 
         const onZoom = () => {
@@ -432,11 +435,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         return () => {
             mapboxMap.off('zoom', onZoom);
         };
-    }, [mapboxMap, visible]);
+    }, [mapboxMap, visible, particlesEnabled]);
 
     // ── Create/destroy particle overlay ──────────────────────────
     useEffect(() => {
-        if (!mapboxMap || !visible) return;
+        if (!mapboxMap || !visible || !particlesEnabled) return;
 
         let cancelled = false;
         let snapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -672,7 +675,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
             overlayRef.current = null;
         };
-    }, [mapboxMap, visible]);
+    }, [mapboxMap, visible, particlesEnabled]);
 
     return null;
 };
