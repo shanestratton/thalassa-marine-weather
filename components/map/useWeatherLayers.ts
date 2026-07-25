@@ -326,6 +326,10 @@ export function useWeatherLayers(
     const [rainFrameCount, setRainFrameCount] = useState(0);
     const [rainPlaying, setRainPlaying] = useState(false);
     const [rainLoading, setRainLoading] = useState(false);
+    /** True until the first visible radar tile has made it through a map render.
+     *  The frame index can be ready before Mapbox has painted its pixels, so the
+     *  OBS loading pill must use this separately from the metadata fetch state. */
+    const [rainImageLoading, setRainImageLoading] = useState(false);
     const [rainReady, setRainReady] = useState(false);
     /** Index where radar frames end and forecast frames begin */
     const rainNowIdxRef = useRef(0);
@@ -1300,6 +1304,7 @@ export function useWeatherLayers(
     // requested; RainFrameTransitionController warms that one at opacity zero
     // and only replaces the image already on screen after its tiles are ready.
     const rainCleanupRef = useRef<(() => void) | null>(null);
+    const rainInitialPaintCleanupRef = useRef<(() => void) | null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const savedLandFillColorsRef = useRef<Map<string, any>>(new Map());
 
@@ -1378,6 +1383,8 @@ export function useWeatherLayers(
             // "rain does not seem to be working" report.
             rainCleanupRef.current?.();
             rainCleanupRef.current = null;
+            rainInitialPaintCleanupRef.current?.();
+            rainInitialPaintCleanupRef.current = null;
             // The session cleanup owns normal teardown. This catches any
             // stale source left behind by an interrupted/older session.
             removeRainFrameLayers(map);
@@ -1390,6 +1397,7 @@ export function useWeatherLayers(
             visibleForecastIdxRef.current = null;
             setRainFrameCount(0);
             setRainFrameIndex(0);
+            setRainImageLoading(false);
             setRainReady(false);
         }
         if (!activeLayers.has('wind') && !activeLayers.has('velocity')) {
@@ -1590,6 +1598,7 @@ export function useWeatherLayers(
                 visibleForecastIdxRef.current = null;
             }
             setRainLoading(true);
+            setRainImageLoading(true);
             setRainReady(false);
             setRainFrameIndex(0);
 
@@ -1706,6 +1715,7 @@ export function useWeatherLayers(
                     const m = mapRef.current;
                     if (!m) {
                         setRainLoading(false);
+                        setRainImageLoading(false);
                         return;
                     }
 
@@ -1719,6 +1729,7 @@ export function useWeatherLayers(
                         log.warn('[rain] radar index empty — leaving rain unready so it retries');
                         rainFetchedAtRef.current = 0;
                         setRainLoading(false);
+                        setRainImageLoading(false);
                         return;
                     }
 
@@ -1814,7 +1825,57 @@ export function useWeatherLayers(
                     }
                     log.info(`Pre-created ${radarFrames.length} radar layers`);
 
-                    // ⚡ PAINT HAPPENS HERE — rain is visible on the map.
+                    // The source is now visible, but its first raster still has
+                    // to travel through Mapbox's tile + render cycle. Keep the
+                    // OBS loading pill up until that first image has actually
+                    // had a paint pass; otherwise the status disappears just
+                    // before the thing it describes appears.
+                    const initialRadarSourceId = `radar-${nowIdx}`;
+                    let firstTileReady = false;
+                    let firstPaintWatchActive = true;
+                    let initialPaintTimeout: ReturnType<typeof setTimeout> | null = null;
+                    const onInitialRainRender = () => {
+                        if (!firstTileReady) return;
+                        finishInitialRainPaintWatch();
+                    };
+                    const onInitialRainSourceData = (event: mapboxgl.MapSourceDataEvent) => {
+                        if (event.sourceId !== initialRadarSourceId) return;
+                        // Tile errors must not leave the status spinning forever.
+                        if (event.sourceDataType === 'error') {
+                            finishInitialRainPaintWatch();
+                            return;
+                        }
+                        if (event.tile == null) return;
+                        firstTileReady = true;
+                        try {
+                            m.triggerRepaint();
+                        } catch {
+                            /* map is tearing down; the session cleanup resolves it */
+                        }
+                    };
+                    const onInitialRainAbort = () => cleanupInitialRainPaintWatch();
+                    const cleanupInitialRainPaintWatch = () => {
+                        if (!firstPaintWatchActive) return;
+                        firstPaintWatchActive = false;
+                        if (initialPaintTimeout) clearTimeout(initialPaintTimeout);
+                        m.off('sourcedata', onInitialRainSourceData);
+                        m.off('render', onInitialRainRender);
+                        abortCtrl.signal.removeEventListener('abort', onInitialRainAbort);
+                        if (rainInitialPaintCleanupRef.current === cleanupInitialRainPaintWatch) {
+                            rainInitialPaintCleanupRef.current = null;
+                        }
+                    };
+                    const finishInitialRainPaintWatch = () => {
+                        cleanupInitialRainPaintWatch();
+                        if (!stale && !abortCtrl.signal.aborted) setRainImageLoading(false);
+                    };
+                    rainInitialPaintCleanupRef.current?.();
+                    m.on('sourcedata', onInitialRainSourceData);
+                    m.on('render', onInitialRainRender);
+                    abortCtrl.signal.addEventListener('abort', onInitialRainAbort, { once: true });
+                    initialPaintTimeout = setTimeout(finishInitialRainPaintWatch, 10_000);
+                    rainInitialPaintCleanupRef.current = cleanupInitialRainPaintWatch;
+
                     setRainReady(true);
                     setRainLoading(false);
                     log.info(`Radar ready: ${allRadar.length} frames. Rainbow.ai loading in background…`);
@@ -1902,6 +1963,7 @@ export function useWeatherLayers(
                     log.error('Error loading unified rain data:', err);
                     setRainReady(false);
                     setRainLoading(false);
+                    setRainImageLoading(false);
                 }
             })();
 
@@ -1909,10 +1971,13 @@ export function useWeatherLayers(
             rainCleanupRef.current = () => {
                 stale = true;
                 abortCtrl.abort();
+                rainInitialPaintCleanupRef.current?.();
+                rainInitialPaintCleanupRef.current = null;
                 cancelRainFrameTransition(map);
                 removeRainFrameLayers(map);
                 unifiedFramesRef.current = [];
                 setRainFrameCount(0);
+                setRainImageLoading(false);
                 setRainReady(false);
             };
         }
@@ -2012,6 +2077,7 @@ export function useWeatherLayers(
                 cancelRainFrameTransition(map);
             }
             setWindReady(false);
+            setRainImageLoading(false);
             setRainReady(false);
             setRainFrameCount(0);
             windEngineRef.current = null;
@@ -2176,6 +2242,7 @@ export function useWeatherLayers(
         setRainPlaying,
         rainReady,
         rainLoading,
+        rainImageLoading,
         rainNowIdxRef,
         // GRIB
         isGribDownloading,
