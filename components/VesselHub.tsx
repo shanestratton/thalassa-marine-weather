@@ -1358,7 +1358,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
                     }`}
                 >
-                    {claimHeld ? 'Release — let another device take it' : 'I am the skipper on this device'}
+                    {claimHeld ? 'Release — let another device take it' : 'This is the Skipper’s Primary Device'}
                 </button>
             </div>
             <ConfirmDialog
