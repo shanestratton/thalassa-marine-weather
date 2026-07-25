@@ -3,7 +3,7 @@
  *
  * Creates all the Mapbox sources + layers for the synoptic chart:
  * isobar contours, pressure center labels, wind barbs,
- * circulation arrows, and movement tracks.
+ * circulation arrows, and (intentionally hidden) movement tracks.
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
@@ -19,11 +19,22 @@ export const ISOBAR_LAYER_IDS = [
     'isobar-center-labels',
     'wind-barb-layer',
     'circulation-arrow-layer',
-    'movement-track-lines',
-    'movement-track-labels',
     'pressure-heatmap-layer',
     'coastal-vignette',
 ] as const;
+
+/**
+ * Movement estimates are not an operational forecast product, so retain the
+ * data source for future opt-in use but never surface these layers with the
+ * normal pressure chart.
+ */
+const MOVEMENT_TRACK_LAYER_IDS = ['movement-track-lines', 'movement-track-labels'] as const;
+
+function hideMovementTrackLayers(map: mapboxgl.Map) {
+    for (const id of MOVEMENT_TRACK_LAYER_IDS) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    }
+}
 
 /**
  * Hide all isobar layers and restore land fill colors.
@@ -36,6 +47,7 @@ export function hideIsobarLayers(
     for (const id of ISOBAR_LAYER_IDS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
     }
+    hideMovementTrackLayers(map);
     // Restore land fill colors
     for (const [layerId, color] of savedLandColors) {
         try {
@@ -73,6 +85,8 @@ export function showIsobarLayers(
     for (const id of ISOBAR_LAYER_IDS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
     }
+    // These remain hidden even while the rest of the pressure chart is shown.
+    hideMovementTrackLayers(map);
     // Desaturate landmasses to charcoal + ghost labels to 30% — guarded
     // because getStyle() throws before style load completes.
     if (!map.isStyleLoaded()) return;
@@ -160,7 +174,7 @@ function createCirculationArrowIcon(map: mapboxgl.Map) {
     if (actx) {
         actx.clearRect(0, 0, 32, 32);
         actx.strokeStyle = '#ffffff';
-        actx.lineWidth = 3;
+        actx.lineWidth = 2;
         actx.lineCap = 'round';
         actx.lineJoin = 'round';
         actx.beginPath();
@@ -185,7 +199,11 @@ function createCirculationArrowIcon(map: mapboxgl.Map) {
  * Call this once when the pressure layer is first activated.
  */
 export function initIsobarLayers(map: mapboxgl.Map) {
-    if (map.getSource('isobar-contours')) return; // Already initialized
+    if (map.getSource('isobar-contours')) {
+        // A hot-reloaded map can retain an older visible track layer.
+        hideMovementTrackLayers(map);
+        return;
+    }
 
     // Contour lines
     map.addSource('isobar-contours', {
@@ -233,15 +251,17 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         source: 'isobar-centers',
         layout: {
             'text-field': ['get', 'label'],
-            'text-size': 18,
+            'text-size': 15,
             'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-            'text-allow-overlap': true,
+            'text-allow-overlap': false,
             'text-letter-spacing': 0.05,
+            'text-padding': 4,
         },
         paint: {
-            'text-color': ['match', ['get', 'type'], 'H', '#ff5252', 'L', '#4da6ff', '#e2e8f0'],
+            'text-color': ['match', ['get', 'type'], 'H', '#e8a7a7', 'L', '#9ec7e2', '#dce6ef'],
             'text-halo-color': 'rgba(10, 15, 30, 0.85)',
-            'text-halo-width': 2.5,
+            'text-halo-width': 1.5,
+            'text-opacity': 0.9,
         },
     });
 
@@ -285,12 +305,13 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         source: 'circulation-arrows',
         layout: {
             'icon-image': 'circulation-arrow',
-            'icon-size': 0.6,
+            'icon-size': 0.42,
             'icon-rotate': ['get', 'rotation'],
             'icon-rotation-alignment': 'map',
-            'icon-allow-overlap': true,
+            'icon-allow-overlap': false,
+            'icon-padding': 2,
         },
-        paint: { 'icon-color': ['get', 'color'], 'icon-opacity': 0.7 },
+        paint: { 'icon-color': '#d8e1ea', 'icon-opacity': 0.44 },
     });
 
     // Movement tracks
@@ -302,6 +323,7 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         id: 'movement-track-lines',
         type: 'line',
         source: 'movement-tracks',
+        layout: { visibility: 'none' },
         paint: {
             'line-color': ['get', 'color'],
             'line-width': 3,
@@ -314,6 +336,7 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         type: 'symbol',
         source: 'movement-tracks',
         layout: {
+            visibility: 'none',
             'symbol-placement': 'line',
             'text-field': ['get', 'label'],
             'text-size': 11,

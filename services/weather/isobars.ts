@@ -2,10 +2,11 @@
  * @filesize-justified Cohesive algorithmic module — marching squares + pressure grid interpolation. Splitting would fragment the algorithm.
  */
 /**
- * Isobar Service — Generates pressure contour lines from Open-Meteo grid data.
+ * Isobar Service — Generates pressure contours from a NOAA GFS grid, with a
+ * clearly-labelled Open-Meteo fallback if the primary source is unavailable.
  *
  * Pipeline:
- *   1. Fetch pressure grid from Open-Meteo (paid) for visible map bounds
+ *   1. Fetch a global GFS pressure grid (or validate the fallback grid)
  *   2. Marching-squares contour algorithm → polylines at 4hPa intervals
  *   3. Detect H/L pressure centers (local extrema)
  *   4. Return GeoJSON Feature Collections for Mapbox GL rendering
@@ -32,6 +33,9 @@ interface PressureGrid {
     keyframeFhrs: number[];
     /** Hours per sub-frame after interpolation (1h for the GFS 3h/3-step case). */
     subFrameStepHours: number;
+    /** The actual source behind the chart. Emergency fallback data must never
+     *  be visually indistinguishable from the primary GFS grid. */
+    source: 'gfs' | 'open-meteo';
 }
 
 // Runtime grid for a single hour (used by contour/barb generators)
@@ -124,6 +128,9 @@ async function fetchPressureGridGfs(
         if (!data.frames || data.frames.length === 0) return null;
 
         const { lats, lons, frames } = data;
+        if (!Array.isArray(lats) || !Array.isArray(lons) || !Array.isArray(frames) || frames.length === 0) {
+            return null;
+        }
         const rows = lats.length;
         const cols = lons.length;
         const totalHours = frames.length;
@@ -138,6 +145,35 @@ async function fetchPressureGridGfs(
         // but verify by comparing frame dimensions to lat/lon array lengths.
         const frameRows = frames[0]?.length ?? 0;
         const frameCols = frames[0]?.[0]?.length ?? 0;
+        const rectangular = frames.every(
+            (frame) =>
+                Array.isArray(frame) &&
+                frame.length === frameRows &&
+                frame.every((row) => Array.isArray(row) && row.length === frameCols && row.every(Number.isFinite)),
+        );
+        if (!rectangular) {
+            log.warn('[ISOBAR] Rejected malformed GFS pressure-grid rows');
+            return null;
+        }
+
+        const keyframeFhrs = data.fhrs ?? GRIB_FORECAST_HOURS;
+        if (
+            keyframeFhrs.length !== totalHours ||
+            keyframeFhrs.some((hour) => !Number.isFinite(hour)) ||
+            keyframeFhrs.length < 2
+        ) {
+            log.warn('[ISOBAR] Rejected GFS pressure grid with incomplete forecast-hour metadata');
+            return null;
+        }
+        const keyframeStepHours = keyframeFhrs[1] - keyframeFhrs[0];
+        if (
+            !Number.isFinite(keyframeStepHours) ||
+            keyframeStepHours <= 0 ||
+            keyframeFhrs.some((hour, index) => index > 0 && hour - keyframeFhrs[index - 1] !== keyframeStepHours)
+        ) {
+            log.warn('[ISOBAR] Rejected GFS pressure grid with irregular forecast-hour spacing');
+            return null;
+        }
 
         let allHourlyPressure: number[][][];
         if (frameRows === rows && frameCols === cols) {
@@ -150,23 +186,25 @@ async function fetchPressureGridGfs(
                 for (let r = 0; r < rows; r++) {
                     const row: number[] = [];
                     for (let c = 0; c < cols; c++) {
-                        row.push(frame[c]?.[r] ?? 1013.25);
+                        row.push(frame[c][r]);
                     }
                     transposed.push(row);
                 }
                 return transposed;
             });
         } else {
-            // Dimensions don't match either way — use as-is and hope for the best
-            allHourlyPressure = frames;
+            log.warn(
+                `[ISOBAR] Rejected GFS pressure grid dimensions ${frameRows}×${frameCols}; expected ${rows}×${cols}`,
+            );
+            return null;
         }
 
         const emptyGrid: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
         const _allHourlyWindSpeed: number[][][] = frames.map(() => emptyGrid);
         const _allHourlyWindDir: number[][][] = frames.map(() => emptyGrid);
 
-        // ── Interpolate between GRIB frames for butter-smooth animation ──
-        // 5 GRIB frames at 3h intervals → 25 sub-frames at 30-min intervals
+        // ── Interpolate between GRIB frames for smooth animation ──
+        // Five 3-hour GFS keyframes produce 13 hourly frames (0…12h).
         const INTERP_STEPS = 3;
         const interpPressure: number[][][] = [];
 
@@ -205,9 +243,10 @@ async function fetchPressureGridGfs(
             cols,
             totalHours: interpTotal,
             refTime: data.refTime ?? null,
-            keyframeFhrs: data.fhrs ?? GRIB_FORECAST_HOURS,
+            keyframeFhrs,
             // 3h keyframes, 3 interpolation steps → 1h per sub-frame.
-            subFrameStepHours: (data.fhrs && data.fhrs.length > 1 ? data.fhrs[1] - data.fhrs[0] : 3) / INTERP_STEPS,
+            subFrameStepHours: keyframeStepHours / INTERP_STEPS,
+            source: 'gfs',
         };
     } catch (e) {
         return null;
@@ -268,7 +307,10 @@ export async function fetchPressureGrid(
         }>('forecast', points, {
             hourly: 'pressure_msl,wind_speed_10m,wind_direction_10m',
             forecast_hours: FORECAST_HOURS,
-            timezone: 'auto',
+            // All points must share the same valid-time axis. Local time zones
+            // would make grid index h represent different UTC instants across
+            // the globe and distort moving synoptic systems.
+            timezone: 'UTC',
         });
 
         const uniqueLats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
@@ -294,7 +336,12 @@ export async function fetchPressureGrid(
                 for (let c = 0; c < uniqueLons.length; c++) {
                     const idx = r * uniqueLons.length + c;
                     const hourly = results[idx]?.hourly;
-                    pRow.push(hourly?.pressure_msl?.[h] ?? 1013.25);
+                    const pressure = hourly?.pressure_msl?.[h];
+                    if (typeof pressure !== 'number' || !Number.isFinite(pressure)) {
+                        log.warn('[ISOBAR] Rejected incomplete Open-Meteo fallback pressure grid');
+                        return null;
+                    }
+                    pRow.push(pressure);
                     wsRow.push((hourly?.wind_speed_10m?.[h] ?? 0) * 0.539957); // km/h → knots
                     wdRow.push(hourly?.wind_direction_10m?.[h] ?? 0);
                 }
@@ -323,6 +370,7 @@ export async function fetchPressureGrid(
             refTime: new Date().toISOString(),
             keyframeFhrs: Array.from({ length: totalHours }, (_, i) => i),
             subFrameStepHours: 1,
+            source: 'open-meteo',
         };
     } catch (e) {
         return null;
@@ -545,8 +593,10 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     const dLat = lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1;
     const dLon = lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1;
 
-    const MIN_SEP = 8; // degrees — minimum separation between same-type centers
-    const MAX_CENTERS = 8; // max centers of each type
+    // Keep the chart synoptic rather than turning every small feature into a
+    // label. Three highs and three lows is enough context at the global scale.
+    const MIN_SEP = 12; // degrees — minimum separation between same-type centers
+    const MAX_CENTERS_PER_TYPE = 3;
     const GRADIENT_THRESHOLD = 2; // hPa — minimum difference from neighbour mean to qualify
 
     type Center = { lat: number; lon: number; type: 'H' | 'L'; pressure: number };
@@ -632,7 +682,7 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     // ── Deduplicate by distance, refine position ──
     const refineAndAdd = (candidates: Candidate[], type: 'H' | 'L', output: Center[]) => {
         for (const pt of candidates) {
-            if (output.length >= MAX_CENTERS) break;
+            if (output.length >= MAX_CENTERS_PER_TYPE) break;
             const lat = lats[pt.r];
             const lon = lons[pt.c];
 
@@ -722,8 +772,9 @@ function generateWindBarbs(grid: HourGrid): GeoJSON.Feature[] {
 }
 
 // ── Circulation Arrows Around H/L Centers ─────────────────────
-// Places arrows at 8 compass points around each center showing
-// geostrophic wind direction (tangential to isobars).
+// Places a small set of schematic arrows around each centre showing
+// circulation direction (tangential to isobars). They deliberately do not
+// claim to be observed/model wind vectors; the wind-barb layer owns that.
 // NH: H=clockwise, L=anticlockwise. SH: reversed.
 
 function generateCirculationArrows(
@@ -732,12 +783,14 @@ function generateCirculationArrows(
 ): GeoJSON.Feature[] {
     const features: GeoJSON.Feature[] = [];
 
-    // Arrow radius in degrees (~2° ≈ 220km  — visible at synoptic scale)
+    // Keep the cues close to their centre so they read as a quiet circulation
+    // hint, rather than a second, competing weather layer.
     const latStep = grid.lats.length > 1 ? Math.abs(grid.lats[1] - grid.lats[0]) : 1;
-    const radius = Math.max(latStep * 1.8, 1.5);
+    const radius = Math.max(latStep * 1.5, 1.35);
 
-    // 8 compass angles: N, NE, E, SE, S, SW, W, NW
-    const angles = [0, 45, 90, 135, 180, 225, 270, 315];
+    // Four diagonal positions are enough to communicate rotation without
+    // surrounding each H/L with an attention-grabbing ring of arrows.
+    const angles = [45, 135, 225, 315];
 
     for (const center of centers) {
         const isSouthern = center.lat < 0;
@@ -764,7 +817,6 @@ function generateCirculationArrows(
                 properties: {
                     rotation,
                     centerType: center.type,
-                    color: center.type === 'H' ? '#ef4444' : '#3b82f6',
                 },
                 geometry: {
                     type: 'Point',

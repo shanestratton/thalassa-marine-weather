@@ -13,42 +13,6 @@ import { useState, useRef, useEffect, useCallback, useMemo, type MutableRefObjec
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WeatherLayers');
-
-/** Opacity of the one rain frame on show. */
-const RAIN_FRAME_OPACITY = 0.75;
-
-/**
- * Show / hide ONE rain frame.
- *
- * `visibility`, not `raster-opacity: 0`. The frames used to be parked at zero
- * opacity, and the comments called that "toggle visibility" — but Mapbox's
- * StyleLayer.isHidden() consults minzoom, maxzoom and layout.visibility and
- * NEVER paint opacity, so an opacity-0 raster still marks its source used and
- * still downloads the whole viewport. With ~29 frames on the timeline that is
- * every frame fetching tiles at once on activation, which is most of why rain
- * took so long to appear. Same trap as the glaze layers ("two hide channels").
- *
- * Opacity stays put and carries the 200ms cross-fade; visibility is what gates
- * the download.
- */
-function showRainFrame(map: mapboxgl.Map, id: string): void {
-    try {
-        if (!map.getLayer(id)) return;
-        map.setLayoutProperty(id, 'visibility', 'visible');
-        map.setPaintProperty(id, 'raster-opacity', RAIN_FRAME_OPACITY);
-    } catch (_) {
-        log.warn('[rain] show failed', _);
-    }
-}
-
-function hideRainFrame(map: mapboxgl.Map, id: string): void {
-    try {
-        if (!map.getLayer(id)) return;
-        map.setLayoutProperty(id, 'visibility', 'none');
-    } catch (_) {
-        log.warn('[rain] hide failed', _);
-    }
-}
 import mapboxgl from 'mapbox-gl';
 import { generateIsobars, generateIsobarsFromGrid, FORECAST_HOURS } from '../../services/weather/isobars';
 import { WindStore, useWindStore } from '../../stores/WindStore';
@@ -71,7 +35,53 @@ import {
     RAINVIEWER_NATIVE_MAX_ZOOM,
 } from '../../services/weather/api/rainviewerTiles';
 import { windForecastHoursForGrid } from './windTimeAxis';
+import { RAIN_FRAME_OPACITY, RainFrameTransitionController, type RainFrameMap } from './rainFrameTransition';
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
+
+/** Remove every RainViewer/Rainbow frame from a map before a fresh session. */
+function removeRainFrameLayers(map: mapboxgl.Map, maxFrames = 30): void {
+    for (let i = 0; i < maxFrames; i++) {
+        for (const prefix of ['radar-', 'rainbow-fc-']) {
+            const id = `${prefix}${i}`;
+            try {
+                if (map.getLayer(id)) map.removeLayer(id);
+                if (map.getSource(id)) map.removeSource(id);
+            } catch (error) {
+                log.warn('[rain] frame cleanup failed', error);
+            }
+        }
+    }
+}
+
+/** Return the model-valid UTC instant represented by one pressure frame. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pressureFrameValidAt(grid: any, frameIndex: number): number | null {
+    const refTimeMs = new Date(grid?.refTime ?? '').getTime();
+    const stepHours = Number(grid?.subFrameStepHours);
+    if (!Number.isFinite(refTimeMs) || !Number.isFinite(stepHours) || stepHours <= 0) return null;
+
+    return refTimeMs + Math.max(0, Math.round(frameIndex)) * stepHours * 60 * 60 * 1000;
+}
+
+/** Find the nearest frame in a refreshed pressure run for a valid UTC instant. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pressureFrameForValidAt(grid: any, validAt: number | null): number | null {
+    if (validAt === null) return null;
+    const refTimeMs = new Date(grid?.refTime ?? '').getTime();
+    const stepHours = Number(grid?.subFrameStepHours);
+    const totalHours = Number(grid?.totalHours);
+    if (
+        !Number.isFinite(refTimeMs) ||
+        !Number.isFinite(stepHours) ||
+        stepHours <= 0 ||
+        !Number.isFinite(totalHours) ||
+        totalHours < 1
+    ) {
+        return null;
+    }
+
+    return Math.max(0, Math.min(Math.round((validAt - refTimeMs) / (stepHours * 60 * 60 * 1000)), totalHours - 1));
+}
 
 /**
  * The animated wind field is the chart page's signature look, so it is what
@@ -295,6 +305,16 @@ export function useWeatherLayers(
     /** Track which radar/forecast layer index is currently visible */
     const visibleRadarIdxRef = useRef<number | null>(null);
     const visibleForecastIdxRef = useRef<number | null>(null);
+    const rainTransitionRef = useRef<RainFrameTransitionController | null>(null);
+    if (rainTransitionRef.current === null) {
+        rainTransitionRef.current = new RainFrameTransitionController((error) =>
+            log.warn('[rain] frame transition failed', error),
+        );
+    }
+    const cancelRainFrameTransition = useCallback((map: mapboxgl.Map | null) => {
+        if (!map) return;
+        rainTransitionRef.current?.cancel(map as unknown as RainFrameMap);
+    }, []);
     const [rainFrameIndex, setRainFrameIndex] = useState(0);
     const [rainFrameCount, setRainFrameCount] = useState(0);
     const [rainPlaying, setRainPlaying] = useState(false);
@@ -464,14 +484,20 @@ export function useWeatherLayers(
 
     // ── Isobar state ──
     const isobarFetchRef = useRef<number>(0);
+    const isobarFetchedAtRef = useRef(0);
+    const isobarLoadingRef = useRef(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cachedFramesRef = useRef<any[]>([]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cachedGridRef = useRef<any>(null); // Cache the raw grid to avoid re-fetching
     const [forecastHour, setForecastHour] = useState(0);
+    const forecastHourRef = useRef(forecastHour);
+    forecastHourRef.current = forecastHour;
     const [isPlaying, setIsPlaying] = useState(false);
     const [totalFrames, setTotalFrames] = useState(FORECAST_HOURS);
     const [framesReady, setFramesReady] = useState(0);
+    const [pressureFrameStepHours, setPressureFrameStepHours] = useState(1);
+    const [pressureSource, setPressureSource] = useState<'gfs' | 'open-meteo' | null>(null);
     /** Sub-frame index that corresponds to wall-clock "Now", computed from
      *  the GFS cycle refTime + keyframe fhrs + subFrameStepHours. When the
      *  GFS cycle is 4h old, this is the sub-frame that represents "+4h of
@@ -580,50 +606,76 @@ export function useWeatherLayers(
 
     const updateIsobars = useCallback(
         async (map: mapboxgl.Map) => {
-            const token = ++isobarFetchRef.current;
+            const cacheAgeMs = Date.now() - isobarFetchedAtRef.current;
+            const cacheIsFresh =
+                cachedGridRef.current &&
+                cachedFramesRef.current.length > 0 &&
+                isobarFetchedAtRef.current > 0 &&
+                cacheAgeMs < 30 * 60 * 1000;
 
-            // If we already have a cached grid, just re-apply the Now frame.
-            // The grid is global at 1° resolution — no need to re-fetch on pan/zoom.
-            if (cachedGridRef.current && cachedFramesRef.current.length > 0) {
-                const idx = computePressureNowIndex(cachedGridRef.current);
-                pressureNowIdxRef.current = idx;
+            // The grid is global at 1° resolution, so pan/zoom can use the
+            // same data. It must still be renewed for the next GFS cycle:
+            // keeping an old run indefinitely makes a believable, stale chart.
+            if (cacheIsFresh) {
+                const nowIdx = computePressureNowIndex(cachedGridRef.current);
+                const idx = Math.max(0, Math.min(forecastHourRef.current, cachedFramesRef.current.length - 1));
+                pressureNowIdxRef.current = nowIdx;
+                // Re-applying a cached chart after another layer toggles must
+                // not erase the passage time the user deliberately selected.
                 setForecastHour(idx);
                 applyFrame(idx);
                 return;
             }
 
+            // Avoid competing full-globe requests when the main layer effect
+            // and the periodic freshness check happen in the same render turn.
+            if (isobarLoadingRef.current) return;
+            isobarLoadingRef.current = true;
+            const token = ++isobarFetchRef.current;
+            const previousValidAt = pressureFrameValidAt(cachedGridRef.current, forecastHourRef.current);
+
             // Fetch ONCE: fixed global grid. At 1° resolution this is only ~65K
             // points per frame (~320K total for 5 frames) — fast to fetch and process.
-            const data = await generateIsobars(85, -85, -180, 180, map.getZoom());
-            if (token !== isobarFetchRef.current) return;
-            if (!data) return;
+            try {
+                const data = await generateIsobars(85, -85, -180, 180, map.getZoom());
+                if (token !== isobarFetchRef.current || !data) return;
 
-            // Cache the raw grid permanently (until layer is toggled off)
-            cachedGridRef.current = data.grid;
+                // Preserve the currently displayed *valid time* across a GFS
+                // cycle refresh. Otherwise a user reading +6h can suddenly be
+                // shown a different meteorological instant simply because the
+                // model's reference clock advanced.
+                const preservedFrame = pressureFrameForValidAt(data.grid, previousValidAt);
 
-            // Align the scrubber to wall-clock "Now" so a stale GFS cycle
-            // (e.g. 4h old) shows the +4h sub-frame labelled Now, not the
-            // cycle-0 sub-frame. Matches wind's computeNowIndex behaviour.
-            const idx = computePressureNowIndex(data.grid);
-            pressureNowIdxRef.current = idx;
+                cachedGridRef.current = data.grid;
+                isobarFetchedAtRef.current = Date.now();
+                setPressureFrameStepHours(data.grid.subFrameStepHours || 1);
+                setPressureSource(data.grid.source);
 
-            // Seed the cached frames array with frame 0 (pre-computed as
-            // part of the fetch) AND — if Now isn't frame 0 — synchronously
-            // compute the Now frame so the first render already has real
-            // isobars rather than waiting for the background batch to
-            // catch up. Worst case adds ~10ms of main-thread work on top
-            // of the fetch; acceptable in exchange for zero blank-chart time.
-            const seededFrames: unknown[] = [data.result];
-            if (idx !== 0) {
-                seededFrames[idx] = generateIsobarsFromGrid(data.grid, idx, false);
+                // Align the scrubber to wall-clock "Now" so a stale GFS cycle
+                // (e.g. 4h old) shows the +4h sub-frame labelled Now, not the
+                // cycle-0 sub-frame. Matches wind's computeNowIndex behaviour.
+                const nowIdx = computePressureNowIndex(data.grid);
+                const idx = preservedFrame ?? nowIdx;
+                pressureNowIdxRef.current = nowIdx;
+
+                // Seed the cached frames array with frame 0 (pre-computed as
+                // part of the fetch) AND — if the selected frame isn't frame
+                // 0 — synchronously compute it so the first render has real
+                // isobars rather than waiting for the background batch.
+                const seededFrames: unknown[] = [data.result];
+                if (idx !== 0) {
+                    seededFrames[idx] = generateIsobarsFromGrid(data.grid, idx, false);
+                }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                cachedFramesRef.current = seededFrames as any[];
+                setForecastHour(idx);
+                applyFrame(idx);
+
+                // Precompute remaining frames in background (non-blocking)
+                precomputeFrames(data.grid);
+            } finally {
+                if (token === isobarFetchRef.current) isobarLoadingRef.current = false;
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            cachedFramesRef.current = seededFrames as any[];
-            setForecastHour(idx);
-            applyFrame(idx);
-
-            // Precompute remaining frames in background (non-blocking)
-            precomputeFrames(data.grid);
         },
         [applyFrame, precomputeFrames, computePressureNowIndex],
     );
@@ -1129,6 +1181,16 @@ export function useWeatherLayers(
         const interval = setInterval(() => {
             const grid = cachedGridRef.current;
             if (!grid) return;
+
+            // GFS publishes new cycles throughout the day. The global grid
+            // stays valid across panning, but not indefinitely; refresh it on
+            // a bounded cadence while retaining the currently visible valid
+            // time through updateIsobars().
+            if (Date.now() - isobarFetchedAtRef.current >= 30 * 60 * 1000) {
+                const map = mapRef.current;
+                if (map) void updateIsobars(map);
+                return;
+            }
             const newNowIdx = computePressureNowIndex(grid);
             pressureNowIdxRef.current = newNowIdx;
 
@@ -1142,7 +1204,7 @@ export function useWeatherLayers(
         }, 60 * 1000);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, computePressureNowIndex]);
+    }, [activeKey, computePressureNowIndex, updateIsobars]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
     const prevLayerCountRef = useRef(0);
@@ -1212,6 +1274,10 @@ export function useWeatherLayers(
         const timer = setInterval(() => {
             // Pause when app is backgrounded
             if (document.hidden) return;
+            // On a cold connection, advancing again would cancel the one
+            // frame currently warming up and leave the animation permanently
+            // behind its UI. Hold this step until the handoff commits.
+            if (rainTransitionRef.current?.isTransitioning()) return;
             setRainFrameIndex((prev) => {
                 if (prev + 1 >= rainFrameCount) return 0; // loop back to start
                 return prev + 1;
@@ -1221,57 +1287,59 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rainPlaying, activeKey, rainFrameCount]);
 
-    // Unified rain frame swap: toggle visibility on pre-loaded layers
-    const rainFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Unified rain frame swap. Parked layers stay layout-hidden until one is
+    // requested; RainFrameTransitionController warms that one at opacity zero
+    // and only replaces the image already on screen after its tiles are ready.
     const rainCleanupRef = useRef<(() => void) | null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const savedLandFillColorsRef = useRef<Map<string, any>>(new Map());
 
     useEffect(() => {
-        if (!activeLayers.has('rain') || !rainReady) return;
         const m = mapRef.current;
-        if (!m) return;
+        if (!activeLayers.has('rain') || !rainReady || !m) {
+            cancelRainFrameTransition(m);
+            return;
+        }
         const frames = unifiedFramesRef.current;
         if (rainFrameIndex >= frames.length) return;
         const frame = frames[rainFrameIndex];
 
-        // Clear any pending fade timer
-        if (rainFadeTimerRef.current) {
-            clearTimeout(rainFadeTimerRef.current);
-            rainFadeTimerRef.current = null;
-        }
-
+        let targetId: string | null = null;
+        let commitVisibleFrame: (() => void) | null = null;
         if (frame.type === 'radar' && frame.radarPath) {
             const radarFrames = frames.filter((f) => f.type === 'radar');
             const rdIdx = radarFrames.indexOf(frame);
-            const prevRdIdx = visibleRadarIdxRef.current;
-
-            if (visibleForecastIdxRef.current !== null) {
-                hideRainFrame(m, `rainbow-fc-${visibleForecastIdxRef.current}`);
-                visibleForecastIdxRef.current = null;
-            }
-            if (prevRdIdx !== null && prevRdIdx !== rdIdx) hideRainFrame(m, `radar-${prevRdIdx}`);
             if (rdIdx >= 0) {
-                showRainFrame(m, `radar-${rdIdx}`);
-                visibleRadarIdxRef.current = rdIdx;
+                targetId = `radar-${rdIdx}`;
+                commitVisibleFrame = () => {
+                    visibleRadarIdxRef.current = rdIdx;
+                    visibleForecastIdxRef.current = null;
+                };
             }
         } else if (frame.type === 'forecast' && frame.forecastTileUrl) {
             const forecastFrames = frames.filter((f) => f.type === 'forecast');
             const fcIdx = forecastFrames.indexOf(frame);
-            const prevFcIdx = visibleForecastIdxRef.current;
-
-            if (visibleRadarIdxRef.current !== null) {
-                hideRainFrame(m, `radar-${visibleRadarIdxRef.current}`);
-                visibleRadarIdxRef.current = null;
-            }
-            if (prevFcIdx !== null && prevFcIdx !== fcIdx) hideRainFrame(m, `rainbow-fc-${prevFcIdx}`);
             if (fcIdx >= 0) {
-                showRainFrame(m, `rainbow-fc-${fcIdx}`);
-                visibleForecastIdxRef.current = fcIdx;
+                targetId = `rainbow-fc-${fcIdx}`;
+                commitVisibleFrame = () => {
+                    visibleForecastIdxRef.current = fcIdx;
+                    visibleRadarIdxRef.current = null;
+                };
             }
         }
+
+        if (!targetId || !commitVisibleFrame) return;
+
+        const visibleIds = [
+            visibleRadarIdxRef.current === null ? null : `radar-${visibleRadarIdxRef.current}`,
+            visibleForecastIdxRef.current === null ? null : `rainbow-fc-${visibleForecastIdxRef.current}`,
+        ].filter((id): id is string => id !== null);
+
+        rainTransitionRef.current?.request(m as unknown as RainFrameMap, targetId, visibleIds, commitVisibleFrame);
+
+        return () => cancelRainFrameTransition(m);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rainFrameIndex, activeKey, rainReady]);
+    }, [rainFrameIndex, activeKey, rainReady, cancelRainFrameTransition]);
 
     // ── Weather Layer Toggle (main effect) ──
     useEffect(() => {
@@ -1281,21 +1349,7 @@ export function useWeatherLayers(
         // Remove layers NOT in active set
         if (!activeLayers.has('rain')) {
             // Clean up rain sources/layers when rain is deactivated
-            if (rainFadeTimerRef.current) {
-                clearTimeout(rainFadeTimerRef.current);
-                rainFadeTimerRef.current = null;
-            }
-            for (let i = 0; i < 30; i++) {
-                ['radar-', 'rainbow-fc-'].forEach((prefix) => {
-                    const id = `${prefix}${i}`;
-                    try {
-                        if (map.getLayer(id)) map.removeLayer(id);
-                        if (map.getSource(id)) map.removeSource(id);
-                    } catch (_) {
-                        log.warn('[useWeatherLayers]', _);
-                    }
-                });
-            }
+            cancelRainFrameTransition(map);
             // ABORT THE IN-FLIGHT LOAD. This is the important line.
             //
             // The teardown used to remove the layers and reset the refs without
@@ -1315,6 +1369,9 @@ export function useWeatherLayers(
             // "rain does not seem to be working" report.
             rainCleanupRef.current?.();
             rainCleanupRef.current = null;
+            // The session cleanup owns normal teardown. This catches any
+            // stale source left behind by an interrupted/older session.
+            removeRainFrameLayers(map);
             unifiedFramesRef.current = [];
             rainFetchedAtRef.current = 0; // Next activation gets a fresh fetch
             // Stale indices would otherwise hide a freshly-created frame on the
@@ -1344,8 +1401,13 @@ export function useWeatherLayers(
         if (!activeLayers.has('pressure')) {
             hideIsobarLayers(map, savedLandFillColorsRef.current);
             // Clear cached grid so a fresh one is fetched next time the layer activates
+            ++isobarFetchRef.current;
+            isobarLoadingRef.current = false;
+            isobarFetchedAtRef.current = 0;
             cachedGridRef.current = null;
             cachedFramesRef.current = [];
+            setPressureFrameStepHours(1);
+            setPressureSource(null);
         }
 
         // ── Static tile layers (sea, temperature, clouds) ──
@@ -1506,16 +1568,15 @@ export function useWeatherLayers(
         if (activeLayers.has('rain') && (unifiedFramesRef.current.length === 0 || rainStale)) {
             if (rainStale) {
                 log.info(`[Rain] Layer data ${Math.round(rainAge / 60000)}m old — refreshing`);
-                // Clear old layers so they get re-created with fresh frames
-                for (let i = 0; i < unifiedFramesRef.current.length; i++) {
-                    try {
-                        if (map.getLayer(`rain-frame-${i}`)) map.removeLayer(`rain-frame-${i}`);
-                        if (map.getSource(`rain-frame-${i}`)) map.removeSource(`rain-frame-${i}`);
-                    } catch {
-                        /* best effort */
-                    }
-                }
+                // Abort the old session before dropping its layers. The real
+                // IDs are radar-* and rainbow-fc-*; the old rain-frame-* pass
+                // never removed either, leaving stale imagery in the map.
+                cancelRainFrameTransition(map);
+                rainCleanupRef.current?.();
+                rainCleanupRef.current = null;
+                removeRainFrameLayers(map);
                 unifiedFramesRef.current = [];
+                rainFetchedAtRef.current = 0;
                 visibleRadarIdxRef.current = null;
                 visibleForecastIdxRef.current = null;
             }
@@ -1716,7 +1777,9 @@ export function useWeatherLayers(
                             {
                                 id: srcId,
                                 type: 'raster',
-                                // visibility, not opacity — see showRainFrame.
+                                // Park by visibility, not opacity — the
+                                // transition controller stages only the frame
+                                // currently being requested.
                                 // This is what stops 29 frames fetching at once.
                                 layout: { visibility: i === nowIdx ? 'visible' : 'none' },
                                 source: srcId,
@@ -1796,7 +1859,8 @@ export function useWeatherLayers(
                                     id: srcId,
                                     type: 'raster',
                                     // Hidden by LAYOUT so it costs no tiles
-                                    // until scrubbed to — see showRainFrame.
+                                    // until scrubbed to — the transition
+                                    // controller warms one requested frame.
                                     layout: { visibility: 'none' },
                                     source: srcId,
                                     paint: {
@@ -1836,30 +1900,8 @@ export function useWeatherLayers(
             rainCleanupRef.current = () => {
                 stale = true;
                 abortCtrl.abort();
-                if (rainFadeTimerRef.current) {
-                    clearTimeout(rainFadeTimerRef.current);
-                    rainFadeTimerRef.current = null;
-                }
-                try {
-                    const m = map;
-                    for (let i = 0; i < 30; i++) {
-                        ['radar-', 'rainbow-fc-'].forEach((prefix) => {
-                            const id = `${prefix}${i}`;
-                            try {
-                                if (m?.getLayer(id)) m.removeLayer(id);
-                            } catch (_) {
-                                log.warn('[useWeatherLayers]', _);
-                            }
-                            try {
-                                if (m?.getSource(id)) m.removeSource(id);
-                            } catch (_) {
-                                log.warn('[useWeatherLayers]', _);
-                            }
-                        });
-                    }
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
+                cancelRainFrameTransition(map);
+                removeRainFrameLayers(map);
                 unifiedFramesRef.current = [];
                 setRainFrameCount(0);
                 setRainReady(false);
@@ -1947,15 +1989,18 @@ export function useWeatherLayers(
     }, [activeKey, mapReady, updateIsobars]);
 
     // Global grid covers all zoom levels and viewport positions — no moveend re-fetch needed.
-    // The grid is fetched once on layer activation and cached until the layer is toggled off.
+    // It is reused for panning and refreshed on a bounded GFS-cycle TTL.
 
     // ── Cleanup on unmount — ensures fresh re-initialization on re-entry ──
     useEffect(() => {
+        const map = mapRef.current;
         return () => {
             // Invoke rain cleanup to remove map layers + abort pending fetches
             if (rainCleanupRef.current) {
                 rainCleanupRef.current();
                 rainCleanupRef.current = null;
+            } else {
+                cancelRainFrameTransition(map);
             }
             setWindReady(false);
             setRainReady(false);
@@ -1966,7 +2011,7 @@ export function useWeatherLayers(
             // eslint-disable-next-line react-hooks/exhaustive-deps
             savedLandFillColorsRef.current.clear();
         };
-    }, []);
+    }, [cancelRainFrameTransition, mapRef]);
 
     return {
         activeLayer,
@@ -2148,6 +2193,10 @@ export function useWeatherLayers(
          *  MapHub's scrubber label so a 4h-old GFS cycle shows "Now" on
          *  the +4h sub-frame instead of mis-labelling cycle-0 as Now. */
         pressureNowIdx: pressureNowIdxRef.current,
+        /** Actual time represented by one pressure sub-frame. The GFS path is
+         *  hourly after interpolation; the fallback is already hourly. */
+        pressureFrameStepHours,
+        pressureSource,
         isPlaying,
         setIsPlaying,
         totalFrames,

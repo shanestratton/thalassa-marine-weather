@@ -288,10 +288,14 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         // ── Double-tap to snap to Live ──
         const handleDoubleTap = useCallback(() => {
             triggerHaptic('heavy');
-            onScrub(0); // Snap to first frame ("Live")
-            applyFrame?.(0);
-            updateVisuals(0);
-        }, [onScrub, applyFrame, updateVisuals]);
+            // A model run's frame zero is not necessarily the weather for now.
+            // Pressure and other delayed datasets expose their live marker so
+            // a double-tap returns to the actual valid-time "Now" frame.
+            const liveFrame = nowIndex ?? 0;
+            onScrub(liveFrame);
+            applyFrame?.(liveFrame);
+            updateVisuals(liveFrame);
+        }, [onScrub, applyFrame, nowIndex, updateVisuals]);
 
         // ── Pointer handlers ──
         const handlePointerDown = useCallback(

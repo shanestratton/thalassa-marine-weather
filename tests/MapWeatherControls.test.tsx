@@ -112,6 +112,34 @@ describe('MapWeatherControls', () => {
         expect(screen.queryByText('+72h')).not.toBeInTheDocument();
     });
 
+    it('uses the pressure grid time step rather than stretching every pressure timeline over 12 hours', () => {
+        render(
+            <MapWeatherControls
+                weather={weather({
+                    activeLayers: new Set(['pressure']),
+                    forecastHour: 9,
+                    totalFrames: 48,
+                    framesReady: 48,
+                    isPlaying: false,
+                    pressureNowIdx: 0,
+                    pressureFrameStepHours: 1,
+                    pressureSource: 'open-meteo',
+                    setForecastHour: vi.fn(),
+                    setIsPlaying: vi.fn(),
+                    applyFrame: vi.fn(),
+                })}
+                visible
+                embedded={false}
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByText('+9h')).toBeInTheDocument();
+        expect(screen.queryByText('+2.3h')).not.toBeInTheDocument();
+        expect(screen.getByText('Fallback · Forecast')).toBeInTheDocument();
+    });
+
     it('shows loading instead of claiming a null wind grid is current', () => {
         render(
             <MapWeatherControls
