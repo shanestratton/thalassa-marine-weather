@@ -13,7 +13,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Thalassa uses the microphone for voice-to-text dictation in the Captain's Journal and for the Bosun voice console, allowing you to talk to the boat's AI first mate hands-free.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Thalassa uses speech recognition to transcribe your spoken questions to the Bosun voice console — letting you ask the boat about weather, systems, and live state without typing.</string>
+	<string>Thalassa uses speech recognition to transcribe your spoken diary entries and Bosun questions, letting you capture your passage and ask the boat about weather, systems, and live state without typing.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
 	<key>NSAppleMusicUsageDescription</key>

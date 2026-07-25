@@ -15,7 +15,7 @@
  * tap again → stop() → POST blob to backend for STT.
  */
 
-interface RecorderHandle {
+export interface AudioRecorderHandle {
     /** Stop recording and return the captured audio Blob. */
     stop: () => Promise<Blob>;
     /** Abort recording without returning audio. */
@@ -24,6 +24,12 @@ interface RecorderHandle {
     isRecording: () => boolean;
     /** MIME type of the audio (e.g. 'audio/mp4', 'audio/webm'). */
     mimeType: () => string;
+    /**
+     * The single WebKit capture stream backing this recording. Streaming STT
+     * may consume this exact stream so iOS has one microphone owner rather
+     * than competing AVAudioSession/getUserMedia captures.
+     */
+    mediaStream: () => MediaStream;
 }
 
 /** True when the runtime supports MediaRecorder + getUserMedia. */
@@ -66,9 +72,9 @@ function pickMimeType(): string {
  * Throws if the platform doesn't support MediaRecorder or the user denies
  * mic permission.
  */
-export async function startRecording(): Promise<RecorderHandle> {
+export async function startRecording(): Promise<AudioRecorderHandle> {
     if (!isAudioRecordingSupported()) {
-        throw new Error('Audio recording not supported on this device. Update iOS or use the text input below.');
+        throw new Error('Audio recording is not supported on this device. Update iOS or use a supported device.');
     }
 
     let stream: MediaStream;
@@ -165,6 +171,7 @@ export async function startRecording(): Promise<RecorderHandle> {
         },
         isRecording: () => recording,
         mimeType: () => recorder.mimeType,
+        mediaStream: () => stream,
     };
 }
 

@@ -28,6 +28,10 @@ import {
     deletePhoto as idbDeletePhoto,
     isIdbPhoto,
     IDB_PHOTO_PREFIX,
+    saveAudio as idbSaveAudio,
+    loadAudio as idbLoadAudio,
+    deleteAudio as idbDeleteAudio,
+    isIdbAudio,
 } from './diaryPhotoStore';
 const log = createLogger('Diary');
 
@@ -51,7 +55,7 @@ export interface DiaryEntry {
     body: string;
     mood: DiaryMood;
     photos: string[]; // Public URLs (or data: URIs when offline)
-    audio_url: string | null; // Voice memo URL (or data: URI when offline)
+    audio_url: string | null; // Voice memo URL (or idb-audio: ref while offline)
     latitude: number | null;
     longitude: number | null;
     location_name: string;
@@ -95,6 +99,14 @@ const MEDIA_OWNERS_KEY = 'thalassa_diary_media_owners_v1';
 const QUARANTINE_KEY = 'thalassa_diary_quarantine_v1';
 const IDMAP_MAX = 300;
 const MAX_PHOTO_SIZE = 1200;
+// Voice transcription and styling should never strand the compose screen on
+// a poor offshore connection. The raw dictated words remain available if an
+// AI request times out.
+const VOICE_AI_REQUEST_TIMEOUT_MS = 20_000;
+// Storage uploads use a separate deadline because the Supabase client does
+// not expose an AbortSignal for multipart uploads. A timed-out request may
+// still settle in the background, so _uploadAudioBlob cleans a late object.
+const AUDIO_UPLOAD_TIMEOUT_MS = 20_000;
 // Tombstones older than this are abandoned — long enough for any realistic
 // offline stretch, short enough that a failed server delete can't haunt the
 // store forever.
@@ -104,6 +116,57 @@ const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // carries a pre-delete payload, and the tombstone that would have filtered
 // it is gone by the time that payload is merged.
 const RECENT_DRAIN_GRACE_MS = 5 * 60 * 1000;
+
+const fetchVoiceAiWithDeadline = async (url: string, init: RequestInit): Promise<Response> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), VOICE_AI_REQUEST_TIMEOUT_MS);
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
+};
+
+/**
+ * MediaRecorder commonly reports codec parameters (for example
+ * `audio/webm;codecs=opus`). Storage and Gemini expect the canonical MIME
+ * type, so normalise it once at the service boundary.
+ */
+export const normalizeDiaryAudioMimeType = (value?: string | null): string => {
+    const raw = value?.split(';', 1)[0]?.trim().toLowerCase() || '';
+    switch (raw) {
+        case 'audio/x-wav':
+            return 'audio/wav';
+        case 'audio/x-m4a':
+            return 'audio/mp4';
+        case 'audio/webm':
+        case 'audio/mp4':
+        case 'audio/mpeg':
+        case 'audio/wav':
+        case 'audio/ogg':
+        case 'audio/aac':
+            return raw;
+        default:
+            return 'audio/mp4';
+    }
+};
+
+export const diaryAudioFileExtension = (mimeType?: string | null): string => {
+    switch (normalizeDiaryAudioMimeType(mimeType)) {
+        case 'audio/webm':
+            return 'webm';
+        case 'audio/mpeg':
+            return 'mp3';
+        case 'audio/wav':
+            return 'wav';
+        case 'audio/ogg':
+            return 'ogg';
+        case 'audio/aac':
+            return 'aac';
+        default:
+            return 'm4a';
+    }
+};
 
 /**
  * A locally-committed delete awaiting server confirmation. `photos`/`audio`
@@ -154,6 +217,8 @@ class DiaryServiceClass {
     // Cache mapping idb: references → short-lived blob URLs for <img> rendering.
     // Avoids re-reading IndexedDB on every render.
     private _idbRefToBlobUrl = new Map<string, string>();
+    // Same cache for voice memos stored in IndexedDB while an entry waits to sync.
+    private _idbAudioRefToBlobUrl = new Map<string, string>();
     private _signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
     constructor() {
@@ -167,6 +232,8 @@ class DiaryServiceClass {
             this._recentlySynced = [];
             for (const url of this._idbRefToBlobUrl.values()) URL.revokeObjectURL(url);
             this._idbRefToBlobUrl.clear();
+            for (const url of this._idbAudioRefToBlobUrl.values()) URL.revokeObjectURL(url);
+            this._idbAudioRefToBlobUrl.clear();
             this._signedUrlCache.clear();
         });
         // Auto-sync when connectivity resumes
@@ -337,19 +404,30 @@ class DiaryServiceClass {
         updates: Partial<
             Pick<
                 DiaryEntry,
-                'title' | 'body' | 'mood' | 'photos' | 'location_name' | 'weather_summary' | 'tags' | 'is_public'
+                | 'title'
+                | 'body'
+                | 'mood'
+                | 'photos'
+                | 'audio_url'
+                | 'location_name'
+                | 'weather_summary'
+                | 'tags'
+                | 'is_public'
             >
         >,
-    ): Promise<boolean> {
+        options: { shouldContinue?: () => boolean } = {},
+    ): Promise<{ ok: boolean; audioUrl?: string | null }> {
         const scope = getAuthIdentityScope();
+        const canContinue = () => isAuthIdentityScopeCurrent(scope) && (options.shouldContinue?.() ?? true);
         // Update in pending queue if offline entry
         if (id.startsWith('offline-')) {
+            if (!canContinue()) return { ok: false };
             const pending = this._getPendingEntries(scope);
             const idx = pending.findIndex((e) => e.id === id);
             if (idx >= 0) {
                 Object.assign(pending[idx], updates, { updated_at: new Date().toISOString() });
                 this._savePending(pending, scope);
-                return true;
+                return { ok: true, audioUrl: updates.audio_url };
             }
             // Not in the pending queue — it likely synced already. Resolve the
             // offline id to the real server id so the Supabase update below hits.
@@ -357,19 +435,45 @@ class DiaryServiceClass {
             if (synced) id = synced.entry.id;
         }
 
-        // Update in Supabase
-        if (!supabase || !scope.userId) return false;
+        // Update in Supabase. A freshly dictated audio ref lives in IDB until
+        // it can be uploaded, rather than ever writing a local ref into the
+        // server row.
+        if (!supabase || !scope.userId || !canContinue()) return { ok: false };
         const user = (await supabase.auth.getUser()).data.user;
-        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return false;
+        if (!canContinue() || user?.id !== scope.userId) return { ok: false };
+        let persistedUpdates = updates;
+        let uploadedAudioRef: string | null = null;
+        let uploadedAudioStorageRef: string | null = null;
+        if (updates.audio_url && isIdbAudio(updates.audio_url)) {
+            const blob = await idbLoadAudio(updates.audio_url);
+            if (!blob || !canContinue()) return { ok: false };
+            const uploaded = await this._uploadAudioBlob(blob, scope);
+            if (!uploaded) return { ok: false };
+            if (!canContinue()) {
+                await this._removeAudioStorageRef(uploaded, scope);
+                return { ok: false };
+            }
+            persistedUpdates = { ...updates, audio_url: uploaded };
+            uploadedAudioRef = updates.audio_url;
+            uploadedAudioStorageRef = uploaded;
+        }
+        if (!canContinue()) return { ok: false };
         const { error } = await supabase
             .from(TABLE)
-            .update({ ...updates, updated_at: new Date().toISOString() })
+            .update({ ...persistedUpdates, updated_at: new Date().toISOString() })
             .eq('id', id)
             .eq('user_id', scope.userId);
 
-        if (!isAuthIdentityScopeCurrent(scope)) return false;
-        if (!error) void this._refreshFromServer(50, scope);
-        return !error;
+        if (!canContinue()) return { ok: false };
+        if (!error) {
+            if (uploadedAudioRef) await this.discardUnsavedAudio(uploadedAudioRef);
+            void this._refreshFromServer(50, scope);
+        } else if (uploadedAudioStorageRef) {
+            // The database row did not take ownership of this fresh object,
+            // so remove it and retain the IDB source for a safe retry.
+            await this._removeAudioStorageRef(uploadedAudioStorageRef, scope);
+        }
+        return { ok: !error, audioUrl: !error ? (persistedUpdates.audio_url ?? updates.audio_url) : undefined };
     }
 
     // ── Publish ────────────────────────────────────────────────
@@ -447,6 +551,9 @@ class DiaryServiceClass {
                         }
                     }
                 }
+            }
+            if (entry?.audio_url && isIdbAudio(entry.audio_url)) {
+                await this.discardUnsavedAudio(entry.audio_url);
             }
             this._savePending(
                 pending.filter((e) => e.id !== id),
@@ -702,6 +809,15 @@ class DiaryServiceClass {
         if (!ref) return null;
         if (!this._ownsMediaRef(ref, scope)) return null;
         if (ref.startsWith('data:') || ref.startsWith('blob:')) return ref;
+        if (isIdbAudio(ref)) {
+            const cached = this._idbAudioRefToBlobUrl.get(ref);
+            if (cached) return cached;
+            const blob = await idbLoadAudio(ref);
+            if (!blob || !isAuthIdentityScopeCurrent(scope)) return null;
+            const url = URL.createObjectURL(blob);
+            this._idbAudioRefToBlobUrl.set(ref, url);
+            return url;
+        }
         const storagePath = this._extractStoragePath(ref, AUDIO_BUCKET);
         if (storagePath && supabase) {
             return this._createSignedStorageUrl(AUDIO_BUCKET, storagePath, ref, scope);
@@ -971,13 +1087,50 @@ class DiaryServiceClass {
                     continue;
                 }
 
-                // 2. Upload pending audio if needed
+                // 2. Upload pending audio if needed. Keep IDB/data refs in
+                // the pending queue until storage succeeds; never insert an
+                // unresolved base64 or local reference into the server row.
                 let audioUrl = entry.audio_url;
-                if (audioUrl && audioUrl.startsWith('data:')) {
+                let audioStillPending = false;
+                if (audioUrl && isIdbAudio(audioUrl)) {
+                    const idbRef = audioUrl;
+                    const blob = await idbLoadAudio(idbRef);
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                    if (!blob) {
+                        log.warn('IDB audio missing, saving diary text without the memo:', idbRef);
+                        audioUrl = null;
+                    } else {
+                        const uploaded = await this._uploadAudioBlob(blob, scope);
+                        if (uploaded) {
+                            audioUrl = uploaded;
+                            // Make the durable queue point to storage before
+                            // inserting the row. If the row insert retries,
+                            // it reuses this object instead of orphaning a
+                            // fresh upload on every attempt.
+                            const pendingNow = this._getPendingEntries(scope);
+                            const idx = pendingNow.findIndex((e) => e.id === entry.id);
+                            if (idx >= 0) {
+                                pendingNow[idx] = { ...pendingNow[idx], audio_url: uploaded };
+                                this._savePending(pendingNow, scope);
+                            }
+                            await this.discardUnsavedAudio(idbRef);
+                            if (!isAuthIdentityScopeCurrent(scope)) return;
+                        } else {
+                            audioStillPending = true;
+                        }
+                    }
+                } else if (audioUrl && audioUrl.startsWith('data:')) {
                     const uploaded = await this._uploadAudioDataUri(audioUrl, scope);
                     if (uploaded) audioUrl = uploaded;
+                    else audioStillPending = true;
                 }
                 if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (audioStillPending) {
+                    const pendingNow = this._getPendingEntries(scope);
+                    const idx = pendingNow.findIndex((e) => e.id === entry.id);
+                    if (idx >= 0) this._savePending(pendingNow, scope);
+                    continue;
+                }
 
                 // 3. Insert entry to Supabase
                 const { data, error } = await supabase
@@ -1868,7 +2021,7 @@ class DiaryServiceClass {
             const headers = await getAuthenticatedFunctionHeaders();
             if (!isAuthIdentityScopeCurrent(scope)) return null;
 
-            const res = await fetch(`${supabaseUrl}/functions/v1/gemini-diary`, {
+            const res = await fetchVoiceAiWithDeadline(`${supabaseUrl}/functions/v1/gemini-diary`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({
@@ -1892,14 +2045,64 @@ class DiaryServiceClass {
 
     // ── Audio ──────────────────────────────────────────────────
 
+    /**
+     * Persist a new voice memo locally without inflating the diary pending
+     * queue with base64. The returned ref becomes owned only when a caller
+     * saves it as part of a diary entry, so Cancel can discard it cleanly.
+     */
+    async saveAudioForEntry(blob: Blob): Promise<string | null> {
+        if (!blob.size) return null;
+        const scope = getAuthIdentityScope();
+        try {
+            const ref = await idbSaveAudio(blob);
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                await idbDeleteAudio(ref);
+                return null;
+            }
+            return ref;
+        } catch (error) {
+            log.warn('Could not persist diary audio locally:', error);
+            return null;
+        }
+    }
+
+    /** Discard an unsaved IndexedDB voice memo (safe to call repeatedly). */
+    async discardUnsavedAudio(ref: string | null | undefined): Promise<void> {
+        if (!ref || !isIdbAudio(ref)) return;
+        await idbDeleteAudio(ref);
+        const cachedUrl = this._idbAudioRefToBlobUrl.get(ref);
+        if (cachedUrl) {
+            URL.revokeObjectURL(cachedUrl);
+            this._idbAudioRefToBlobUrl.delete(ref);
+        }
+    }
+
+    /**
+     * Make a local, offline-safe representation of a freshly-recorded memo.
+     * Callers should add it to a diary entry before it is registered as owned
+     * media; this makes abandoning a compose form genuinely discard the memo.
+     */
+    async createAudioDataUri(blob: Blob): Promise<string | null> {
+        if (!blob.size) return null;
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+            reader.onerror = () => {
+                log.warn('Could not prepare diary audio for saving');
+                resolve(null);
+            };
+            reader.onabort = () => resolve(null);
+            try {
+                reader.readAsDataURL(blob);
+            } catch (error) {
+                log.warn('Could not start diary audio preparation:', error);
+                resolve(null);
+            }
+        });
+    }
+
     async uploadAudio(blob: Blob): Promise<string | null> {
         const scope = getAuthIdentityScope();
-        // Convert to data URI for offline storage
-        const dataUri = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-        });
         if (!isAuthIdentityScopeCurrent(scope)) return null;
 
         // Try upload if online
@@ -1911,9 +2114,10 @@ class DiaryServiceClass {
             }
         }
 
-        // Return data URI — will be uploaded during sync
-        this._registerMediaRef(dataUri, scope);
-        return dataUri;
+        // Keep offline audio in IndexedDB, never base64 localStorage.
+        const ref = await this.saveAudioForEntry(blob);
+        if (ref && isAuthIdentityScopeCurrent(scope)) this._registerMediaRef(ref, scope);
+        return ref;
     }
 
     private async _uploadAudioBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
@@ -1922,10 +2126,35 @@ class DiaryServiceClass {
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
         try {
-            const path = `${scope.userId}/${Date.now()}.webm`;
-            const { error } = await supabase.storage
+            const mimeType = normalizeDiaryAudioMimeType(blob.type);
+            const path = `${scope.userId}/${Date.now()}.${diaryAudioFileExtension(mimeType)}`;
+            const uploadPromise = supabase.storage
                 .from(AUDIO_BUCKET)
-                .upload(path, blob, { contentType: 'audio/webm', upsert: false });
+                .upload(path, blob, { contentType: mimeType, upsert: false });
+
+            let timedOut = false;
+            let timeout: ReturnType<typeof setTimeout> | null = null;
+            const timeoutPromise = new Promise<null>((resolve) => {
+                timeout = setTimeout(() => {
+                    timedOut = true;
+                    resolve(null);
+                }, AUDIO_UPLOAD_TIMEOUT_MS);
+            });
+            const uploadResult = await Promise.race([uploadPromise, timeoutPromise]);
+            if (timeout) clearTimeout(timeout);
+            if (timedOut || uploadResult === null) {
+                // Storage-js does not yet accept an AbortSignal. Do not leave
+                // a late successful upload orphaned after the UI has moved on.
+                void uploadPromise
+                    .then(({ error }) => {
+                        if (!error) void this._removeAudioObject(path, scope);
+                    })
+                    .catch((error) => log.warn('Late diary audio upload failed:', error));
+                log.warn('Diary audio upload timed out; keeping the local memo for retry');
+                return null;
+            }
+
+            const { error } = uploadResult;
 
             if (error || !isAuthIdentityScopeCurrent(scope)) return null;
 
@@ -1933,6 +2162,22 @@ class DiaryServiceClass {
         } catch (e) {
             log.error('Audio blob upload failed:', e);
             return null;
+        }
+    }
+
+    /** Remove an uploaded diary-audio object which no entry has adopted. */
+    private async _removeAudioStorageRef(ref: string, scope: AuthIdentityScope): Promise<void> {
+        const path = this._extractStoragePath(ref, AUDIO_BUCKET);
+        if (path) await this._removeAudioObject(path, scope);
+    }
+
+    private async _removeAudioObject(path: string, scope: AuthIdentityScope): Promise<void> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+        try {
+            const { error } = await supabase.storage.from(AUDIO_BUCKET).remove([path]);
+            if (error) log.warn('Could not clean up unowned diary audio:', error.message);
+        } catch (error) {
+            log.warn('Could not clean up unowned diary audio:', error);
         }
     }
 
@@ -1963,14 +2208,25 @@ class DiaryServiceClass {
             if (!isAuthIdentityScopeCurrent(scope)) return null;
 
             // Fetch audio as base64. Private bucket refs are signed only for
-            // the current authenticated owner and expire after one hour.
-            const resolvedAudioUrl = await this.resolveAudioUrl(audioUrl);
-            if (!resolvedAudioUrl || !isAuthIdentityScopeCurrent(scope)) return null;
-            const audioRes = await fetch(resolvedAudioUrl);
-            const audioBlob = await audioRes.blob();
+            // the current authenticated owner and expire after one hour. A
+            // just-recorded data URI or IDB memo intentionally has no
+            // persisted ownership token until Save, but can safely be sent
+            // for this signed-in caller's immediate transcription.
+            let audioBlob: Blob | null = null;
+            if (isIdbAudio(audioUrl)) {
+                audioBlob = await idbLoadAudio(audioUrl);
+            } else {
+                const resolvedAudioUrl = audioUrl.startsWith('data:') ? audioUrl : await this.resolveAudioUrl(audioUrl);
+                if (!resolvedAudioUrl || !isAuthIdentityScopeCurrent(scope)) return null;
+                const audioRes = await fetchVoiceAiWithDeadline(resolvedAudioUrl, {});
+                audioBlob = await audioRes.blob();
+            }
+            if (!audioBlob) return null;
             if (!isAuthIdentityScopeCurrent(scope)) return null;
-            // Detect MIME type: explicit param > blob type > fallback
-            const detectedMime = mimeType || audioBlob.type || 'audio/mp4';
+            // MediaRecorder can include codec parameters in its MIME value
+            // (for example `audio/webm;codecs=opus`). Send the canonical type
+            // accepted by the transcription edge function.
+            const detectedMime = normalizeDiaryAudioMimeType(mimeType || audioBlob.type);
             const base64 = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
                 reader.onload = () => {
@@ -1980,7 +2236,7 @@ class DiaryServiceClass {
                 reader.readAsDataURL(audioBlob);
             });
 
-            const res = await fetch(`${supabaseUrl}/functions/v1/gemini-diary`, {
+            const res = await fetchVoiceAiWithDeadline(`${supabaseUrl}/functions/v1/gemini-diary`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({
@@ -1990,7 +2246,10 @@ class DiaryServiceClass {
                 }),
             });
 
-            if (!res.ok || !isAuthIdentityScopeCurrent(scope)) return null;
+            if (!res.ok || !isAuthIdentityScopeCurrent(scope)) {
+                if (!res.ok) log.warn(`Audio transcription failed with status ${res.status}`);
+                return null;
+            }
             const data = await res.json();
             return data?.transcript || null;
         } catch (e) {

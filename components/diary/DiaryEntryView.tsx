@@ -41,7 +41,8 @@ interface DiaryEntryViewProps {
     onBack: () => void;
     onEdit: (entry: DiaryEntry) => void;
     onTogglePlayback: (url: string) => void;
-    onTranscribe: (url: string) => void;
+    /** Recover this entry's memo into its persisted diary text. */
+    onTranscribe: (entry: DiaryEntry) => void;
     onUndo: () => void;
     onDismissDelete: () => void;
     /** Delete this entry (standard undo-toast flow). The full entry view had
@@ -203,7 +204,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                 isPlaying={isPlaying}
                                 transcribing={transcribing}
                                 onTogglePlayback={onTogglePlayback}
-                                onTranscribe={onTranscribe}
+                                onTranscribe={() => onTranscribe(e)}
                                 allowTranscribe={true}
                             />
                         )}
