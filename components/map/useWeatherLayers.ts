@@ -20,7 +20,14 @@ import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { piCache } from '../../services/PiCacheService';
-import { type WeatherLayer, getTileUrl, getWindColor, isParkedLayer, LAYER_FRAME_ZOOM } from './mapConstants';
+import {
+    type WeatherLayer,
+    getActiveLayerFrameZoom,
+    getTileUrl,
+    getWindColor,
+    isParkedLayer,
+    LAYER_FRAME_ZOOM,
+} from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
     initIsobarLayers,
@@ -1237,8 +1244,10 @@ export function useWeatherLayers(
             map.setMaxBounds(undefined!);
         } else if (hasWind) {
             // Wind particle overlay needs enough pixels on screen to look right,
-            // so clamp to AU+NZ width. Max stays at standard tile depth.
-            map.setMinZoom(ausNzMin);
+            // while still allowing the chart to reach wind's authoritative
+            // opening frame on a wide tablet/desktop canvas. Max stays at
+            // standard tile depth.
+            map.setMinZoom(Math.min(ausNzMin, LAYER_FRAME_ZOOM.wind ?? 3));
             map.setMaxZoom(18);
             map.setMaxBounds(undefined!);
         } else {
@@ -1249,16 +1258,16 @@ export function useWeatherLayers(
             map.setMaxBounds(undefined!);
         }
 
-        // Zoom to z5 on FIRST layer activation — user wants wind/rain to
-        // open at a consistent regional zoom, same as the passage-planning
-        // rule of thumb. Keep the current map centre so we don't yank the
-        // user away from wherever they were already looking; only ease the
-        // zoom if the user isn't already there or deeper.
+        // Zoom to the first active layer's authoritative frame on FIRST
+        // activation. Keep the current map centre so we don't yank the user
+        // away from wherever they were already looking; only ease the zoom if
+        // the user isn't already there or deeper.
         if (!planMode && layerCount > 0 && prevLayerCountRef.current === 0) {
             const currentZoom = map.getZoom();
             const centre = map.getCenter();
-            if (currentZoom < 4.5) {
-                map.flyTo({ center: [centre.lng, centre.lat], zoom: 5, duration: 800 });
+            const activationZoom = getActiveLayerFrameZoom(activeLayers) ?? 5;
+            if (currentZoom < activationZoom - 0.5) {
+                map.flyTo({ center: [centre.lng, centre.lat], zoom: activationZoom, duration: 800 });
             }
         }
         // Suppression is presentation-only. Remember the user's real layer
