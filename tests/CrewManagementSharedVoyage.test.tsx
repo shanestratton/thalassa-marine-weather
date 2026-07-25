@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     setActivePassage: vi.fn(),
     clearPassagePlan: vi.fn(),
     getDraftVoyages: vi.fn(),
+    getCachedDraftVoyages: vi.fn(),
     createVoyage: vi.fn(),
     updateVoyage: vi.fn(),
     getCachedActiveVoyage: vi.fn(),
@@ -111,6 +112,7 @@ vi.mock('../services/PassagePlanService', () => {
 });
 
 vi.mock('../services/VoyageService', () => ({
+    getCachedDraftVoyages: mocks.getCachedDraftVoyages,
     getDraftVoyages: mocks.getDraftVoyages,
     createVoyage: mocks.createVoyage,
     updateVoyage: mocks.updateVoyage,
@@ -411,6 +413,7 @@ describe('CrewManagement shared passage ownership', () => {
         mocks.getMyMemberships.mockResolvedValue([]);
         mocks.inviteCrew.mockResolvedValue({ success: true });
         mocks.getDraftVoyages.mockResolvedValue([]);
+        mocks.getCachedDraftVoyages.mockReturnValue([]);
         mocks.createVoyage.mockResolvedValue({ voyage: null, error: 'not configured' });
         mocks.updateVoyage.mockResolvedValue({ voyage: null });
         mocks.getCachedActiveVoyage.mockReturnValue(null);
@@ -421,6 +424,30 @@ describe('CrewManagement shared passage ownership', () => {
             complete: true,
         } satisfies AuthorizedSharedVoyagesResult);
         mocks.getPassageStatus.mockResolvedValue(noAccess);
+    });
+
+    it('shows cached saved routes before the legacy logbook scan begins', async () => {
+        const saved = voyage('cached-route', 'crew-user', 'Brisbane → Moreton');
+        let resolveDrafts!: (voyages: Voyage[]) => void;
+        const pendingDrafts = new Promise<Voyage[]>((resolve) => {
+            resolveDrafts = resolve;
+        });
+        mocks.getCachedDraftVoyages.mockReturnValue([saved]);
+        mocks.getDraftVoyages.mockReturnValue(pendingDrafts);
+
+        renderPage();
+
+        const selector = screen.getByRole('combobox', { name: 'Saved Routes' });
+        expect(selector).toHaveValue('');
+        expect(within(selector).getByRole('option', { name: 'Choose a saved route…' })).toBeInTheDocument();
+        expect(within(selector).getByRole('option', { name: saved.voyage_name })).toBeInTheDocument();
+
+        await waitFor(() => expect(mocks.getDraftVoyages).toHaveBeenCalledTimes(1));
+        expect(mocks.fetchRoutesAndTracks).not.toHaveBeenCalled();
+
+        await act(async () => {
+            resolveDrafts([saved]);
+        });
     });
 
     it('retains and marks a verified shared voyage without logbook coordinates', async () => {

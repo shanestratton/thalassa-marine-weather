@@ -513,19 +513,12 @@ export async function savePassagePlanToLogbook(inputPlan: import('../../types').
         // route → think the save failed.
         invalidateRoutesAndTracks(operationScope);
 
-        // The draft was created before persistence so its immutable ID could
-        // travel with the route. Activate it only after the complete route has
-        // reached either Supabase or the durable queue.
-        try {
-            if (draftVoyageId) {
-                const { setActivePassage } = await import('../PassagePlanService');
-                if (!isAuthIdentityScopeCurrent(operationScope)) return null;
-                setActivePassage(draftVoyageId);
-                log.info(`✓ Auto-created draft voyage "${draftVoyageName}" from passage plan`);
-            }
-        } catch (e) {
-            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
-            log.warn('Activate voyage from passage plan failed (non-critical):', e);
+        // The draft exists so the saved route has a durable planning record,
+        // but saving must not silently make it the skipper's active passage.
+        // Selection is deliberate from the Saved Routes picker; otherwise a
+        // newly saved route reopens as an unexpected default on Vessel.
+        if (draftVoyageId) {
+            log.info(`✓ Saved route "${draftVoyageName}" with planning record ${draftVoyageId}`);
         }
 
         // Notify any open Passage Planning surfaces to refresh their

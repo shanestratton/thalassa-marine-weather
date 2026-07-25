@@ -37,7 +37,13 @@ import {
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
-import { createVoyage, getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
+import {
+    createVoyage,
+    getCachedDraftVoyages,
+    getDraftVoyages,
+    updateVoyage,
+    type Voyage,
+} from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import {
     authScopedStorageKey,
@@ -185,13 +191,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showCastOff, setShowCastOff] = useState(false);
     const [_activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
 
-    // Draft passage plans. VoyageRow extends the DB Voyage with
+    // Saved routes. VoyageRow extends the DB Voyage with
     // optional departure/arrival coords pulled from the matching
     // logbook route at fetch time. The cards downstream (Weather
     // Windows, Ocean Currents) need lat/lon to run their analysis but
     // the voyages-table schema doesn't carry coords; this is how we
     // bridge that gap without a migration.
-    const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>([]);
+    // Paint the account-scoped local cache synchronously. A route picker should
+    // never make the skipper wait on an entire logbook download just to see
+    // plans that have already been saved on this device.
+    const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>(() => getCachedDraftVoyages());
+    const [savedRoutesLoading, setSavedRoutesLoading] = useState(() => getCachedDraftVoyages().length === 0);
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
     const selectedPassageRef = useRef(selectedPassageId);
     selectedPassageRef.current = selectedPassageId;
@@ -352,6 +362,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setMemberships([]);
             setMembershipsLoaded(false);
             setDraftVoyages([]);
+            setSavedRoutesLoading(Boolean(next.userId));
             setSelectedPassageId(nextPassageId);
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(Boolean(next.userId));
@@ -573,15 +584,26 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         return () => window.removeEventListener('thalassa:passage-changed', onPassageChanged);
     }, [resetReadinessState, scopeStillOwnsPage]);
 
-    // Populate the dropdown from two independently verified sources:
-    // the user's own logbook routes and voyage rows shared by an accepted
-    // membership. Shared rows deliberately remain useful without logbook
-    // coordinates; route-derived cards can show their normal unavailable
-    // state while meals/checklists/chat still receive the correct voyage ID.
+    // Saved Routes has a fast path and a compatibility path. The small,
+    // account-scoped voyage index paints first; legacy logbook geometry is
+    // reconciled later without holding the picker hostage.
     const reloadDropdown = useCallback(async () => {
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
         const requestVersion = ++dropdownReloadVersion.current;
+        const cachedDrafts = getCachedDraftVoyages();
+        if (cachedDrafts.length > 0) {
+            // Keep any verified shared passages while the skipper's own cached
+            // routes appear immediately.
+            setDraftVoyages((previous) => [
+                ...new Map(
+                    [...cachedDrafts, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
+                ).values(),
+            ]);
+            setSavedRoutesLoading(false);
+        } else {
+            setSavedRoutesLoading(true);
+        }
         try {
             const { getCachedActiveVoyage } = await import('../services/VoyageService');
             if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
@@ -590,16 +612,36 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         } catch {
             /* non-critical */
         }
-        // Force-refresh so a stale 60s RoutesAndTracks cache can't
-        // miss a just-saved route or include a just-deleted one.
-        const [routesAndTracks, allDrafts, sharedResult] = await Promise.all([
-            fetchRoutesAndTracks(true),
-            getDraftVoyages(),
+
+        // The voyage index is a compact, indexed query. Render it before doing
+        // the legacy scan; the old flow waited for as many as 10,000 log rows
+        // before showing a single saved route.
+        const allDrafts = await getDraftVoyages().catch(() => cachedDrafts);
+        if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
+        setDraftVoyages((previous) => [
+            ...new Map(
+                [...allDrafts, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
+            ).values(),
+        ]);
+        setSavedRoutesLoading(false);
+
+        // Do not force a refresh here. A cache or in-flight request is already
+        // fresh enough to enrich the list, and force=true caused a second full
+        // history download when crew membership finished loading.
+        const [routesAndTracks, sharedResult] = await Promise.all([
+            fetchRoutesAndTracks(),
             membershipsLoaded ? getAuthorizedSharedVoyages() : Promise.resolve({ voyages: [], complete: false }),
         ]);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
         const norm = (s: string) => s.trim().toLowerCase();
-        const draftByName = new Map(allDrafts.map((d) => [norm(d.voyage_name), d] as const));
+        const draftByName = new Map<string, Voyage[]>();
+        for (const draft of allDrafts) {
+            const key = norm(draft.voyage_name);
+            const matches = draftByName.get(key) ?? [];
+            matches.push(draft);
+            draftByName.set(key, matches);
+        }
+        const matchedDraftIds = new Set<string>();
 
         // For each logbook route, surface a Voyage-shaped row. If a
         // matching draft already exists, use it (we have its real
@@ -630,8 +672,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 durationHours && durationHours > 0
                     ? new Date(r.timestamp + durationHours * 3_600_000).toISOString()
                     : null;
-            const matched = draftByName.get(norm(r.label));
+            const matched = (draftByName.get(norm(r.label)) ?? []).find((draft) => !matchedDraftIds.has(draft.id));
             if (matched) {
+                matchedDraftIds.add(matched.id);
                 return {
                     ...matched,
                     // Fall back to the route-derived dates only when the
@@ -669,6 +712,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 durationHours,
             };
         });
+
+        // A saved route is still valid when its historic logbook mirror is
+        // delayed, archived, or absent. Keep every indexed route in the list
+        // rather than letting the slow compatibility scan decide visibility.
+        ownRows.push(...allDrafts.filter((draft) => !matchedDraftIds.has(draft.id)));
 
         const activeId = getActivePassageId();
 
@@ -763,14 +811,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     }, [membershipsLoaded, resetReadinessState, scopeStillOwnsPage]);
 
     useEffect(() => {
-        // Wait for auth to land before fetching — fetchRoutesAndTracks
-        // and getDraftVoyages both return [] when supabase has no user.
-        // The auth-check useEffect above runs in parallel, so on first
-        // mount this dropdown loader was firing too early, getting
-        // empty results, and never refreshing. That's why the user saw
-        // "No draft passages yet" even when ship_logs had their saved
-        // routes — it was a race between auth-check and dropdown-load,
-        // and dropdown-load was winning.
+        // Wait for auth to land before the cloud refresh. The account-scoped
+        // local cache has already painted synchronously where available.
         const scope = getAuthIdentityScope();
         if (!authUserId || privateScopeKey !== scope.key || !scopeStillOwnsPage(scope)) return;
         void reloadDropdown();
@@ -1440,15 +1482,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </svg>
                 </button>
 
-                {/* ── ACTIVE PASSAGE SELECTOR ── */}
+                {/* ── SAVED ROUTES SELECTOR ── */}
                 <div className="mb-4">
                     <label className="text-[11px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 flex items-center gap-1.5">
                         <CompassIcon className="w-3 h-3" rotation={0} />
-                        <span>Active Passage</span>
+                        <span>Saved Routes</span>
                     </label>
                     {draftVoyages.length > 0 ? (
                         <select
-                            aria-label="Active Passage"
+                            aria-label="Saved Routes"
                             value={selectedPassageId}
                             onChange={(event) => void handlePassageSelection(event.target.value)}
                             className="w-full bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
@@ -1460,7 +1502,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             }}
                         >
                             <option value="" style={{ background: '#1e293b' }}>
-                                Select a passage…
+                                Choose a saved route…
                             </option>
                             {draftVoyages.map((v) => (
                                 <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
@@ -1469,13 +1511,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 </option>
                             ))}
                         </select>
+                    ) : savedRoutesLoading ? (
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            className="bg-white/[0.03] border border-dashed border-white/[0.10] rounded-lg px-3 py-4 text-center"
+                        >
+                            <p className="text-xs font-semibold text-slate-200">Loading saved routes…</p>
+                            <p className="mt-0.5 text-[11px] text-slate-400 leading-relaxed">
+                                Your on-device routes appear first, then this library checks for updates.
+                            </p>
+                        </div>
                     ) : (
-                        // No draft passages — bumped 2026-05-17 from a bare
-                        // dashed grey box to a proper empty-state-style
-                        // card. Still compact (lives inside the dropdown
-                        // popover) but now has an icon + title + brighter
-                        // copy so it reads as intentional rather than as
-                        // "something failed to load".
+                        // Empty state is deliberate: a route only enters this
+                        // library after the skipper saves it, never as a
+                        // placeholder passage.
                         <div className="bg-white/[0.03] border border-dashed border-white/[0.10] rounded-lg px-3 py-4 text-center">
                             <div className="w-9 h-9 mx-auto mb-2 rounded-full bg-sky-500/[0.08] border border-sky-500/15 flex items-center justify-center">
                                 <svg
@@ -1493,10 +1543,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     />
                                 </svg>
                             </div>
-                            <p className="text-xs font-semibold text-slate-200 mb-0.5">No passages drafted</p>
+                            <p className="text-xs font-semibold text-slate-200 mb-0.5">No saved routes yet</p>
                             <p className="text-[11px] text-slate-400 leading-relaxed">
-                                Tap <strong className="text-sky-300">Plan a route</strong> above to draft your first
-                                one.
+                                Tap <strong className="text-sky-300">Plan a route</strong> above to save your first one.
                             </p>
                         </div>
                     )}

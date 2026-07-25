@@ -7,7 +7,12 @@ import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIden
 // Mock supabase
 vi.mock('../services/supabase', () => ({ supabase: null }));
 
-import { getCachedActiveVoyage, type Voyage, type VoyageStatus } from '../services/VoyageService';
+import {
+    getCachedActiveVoyage,
+    getCachedDraftVoyages,
+    type Voyage,
+    type VoyageStatus,
+} from '../services/VoyageService';
 
 describe('VoyageService', () => {
     beforeEach(() => {
@@ -167,6 +172,30 @@ describe('VoyageService', () => {
             const result = await getDraftVoyages();
             expect(result).toHaveLength(1);
             expect(result[0].voyage_name).toBe('Draft 1');
+        });
+
+        it('reads cached saved routes synchronously for the current account', () => {
+            const drafts: Voyage[] = [
+                {
+                    id: 'saved-route-1',
+                    user_id: 'u-1',
+                    vessel_id: null,
+                    voyage_name: 'Brisbane → Moreton',
+                    departure_port: 'Brisbane',
+                    destination_port: 'Moreton',
+                    departure_time: null,
+                    eta: null,
+                    crew_count: 2,
+                    status: 'planning',
+                    weather_master_id: 'u-1',
+                    notes: null,
+                    created_at: '2026-03-20T00:00:00Z',
+                    updated_at: '2026-03-20T00:00:00Z',
+                },
+            ];
+            localStorage.setItem(authScopedStorageKey('thalassa_draft_voyages'), JSON.stringify(drafts));
+
+            expect(getCachedDraftVoyages()).toEqual(drafts);
         });
 
         it('getDraftVoyages returns empty array when no cache', async () => {
