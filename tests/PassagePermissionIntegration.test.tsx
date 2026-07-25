@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PassageStatus } from '../services/PassagePlanService';
 import type { VoyageRow } from '../components/CrewManagement';
@@ -168,5 +168,26 @@ describe('passage permission integration', () => {
         expect(screen.queryByTestId('passage-summary-card')).not.toBeInTheDocument();
         expect(screen.queryByTestId('galley-card')).not.toBeInTheDocument();
         expect(screen.queryByTestId('vessel-profile-card')).not.toBeInTheDocument();
+    });
+
+    it('hides sibling readiness dropdowns until the open card is rolled up', () => {
+        renderStack(ownerStatus);
+
+        const vesselReadiness = screen.getByText('Vessel Readiness').closest('summary');
+        const vesselProfile = screen.getByText('Vessel Profile').closest('summary');
+        expect(vesselReadiness).not.toBeNull();
+        expect(vesselProfile).not.toBeNull();
+
+        fireEvent.click(vesselReadiness!);
+        fireEvent.click(vesselProfile!);
+
+        expect(screen.getByTestId('vessel-profile-card')).toBeVisible();
+        expect(screen.getByText('Essential Reserves')).not.toBeVisible();
+        expect(screen.getByText('Communications Plan')).not.toBeVisible();
+
+        fireEvent.click(vesselProfile!);
+
+        expect(screen.getByText('Essential Reserves')).toBeVisible();
+        expect(screen.getByText('Communications Plan')).toBeVisible();
     });
 });

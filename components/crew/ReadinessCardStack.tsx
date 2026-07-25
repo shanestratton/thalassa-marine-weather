@@ -123,6 +123,11 @@ interface CardAccordionProps {
     onMenuToggle: (key: string | null) => void;
     onAssign: (cardKey: string, crewEmail: string | null) => void;
     showDelegation: boolean;
+    /** Controlled so an open card can temporarily focus the checklist. */
+    open: boolean;
+    /** Hide sibling dropdowns until the current card is rolled back up. */
+    hidden: boolean;
+    onOpenChange: (open: boolean) => void;
     children: React.ReactNode;
 }
 
@@ -141,11 +146,21 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
     onMenuToggle,
     onAssign,
     showDelegation,
+    open,
+    hidden,
+    onOpenChange,
     children,
 }) => (
-    <div className="mb-4">
-        <details className="group">
+    <div className="mb-4" hidden={hidden}>
+        <details className="group" open={open}>
             <summary
+                onClick={(event) => {
+                    // Keep this controlled rather than relying on native
+                    // <details> toggles. That lets us hide sibling cards in
+                    // the same render as the card opens.
+                    event.preventDefault();
+                    onOpenChange(!open);
+                }}
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${summaryClasses(isReady, isAmber)}`}
             >
                 <div
@@ -208,6 +223,9 @@ const GroupHeader: React.FC<{ label: string; ready: number; total: number }> = (
         </div>
     );
 };
+
+type ReadinessGroupKey = 'pi' | 'brief' | 'vessel';
+type OpenReadinessCard = { group: ReadinessGroupKey; cardKey: string };
 
 export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     selectedPassageId,
@@ -319,9 +337,27 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // previous useEffect-driven auto-open caused users with a
     // restored selectedPassageId to land on a wall of open cards
     // every launch.
-    type GroupKey = 'pi' | 'brief' | 'vessel';
-    const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
-    const toggleGroup = (g: GroupKey) => setOpenGroup((prev) => (prev === g ? null : g));
+    const [openGroup, setOpenGroup] = useState<ReadinessGroupKey | null>(null);
+    const [openCard, setOpenCard] = useState<OpenReadinessCard | null>(null);
+    const toggleGroup = (g: ReadinessGroupKey) => setOpenGroup((prev) => (prev === g ? null : g));
+
+    // A card is a focused working surface, not a queue. Once the skipper
+    // opens one, hide its sibling dropdowns until it is explicitly rolled up.
+    // The state is group-scoped so a focused card in one readiness group does
+    // not suppress cards in another group.
+    const cardAccordionProps = (group: ReadinessGroupKey, cardKey: string) => {
+        const isOpen = openCard?.group === group && openCard.cardKey === cardKey;
+        return {
+            open: isOpen,
+            hidden: openCard?.group === group && !isOpen,
+            onOpenChange: (nextOpen: boolean) => {
+                setOpenCard((current) => {
+                    if (nextOpen) return { group, cardKey };
+                    return current?.group === group && current.cardKey === cardKey ? null : current;
+                });
+            },
+        };
+    };
 
     return (
         <>
@@ -424,6 +460,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ Departure window accepted"
                         cardKey="weather_windows"
                         {...delegationProps}
+                        {...cardAccordionProps('pi', 'weather_windows')}
                     >
                         <WeatherWindowCard
                             voyageId={selectedPassageId}
@@ -444,6 +481,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ Current briefing acknowledged"
                         cardKey="ocean_currents"
                         {...delegationProps}
+                        {...cardAccordionProps('pi', 'ocean_currents')}
                     >
                         <OceanCurrentsCard
                             voyageId={selectedPassageId}
@@ -515,6 +553,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 readySubtitle="✅ Watch rotation briefed to crew"
                                 cardKey="watch_schedule"
                                 {...delegationProps}
+                                {...cardAccordionProps('brief', 'watch_schedule')}
                             >
                                 <WatchScheduleCard
                                     voyageId={selectedPassageId}
@@ -540,6 +579,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                                 readySubtitle="✅ Domestic route — no clearance required"
                                                 cardKey="customs_clearance"
                                                 {...delegationProps}
+                                                {...cardAccordionProps('brief', 'customs_clearance')}
                                             >
                                                 <div className="p-4 text-center">
                                                     <p className="text-2xl mb-2">🏠</p>
@@ -575,6 +615,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                             readySubtitle="✅ All documents cleared"
                                             cardKey="customs_clearance"
                                             {...delegationProps}
+                                            {...cardAccordionProps('brief', 'customs_clearance')}
                                         >
                                             <CustomsClearanceCard
                                                 voyageId={selectedPassageId}
@@ -596,6 +637,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 readySubtitle="✅ All acknowledgments accepted"
                                 cardKey="aid_to_navigation"
                                 {...delegationProps}
+                                {...cardAccordionProps('brief', 'aid_to_navigation')}
                             >
                                 <AidToNavigationCard
                                     voyageId={selectedPassageId}
@@ -648,6 +690,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ Vessel ready for routing"
                         cardKey="vessel_profile"
                         {...delegationProps}
+                        {...cardAccordionProps('vessel', 'vessel_profile')}
                     >
                         <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
                     </CardAccordion>
@@ -661,6 +704,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ All critical reserves confirmed"
                         cardKey="essential_reserves"
                         {...delegationProps}
+                        {...cardAccordionProps('vessel', 'essential_reserves')}
                     >
                         <EssentialReservesCard
                             voyageId={selectedPassageId || undefined}
@@ -677,6 +721,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ All vessel systems verified"
                         cardKey="vessel_check"
                         {...delegationProps}
+                        {...cardAccordionProps('vessel', 'vessel_check')}
                     >
                         <VesselCheckCard
                             voyageId={selectedPassageId || undefined}
@@ -693,6 +738,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ Crew medical info recorded · Kit verified"
                         cardKey="medical"
                         {...delegationProps}
+                        {...cardAccordionProps('vessel', 'medical')}
                     >
                         <MedicalFirstAidCard
                             voyageId={selectedPassageId || undefined}
@@ -709,6 +755,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         readySubtitle="✅ Comms plan confirmed · Shore contact set"
                         cardKey="comms_plan"
                         {...delegationProps}
+                        {...cardAccordionProps('vessel', 'comms_plan')}
                     >
                         <CommsPlanCard voyageId={selectedPassageId || undefined} onReviewedChange={onCommsChange} />
                     </CardAccordion>
