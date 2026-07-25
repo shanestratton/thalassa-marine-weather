@@ -880,7 +880,10 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
         for (const chain of chains) {
             contourFeatures.push({
                 type: 'Feature',
-                properties: { pressure: level, label: `${level}` },
+                // Every second 4 hPa contour is a quiet visual major. The
+                // field still contains the full synoptic 4 hPa spacing; the
+                // renderer uses this flag to make the chart easier to scan.
+                properties: { pressure: level, label: `${level}`, isMajor: level % 8 === 0 },
                 geometry: { type: 'LineString', coordinates: chain },
             });
         }

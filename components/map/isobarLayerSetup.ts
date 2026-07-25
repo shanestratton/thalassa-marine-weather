@@ -15,6 +15,7 @@ const log = createLogger('IsobarLayers');
  */
 export const ISOBAR_LAYER_IDS = [
     'isobar-lines',
+    'isobar-major-lines',
     'isobar-labels',
     'isobar-center-labels',
     'wind-barb-layer',
@@ -219,10 +220,26 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         id: 'isobar-lines',
         type: 'line',
         source: 'isobar-contours',
+        filter: ['==', ['get', 'isMajor'], false],
         paint: {
-            'line-color': 'rgba(255, 255, 255, 0.55)',
-            'line-width': 1.2,
-            'line-opacity': 0.9,
+            // 4 hPa detail remains visible, but yields to the 8 hPa rhythm.
+            'line-color': 'rgba(220, 235, 247, 0.72)',
+            'line-width': 1.05,
+            'line-opacity': 0.86,
+        },
+    });
+
+    map.addLayer({
+        id: 'isobar-major-lines',
+        type: 'line',
+        source: 'isobar-contours',
+        filter: ['==', ['get', 'isMajor'], true],
+        paint: {
+            // Major contours are deliberately brighter rather than wider by
+            // much, keeping the synoptic chart confident but not garish.
+            'line-color': 'rgba(250, 253, 255, 0.92)',
+            'line-width': 1.6,
+            'line-opacity': 0.98,
         },
     });
 
@@ -230,18 +247,19 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         id: 'isobar-labels',
         type: 'symbol',
         source: 'isobar-contours',
+        filter: ['==', ['get', 'isMajor'], true],
         layout: {
             'symbol-placement': 'line',
             'text-field': ['get', 'label'],
-            'text-size': 11,
+            'text-size': 12,
             'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
             'symbol-spacing': 500,
             'text-keep-upright': true,
         },
         paint: {
-            'text-color': '#e2e8f0',
-            'text-halo-color': 'rgba(15, 23, 42, 0.7)',
-            'text-halo-width': 1.5,
+            'text-color': '#f0f6fb',
+            'text-halo-color': 'rgba(8, 18, 34, 0.82)',
+            'text-halo-width': 1.9,
         },
     });
 
@@ -251,17 +269,19 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         source: 'isobar-centers',
         layout: {
             'text-field': ['get', 'label'],
-            'text-size': 15,
+            'text-size': 17,
             'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-            'text-allow-overlap': false,
+            // Centres are deliberately capped at three highs and lows, so
+            // they should win over a nearby ordinary contour label.
+            'text-allow-overlap': true,
             'text-letter-spacing': 0.05,
             'text-padding': 4,
         },
         paint: {
-            'text-color': ['match', ['get', 'type'], 'H', '#e8a7a7', 'L', '#9ec7e2', '#dce6ef'],
+            'text-color': ['match', ['get', 'type'], 'H', '#f0b3a3', 'L', '#a7daf0', '#dce6ef'],
             'text-halo-color': 'rgba(10, 15, 30, 0.85)',
-            'text-halo-width': 1.5,
-            'text-opacity': 0.9,
+            'text-halo-width': 2,
+            'text-opacity': 0.96,
         },
     });
 

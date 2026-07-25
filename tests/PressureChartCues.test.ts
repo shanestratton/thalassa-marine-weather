@@ -55,4 +55,14 @@ describe('pressure chart cues', () => {
         expect(result.centers.features).toHaveLength(6);
         expect(result.arrows.features).toHaveLength(24);
     });
+
+    it('marks each 8 hPa contour as a visual major without dropping 4 hPa detail', () => {
+        const result = generateIsobarsFromGrid(synopticFixture(), 0, true);
+
+        expect(result.contours.features.length).toBeGreaterThan(0);
+        for (const feature of result.contours.features) {
+            const pressure = feature.properties?.pressure;
+            expect(feature.properties?.isMajor).toBe(pressure % 8 === 0);
+        }
+    });
 });
