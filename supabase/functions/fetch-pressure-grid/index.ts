@@ -9,6 +9,7 @@ import {
     readJsonObject,
     readResponseArrayBufferLimited,
 } from '../_shared/http-security.ts';
+import { normalizeGlobalPressureFrames } from './global-longitudes.ts';
 
 /**
  * fetch-pressure-grid — NOAA GFS Pressure Grid (server-decoded)
@@ -244,11 +245,10 @@ Deno.serve(async (req: Request) => {
                 'Content-Type': 'application/json',
             });
         }
-        const { north, south, east, west } = bounds;
+        const { north, south, east, west, lonSpan } = bounds;
 
-        const lonSpan = east - west;
         let leftLon: number, rightLon: number;
-        if (lonSpan >= 360) {
+        if (lonSpan >= 359.999) {
             leftLon = 0;
             rightLon = 360;
         } else {
@@ -287,7 +287,7 @@ Deno.serve(async (req: Request) => {
                 const buf = await readResponseArrayBufferLimited(upstream, 12_000_000);
                 if (!buf) return null;
                 if (buf.byteLength < 100) return null;
-                return buf;
+                return { fh, buf };
             } catch (e) {
                 console.warn('[index]', e);
                 return null;
@@ -295,22 +295,35 @@ Deno.serve(async (req: Request) => {
         });
 
         const results = await Promise.all(fetches);
-        const validBuffers = results.filter((r): r is ArrayBuffer => r !== null);
+        const decodedByForecastHour: { fh: number; frame: DecodedFrame }[] = [];
 
-        // Decode each GRIB2 buffer into a pressure frame
-        const allFrames: DecodedFrame[] = [];
-        for (const buf of validBuffers) {
-            const decoded = decodeGrib2PressureServer(buf);
-            allFrames.push(...decoded);
+        // Each requested forecast hour must produce exactly one matching
+        // pressure field. Previously failed files were dropped and the client
+        // still received the original fhrs array, silently calling (say) +6h
+        // "+3h". Failing closed lets the client use its explicit fallback
+        // instead of showing a plausible-but-wrong synoptic chart.
+        for (const result of results) {
+            if (!result) continue;
+            const decoded = decodeGrib2PressureServer(result.buf);
+            if (decoded.length !== 1) {
+                console.warn(`[fetch-pressure-grid] Expected one PRMSL frame for f${result.fh}, got ${decoded.length}`);
+                continue;
+            }
+            decodedByForecastHour.push({ fh: result.fh, frame: decoded[0] });
         }
 
-        if (allFrames.length === 0) {
-            return corsResponse(JSON.stringify({ error: 'No valid frames decoded' }), 502, {
+        if (decodedByForecastHour.length !== forecastHours.length) {
+            return corsResponse(JSON.stringify({ error: 'Incomplete GFS pressure frame set' }), 502, {
                 'Content-Type': 'application/json',
             });
         }
 
-        const f0 = allFrames[0];
+        const f0 = decodedByForecastHour[0].frame;
+        if (decodedByForecastHour.some(({ frame }) => frame.width !== f0.width || frame.height !== f0.height)) {
+            return corsResponse(JSON.stringify({ error: 'Mismatched GFS pressure frame dimensions' }), 502, {
+                'Content-Type': 'application/json',
+            });
+        }
         const normLon = (lon: number) => (lon > 180 ? lon - 360 : lon);
 
         // ── Build lat/lon arrays from REQUEST BOUNDS + grid dimensions ──
@@ -322,8 +335,13 @@ Deno.serve(async (req: Request) => {
         // coordinate block), so use La1 as a sanity reference.
         const gridNorth = north;
         const gridSouth = south;
-        const gridWest = normLon(west);
-        const gridEast = normLon(east);
+        const isFullGlobe = lonSpan >= 359.999;
+        // Keep a dateline-crossing regional request on one continuous axis
+        // (e.g. 170…190°), rather than treating it as a 340° span. Mapbox can
+        // wrap these longitudes, while the contour algorithm needs monotonic
+        // columns to preserve the local weather field.
+        const gridWest = isFullGlobe ? -180 : normLon(west);
+        const gridEast = isFullGlobe ? 180 : gridWest + lonSpan;
 
         // Use La1 as a sanity check — if it's reasonable, log for debugging
         const la1Check = f0.lat1;
@@ -336,16 +354,12 @@ Deno.serve(async (req: Request) => {
         }
 
         const dy = f0.height > 1 ? (gridNorth - gridSouth) / (f0.height - 1) : 1;
-        const dx = f0.width > 1 ? Math.abs(gridEast - gridWest) / (f0.width - 1) : 1;
-
-        // Build S→N lat array, W→E lon array
+        // Build S→N latitude array.
         const lats: number[] = [];
         for (let i = 0; i < f0.height; i++) lats.push(gridSouth + i * dy);
-        const lons: number[] = [];
-        for (let i = 0; i < f0.width; i++) lons.push(gridWest + i * dx);
 
         // Convert each frame's N→S data to S→N row-major 2D arrays
-        const frames = allFrames.map((frame) => {
+        let frames = decodedByForecastHour.map(({ frame }) => {
             const rows: number[][] = [];
             for (let r = 0; r < frame.height; r++) {
                 const row: number[] = [];
@@ -359,6 +373,19 @@ Deno.serve(async (req: Request) => {
             return rows;
         });
 
+        let lons: number[];
+        if (isFullGlobe) {
+            // NOAA starts full-globe columns at 0°E. A Mapbox −180…180 axis
+            // must rotate the values as well as the labels; relabelling alone
+            // placed every high/low roughly half a world away.
+            const normalized = normalizeGlobalPressureFrames(frames);
+            frames = normalized.frames;
+            lons = normalized.lons;
+        } else {
+            const dx = f0.width > 1 ? Math.abs(gridEast - gridWest) / (f0.width - 1) : 1;
+            lons = Array.from({ length: f0.width }, (_, index) => gridWest + index * dx);
+        }
+
         // Build the GFS run refTime (ISO string) so the client can align
         // its scrubber "Now" marker to wall-clock time instead of the model
         // run time. `date` is YYYYMMDD, `cycle` is HH in UTC.
@@ -368,7 +395,7 @@ Deno.serve(async (req: Request) => {
             frames, // [frameIdx][row_S_to_N][col_W_to_E] in hPa
             lats, // S→N
             lons, // W→E
-            width: f0.width,
+            width: lons.length,
             height: f0.height,
             north: gridNorth,
             south: gridSouth,
@@ -381,10 +408,10 @@ Deno.serve(async (req: Request) => {
             /** The forecast-hour offsets (e.g. [0,3,6,9,12]) that `frames`
              *  correspond to, BEFORE the client's 30-min sub-frame
              *  interpolation. Used with refTime to compute nowIdx. */
-            fhrs: forecastHours,
+            fhrs: decodedByForecastHour.map(({ fh }) => fh),
         };
 
-        console.info(`[fetch-pressure-grid] Returning ${frames.length} frames, ${f0.width}×${f0.height} grid`);
+        console.info(`[fetch-pressure-grid] Returning ${frames.length} frames, ${lons.length}×${f0.height} grid`);
 
         return corsResponse(JSON.stringify(responseBody), 200, {
             'Content-Type': 'application/json',

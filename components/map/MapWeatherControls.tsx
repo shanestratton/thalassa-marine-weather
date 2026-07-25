@@ -168,19 +168,19 @@ export function MapWeatherControls({
                 totalFrames = weather.totalFrames;
                 framesReady = weather.framesReady;
                 isPlaying = weather.isPlaying;
-                const maxFrame = Math.max(0, totalFrames - 1);
                 const pressureNowIndex = weather.pressureNowIdx;
                 nowIndex = pressureNowIndex;
-                const forecastHours = maxFrame > 0 ? ((frameIndex - pressureNowIndex) / maxFrame) * 12 : 0;
+                const forecastHours = (frameIndex - pressureNowIndex) * weather.pressureFrameStepHours;
+                const pressureSource = weather.pressureSource === 'open-meteo' ? 'Fallback' : 'GFS';
                 if (frameIndex === pressureNowIndex) {
                     frameLabel = 'Now';
-                    sublabel = 'Current';
+                    sublabel = `${pressureSource} · Current`;
                 } else if (forecastHours > 0) {
                     frameLabel = `+${forecastHours % 1 === 0 ? forecastHours : forecastHours.toFixed(1)}h`;
-                    sublabel = 'Forecast';
+                    sublabel = `${pressureSource} · Forecast`;
                 } else {
                     frameLabel = `${forecastHours % 1 === 0 ? forecastHours : forecastHours.toFixed(1)}h`;
-                    sublabel = 'Past';
+                    sublabel = `${pressureSource} · Past`;
                 }
                 onScrub = weather.setForecastHour;
                 onPlayToggle = () => weather.setIsPlaying(!weather.isPlaying);
