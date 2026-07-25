@@ -34,7 +34,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             <SkipperDeviceControl claim={claim} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
         );
 
-        const takeover = screen.getByRole('button', { name: 'I am the skipper on this device' });
+        const takeover = screen.getByRole('button', { name: 'This is the Skipper’s Primary Device' });
         fireEvent.click(takeover);
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
@@ -65,7 +65,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'I am the skipper on this device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'This is the Skipper’s Primary Device' }));
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
         act(() => setAuthIdentityScope('different-user'));
@@ -85,7 +85,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'I am the skipper on this device' }));
+        fireEvent.click(screen.getByRole('button', { name: 'This is the Skipper’s Primary Device' }));
         rerender(
             <SkipperDeviceControl
                 claim={recentOtherClaim({ deviceId: 'new-holder', claimedAt: new Date(Date.now() + 1).toISOString() })}
