@@ -22,9 +22,10 @@ function hasInclusiveMeridian(width: number): boolean {
 /**
  * Rotate full-globe rows into a dateline-centred longitude axis.
  *
- * A 360-column GFS row becomes lons [-180, -179, …, 179]. A 361-column
- * inclusive row retains a matching +180° duplicate at the end, so contour and
- * raster consumers have a continuous seam rather than a one-cell shift.
+ * Every returned row includes matching -180° and +180° endpoint values. The
+ * duplicate closing column matters for raster consumers: a 360-column row
+ * ending at 179° only covers 359° when used as an image source, exposing a
+ * visible dark seam at the International Date Line.
  */
 export function normalizeGlobalPressureFrames(rawFrames: number[][][]): NormalizedGlobalPressureFrames {
     if (rawFrames.length === 0 || rawFrames[0].length === 0 || rawFrames[0][0].length === 0) {
@@ -49,15 +50,13 @@ export function normalizeGlobalPressureFrames(rawFrames: number[][][]): Normaliz
     const frames = rawFrames.map((frame) =>
         frame.map((row) => {
             const rotated = [...row.slice(halfWidth, uniqueWidth), ...row.slice(0, halfWidth)];
-            if (hasInclusiveEndpoint) rotated.push(rotated[0]);
-            return rotated;
+            // Always close the global axis at +180°. A 361-column source
+            // already has this duplicate and a 360-column source needs it.
+            return [...rotated, rotated[0]];
         }),
     );
 
-    const lons = Array.from(
-        { length: hasInclusiveEndpoint ? uniqueWidth + 1 : uniqueWidth },
-        (_, index) => -180 + (360 * index) / uniqueWidth,
-    );
+    const lons = Array.from({ length: uniqueWidth + 1 }, (_, index) => -180 + (360 * index) / uniqueWidth);
 
     return { frames, lons };
 }

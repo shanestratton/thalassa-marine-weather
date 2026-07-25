@@ -552,7 +552,15 @@ export function useWeatherLayers(
                         id: 'pressure-heatmap-layer',
                         type: 'raster',
                         source: 'pressure-heatmap',
-                        paint: { 'raster-opacity': 0.75, 'raster-fade-duration': 0 },
+                        // A little more field contrast gives the chart a
+                        // clearer low/high story while keeping the basemap
+                        // and the navigation layers readable.
+                        paint: {
+                            'raster-opacity': 0.82,
+                            'raster-saturation': 0.08,
+                            'raster-contrast': 0.08,
+                            'raster-fade-duration': 0,
+                        },
                     },
                     map.getLayer('isobar-lines') ? 'isobar-lines' : undefined,
                 );

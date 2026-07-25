@@ -7,14 +7,16 @@ function numberedFrame(width: number): number[][][] {
 }
 
 describe('global GFS pressure longitude normalization', () => {
-    it('moves a 360-column 0…359° row onto −180…179° without shifting the weather field', () => {
+    it('moves a 360-column 0…359° row onto a closed −180…180° axis without shifting the weather field', () => {
         const { frames, lons } = normalizeGlobalPressureFrames(numberedFrame(360));
         const row = frames[0][0];
 
-        expect(lons).toHaveLength(360);
+        expect(lons).toHaveLength(361);
         expect(lons[0]).toBe(-180);
         expect(lons[180]).toBe(0);
+        expect(lons.at(-1)).toBe(180);
         expect(row[0]).toBe(180); // raw 180°E → −180°
+        expect(row.at(-1)).toBe(row[0]); // close the raster cleanly at +180°
         expect(row[lons.indexOf(0)]).toBe(0); // raw Greenwich stays Greenwich
         expect(row[lons.indexOf(153)]).toBe(153); // Australia remains at 153°E
     });
