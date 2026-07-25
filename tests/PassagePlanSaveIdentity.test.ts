@@ -138,7 +138,7 @@ describe('PassagePlanSave persistence and identity ownership', () => {
             rows.map((row) => row.client_operation_id),
         );
         expect(mocks.queue).not.toHaveBeenCalled();
-        expect(mocks.setActivePassage).toHaveBeenCalledWith('draft-a');
+        expect(mocks.setActivePassage).not.toHaveBeenCalled();
     });
 
     it('reuses the exact online operation IDs and draft link in fallback', async () => {
@@ -157,7 +157,7 @@ describe('PassagePlanSave persistence and identity ownership', () => {
             expect(options.operationId).toBe(rows[index].client_operation_id);
             expect(options.expectedScope.userId).toBe('account-a');
         }
-        expect(mocks.setActivePassage).toHaveBeenCalledWith('draft-a');
+        expect(mocks.setActivePassage).not.toHaveBeenCalled();
     });
 
     it('compensates a partial offline batch and removes its exact draft', async () => {

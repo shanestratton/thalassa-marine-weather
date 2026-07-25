@@ -148,6 +148,19 @@ function readDraftVoyageCache(scope: AuthIdentityScope = getAuthIdentityScope())
     }
 }
 
+/**
+ * Return the locally cached saved routes for the current account.
+ *
+ * This is deliberately synchronous: operational surfaces such as Passage
+ * Planning can paint the skipper's last-known routes immediately, then refresh
+ * from Supabase in the background. The cache remains ownership- and
+ * status-validated by `readDraftVoyageCache`, so it is safe to use only for
+ * the account currently fenced by `authIdentityScope`.
+ */
+export function getCachedDraftVoyages(): Voyage[] {
+    return readDraftVoyageCache();
+}
+
 function writeDraftVoyageCache(voyages: Voyage[], scope: AuthIdentityScope = getAuthIdentityScope()): void {
     const ownerId = scope.userId;
     if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return;
@@ -300,7 +313,18 @@ export async function createVoyage(
     if (!isOwnedVoyage(voyage, user.id, { status: 'planning' }) || !(await revalidateAuth(identity, user.id))) {
         return { voyage: null, error: 'Account changed while creating the voyage' };
     }
-    return { voyage: cloneVoyage(voyage) };
+    const created = cloneVoyage(voyage);
+    // A newly saved route should be available to the next Passage Planning
+    // render without waiting for a fresh auth + voyages-table round trip.
+    // Keep the cache de-duplicated because a retry can legitimately return the
+    // same row after an ambiguous network response.
+    try {
+        const cached = readDraftVoyageCache(identity);
+        writeDraftVoyageCache([created, ...cached.filter((draft) => draft.id !== created.id)], identity);
+    } catch {
+        /* local storage unavailable — the cloud read remains authoritative */
+    }
+    return { voyage: created };
 }
 
 /** Editable fields on a draft voyage */
@@ -427,12 +451,11 @@ export async function startVoyage(voyageId: string): Promise<Voyage | null> {
 
 // Earlier iterations of this file had a getDraftVoyagesWithLogbookEntries()
 // fetcher that tried to filter or auto-heal the voyages-table to mirror the
-// logbook. That created drift in both directions and caused the dropdown
-// to flicker between empty and showing stale data. Removed in favour of a
-// simpler model in CrewManagement.tsx: read the dropdown directly from
-// fetchRoutesAndTracks() and find-or-create voyages-table rows only at
-// select-time. The voyages table is no longer the source of truth for
-// "what passages exist" — the logbook is.
+// logbook. That created drift in both directions and caused the picker to
+// flicker between empty and stale data. CrewManagement now uses this compact
+// table as its first-paint saved-route index, then reconciles legacy logbook
+// geometry in the background. The table is therefore an operational index,
+// not a replacement for the historic logbook.
 //
 // `getDraftVoyages()` (below) is still used by other consumers
 // (GalleyCard, ChannelList, CastOffPanel) that want the raw drafts list.
