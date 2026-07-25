@@ -4466,7 +4466,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // otherwise it jumps instantly to ZOOM 10 — the golden chart size (Shane
     // 2026-07-16: every nav mark visible, local water fills the screen). This
     // matters when default-on wind is restored before weatherCoords resolves:
-    // a later z10 recenter must not overwrite wind's z5 frame. Subsequent
+    // a later z10 recenter must not overwrite wind's z3 frame. Subsequent
     // centres preserve the user's zoom so we don't yank them out of a harbour.
     const GOLDEN_BOOT_ZOOM = 10;
     const activeWeatherLayersRef = useRef<ReadonlySet<WeatherLayer>>(new Set());
