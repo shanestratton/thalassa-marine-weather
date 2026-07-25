@@ -77,27 +77,13 @@ export function MapWeatherControls({
     const currentRainFrame = weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showRainViewerAttribution =
         weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'radar';
+    const rainIsLoading = Boolean(weather.rainLoading || weather.rainImageLoading);
 
     let content: React.ReactNode = null;
     if (showTimeline && activeWeatherLayers.length >= 2 && !isWindRainCombo) {
         content = <LegendDock layers={activeWeatherLayers} embedded={embedded} />;
     } else if (showTimeline && isWindRainCombo) {
-        if (weather.rainLoading) {
-            content = (
-                <ThalassaHelixControl
-                    activeLayer="rain"
-                    frameIndex={0}
-                    totalFrames={1}
-                    frameLabel="Loading..."
-                    sublabel="Rain"
-                    isPlaying={false}
-                    isLoading
-                    embedded={embedded}
-                    onScrub={() => {}}
-                    onPlayToggle={() => {}}
-                />
-            );
-        } else if (weather.rainReady && weather.rainFrameCount > 1) {
+        if (weather.rainReady && !rainIsLoading && weather.rainFrameCount > 1) {
             const rainNow = weather.rainNowIdxRef.current;
             const currentFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
             const isForecast = currentFrame?.type === 'forecast';
@@ -303,7 +289,7 @@ export function MapWeatherControls({
                 onPlayToggle = () => weather.setMldPlaying(!weather.mldPlaying);
                 onScrubStart = () => weather.setMldPlaying(false);
             } else if (activeLayer === 'rain') {
-                if (weather.rainLoading) {
+                if (rainIsLoading) {
                     isLoading = true;
                 } else if (weather.rainReady && weather.rainFrameCount > 1) {
                     frameIndex = weather.rainFrameIndex;
@@ -333,24 +319,25 @@ export function MapWeatherControls({
                             embedded={embedded}
                         />
                     )}
-                    <ThalassaHelixControl
-                        activeLayer={activeLayer}
-                        frameIndex={frameIndex}
-                        totalFrames={totalFrames}
-                        frameLabel={frameLabel}
-                        sublabel={sublabel}
-                        isPlaying={isPlaying}
-                        isLoading={isLoading}
-                        framesReady={framesReady}
-                        embedded={embedded}
-                        onScrub={onScrub}
-                        onScrubStart={onScrubStart}
-                        onPlayToggle={onPlayToggle}
-                        applyFrame={applyFrame}
-                        nowIndex={nowIndex}
-                        dualColor={dualColor}
-                        forecastAccent={forecastAccent}
-                    />
+                    {!isLoading && (
+                        <ThalassaHelixControl
+                            activeLayer={activeLayer}
+                            frameIndex={frameIndex}
+                            totalFrames={totalFrames}
+                            frameLabel={frameLabel}
+                            sublabel={sublabel}
+                            isPlaying={isPlaying}
+                            framesReady={framesReady}
+                            embedded={embedded}
+                            onScrub={onScrub}
+                            onScrubStart={onScrubStart}
+                            onPlayToggle={onPlayToggle}
+                            applyFrame={applyFrame}
+                            nowIndex={nowIndex}
+                            dualColor={dualColor}
+                            forecastAccent={forecastAccent}
+                        />
+                    )}
                 </>
             );
         }

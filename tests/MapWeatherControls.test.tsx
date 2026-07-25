@@ -140,7 +140,7 @@ describe('MapWeatherControls', () => {
         expect(screen.getByText('Fallback · Forecast')).toBeInTheDocument();
     });
 
-    it('shows loading instead of claiming a null wind grid is current', () => {
+    it('leaves wind loading feedback to the centred OBS status instead of rendering a bottom pill', () => {
         render(
             <MapWeatherControls
                 weather={weather({
@@ -157,7 +157,7 @@ describe('MapWeatherControls', () => {
             />,
         );
 
-        expect(screen.getByText('Loading…')).toBeInTheDocument();
+        expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
         expect(screen.queryByText('Now')).not.toBeInTheDocument();
         expect(screen.queryByText('Current')).not.toBeInTheDocument();
     });

@@ -38,6 +38,7 @@ import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
+import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
@@ -310,15 +311,6 @@ const RouteTrackPickerLoading: React.FC<{ label: string }> = ({ label }) => (
 const MapWeatherControls = lazyRetry(
     () => import('./MapWeatherControls').then((m) => ({ default: m.MapWeatherControls })),
     'MapWeatherControls',
-);
-const WeatherControlsLoading: React.FC = () => (
-    <div
-        role="status"
-        aria-live="polite"
-        className="absolute bottom-24 left-1/2 z-[510] -translate-x-1/2 rounded-full border border-white/10 bg-slate-900/85 px-3 py-2 text-xs font-bold text-sky-200 shadow-lg backdrop-blur-md"
-    >
-        Opening weather controls…
-    </div>
 );
 const StormPicker = lazyRetry(() => import('./StormPicker').then((m) => ({ default: m.StormPicker })), 'StormPicker');
 const StormPickerLoading: React.FC = () => (
@@ -7357,8 +7349,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
+                {!isPinView && !embedded && !pickerMode && !planningSurface && (
+                    <ObsLayerLoadingPill
+                        activeLayers={weather.activeLayers}
+                        windLoading={weather.windState.loading}
+                        windReady={weather.windReady}
+                        windError={weather.windState.error}
+                        rainLoading={weather.rainLoading}
+                        rainImageLoading={weather.rainImageLoading}
+                    />
+                )}
+
                 {!isPinView && !embedded && !pickerMode && weather.activeLayers.size > 0 && (
-                    <Suspense fallback={<WeatherControlsLoading />}>
+                    <Suspense fallback={null}>
                         <MapWeatherControls
                             weather={weather}
                             visible
