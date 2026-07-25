@@ -136,6 +136,12 @@ export interface DeepgramRecognizerHandle {
 }
 
 interface StartOptions {
+    /**
+     * Optional caller-owned WebKit microphone stream. Supplying one lets a
+     * recorder and the live recognizer share a single capture session on iOS.
+     * Its tracks are never stopped by this recognizer.
+     */
+    stream?: MediaStream;
     /** Live partial transcript — fires every 150-250ms while audio is streaming. */
     onPartial?: (text: string) => void;
     /**
@@ -241,6 +247,8 @@ interface PrewarmedAudio {
      */
     micSource?: MediaStreamAudioSourceNode;
     workletNode?: AudioWorkletNode;
+    /** Silent destination drain keeps WebKit actively rendering the worklet. */
+    silentGain?: GainNode;
     /**
      * Last ~300ms of audio chunks captured by the worklet while the
      * AudioContext was running but no recognizer was active. Drained
@@ -310,6 +318,7 @@ export async function prewarmAudioContext(): Promise<boolean> {
         // buffer the moment the context is running.
         let micSource: MediaStreamAudioSourceNode | undefined;
         let workletNode: AudioWorkletNode | undefined;
+        let silentGain: GainNode | undefined;
         const ringBuffer: ArrayBuffer[] = [];
         const ringBytes = { total: 0 };
 
@@ -317,6 +326,11 @@ export async function prewarmAudioContext(): Promise<boolean> {
             try {
                 micSource = context.createMediaStreamSource(prewarmedMicStream);
                 workletNode = new AudioWorkletNode(context, 'pcm-processor');
+                // Some WKWebView builds do not run an unconnected worklet.
+                // Drain its silent output through a zero-gain node so PCM
+                // processing stays pull-driven without monitoring the mic.
+                silentGain = context.createGain();
+                silentGain.gain.value = 0;
                 // Capture into ring buffer. Drops oldest when capped so
                 // we always keep the most recent audio. The recognizer
                 // flushes this on claim.
@@ -329,7 +343,9 @@ export async function prewarmAudioContext(): Promise<boolean> {
                     }
                 };
                 micSource.connect(workletNode);
-                emitEvent(`[DG] prewarm audio graph wired (mic → worklet → ring)`);
+                workletNode.connect(silentGain);
+                silentGain.connect(context.destination);
+                emitEvent(`[DG] prewarm audio graph wired (mic → worklet → silent drain → ring)`);
             } catch (graphErr) {
                 emitEvent(`[DG] prewarm graph wire failed: ${(graphErr as Error).message}`);
                 // Pipeline isn't fatal — without it we just lose the
@@ -337,6 +353,7 @@ export async function prewarmAudioContext(): Promise<boolean> {
                 // context+worklet so cold-start still benefits.
                 micSource = undefined;
                 workletNode = undefined;
+                silentGain = undefined;
             }
 
             // Try resume() — if we're inside a user gesture, this
@@ -356,6 +373,7 @@ export async function prewarmAudioContext(): Promise<boolean> {
             sampleRate: context.sampleRate,
             micSource,
             workletNode,
+            silentGain,
             ringBuffer: micSource ? ringBuffer : undefined,
             ringBytes: micSource ? ringBytes : undefined,
         };
@@ -401,6 +419,9 @@ export function releasePrewarmedAudioContext(): void {
         }
         if (prewarmedAudio.micSource) {
             prewarmedAudio.micSource.disconnect();
+        }
+        if (prewarmedAudio.silentGain) {
+            prewarmedAudio.silentGain.disconnect();
         }
         void prewarmedAudio.context.close().catch(() => undefined);
     } catch {
@@ -882,16 +903,24 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     });
     let flushRequested = false;
 
-    // ── 1. Acquire mic stream ───────────────────────────────────────
+    // ── 1. Acquire or adopt one mic stream ───────────────────────────
     // Prefer the prewarmed stream from BosunConsole's on-open hook —
     // saves the ~1.0-1.4s iOS getUserMedia / AVAudioSession activation
     // cost from the tap-to-ready critical path. Falls back to a fresh
     // call if no prewarm was done or the prewarmed stream went stale.
     let stream: MediaStream;
+    let ownsStream = false;
     const micStart = Date.now();
-    if (prewarmedMicStream && prewarmedMicStream.getTracks().every((t) => t.readyState === 'live')) {
+    if (opts.stream) {
+        if (!opts.stream.getTracks().some((track) => track.kind === 'audio' && track.readyState === 'live')) {
+            throw new Error('The supplied microphone stream is no longer active');
+        }
+        stream = opts.stream;
+        emitEvent('[DG] using caller-owned mic stream');
+    } else if (prewarmedMicStream && prewarmedMicStream.getTracks().every((t) => t.readyState === 'live')) {
         stream = prewarmedMicStream;
         prewarmedMicStream = null; // consumed; next session re-prewarms
+        ownsStream = true;
         emitEvent(`[DG] reused prewarmed mic stream (saved ~1s)`);
     } else {
         emitEvent('[DG] requesting mic…');
@@ -908,8 +937,17 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             emitEvent(`[DG] getUserMedia failed: ${(err as Error).message}`);
             throw new Error(`Microphone access denied: ${(err as Error).message}`);
         }
+        ownsStream = true;
         emitEvent(`[DG] mic stream acquired (${Date.now() - micStart}ms)`);
     }
+    const releaseOwnedStream = () => {
+        if (!ownsStream) return;
+        try {
+            stream.getTracks().forEach((track) => track.stop());
+        } catch {
+            /* best-effort cleanup */
+        }
+    };
 
     // ── 2. Open AudioContext + load worklet ────────────────────────
     // Use the pre-warmed context if BosunConsole called
@@ -920,7 +958,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) {
-        stream.getTracks().forEach((t) => t.stop());
+        releaseOwnedStream();
         throw new Error('AudioContext not available on this platform');
     }
 
@@ -933,12 +971,17 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
      *  handler that sends to the WS instead of the ring buffer. */
     let prewarmedMicSource: MediaStreamAudioSourceNode | undefined;
     let prewarmedWorkletNode: AudioWorkletNode | undefined;
+    let prewarmedSilentGain: GainNode | undefined;
     let prewarmedRingBuffer: ArrayBuffer[] | undefined;
-    if (prewarmedAudio) {
+    // A prewarmed graph is bound to its own pre-acquired stream. Never reuse
+    // it with a caller-owned recorder stream or we could wire two sessions
+    // together and reintroduce the iOS capture contention this API avoids.
+    if (prewarmedAudio && !opts.stream) {
         audioContext = prewarmedAudio.context;
         workletAlreadyRegistered = true;
         prewarmedMicSource = prewarmedAudio.micSource;
         prewarmedWorkletNode = prewarmedAudio.workletNode;
+        prewarmedSilentGain = prewarmedAudio.silentGain;
         prewarmedRingBuffer = prewarmedAudio.ringBuffer;
         emitEvent(
             `[DG] reusing prewarmed audio context + worklet${
@@ -1009,7 +1052,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         }
     }
     if (!workletLoaded) {
-        stream.getTracks().forEach((t) => t.stop());
+        releaseOwnedStream();
         await audioContext.close().catch(() => {});
         const msg = lastWorkletErr?.message ?? 'unknown';
         emitEvent(`[DG] worklet load failed (both paths): ${msg}`);
@@ -1054,7 +1097,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // frames bidirectionally.
     //
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-        stream.getTracks().forEach((t) => t.stop());
+        releaseOwnedStream();
         await audioContext.close().catch(() => {});
         throw new Error('Supabase credentials missing — cannot reach Deepgram proxy');
     }
@@ -1076,7 +1119,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         try {
             ticket = await mintDeepgramProxyTicket();
         } catch (err) {
-            stream.getTracks().forEach((track) => track.stop());
+            releaseOwnedStream();
             await audioContext.close().catch(() => {});
             emitEvent(`[DG] proxy ticket mint failed: ${(err as Error).message}`);
             throw err;
@@ -1185,7 +1228,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         try {
             ws = await tryConnect('supabase-proxy');
         } catch (err) {
-            stream.getTracks().forEach((t) => t.stop());
+            releaseOwnedStream();
             await audioContext.close().catch(() => {});
             emitEvent(`[DG] proxy ws failed: ${(err as Error).message}`);
             throw new Error(`Deepgram proxy failed: ${(err as Error).message}`);
@@ -1268,8 +1311,13 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // ── 6. Wire mic → worklet → ws ─────────────────────────────────
     let workletNode: AudioWorkletNode | null = null;
     let micSource: MediaStreamAudioSourceNode | null = null;
+    let silentGain: GainNode | null = null;
     let firstChunkSent = false;
     let flushInterval: ReturnType<typeof setInterval> | null = null;
+    // The batching variables live inside the audio-graph setup, but Stop
+    // happens after that block has returned. Expose only a narrow final-flush
+    // callback so Stop can send the last short PCM frame before CloseStream.
+    let flushPendingAudio: (() => void) | null = null;
     try {
         // Reuse the prewarmed audio graph if available — saves the
         // createMediaStreamSource + new AudioWorkletNode + connect()
@@ -1280,10 +1328,13 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         if (prewarmedWorkletNode && prewarmedMicSource) {
             workletNode = prewarmedWorkletNode;
             micSource = prewarmedMicSource;
+            silentGain = prewarmedSilentGain ?? null;
             emitEvent('[DG] reusing prewarmed audio graph (mic + worklet already connected)');
         } else {
             micSource = audioContext.createMediaStreamSource(stream);
             workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+            silentGain = audioContext.createGain();
+            silentGain.gain.value = 0;
         }
         let chunksSent = 0;
         let bytesSent = 0;
@@ -1324,6 +1375,9 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             } catch (err) {
                 emitEvent(`[DG] ws.send threw: ${(err as Error).message}`);
             }
+        };
+        flushPendingAudio = () => {
+            if (batchSize > 0) flushBatch();
         };
         workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
             if (stopped) return;
@@ -1375,11 +1429,13 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         // already flowing — connecting again would be a no-op at best
         // (already connected) or a duplicate-graph error at worst.
         if (!prewarmedWorkletNode) {
+            if (!silentGain) throw new Error('Audio worklet drain unavailable');
             micSource.connect(workletNode);
+            workletNode.connect(silentGain);
+            silentGain.connect(audioContext.destination);
         }
-        // Worklet is a sink — we don't connect it to ctx.destination
-        // because we don't want the mic monitored back into the
-        // speakers (would cause feedback on iOS).
+        // The zero-gain destination drain makes WKWebView render the worklet
+        // without ever feeding microphone audio back to the speakers.
     } catch (err) {
         // Wire-up failure — tear everything down and propagate.
         try {
@@ -1387,7 +1443,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         } catch {
             /* ignore */
         }
-        stream.getTracks().forEach((t) => t.stop());
+        releaseOwnedStream();
         await audioContext.close().catch(() => {});
         emitEvent(`[DG] audio wire failed: ${(err as Error).message}`);
         throw new Error(`Audio pipeline setup failed: ${(err as Error).message}`);
@@ -1400,20 +1456,18 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             clearInterval(flushInterval);
             flushInterval = null;
         }
+        flushPendingAudio = null;
         try {
             if (workletNode) {
                 workletNode.port.onmessage = null;
                 workletNode.disconnect();
             }
             if (micSource) micSource.disconnect();
+            if (silentGain) silentGain.disconnect();
         } catch {
             /* ignore */
         }
-        try {
-            stream.getTracks().forEach((t) => t.stop());
-        } catch {
-            /* ignore */
-        }
+        releaseOwnedStream();
         await raceTimeout(audioContext.close().catch(() => {}));
         try {
             if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
@@ -1435,6 +1489,11 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             flushRequested = true;
             try {
                 if (ws.readyState === WebSocket.OPEN) {
+                    // The worklet batches up to 100ms of PCM to keep iOS
+                    // WebSocket traffic healthy. Send the final short batch
+                    // before CloseStream so a skipper's last few words do
+                    // not remain stranded client-side.
+                    flushPendingAudio?.();
                     ws.send(JSON.stringify({ type: 'CloseStream' }));
                 }
             } catch {

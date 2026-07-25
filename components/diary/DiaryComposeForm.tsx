@@ -38,7 +38,6 @@ interface DiaryComposeFormProps {
     polishStyle: PolishStyle;
     // Setters
     onSetTitle: (v: string) => void;
-    onSetBody: (v: string | ((prev: string) => string)) => void;
     onSetMood: (v: DiaryMood) => void;
     onSetLocationName: (v: string) => void;
     onSetPolishStyle: (v: PolishStyle) => void;
@@ -70,7 +69,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         transcribing,
         polishStyle,
         onSetTitle,
-        onSetBody,
         onSetMood,
         onSetLocationName,
         onSetPolishStyle,
@@ -172,11 +170,12 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 aria-label={isRecording ? 'Stop recording' : 'Start voice recording'}
                                 type="button"
                                 onClick={isRecording ? onStopRecording : onStartRecording}
+                                disabled={!isRecording && (transcribing || polishing)}
                                 className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] ${
                                     isRecording
                                         ? 'bg-red-500/20 border-red-500/30 animate-pulse'
                                         : 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'
-                                }`}
+                                } disabled:cursor-not-allowed disabled:opacity-40`}
                             >
                                 <svg
                                     className={`w-5 h-5 ${isRecording ? 'text-red-400' : 'text-emerald-400'}`}
@@ -205,7 +204,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 aria-label="Polish entry text"
                                 type="button"
                                 onClick={onPolish}
-                                disabled={polishing || body.trim().length < 10}
+                                disabled={polishing || isRecording || transcribing || body.trim().length < 10}
                                 className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] text-lg ${
                                     polishing
                                         ? 'bg-purple-500/30 border-purple-500/30 animate-pulse'
@@ -287,19 +286,34 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                     {/* Body text */}
                     <div className="flex-1 min-h-0">
                         <textarea
-                            placeholder=""
+                            aria-label="Voice transcript"
+                            aria-readonly="true"
+                            aria-describedby="diary-voice-transcript-help"
+                            placeholder={
+                                isRecording
+                                    ? 'Listening… your words will appear here.'
+                                    : transcribing || polishing
+                                      ? 'Finishing your voice entry…'
+                                      : 'Use the microphone to dictate your entry.'
+                            }
                             value={body}
-                            onChange={(e) => onSetBody(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            className="w-full h-full min-h-0 bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                            readOnly
+                            inputMode="none"
+                            tabIndex={-1}
+                            className="w-full h-full min-h-0 bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none cursor-default"
                         />
+                        <p id="diary-voice-transcript-help" className="sr-only">
+                            Voice-only diary entry. Start recording to dictate the text shown here.
+                        </p>
                     </div>
 
                     {/* Transcribing indicator */}
-                    {transcribing && (
+                    {(transcribing || polishing) && (
                         <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/15 rounded-xl">
                             <span className="text-sm animate-pulse">🎙️</span>
-                            <span className="text-xs font-bold text-emerald-400">Converting speech to text…</span>
+                            <span className="text-xs font-bold text-emerald-400">
+                                {polishing ? 'Styling your entry…' : 'Finishing your voice entry…'}
+                            </span>
                         </div>
                     )}
 
@@ -369,7 +383,13 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         <button
                             aria-label="Save changes"
                             onClick={onSave}
-                            disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
+                            disabled={
+                                saving ||
+                                isRecording ||
+                                transcribing ||
+                                polishing ||
+                                (!body.trim() && !title.trim() && !audioUrl)
+                            }
                             className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
                         >
                             {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}

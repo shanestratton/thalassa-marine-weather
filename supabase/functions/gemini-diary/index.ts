@@ -82,9 +82,11 @@ async function handleEnhance(
         mood: string;
         location?: string;
         weather?: string;
+        intensity?: number;
     },
 ) {
     const { text, mood, location, weather } = body;
+    const intensity = Math.max(0, Math.min(100, Math.round(body.intensity ?? 50)));
     if (
         !text ||
         text.trim().length < 5 ||
@@ -96,21 +98,29 @@ async function handleEnhance(
         return jsonResponse({ error: 'Text too short to enhance' }, 400);
     }
 
-    const systemPrompt = `You are a romantic maritime journal editor with the soul of Patrick O'Brian and the wanderlust of Joshua Slocum. You are polishing a sailor's diary — their personal record of an extraordinary voyage.
+    const styleInstruction =
+        intensity <= 10
+            ? `Clean: correct spelling, grammar, punctuation, and obvious transcription errors only. Keep the skipper's wording, cadence, and sentence structure substantially unchanged. Do not add descriptive language.`
+            : intensity <= 35
+              ? `Tidy: lightly clarify grammar and flow while preserving the skipper's natural voice. Do not add new imagery, colour, or detail.`
+              : intensity <= 60
+                ? `Polished: improve rhythm and readability with restrained nautical colour drawn only from facts already stated. Keep the same overall voice and approximate length.`
+                : intensity <= 85
+                  ? `Literary: shape the facts into flowing, evocative maritime prose. Use measured sensory language only where it is supported by what the skipper said.`
+                  : `Poetic: make the entry lyrical and vividly maritime while preserving every fact. Use evocative imagery and cadence, but never invent an event, person, condition, or observation.`;
+
+    const systemPrompt = `You are a precise maritime journal editor. You are polishing a sailor's personal record of an extraordinary voyage.
+
+SELECTED STYLE (${intensity}/100):
+${styleInstruction}
 
 RULES:
 - Preserve the original meaning and every factual detail completely
-- Elevate the prose into something lyrical, vivid, and deeply romantic — make the reader ache to be there
-- Use rich sensory language: the taste of salt spray, the weight of the tiller, the way light fractures across the swell
-- Even hardship should sound magnificent — seasickness becomes a communion with the ocean's raw power, a storm becomes a breathtaking dance with the elements, exhaustion becomes the sweet price of freedom
-- Make every moment feel like something worth crossing oceans for
 - Fix grammar, spelling, and punctuation
 - Keep approximately the same length (do not double it)
 - Do NOT add fictional events, people, or details that weren't mentioned
 - Do NOT add markdown, headers, or formatting
 - Return ONLY the polished text, nothing else
-
-TONE: Romantic, evocative, visceral. The reader should finish and think "I need to be on that boat."
 
 CONTEXT:
 - Mood: ${mood}
@@ -140,13 +150,19 @@ async function handleTranscribe(
     },
 ) {
     const { audio_base64, mime_type } = body;
-    const allowedMimeTypes = new Set(['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/ogg']);
+    // Browsers commonly attach codec parameters (e.g.
+    // `audio/webm;codecs=opus`) to MediaRecorder's MIME type. Gemini needs
+    // the container type, so validate and forward the canonical value.
+    const rawMimeType = mime_type.split(';', 1)[0]?.trim().toLowerCase() || '';
+    const canonicalMimeType =
+        rawMimeType === 'audio/x-wav' ? 'audio/wav' : rawMimeType === 'audio/x-m4a' ? 'audio/mp4' : rawMimeType;
+    const allowedMimeTypes = new Set(['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac']);
     if (
         !audio_base64 ||
         audio_base64.length > 10_000_000 ||
         audio_base64.length % 4 !== 0 ||
         !/^[A-Za-z0-9+/]*={0,2}$/.test(audio_base64) ||
-        !allowedMimeTypes.has(mime_type)
+        !allowedMimeTypes.has(canonicalMimeType)
     ) {
         return jsonResponse({ error: 'Invalid audio data' }, 400);
     }
@@ -169,7 +185,7 @@ RULES:
                 parts: [
                     {
                         inlineData: {
-                            mimeType: mime_type || 'audio/webm',
+                            mimeType: canonicalMimeType,
                             data: audio_base64,
                         },
                     },
@@ -216,6 +232,11 @@ Deno.serve(async (req: Request) => {
                 body.text.length > 20_000 ||
                 typeof body.mood !== 'string' ||
                 body.mood.length > 80 ||
+                (body.intensity !== undefined &&
+                    (typeof body.intensity !== 'number' ||
+                        !Number.isFinite(body.intensity) ||
+                        body.intensity < 0 ||
+                        body.intensity > 100)) ||
                 (body.location !== undefined && (typeof body.location !== 'string' || body.location.length > 200)) ||
                 (body.weather !== undefined && (typeof body.weather !== 'string' || body.weather.length > 500)))
         ) {
@@ -241,6 +262,7 @@ Deno.serve(async (req: Request) => {
                         mood: string;
                         location?: string;
                         weather?: string;
+                        intensity?: number;
                     },
                 );
             case 'transcribe':

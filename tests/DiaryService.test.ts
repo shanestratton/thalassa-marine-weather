@@ -2,7 +2,12 @@
  * DiaryService — Unit tests for diary constants and types.
  */
 import { describe, it, expect } from 'vitest';
-import { MOOD_CONFIG } from '../services/DiaryService';
+import {
+    DiaryService,
+    diaryAudioFileExtension,
+    MOOD_CONFIG,
+    normalizeDiaryAudioMimeType,
+} from '../services/DiaryService';
 import type { DiaryMood } from '../services/DiaryService';
 
 describe('MOOD_CONFIG', () => {
@@ -40,5 +45,28 @@ describe('MOOD_CONFIG', () => {
 
     it('contains exactly 5 moods', () => {
         expect(Object.keys(MOOD_CONFIG).length).toBe(5);
+    });
+});
+
+describe('diary audio MIME handling', () => {
+    it('strips MediaRecorder codec parameters before transcription', () => {
+        expect(normalizeDiaryAudioMimeType('audio/webm;codecs=opus')).toBe('audio/webm');
+    });
+
+    it('preserves the correct container type and storage extension', () => {
+        expect(normalizeDiaryAudioMimeType('audio/mp4; codecs=mp4a.40.2')).toBe('audio/mp4');
+        expect(diaryAudioFileExtension('audio/mp4')).toBe('m4a');
+        expect(diaryAudioFileExtension('audio/webm;codecs=opus')).toBe('webm');
+    });
+
+    it('normalizes common browser aliases', () => {
+        expect(normalizeDiaryAudioMimeType('audio/x-wav')).toBe('audio/wav');
+        expect(normalizeDiaryAudioMimeType('audio/x-m4a')).toBe('audio/mp4');
+    });
+
+    it('prepares a local data URI without creating remote media', async () => {
+        const dataUri = await DiaryService.createAudioDataUri(new Blob(['voice memo'], { type: 'audio/webm' }));
+
+        expect(dataUri).toMatch(/^data:audio\/webm;base64,/);
     });
 });
