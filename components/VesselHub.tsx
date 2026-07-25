@@ -1904,14 +1904,14 @@ const NavStationHero: React.FC<{
         ] as (MetricChipData | null)[]
     ).filter((c): c is MetricChipData => c !== null);
 
-    // SLIM AT-REST MODE (Shane 2026-07-08: "I don't need that At Rest box —
-    // maybe just the bottom line, right at the very top"). At the dock the
-    // big card is dead space; the useful line is the live conditions strip.
-    // The FULL card still renders whenever it earns its keep: underway
-    // (route/progress/SOG), at anchor (swing arc), drag alarm (safety),
-    // or a fresh install (the set-up-your-vessel CTA lives in the card).
-    const atRestSlim = state.label === 'At Rest' && !showSwing && vesselNameSet;
-    if (atRestSlim) {
+    // WEATHER-ONLY MODE (Shane 2026-07-26: the skipper already knows when
+    // the boat is underway). Keep the top of Vessel equally quiet whether
+    // resting or logging: conditions only, no redundant Underway card.
+    // Anchor watch and drag alarms deliberately retain the full card because
+    // their swing/status information is safety-critical. A fresh install and
+    // a drafted passage also retain their purposeful full-card states.
+    const weatherOnlySlim = (state.label === 'At Rest' || state.label === 'Underway') && !showSwing && vesselNameSet;
+    if (weatherOnlySlim) {
         if (metricChips.length === 0) return null;
         return (
             <div
