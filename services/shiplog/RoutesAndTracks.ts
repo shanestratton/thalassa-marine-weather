@@ -22,6 +22,7 @@
 import { getLogEntries } from './EntryCrud';
 import { getOfflineEntries } from './OfflineQueue';
 import { isTrackworthyEntry } from './helpers';
+import { formatPlannedRouteLabel } from './plannedRouteNaming';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import { getVoyageSummaries, getVoyageEntries, isLandVoyage, type VoyageSummary } from './VoyageSummary';
 import type { ShipLogEntry } from '../../types/navigation';
@@ -297,7 +298,9 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
         const last = sorted[sorted.length - 1];
         const departure = (first as unknown as { notes?: string; waypointName?: string }).waypointName ?? 'Departure';
         const arrival = (last as unknown as { notes?: string; waypointName?: string }).waypointName ?? 'Arrival';
-        const label = isPlanned(id) ? `${departure} → ${arrival}` : `${fmtDate(new Date(first.timestamp).getTime())}`;
+        const label = isPlanned(id)
+            ? formatPlannedRouteLabel(departure, arrival)
+            : `${fmtDate(new Date(first.timestamp).getTime())}`;
 
         // MAX cumulative beats summing per-leg distanceNM: legs are
         // stored rounded to 2 dp, and at 5 s cadence most legs round to

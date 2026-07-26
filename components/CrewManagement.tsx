@@ -44,6 +44,7 @@ import {
     type Voyage,
 } from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
+import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from '../services/shiplog/plannedRouteNaming';
 import { linkTraceToPassage, loadSavedTraces, saveTrace, stripLegBadge } from '../services/routeTracer';
 import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
 import { isSameCountry } from '../data/customsDb';
@@ -150,6 +151,20 @@ function canonicalPassageVoyageIds(traces: ReturnType<typeof loadSavedTraces>): 
         traces
             .map((trace) => trace.passageVoyageId)
             .filter((passageVoyageId): passageVoyageId is string => Boolean(passageVoyageId && passageVoyageId.trim())),
+    );
+}
+
+/**
+ * Legacy saved traces stored their internal endpoint markers as the voyage
+ * title. Keep matching against the original database fields, but never make
+ * a skipper read "… start → … end" in the Saved Routes selector.
+ */
+function savedRouteDisplayName(voyage: Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port'>): string {
+    return (
+        formatStoredPlannedRouteName(voyage.voyage_name) ??
+        (voyage.departure_port || voyage.destination_port
+            ? formatPlannedRouteLabel(voyage.departure_port, voyage.destination_port)
+            : '? → ?')
     );
 }
 
@@ -654,7 +669,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const { getCachedActiveVoyage } = await import('../services/VoyageService');
             if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
             const v = getCachedActiveVoyage();
-            if (v) setActiveVoyageName(v.voyage_name);
+            if (v) setActiveVoyageName(savedRouteDisplayName(v));
         } catch {
             /* non-critical */
         }
@@ -887,7 +902,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     : canonicalByPlannedRouteId.get(r.id)?.name;
                 return {
                     ...matched,
-                    ...(canonicalName ? { voyage_name: canonicalName } : {}),
+                    ...(canonicalName
+                        ? { voyage_name: canonicalName }
+                        : { voyage_name: formatStoredPlannedRouteName(matched.voyage_name) ?? matched.voyage_name }),
                     // Fall back to the route-derived dates only when the
                     // matched draft hasn't been given them yet. Don't
                     // overwrite a date the user has explicitly set via
@@ -973,7 +990,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (activeId && activeIdInRows) {
             const vMatch = rows.find((row) => row.id === activeId);
             if (vMatch?.departure_time) setPlanDeparture(vMatch.departure_time.slice(0, 16));
-            if (vMatch) setActiveVoyageName(vMatch.voyage_name);
+            if (vMatch) setActiveVoyageName(savedRouteDisplayName(vMatch));
         } else if (activeId && membershipsLoaded && sharedResult.complete) {
             // Only heal after accepted memberships and every shared ownership
             // lookup have completed. Re-verify the exact active ID before
@@ -1489,7 +1506,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setActivePassage(realId);
             selectedPassageRef.current = realId;
             setSelectedPassageId(realId);
-            setActiveVoyageName(row.voyage_name || `${row.departure_port || '?'} → ${row.destination_port || '?'}`);
+            setActiveVoyageName(savedRouteDisplayName(row));
             setPlanDeparture(row.departure_time ? row.departure_time.slice(0, 16) : '');
             triggerHaptic('light');
         },
@@ -1656,7 +1673,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             </option>
                             {draftVoyages.map((v) => (
                                 <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
-                                    {v.voyage_name || `${v.departure_port || '?'} → ${v.destination_port || '?'}`}
+                                    {savedRouteDisplayName(v)}
                                     {v.isShared ? ` — Shared by ${v.sharedOwnerEmail || 'skipper'}` : ''}
                                 </option>
                             ))}
@@ -2126,7 +2143,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     initialVoyageId={selectedPassageId || undefined}
                     onCastOff={(voyage) => {
                         if (!scopeStillOwnsPage(renderScope)) return;
-                        setActiveVoyageName(voyage.voyage_name);
+                        setActiveVoyageName(savedRouteDisplayName(voyage));
                         setShowCastOff(false);
                     }}
                 />

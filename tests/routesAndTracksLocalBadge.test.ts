@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { classifyTrackKind, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
+import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from '../services/shiplog/plannedRouteNaming';
 import type { ShipLogEntry } from '../types/navigation';
 
 /**
@@ -32,6 +33,32 @@ function entry(voyageId: string, lat: number, lon: number, tsOffsetSec = 0): Shi
 }
 
 describe('groupByVoyage — isLocal tagging', () => {
+    it('collapses generated saved-trace start/end labels into one clean route title', () => {
+        const startTitle = '27.125S 153E - Woorim';
+        const endTitle = '27.12S 153.12E - Woorim';
+        const entries: ShipLogEntry[] = [
+            { ...entry('planned_woorim', -27.12, 153, 0), waypointName: `${startTitle} - Start` },
+            { ...entry('planned_woorim', -27.12, 153.12, 60), waypointName: `${endTitle} - end` },
+        ];
+
+        expect(groupByVoyage(entries, new Set(['planned_woorim']))[0].label).toBe(endTitle);
+    });
+
+    it('preserves ordinary and mismatched planned-route endpoint labels', () => {
+        expect(formatPlannedRouteLabel('Brisbane', 'Woorim')).toBe('Brisbane → Woorim');
+        expect(formatPlannedRouteLabel('Woorim - start', 'Bribie - end')).toBe('Woorim - start → Bribie - end');
+        expect(formatPlannedRouteLabel('27.12S 153E - Woorim — start', '27.12S 153.12E - Bribie — end')).toBe(
+            '27.12S 153E - Woorim — start → 27.12S 153.12E - Bribie — end',
+        );
+        expect(formatStoredPlannedRouteName('Brisbane → Woorim')).toBe('Brisbane → Woorim');
+    });
+
+    it('repairs a generated endpoint pair that was already persisted as a voyage title', () => {
+        expect(formatStoredPlannedRouteName('27.125S 153E - Woorim - Start -> 27.12S 153.12E - Woorim - end')).toBe(
+            '27.12S 153.12E - Woorim',
+        );
+    });
+
     it('tags a planned voyageId that exists in cloud as isLocal=false', () => {
         const entries: ShipLogEntry[] = [
             entry('planned_001', -33.8568, 151.2153, 0),

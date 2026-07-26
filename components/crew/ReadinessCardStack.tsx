@@ -265,6 +265,12 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     const destPort = activeVoyage?.destination_port;
     const hasVerifiedPassageAccess =
         Boolean(selectedPassageId) && passageStatus.visible && passageStatus.voyageId === selectedPassageId;
+    // The selected ID is only navigation state. During route deletion,
+    // account changes, and the first saved-route refresh it can briefly (or
+    // permanently, for a removed route) point at no actual route row. Never
+    // let readiness held by the previous route colour that empty state green.
+    const hasResolvedPassage = Boolean(activeVoyage);
+    const canCountReadiness = hasResolvedPassage && hasVerifiedPassageAccess;
     const canViewRoute = hasVerifiedPassageAccess && passageStatus.canViewRoute;
     const canViewMeals = hasVerifiedPassageAccess && passageStatus.canViewMeals;
     const canViewChecklist = hasVerifiedPassageAccess && passageStatus.canViewChecklist;
@@ -290,7 +296,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // route-derived intelligence (weather + currents), the route-
     // specific operational cards live under "Departure Brief", and
     // vessel-wide checks sit at the bottom in their own group.
-    const piReadyCount = [weatherWindowReady, currentsBriefed].filter(Boolean).length;
+    const piReadyCount = canCountReadiness ? [weatherWindowReady, currentsBriefed].filter(Boolean).length : 0;
     // Pre-Departure Weather card removed 2026-05-17 — Weather Windows
     // (PI-1) now serves as the canonical weather-readiness gate via
     // window acceptance. briefReadyCount denominator dropped from 4
@@ -300,11 +306,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     const briefRequirements = isDomestic
         ? [watchBriefed, navAcknowledged]
         : [watchBriefed, customsCleared, navAcknowledged];
-    const briefReadyCount = briefRequirements.filter(Boolean).length;
+    const briefReadyCount = canCountReadiness ? briefRequirements.filter(Boolean).length : 0;
     const briefTotal = briefRequirements.length;
-    const vesselReadyCount = [vesselProfileReady, reservesReady, vesselChecked, medicalReady, commsReady].filter(
-        Boolean,
-    ).length;
+    const vesselReadyCount = canCountReadiness
+        ? [vesselProfileReady, reservesReady, vesselChecked, medicalReady, commsReady].filter(Boolean).length
+        : 0;
 
     // Rollup behaviour: when no passage is selected, the three group
     // headers stay visible but their cards collapse out. Gives the
@@ -322,7 +328,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // user-overridden-open details stays open even after the passage
     // is deselected. With explicit state we re-sync on every
     // hasPassage transition.
-    const hasPassage = Boolean(selectedPassageId);
+    const hasPassage = hasResolvedPassage;
     // Accordion behaviour (2026-05-17): only ONE group can be open
     // at a time. Tapping a closed group's header opens it AND
     // closes whichever group was previously open. Tapping the

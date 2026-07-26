@@ -200,6 +200,39 @@ describe('passage permission integration', () => {
         expect(screen.getByText('Vessel Readiness').closest('summary')).toHaveTextContent('0/5');
     });
 
+    it('does not lend old readiness ticks to an unresolved saved-route selection', () => {
+        renderStack(ownerStatus, [], {
+            // A selected ID can outlive the route list while saved routes are
+            // being reconciled (or after a deleted route is healed). Treat
+            // that as no route loaded, rather than showing the previous
+            // passage's cached checklist progress.
+            draftVoyages: [],
+            weatherWindowReady: true,
+            currentsBriefed: true,
+            vesselProfileReady: true,
+            reservesReady: true,
+            vesselChecked: true,
+            medicalReady: true,
+            commsReady: true,
+            watchBriefed: true,
+            customsCleared: true,
+            navAcknowledged: true,
+        });
+
+        expect(screen.getByText('Passage Intelligence').closest('summary')).toHaveTextContent('0/2');
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/3');
+        expect(screen.getByText('Vessel Readiness').closest('summary')).toHaveTextContent('0/5');
+    });
+
+    it('keeps saved-route readiness after its active voyage resolves', () => {
+        renderStack(ownerStatus, [], {
+            watchBriefed: true,
+            customsCleared: true,
+        });
+
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('2/3');
+    });
+
     it('keeps domestic customs informational instead of auto-ticking a new brief', () => {
         vi.mocked(isSameCountry).mockReturnValue(true);
         const onCustomsChange = vi.fn();
