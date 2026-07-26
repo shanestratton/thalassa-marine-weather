@@ -10,6 +10,7 @@ import { ShipLogEntry } from '../../types';
 import { calculateDistanceNM, calculateBearing, formatPositionDMS, toDbFormat, SHIP_LOGS_TABLE } from './helpers';
 import { addVoyageTombstone, queueOfflineEntry } from './OfflineQueue';
 import { fetchRoutesAndTracks, invalidateRoutesAndTracks } from './RoutesAndTracks';
+import { collapseGeneratedTraceEndpointPair, formatPlannedRouteLabel } from './plannedRouteNaming';
 import { createLogger } from '../../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 
@@ -251,7 +252,7 @@ export async function savePassagePlanToLogbookWithLinks(
         // callers should catch.
         const proposedDeparture = typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
         const proposedArrival = typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
-        const proposedLabel = normaliseName(`${proposedDeparture} → ${proposedArrival}`);
+        const proposedLabel = normaliseName(formatPlannedRouteLabel(proposedDeparture, proposedArrival));
         const proposedDay = dayKey(plan.departureDate || new Date());
 
         try {
@@ -417,7 +418,13 @@ export async function savePassagePlanToLogbookWithLinks(
                         typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
                     const destinationName =
                         typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
-                    draftVoyageName = `${departureName} → ${destinationName}`;
+                    // A Route Tracer mirror carries its human title on both
+                    // generated endpoints ("<title> — start/end"). Keep the
+                    // planning-row title clean from its first render; normal
+                    // planner passages remain a real departure → destination.
+                    draftVoyageName =
+                        collapseGeneratedTraceEndpointPair(departureName, destinationName) ??
+                        `${departureName} → ${destinationName}`;
 
                     try {
                         const { createVoyage } = await import('../VoyageService');

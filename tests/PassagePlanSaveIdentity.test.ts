@@ -151,6 +151,26 @@ describe('PassagePlanSave persistence and identity ownership', () => {
         expect(rows.every((row) => row.saved_route_id === 'trace-abc')).toBe(true);
     });
 
+    it('writes a clean draft title for a generated saved-trace endpoint pair', async () => {
+        const startTitle = '27.125S 153E - Woorim';
+        const endTitle = '27.12S 153.12E - Woorim';
+        await savePassagePlanToLogbookWithLinks(
+            {
+                ...plan,
+                origin: `${startTitle} — start`,
+                destination: `${endTitle} — end`,
+            },
+            { savedRouteId: 'trace-woorim' },
+        );
+
+        expect(mocks.createVoyage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                voyage_name: endTitle,
+                saved_route_id: 'trace-woorim',
+            }),
+        );
+    });
+
     it('reuses the exact online operation IDs and draft link in fallback', async () => {
         mocks.upsert.mockResolvedValueOnce({ error: { message: 'timeout' } });
 
