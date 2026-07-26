@@ -126,6 +126,32 @@ function legacyGeneratedLegName(label: string): string {
     );
 }
 
+/**
+ * A planning row is eligible for Saved Routes when it carries the canonical
+ * trace id itself, or when an older row is tied to that trace by the exact
+ * immutable passage UUID. The latter is deliberately restricted to unlinked
+ * rows: a conflicting saved_route_id must never be papered over by a stale
+ * passage_voyage_id from another graph.
+ */
+function isCanonicalSavedRouteDraft(
+    draft: Voyage,
+    canonicalIds: ReadonlySet<string>,
+    canonicalPassageVoyageIds: ReadonlySet<string>,
+): boolean {
+    return Boolean(
+        (draft.saved_route_id && canonicalIds.has(draft.saved_route_id)) ||
+        (!draft.saved_route_id && canonicalPassageVoyageIds.has(draft.id)),
+    );
+}
+
+function canonicalPassageVoyageIds(traces: ReturnType<typeof loadSavedTraces>): Set<string> {
+    return new Set(
+        traces
+            .map((trace) => trace.passageVoyageId)
+            .filter((passageVoyageId): passageVoyageId is string => Boolean(passageVoyageId && passageVoyageId.trim())),
+    );
+}
+
 interface CrewManagementProps {
     onBack: () => void;
 }
@@ -212,20 +238,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Windows, Ocean Currents) need lat/lon to run their analysis but
     // the voyages-table schema doesn't carry coords; this is how we
     // bridge that gap without a migration.
-    // Paint the account-scoped local cache synchronously. A route picker should
-    // never make the skipper wait on an entire logbook download just to see
-    // plans that have already been saved on this device.
+    // Paint only canonical-backed rows synchronously. An unlinked planning
+    // record could be a legitimate legacy mirror, but it could just as easily
+    // be a stale row left behind by an interrupted old save; wait for the
+    // exact logbook reconciliation below before presenting it as a route.
     const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>(() => {
-        const canonicalIds = new Set(loadSavedTraces().map((trace) => trace.id));
-        return getCachedDraftVoyages().filter(
-            (draft) => !draft.saved_route_id || canonicalIds.has(draft.saved_route_id),
+        const canonicalTraces = loadSavedTraces();
+        const canonicalIds = new Set(canonicalTraces.map((trace) => trace.id));
+        const exactPassageVoyageIds = canonicalPassageVoyageIds(canonicalTraces);
+        return getCachedDraftVoyages().filter((draft) =>
+            isCanonicalSavedRouteDraft(draft, canonicalIds, exactPassageVoyageIds),
         );
     });
     const [savedRoutesLoading, setSavedRoutesLoading] = useState(() => {
-        const canonicalIds = new Set(loadSavedTraces().map((trace) => trace.id));
-        return (
-            getCachedDraftVoyages().filter((draft) => !draft.saved_route_id || canonicalIds.has(draft.saved_route_id))
-                .length === 0
+        const canonicalTraces = loadSavedTraces();
+        const canonicalIds = new Set(canonicalTraces.map((trace) => trace.id));
+        const exactPassageVoyageIds = canonicalPassageVoyageIds(canonicalTraces);
+        return getCachedDraftVoyages().every(
+            (draft) => !isCanonicalSavedRouteDraft(draft, canonicalIds, exactPassageVoyageIds),
         );
     });
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
@@ -600,9 +630,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
         const requestVersion = ++dropdownReloadVersion.current;
-        const cachedCanonicalIds = new Set(loadSavedTraces(scope).map((trace) => trace.id));
-        const visibleCachedDrafts = getCachedDraftVoyages().filter(
-            (draft) => !draft.saved_route_id || cachedCanonicalIds.has(draft.saved_route_id),
+        const cachedCanonicalTraces = loadSavedTraces(scope);
+        const cachedCanonicalIds = new Set(cachedCanonicalTraces.map((trace) => trace.id));
+        const cachedPassageVoyageIds = canonicalPassageVoyageIds(cachedCanonicalTraces);
+        const visibleCachedDrafts = getCachedDraftVoyages().filter((draft) =>
+            isCanonicalSavedRouteDraft(draft, cachedCanonicalIds, cachedPassageVoyageIds),
         );
         if (visibleCachedDrafts.length > 0) {
             // Keep any verified shared passages while the skipper's own cached
@@ -632,12 +664,19 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // before showing a single saved route.
         const fetchedDrafts = await getDraftVoyages().catch(() => visibleCachedDrafts);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
-        const allDrafts = fetchedDrafts.filter(
-            (draft) => !draft.saved_route_id || cachedCanonicalIds.has(draft.saved_route_id),
+        // Keep every raw draft available for the exact-mirror matching pass;
+        // only canonical rows paint in this early phase. This prevents a
+        // deleted first leg's abandoned planning row from flashing in Saved
+        // Routes while its former sibling is being normalised.
+        const allDrafts = fetchedDrafts;
+        const canonicalCachedDrafts = allDrafts.filter((draft) =>
+            isCanonicalSavedRouteDraft(draft, cachedCanonicalIds, cachedPassageVoyageIds),
         );
         setDraftVoyages((previous) => [
             ...new Map(
-                [...allDrafts, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
+                [...canonicalCachedDrafts, ...previous.filter((row) => row.isShared)].map(
+                    (row) => [row.id, row] as const,
+                ),
             ).values(),
         ]);
         setSavedRoutesLoading(false);
@@ -654,6 +693,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         ]);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
         const canonicalById = new Map(canonicalTraces.map((trace) => [trace.id, trace] as const));
+        const canonicalIds = new Set(canonicalById.keys());
+        const exactPassageVoyageIds = canonicalPassageVoyageIds(canonicalTraces);
         const canonicalByPlannedRouteId = new Map<string, (typeof canonicalTraces)[number]>();
         for (const trace of canonicalTraces) {
             if (trace.plannedRouteId) canonicalByPlannedRouteId.set(trace.plannedRouteId, trace);
@@ -760,7 +801,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 )
                 .catch(() => {});
         }
-        const visibleDrafts = allDrafts.filter(
+        // A voyage row is not, on its own, a Saved Route. New rows carry a
+        // canonical trace id; old rows need to be proven by an exact
+        // planned-route mirror below. This one distinction keeps a deleted
+        // route from surviving forever as an unlinked "second leg" in the
+        // Passage Planning selector.
+        const visibleDrafts = allDrafts.filter((draft) =>
+            isCanonicalSavedRouteDraft(draft, canonicalIds, exactPassageVoyageIds),
+        );
+        const matchableDrafts = allDrafts.filter(
             (draft) => !draft.saved_route_id || canonicalById.has(draft.saved_route_id),
         );
         const visibleRoutes = routesAndTracks.routes.filter(
@@ -768,7 +817,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         );
         const norm = (s: string) => s.trim().toLowerCase();
         const draftByName = new Map<string, Voyage[]>();
-        for (const draft of visibleDrafts) {
+        for (const draft of matchableDrafts) {
             const key = norm(draft.voyage_name);
             const matches = draftByName.get(key) ?? [];
             matches.push(draft);
@@ -809,7 +858,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             // repeat (e.g. the same island run next season), so never let a
             // label-only match overwrite a different saved passage.
             const linkedDraft = r.linkedPlanId
-                ? visibleDrafts.find((draft) => draft.id === r.linkedPlanId && !matchedDraftIds.has(draft.id))
+                ? matchableDrafts.find((draft) => draft.id === r.linkedPlanId && !matchedDraftIds.has(draft.id))
                 : undefined;
 
             // Older/offline routes predate linked_plan_id. Recover those only
@@ -881,9 +930,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             };
         });
 
-        // A saved route is still valid when its historic logbook mirror is
-        // delayed, archived, or absent. Keep every indexed route in the list
-        // rather than letting the slow compatibility scan decide visibility.
+        // A canonical saved route is still valid when its historic logbook
+        // mirror is delayed, archived, or absent. Deliberately do not append
+        // unlinked voyage rows here: they have no chart route to open and are
+        // the precise shape left behind by the old missing-root/second-leg
+        // failure. Exact legacy mirrors above remain visible because they
+        // matched a planned-route row by immutable ID (or one unambiguous
+        // historical name/date pair).
         ownRows.push(...visibleDrafts.filter((draft) => !matchedDraftIds.has(draft.id)));
 
         const activeId = getActivePassageId();

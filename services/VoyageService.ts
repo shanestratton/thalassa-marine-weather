@@ -174,12 +174,21 @@ export function removeCachedDraftVoyageById(
     voyageId: string,
     scope: AuthIdentityScope = getAuthIdentityScope(),
     expectedSavedRouteId?: string,
+    options: { allowUnlinkedSavedRoute?: boolean } = {},
 ): boolean {
     const id = voyageId.trim();
     if (!id || !isAuthIdentityScopeCurrent(scope)) return false;
     const drafts = readDraftVoyageCache(scope);
-    const ownsExpectedRoute = (voyage: Voyage): boolean =>
-        !expectedSavedRouteId || voyage.saved_route_id === expectedSavedRouteId;
+    const expectedRouteId = expectedSavedRouteId?.trim();
+    const ownsExpectedRoute = (voyage: Voyage): boolean => {
+        if (!expectedRouteId) return true;
+        if (voyage.saved_route_id === expectedRouteId) return true;
+        // Pre-link builds created a real passage-voyage row before the
+        // saved_route_id column/link was available. A caller may use this
+        // narrow escape hatch only after it has independently proved the
+        // voyage UUID is the exact mirror of the route it is deleting.
+        return options.allowUnlinkedSavedRoute === true && !voyage.saved_route_id;
+    };
     if (!drafts.some((voyage) => voyage.id === id && ownsExpectedRoute(voyage))) return false;
     try {
         writeDraftVoyageCache(
@@ -608,20 +617,67 @@ export async function deleteDraftVoyagesByNameAndDay(name: string, dayKey: strin
  * for a saved trace: a route may have been Cast Off after it was saved, and
  * deleting its chart copy must never erase that active operational record.
  */
-export async function deleteDraftVoyageById(voyageId: string, expectedSavedRouteId?: string): Promise<boolean> {
+export interface DeleteDraftVoyageOptions {
+    /**
+     * Permit an exact, pre-link passage row whose saved_route_id is still
+     * null. This is deliberately opt-in: callers must already possess the
+     * immutable voyage UUID from the same saved-route graph.
+     */
+    allowUnlinkedSavedRoute?: boolean;
+}
+
+export async function deleteDraftVoyageById(
+    voyageId: string,
+    expectedSavedRouteId?: string,
+    options: DeleteDraftVoyageOptions = {},
+): Promise<boolean> {
     const id = voyageId.trim();
     if (!id || !supabase) return false;
     const identity = getAuthIdentityScope();
     if (!identity.userId || !(await revalidateAuth(identity, identity.userId))) return false;
     const ownerId = identity.userId;
+    const expectedRouteId = expectedSavedRouteId?.trim();
+
+    // Normally the canonical saved-route id is both the ownership guard and
+    // the graph link. Old clients, however, could create the passage row and
+    // linked_plan_id before the saved_route_id backfill landed. In that very
+    // specific case the caller has the immutable voyage UUID, so allow a
+    // null link — never a link to a different canonical route.
+    let useNullLinkGuard = false;
+    if (expectedRouteId) {
+        const { data: existing, error: existingError } = await supabase
+            .from('voyages')
+            .select('id, user_id, status, saved_route_id')
+            .eq('id', id)
+            .eq('user_id', ownerId)
+            .eq('status', 'planning')
+            .maybeSingle();
+        if (existingError || !identityStillOwns(identity, ownerId)) return false;
+        // Absence is the idempotent success case. Do not run a broad delete
+        // after it: a newly-created row with the same UUID is not ours.
+        if (existing === null) {
+            removeCachedDraftVoyageById(id, identity, expectedRouteId, options);
+            return true;
+        }
+        const existingRouteId =
+            typeof (existing as { saved_route_id?: unknown }).saved_route_id === 'string'
+                ? (existing as { saved_route_id: string }).saved_route_id || null
+                : null;
+        if (existingRouteId && existingRouteId !== expectedRouteId) return false;
+        if (!existingRouteId && !options.allowUnlinkedSavedRoute) return false;
+        useNullLinkGuard = !existingRouteId;
+    }
+
     let request = supabase.from('voyages').delete().eq('id', id).eq('user_id', ownerId).eq('status', 'planning');
-    if (expectedSavedRouteId) request = request.eq('saved_route_id', expectedSavedRouteId);
+    if (expectedRouteId) {
+        request = useNullLinkGuard ? request.is('saved_route_id', null) : request.eq('saved_route_id', expectedRouteId);
+    }
     const { data, error } = await request.select('id, user_id, status').maybeSingle();
     if (error || !identityStillOwns(identity, ownerId)) return false;
     if (data !== null && (!data || data.id !== id || data.user_id !== ownerId || data.status !== 'planning')) {
         return false;
     }
-    removeCachedDraftVoyageById(id, identity, expectedSavedRouteId);
+    removeCachedDraftVoyageById(id, identity, expectedRouteId, options);
     return true;
 }
 

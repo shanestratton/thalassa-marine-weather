@@ -426,7 +426,22 @@ describe('CrewManagement shared passage ownership', () => {
     });
 
     it('shows cached saved routes before the legacy logbook scan begins', async () => {
-        const saved = voyage('cached-route', 'crew-user', 'Brisbane → Moreton');
+        const canonicalId = 'trace-cached-route';
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_traced_routes_v1'),
+            JSON.stringify([
+                {
+                    id: canonicalId,
+                    name: 'Brisbane → Moreton',
+                    createdAt: '2026-07-23T00:00:00.000Z',
+                    points: [
+                        { lat: -27.47, lon: 153.02 },
+                        { lat: -27.3, lon: 153.2 },
+                    ],
+                },
+            ]),
+        );
+        const saved = { ...voyage('cached-route', 'crew-user', 'Brisbane → Moreton'), saved_route_id: canonicalId };
         let resolveDrafts!: (voyages: Voyage[]) => void;
         const pendingDrafts = new Promise<Voyage[]>((resolve) => {
             resolveDrafts = resolve;
@@ -473,6 +488,69 @@ describe('CrewManagement shared passage ownership', () => {
         await waitFor(() => expect(mocks.fetchRoutesAndTracks).toHaveBeenCalled());
 
         expect(screen.queryByText(ghost.voyage_name)).not.toBeInTheDocument();
+    });
+
+    it('does not present a voyage-only orphan as a saved route', async () => {
+        // Old builds could leave the Passage Planning row behind after a
+        // deleted first leg. With neither a canonical trace nor a planned
+        // logbook mirror, it is bookkeeping — not a route the skipper can
+        // open, follow, or delete from the route library.
+        const orphan = voyage('orphaned-leg', 'crew-user', 'Woorim → Mooloolaba (2nd Leg)');
+        mocks.getCachedDraftVoyages.mockReturnValue([orphan]);
+        mocks.getDraftVoyages.mockResolvedValue([orphan]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [], tracks: [] });
+
+        renderPage();
+        await waitFor(() => expect(mocks.fetchRoutesAndTracks).toHaveBeenCalled());
+
+        expect(screen.queryByRole('combobox', { name: 'Saved Routes' })).not.toBeInTheDocument();
+        expect(await screen.findByText('No saved routes yet')).toBeInTheDocument();
+    });
+
+    it('keeps an exact unlinked canonical passage visible when logbook routes are unavailable', async () => {
+        const canonicalId = 'trace-exact-legacy';
+        const legacy = voyage('legacy-exact-passage', 'crew-user', 'Woorim → Mooloolaba');
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_traced_routes_v1'),
+            JSON.stringify([
+                {
+                    id: canonicalId,
+                    name: legacy.voyage_name,
+                    createdAt: '2026-07-23T00:00:00.000Z',
+                    passageVoyageId: legacy.id,
+                    points: [
+                        { lat: -27.47, lon: 153.02 },
+                        { lat: -26.65, lon: 153.1 },
+                    ],
+                },
+            ]),
+        );
+        mocks.getCachedDraftVoyages.mockReturnValue([legacy]);
+        mocks.getDraftVoyages.mockResolvedValue([legacy]);
+        // At sea the legacy logbook scan can fail or be unavailable. The
+        // canonical trace's immutable passage UUID is sufficient proof.
+        mocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [], tracks: [] });
+
+        renderPage();
+        const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
+        await waitFor(() => expect(mocks.fetchRoutesAndTracks).toHaveBeenCalled());
+
+        expect(within(selector).getByRole('option', { name: legacy.voyage_name })).toBeInTheDocument();
+    });
+
+    it('keeps an unlinked legacy passage when its exact planned mirror still exists', async () => {
+        const legacy = voyage('legacy-leg', 'crew-user', 'Woorim → Mooloolaba');
+        mocks.getCachedDraftVoyages.mockReturnValue([legacy]);
+        mocks.getDraftVoyages.mockResolvedValue([legacy]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({
+            routes: [route('planned-legacy-leg', legacy.voyage_name, legacy.id)],
+            tracks: [],
+        });
+
+        renderPage();
+
+        const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
+        expect(within(selector).getByRole('option', { name: legacy.voyage_name })).toBeInTheDocument();
     });
 
     it('retains and marks a verified shared voyage without logbook coordinates', async () => {

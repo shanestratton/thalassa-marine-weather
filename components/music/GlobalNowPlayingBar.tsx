@@ -232,69 +232,78 @@ export const GlobalNowPlayingBar: React.FC = () => {
     const artwork = nowPlaying.artworkUrl && !imageFailed ? nowPlaying.artworkUrl : null;
 
     return (
-        <button
-            type="button"
-            onClick={handleBarTap}
-            aria-label={`Now playing: ${nowPlaying.title}${nowPlaying.artist ? ` by ${nowPlaying.artist}` : ''}. Tap to open music page.`}
-            // Compact floating pill (2026-05-18 — was a full-width bar
-            // that walled off the bottom of every screen; Shane: "in the
-            // way on most screens, make it float"). Right-anchored so
-            // it sits in iOS's natural picture-in-picture zone and
-            // leaves the left ~60% of the screen clear for content.
-            // max-w cap keeps it tight even with a long track title.
-            className="fixed right-2 z-[850] flex items-center gap-2.5 pl-2 pr-1.5 py-2 rounded-2xl border border-white/10 bg-slate-900/90 backdrop-blur-xl shadow-2xl active:scale-[0.99] transition-transform max-w-[280px]"
+        <div
+            role="group"
+            aria-label="Now playing controls"
+            // Compact, right-anchored command pod. Keeping the playback
+            // surface separate from the transport buttons avoids nested
+            // buttons, which iOS VoiceOver treats inconsistently.
+            className="fixed right-2 z-[850] flex max-w-[300px] items-center gap-1.5 rounded-[1.2rem] border border-cyan-200/20 bg-[#071521]/[0.94] p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur-xl"
             style={{
                 // Slot above the bottom nav (h-16 = 64px + safe area inset)
                 bottom: 'calc(env(safe-area-inset-bottom) + 68px)',
             }}
         >
-            {/* Artwork */}
-            {artwork ? (
-                <SafeImage
-                    src={artwork}
-                    alt=""
-                    className="w-10 h-10 rounded-lg object-cover shrink-0"
-                    loading="eager"
-                    onError={() => setImageFailed(true)}
-                    fallback={
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500/30 to-cyan-500/20 shrink-0 flex items-center justify-center">
-                            <span className="text-base">🎵</span>
-                        </div>
-                    }
-                />
-            ) : (
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500/30 to-cyan-500/20 shrink-0 flex items-center justify-center">
-                    <span className="text-base">🎵</span>
-                </div>
-            )}
+            <button
+                type="button"
+                onClick={handleBarTap}
+                aria-label={`Now playing: ${nowPlaying.title}${nowPlaying.artist ? ` by ${nowPlaying.artist}` : ''}. Open Apple Music.`}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-left transition-colors hover:bg-cyan-300/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+            >
+                {/* Artwork */}
+                {artwork ? (
+                    <SafeImage
+                        src={artwork}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded-xl object-cover ring-1 ring-cyan-100/20"
+                        loading="eager"
+                        onError={() => setImageFailed(true)}
+                        fallback={
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300/25 to-sky-500/20 ring-1 ring-cyan-100/20">
+                                <span className="text-base">♪</span>
+                            </div>
+                        }
+                    />
+                ) : (
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300/25 to-sky-500/20 ring-1 ring-cyan-100/20">
+                        <span className="text-base">♪</span>
+                    </div>
+                )}
 
-            {/* Title + artist — capped at 120px so a long title doesn't
-                blow the pill back out to full-width. Artist line stays
-                — it's the second-most-useful piece of info after the
-                title, and at 11px on one line it costs nothing. */}
-            <div className="min-w-0 max-w-[120px] text-left">
-                <div className="text-sm font-bold text-white truncate">{nowPlaying.title}</div>
-                {nowPlaying.artist && <div className="text-[11px] text-white/60 truncate">{nowPlaying.artist}</div>}
-            </div>
+                {/* Title + artist — capped so a long title never turns the
+                    compact control into a wall across the chart. */}
+                <div className="min-w-0 max-w-[126px] pr-0.5">
+                    <div className="mb-0.5 flex items-center gap-1 text-[8px] font-black uppercase tracking-[0.14em] text-cyan-100/65">
+                        <span
+                            className={`h-1 w-1 rounded-full ${nowPlaying.isPlaying ? 'bg-cyan-300' : 'bg-slate-500'}`}
+                        />
+                        {nowPlaying.isPlaying ? 'On watch' : 'Paused'}
+                    </div>
+                    <div className="truncate text-sm font-extrabold text-white">{nowPlaying.title}</div>
+                    {nowPlaying.artist && (
+                        <div className="truncate text-[11px] text-slate-300/75">{nowPlaying.artist}</div>
+                    )}
+                </div>
+            </button>
 
             {/* Transport — play/pause + dismiss */}
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex shrink-0 items-center gap-0.5">
                 <button
                     type="button"
                     onClick={(e) => void handleTogglePlayPause(e)}
                     disabled={busy}
                     aria-label={nowPlaying.isPlaying ? 'Pause' : 'Play'}
-                    className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center disabled:opacity-50"
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-300 text-[#04131d] shadow-[0_6px_16px_rgba(34,211,238,0.16)] transition-all hover:bg-cyan-200 active:scale-90 disabled:opacity-50"
                 >
                     {nowPlaying.isPlaying ? (
                         // Pause icon
-                        <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                             <rect x="6" y="5" width="4" height="14" rx="1" />
                             <rect x="14" y="5" width="4" height="14" rx="1" />
                         </svg>
                     ) : (
                         // Play icon
-                        <svg className="w-4 h-4 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                        <svg className="ml-0.5 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M8 5v14l11-7z" />
                         </svg>
                     )}
@@ -304,13 +313,13 @@ export const GlobalNowPlayingBar: React.FC = () => {
                     onClick={(e) => void handleDismiss(e)}
                     disabled={busy}
                     aria-label="Stop and dismiss now playing"
-                    className="w-10 h-10 rounded-full text-white/50 hover:text-white hover:bg-white/10 active:scale-90 transition-all flex items-center justify-center disabled:opacity-50"
+                    className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 transition-all hover:bg-white/[0.07] hover:text-white active:scale-90 disabled:opacity-50"
                 >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-        </button>
+        </div>
     );
 };
