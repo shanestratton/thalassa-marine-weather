@@ -17,6 +17,7 @@ const plannerMocks = vi.hoisted(() => ({
     consumeSavedRoutesLibraryOpen: vi.fn(),
     loadSavedRouteLibrary: vi.fn(),
     deleteLogbookRouteFromLibrary: vi.fn(),
+    deleteTrace: vi.fn(),
     canonicalRoutes: [] as Array<Record<string, unknown>>,
     mergedRoutes: [] as Array<Record<string, unknown>>,
 }));
@@ -41,6 +42,7 @@ vi.mock('../utils/system', () => ({
 }));
 vi.mock('../utils/keyboardScroll', () => ({
     scrollInputAboveKeyboard: vi.fn(),
+    subscribeKeyboardHeight: vi.fn(() => () => {}),
 }));
 vi.mock('../hooks/useVoyageForm', () => ({
     useVoyageForm: () => ({
@@ -82,6 +84,10 @@ vi.mock('../services/savedRouteLibrary', () => ({
     loadSavedRouteLibrary: plannerMocks.loadSavedRouteLibrary,
     deleteLogbookRouteFromLibrary: plannerMocks.deleteLogbookRouteFromLibrary,
 }));
+vi.mock('../services/routeTracer', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/routeTracer')>();
+    return { ...actual, deleteTrace: plannerMocks.deleteTrace };
+});
 vi.mock('../components/map/MapHub', () => ({
     MapHub: (props: { cleanPlanningMap?: boolean }) => (
         <div data-testid="map-hub" data-clean-planning-map={String(props.cleanPlanningMap === true)}>
@@ -112,6 +118,7 @@ describe('RoutePlanner', () => {
         plannerMocks.mergedRoutes = [];
         plannerMocks.consumeSavedRoutesLibraryOpen.mockReturnValue(false);
         plannerMocks.deleteLogbookRouteFromLibrary.mockResolvedValue(true);
+        plannerMocks.deleteTrace.mockReturnValue(true);
         plannerMocks.loadSavedRouteLibrary.mockImplementation(
             async (_scope: unknown, onCanonical?: (routes: Array<Record<string, unknown>>) => void) => {
                 onCanonical?.(plannerMocks.canonicalRoutes);
@@ -247,7 +254,7 @@ describe('RoutePlanner', () => {
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
 
-        const canonical = await screen.findByRole('button', { name: /Canonical route/ });
+        const canonical = await screen.findByRole('button', { name: /^Canonical route/ });
         const recovered = await screen.findByRole('button', { name: /^Recovered route/ });
         expect(recovered).toHaveTextContent('recovered from Log');
 
@@ -311,6 +318,39 @@ describe('RoutePlanner', () => {
             await Promise.resolve();
         });
         await waitFor(() => expect(screen.queryByRole('button', { name: /^Recovered route/ })).not.toBeInTheDocument());
+    });
+
+    it('allows an individual canonical saved route to be deleted from the Saved Routes library', async () => {
+        plannerMocks.canonicalRoutes = [
+            {
+                source: 'saved-trace',
+                key: 'saved:trace-a',
+                routeId: 'trace-a',
+                label: 'Canonical route',
+                points: [
+                    { lat: -27.47, lon: 153.02 },
+                    { lat: -27.1, lon: 153.4 },
+                ],
+                timestamp: Date.parse('2026-07-20T00:00:00.000Z'),
+            },
+        ];
+        plannerMocks.mergedRoutes = plannerMocks.canonicalRoutes;
+
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
+
+        const deleteButton = await screen.findByRole('button', { name: 'Delete Canonical route' });
+        fireEvent.click(deleteButton);
+        expect(plannerMocks.deleteTrace).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Confirm delete Canonical route' }));
+        await waitFor(() =>
+            expect(plannerMocks.deleteTrace).toHaveBeenCalledWith(
+                'trace-a',
+                expect.objectContaining({ key: 'anonymous' }),
+            ),
+        );
+        await waitFor(() => expect(screen.queryByRole('button', { name: /^Canonical route/ })).not.toBeInTheDocument());
     });
 
     it('honours a one-shot auto-open intent through StrictMode effect replay', async () => {

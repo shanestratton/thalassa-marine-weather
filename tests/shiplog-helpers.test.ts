@@ -13,7 +13,9 @@ import {
     fromDbFormat,
     getIntervalForZone,
     getIntervalForSpeed,
+    getPlottingProfile,
     getZoneLabel,
+    isTrackworthyEntry,
     NEARSHORE_INTERVAL_MS,
     COASTAL_INTERVAL_MS,
     OFFSHORE_INTERVAL_MS,
@@ -48,6 +50,18 @@ describe('calculateDistanceNM', () => {
         const d = calculateDistanceNM(1.35, 103.82, -33.87, 151.21);
         expect(d).toBeGreaterThan(3300);
         expect(d).toBeLessThan(3500);
+    });
+});
+
+describe('isTrackworthyEntry', () => {
+    const base = { latitude: -27.5, longitude: 153, entryType: 'waypoint' as const };
+
+    it('keeps Voyage Start and Voyage End as markers instead of polyline vertices', () => {
+        expect(isTrackworthyEntry({ ...base, waypointName: 'Voyage Start' })).toBe(false);
+        expect(isTrackworthyEntry({ ...base, waypointName: 'Voyage End' })).toBe(false);
+        // The rolling live point is a real captured position and must remain
+        // part of the track line.
+        expect(isTrackworthyEntry({ ...base, waypointName: 'Latest Position' })).toBe(true);
     });
 });
 
@@ -192,27 +206,35 @@ describe('toDbFormat / fromDbFormat', () => {
 // ---- Zone Helpers ----
 
 describe('getIntervalForZone', () => {
-    it('returns 30s for nearshore', () => {
+    it('returns 3s for land / inshore', () => {
         expect(getIntervalForZone('nearshore')).toBe(NEARSHORE_INTERVAL_MS);
-        expect(getIntervalForZone('nearshore')).toBe(30_000);
+        expect(getIntervalForZone('nearshore')).toBe(3_000);
     });
 
-    it('returns 60s for coastal', () => {
+    it('returns 30s for coastal', () => {
         expect(getIntervalForZone('coastal')).toBe(COASTAL_INTERVAL_MS);
-        expect(getIntervalForZone('coastal')).toBe(60_000);
+        expect(getIntervalForZone('coastal')).toBe(30_000);
     });
 
-    it('returns 2min for offshore', () => {
+    it('returns 5min for offshore', () => {
         expect(getIntervalForZone('offshore')).toBe(OFFSHORE_INTERVAL_MS);
-        expect(getIntervalForZone('offshore')).toBe(120_000);
+        expect(getIntervalForZone('offshore')).toBe(300_000);
     });
 });
 
 describe('getZoneLabel', () => {
     it('returns label with interval for each zone', () => {
-        expect(getZoneLabel('nearshore')).toContain('30s');
-        expect(getZoneLabel('coastal')).toContain('60s');
-        expect(getZoneLabel('offshore')).toContain('2min');
+        expect(getZoneLabel('nearshore')).toContain('3s');
+        expect(getZoneLabel('coastal')).toContain('30s');
+        expect(getZoneLabel('offshore')).toContain('5min');
+    });
+});
+
+describe('getPlottingProfile', () => {
+    it('pairs every geographic zone with its persisted-vertex cadence', () => {
+        expect(getPlottingProfile('nearshore')).toEqual({ zone: 'nearshore', intervalMs: 3_000 });
+        expect(getPlottingProfile('coastal')).toEqual({ zone: 'coastal', intervalMs: 30_000 });
+        expect(getPlottingProfile('offshore')).toEqual({ zone: 'offshore', intervalMs: 300_000 });
     });
 });
 

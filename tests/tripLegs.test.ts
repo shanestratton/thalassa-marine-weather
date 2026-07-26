@@ -20,6 +20,11 @@ import {
     traceGpxFileName,
     saveTrace,
     loadSavedTraces,
+    deleteTrace,
+    rebaseSavedTraceChainAfterDelete,
+    repairOrphanedSavedTraceChains,
+    attachSavedTraceTombstoneLinks,
+    getSavedTraceTombstones,
     persistLegVerdicts,
     hydrateLegVerdicts,
 } from '../services/routeTracer';
@@ -102,27 +107,26 @@ describe('trip-chain storage operations', () => {
     });
 
     it('plain overwrite keeps trip fields (a re-save never sheds membership)', () => {
+        const { trace: root } = saveTrace('newport - woorim', PTS);
+        retroBadgeFirstLeg(root.id);
         const { trace } = saveTrace('woorim - timbuktu (2nd Leg)', PTS, {
-            tripId: 'trip-a',
+            tripId: root.id,
             legOrdinal: 2,
             destName: 'timbuktu',
         });
         saveTrace('woorim - timbuktu (2nd Leg)', PTS.slice(0, 2), { overwriteId: trace.id });
         const stored = loadSavedTraces().find((t) => t.id === trace.id)!;
-        expect(stored.tripId).toBe('trip-a');
+        expect(stored.tripId).toBe(root.id);
         expect(stored.legOrdinal).toBe(2);
         expect(stored.destName).toBe('timbuktu');
     });
 
     it('auto-heal: moving leg 1 arrival drags leg 2 locked start with it', () => {
-        const { trace: leg1 } = saveTrace('newport - woorim (1st Leg)', PTS, {
-            tripId: 'trip-a',
-            legOrdinal: 1,
-            destName: 'woorim',
-        });
+        const { trace: firstSave } = saveTrace('newport - woorim', PTS);
+        const leg1 = retroBadgeFirstLeg(firstSave.id)!;
         const leg2start = PTS[2];
         saveTrace('woorim - mooloolaba (2nd Leg)', [leg2start, { lat: -26.7, lon: 153.1 }], {
-            tripId: 'trip-a',
+            tripId: leg1.id,
             legOrdinal: 2,
             destName: 'mooloolaba',
         });
@@ -131,7 +135,7 @@ describe('trip-chain storage operations', () => {
         const { trace: leg1b } = saveTrace(leg1.name, moved, { overwriteId: leg1.id });
         const msg = healTripChain(leg1b)!;
         expect(msg).toContain('start moved to match');
-        const leg2 = loadSavedTraces().find((t) => t.legOrdinal === 2 && t.tripId === 'trip-a')!;
+        const leg2 = loadSavedTraces().find((t) => t.legOrdinal === 2 && t.tripId === leg1.id)!;
         expect(leg2.points[0]).toEqual({ lat: -27.002, lon: 153.302 }); // welded
         expect(leg2.points[1]).toEqual({ lat: -26.7, lon: 153.1 }); // rest untouched
         // Already welded → nothing to heal.
@@ -141,8 +145,111 @@ describe('trip-chain storage operations', () => {
     it('auto-heal is a no-op for standalone routes and chain tails', () => {
         const { trace } = saveTrace('newport - woorim', PTS);
         expect(healTripChain(trace)).toBeNull(); // no tripId
-        const { trace: tail } = saveTrace('woorim - end (2nd Leg)', PTS, { tripId: 'trip-b', legOrdinal: 2 });
+        const chainedRoot = retroBadgeFirstLeg(trace.id)!;
+        const { trace: tail } = saveTrace('woorim - end (2nd Leg)', PTS, {
+            tripId: chainedRoot.id,
+            legOrdinal: 2,
+        });
         expect(healTripChain(tail)).toBeNull(); // no successor
+    });
+
+    it('deleting leg 1 promotes every remaining leg and roots the trip at the old leg 2', () => {
+        const { trace: firstSave } = saveTrace('newport - woorim', PTS);
+        const leg1 = retroBadgeFirstLeg(firstSave.id)!;
+        const { trace: leg2 } = saveTrace('woorim - mooloolaba (2nd Leg)', PTS, {
+            tripId: leg1.id,
+            legOrdinal: 2,
+            destName: 'mooloolaba',
+        });
+        const { trace: leg3 } = saveTrace('mooloolaba - lady musgrave (3rd Leg)', PTS, {
+            tripId: leg1.id,
+            legOrdinal: 3,
+            destName: 'lady musgrave',
+        });
+
+        const rebased = rebaseSavedTraceChainAfterDelete(loadSavedTraces(), leg1.id, '2026-07-26T00:00:00.000Z');
+        const promoted = rebased.traces.find((trace) => trace.id === leg2.id)!;
+        const following = rebased.traces.find((trace) => trace.id === leg3.id)!;
+
+        expect(rebased.traces.map((trace) => trace.id)).not.toContain(leg1.id);
+        expect(promoted).toMatchObject({
+            tripId: leg2.id,
+            legOrdinal: 1,
+            name: 'woorim - mooloolaba (1st Leg)',
+        });
+        expect(following).toMatchObject({
+            tripId: leg2.id,
+            legOrdinal: 2,
+            name: 'mooloolaba - lady musgrave (2nd Leg)',
+        });
+        expect(groupTracesByTrip(rebased.traces).map((group) => group.key)).not.toContain(leg1.id);
+        expect(nextLegSeed(following)?.ordinal).toBe(3);
+    });
+
+    it('demotes a sole surviving leg to a normal standalone route', () => {
+        const { trace: firstSave } = saveTrace('newport - woorim', PTS);
+        const leg1 = retroBadgeFirstLeg(firstSave.id)!;
+        const { trace: leg2 } = saveTrace('woorim - mooloolaba (2nd Leg)', PTS, {
+            tripId: leg1.id,
+            legOrdinal: 2,
+        });
+
+        const rebased = rebaseSavedTraceChainAfterDelete(loadSavedTraces(), leg1.id, '2026-07-26T00:00:00.000Z');
+        expect(rebased.traces).toHaveLength(1);
+        expect(rebased.traces[0]).toMatchObject({ id: leg2.id, name: 'woorim - mooloolaba' });
+        expect(rebased.traces[0].tripId).toBeUndefined();
+        expect(rebased.traces[0].legOrdinal).toBeUndefined();
+        expect(nextLegSeed(rebased.traces[0])?.ordinal).toBe(2);
+    });
+
+    it('repairs a historical missing-root chain so a stranded second leg becomes first', () => {
+        const orphanedLeg2 = {
+            id: 'old-leg-2',
+            name: 'woorim - mooloolaba (2nd Leg)',
+            createdAt: '2026-07-25T00:00:00.000Z',
+            points: PTS,
+            tripId: 'deleted-leg-1',
+            legOrdinal: 2,
+        };
+        const orphanedLeg3 = {
+            id: 'old-leg-3',
+            name: 'mooloolaba - lady musgrave (3rd Leg)',
+            createdAt: '2026-07-25T01:00:00.000Z',
+            points: PTS,
+            tripId: 'deleted-leg-1',
+            legOrdinal: 3,
+        };
+
+        const repaired = repairOrphanedSavedTraceChains([orphanedLeg3, orphanedLeg2], '2026-07-26T00:00:00.000Z');
+        expect(repaired.changed).toHaveLength(2);
+        expect(repaired.traces.find((trace) => trace.id === orphanedLeg2.id)).toMatchObject({
+            tripId: orphanedLeg2.id,
+            legOrdinal: 1,
+            name: 'woorim - mooloolaba (1st Leg)',
+        });
+        expect(repaired.traces.find((trace) => trace.id === orphanedLeg3.id)).toMatchObject({
+            tripId: orphanedLeg2.id,
+            legOrdinal: 2,
+            name: 'mooloolaba - lady musgrave (2nd Leg)',
+        });
+    });
+
+    it('records a late mirror result on the delete fence for a future sync retry', () => {
+        const { trace } = saveTrace('newport - woorim', PTS);
+        // deleteTrace is deliberately async at the cloud boundary, while a
+        // planned-route mirror may still be resolving in the background.
+        expect(deleteTrace(trace.id)).toBe(true);
+
+        expect(
+            attachSavedTraceTombstoneLinks(trace.id, {
+                plannedRouteId: 'planned_late_mirror',
+                passageVoyageId: '123e4567-e89b-12d3-a456-426614174000',
+            }),
+        ).toBe(true);
+        expect(getSavedTraceTombstones()[trace.id]).toMatchObject({
+            plannedRouteId: 'planned_late_mirror',
+            passageVoyageId: '123e4567-e89b-12d3-a456-426614174000',
+        });
     });
 });
 
@@ -190,12 +297,13 @@ describe('groupTracesByTrip (shared by PLAN Trip box + card list)', () => {
     beforeEach(() => localStorage.clear());
 
     it('groups legs of one trip, ordinal-sorted, standalone routes stay singletons', () => {
-        saveTrace('newport - woorim (1st Leg)', PTS, { tripId: 'trip-a', legOrdinal: 1 });
-        saveTrace('woorim - mooloolaba (2nd Leg)', PTS, { tripId: 'trip-a', legOrdinal: 2 });
+        const { trace: firstSave } = saveTrace('newport - woorim', PTS);
+        const root = retroBadgeFirstLeg(firstSave.id)!;
+        saveTrace('woorim - mooloolaba (2nd Leg)', PTS, { tripId: root.id, legOrdinal: 2 });
         const { trace: solo } = saveTrace('bay run', PTS);
         // Feed newest-first (like loadSavedTraces returns) and out of leg order.
         const groups = groupTracesByTrip([...loadSavedTraces()]);
-        const trip = groups.find((g) => g.key === 'trip-a')!;
+        const trip = groups.find((g) => g.key === root.id)!;
         expect(trip.legs.map((l) => l.legOrdinal)).toEqual([1, 2]); // ordinal-sorted
         expect(trip.label).toContain('2 legs');
         const standalone = groups.find((g) => g.key === solo.id)!;

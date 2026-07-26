@@ -7,10 +7,10 @@ import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
 import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
-import { Capacitor } from '@capacitor/core';
 import { saveIdentity } from '../../services/VesselIdentityService';
 import { EyeIcon, CheckIcon } from '../Icons';
 import { triggerHaptic } from '../../utils/system';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
@@ -126,8 +126,7 @@ function MetricInput({
 export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [saved, setSaved] = useState(false);
     const isObserver = settings.vessel?.type === 'observer';
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const keyboardHeight = useKeyboardOffset();
 
     // Mirror the identity-relevant vessel fields into the `vessel_identity`
     // table. Settings only persist to device-local Capacitor Preferences, so
@@ -148,51 +147,6 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         }, 1200);
         return () => clearTimeout(t);
     }, [vesselName, vesselType, vesselModel]);
-
-    // ── Keyboard tracking — same pattern as DiaryPage/OnboardingWizard ──
-    useEffect(() => {
-        let cleanup: (() => void) | undefined;
-
-        if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            const container = scrollRef.current;
-                            if (!focused || !container) return;
-                            if (
-                                focused.tagName !== 'INPUT' &&
-                                focused.tagName !== 'TEXTAREA' &&
-                                focused.tagName !== 'SELECT'
-                            )
-                                return;
-                            const focusRect = focused.getBoundingClientRect();
-                            const containerRect = container.getBoundingClientRect();
-                            const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
-                            const targetScroll = offsetInContainer - containerRect.height * 0.3;
-                            container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
-                        }, 100);
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        setKeyboardHeight(0);
-                    });
-                    cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin not available */
-                });
-        }
-
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, []);
 
     const updateVessel = (field: string, value: string | number) => {
         let newEstimatedFields = settings.vessel?.estimatedFields;
@@ -245,7 +199,6 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
 
     return (
         <div
-            ref={scrollRef}
             className="w-full max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300"
             style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 120}px` : 120 }}
         >

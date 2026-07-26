@@ -19,6 +19,7 @@ import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
 import { piCache } from '../PiCacheService';
 import { withDeadline } from '../../utils/deadline';
+import { continuousEastForLongitudeRange } from './windLongitude';
 const log = createLogger('WindCtrl');
 
 // ── Bounds Cache (avoid redundant re-fetches) ──
@@ -101,9 +102,19 @@ function clearRenderableWindGrid(): void {
 function boundsChangedSignificantly(a: CachedBounds, b: CachedBounds): boolean {
     // Re-fetch if view shifted by more than 20% or zoom changed by >1
     const latSpan = a.north - a.south;
-    const lonSpan = a.east - a.west;
+    const aEast = continuousEastForLongitudeRange(a.west, a.east);
+    const lonSpan = aEast - a.west;
+    // Cached viewport requests deliberately retain their continuous longitude
+    // axis (e.g. 178.4…181.6). Mapbox may report the unchanged camera as
+    // 179…-179 on the next moveend, so unwrap that short viewport beside the
+    // cached grid before measuring a shift. Comparing the raw spellings looks
+    // like a 360° pan and repeatedly clears/reloads z3 wind.
+    const bSpan = continuousEastForLongitudeRange(b.west, b.east) - b.west;
+    const aCenter = (a.west + aEast) / 2;
+    const bWest = b.west + Math.round((aCenter - b.west) / 360) * 360;
+    const bEast = bWest + bSpan;
     const latShift = Math.abs(a.north - b.north) + Math.abs(a.south - b.south);
-    const lonShift = Math.abs(a.east - b.east) + Math.abs(a.west - b.west);
+    const lonShift = Math.abs(aEast - bEast) + Math.abs(a.west - bWest);
     const zoomDiff = Math.abs(a.zoom - b.zoom);
 
     return latShift / latSpan > 0.4 || lonShift / lonSpan > 0.4 || zoomDiff > 1;
@@ -225,13 +236,17 @@ export const WindDataController = {
                 log.info(`[WindController] Wind grid is ${ageMin}m old — refetching`);
             }
 
-            // Add 30% padding
+            // Add 30% padding along the viewport's short, continuous
+            // longitude axis. A Date-Line viewport can be expressed as
+            // 179…-179; subtracting those raw values gives -358° and used to
+            // pad the request onto the opposite side of the planet at z3.
+            const continuousEast = continuousEastForLongitudeRange(currentBounds.west, currentBounds.east);
             const latPad = (currentBounds.north - currentBounds.south) * 0.3;
-            const lonPad = (currentBounds.east - currentBounds.west) * 0.3;
+            const lonPad = (continuousEast - currentBounds.west) * 0.3;
             north = Math.min(currentBounds.north + latPad, 90);
             south = Math.max(currentBounds.south - latPad, -90);
             west = currentBounds.west - lonPad;
-            east = currentBounds.east + lonPad;
+            east = continuousEast + lonPad;
         }
 
         if (!beginWindGridLoad(request)) return false;

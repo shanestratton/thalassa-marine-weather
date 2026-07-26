@@ -449,7 +449,7 @@ describe('routeTracer — trace plumbing (P4)', () => {
         ]);
         expect(persisted).toBe(true);
         expect(loadSavedTraces().map((t) => t.id)).toContain(saved.id);
-        deleteTrace(saved.id);
+        expect(deleteTrace(saved.id)).toBe(true);
         expect(loadSavedTraces()).toHaveLength(0);
         // Quota-refused write must report persisted=false — the UI used to
         // flash "Saved ✓" over a trace that wouldn't exist next session.

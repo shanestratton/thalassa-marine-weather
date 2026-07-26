@@ -5,11 +5,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EnvironmentPoller } from '../services/shiplog/EnvironmentPoller';
 import type { CachedPosition } from '../services/BgGeoManager';
+import type { WaterCheckResult } from '../services/shiplog/waterDetection';
 
-let waterCheck: (lat: number, lon: number) => Promise<boolean>;
+let waterCheck: (lat: number, lon: number) => Promise<WaterCheckResult>;
 
 vi.mock('../services/shiplog/waterDetection', () => ({
-    checkIsOnWater: (lat: number, lon: number) => waterCheck(lat, lon),
+    checkWaterStatus: (lat: number, lon: number) => waterCheck(lat, lon),
 }));
 
 const POLL_INTERVAL_MS = 60_000;
@@ -33,7 +34,13 @@ describe('EnvironmentPoller', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         poller = new EnvironmentPoller();
-        waterCheck = async () => true;
+        waterCheck = async (lat, lon) => ({
+            isWater: true,
+            feature: 'OCEAN',
+            lat,
+            lon,
+            failedOpen: false,
+        });
     });
 
     afterEach(() => {
@@ -42,20 +49,56 @@ describe('EnvironmentPoller', () => {
     });
 
     it('fires both callbacks once per interval tick', async () => {
-        const onWater = vi.fn();
-        const onZone = vi.fn(async () => {});
+        const onWater = vi.fn<(status: WaterCheckResult) => void>();
+        const onZone = vi.fn<(position: CachedPosition, status: WaterCheckResult) => Promise<void>>(async () => {});
+        const position = makePos(-27.5, 153);
+        const status: WaterCheckResult = {
+            isWater: true,
+            feature: 'OCEAN',
+            lat: position.latitude,
+            lon: position.longitude,
+            failedOpen: false,
+        };
+        waterCheck = async () => status;
         poller.start({
-            getPos: () => makePos(0, 0),
+            getPos: () => position,
             isActive: () => true,
             onWaterStatus: onWater,
             onZoneRecheck: onZone,
         });
         await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
         expect(onWater).toHaveBeenCalledTimes(1);
-        expect(onWater).toHaveBeenCalledWith(true);
+        expect(onWater).toHaveBeenCalledWith(status);
+        expect(onWater.mock.calls[0][0]).toBe(status);
         expect(onZone).toHaveBeenCalledTimes(1);
+        expect(onZone).toHaveBeenCalledWith(position, status);
+        expect(onZone.mock.calls[0][0]).toBe(position);
+        expect(onZone.mock.calls[0][1]).toBe(status);
         await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
         expect(onWater).toHaveBeenCalledTimes(2);
+    });
+
+    it('checks immediately when the first vetted GPS fix opens a track, without bypassing the one-minute cap', async () => {
+        const onWater = vi.fn();
+        const onZone = vi.fn(async () => {});
+        const position = makePos(-27.5, 153);
+        poller.start({
+            getPos: () => position,
+            isActive: () => true,
+            onWaterStatus: onWater,
+            onZoneRecheck: onZone,
+        });
+
+        poller.requestCheck();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onWater).toHaveBeenCalledTimes(1);
+        expect(onZone).toHaveBeenCalledWith(position, expect.objectContaining({ feature: 'OCEAN' }));
+
+        // Consecutive accepted raw fixes must not turn this into a network
+        // request per GPS update.
+        poller.requestCheck();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onWater).toHaveBeenCalledTimes(1);
     });
 
     it('skips when isActive returns false', async () => {
@@ -91,7 +134,13 @@ describe('EnvironmentPoller', () => {
                 firstTick = false;
                 throw new Error('tile fetch failed');
             }
-            return false;
+            return {
+                isWater: false,
+                feature: 'LAND',
+                lat: -27.5,
+                lon: 153,
+                failedOpen: false,
+            };
         };
         poller.start({
             getPos: () => makePos(0, 0),
@@ -103,7 +152,9 @@ describe('EnvironmentPoller', () => {
         expect(onWater).toHaveBeenCalledTimes(0);
         await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); // tick 2 ok
         expect(onWater).toHaveBeenCalledTimes(1);
-        expect(onWater).toHaveBeenCalledWith(false);
+        expect(onWater).toHaveBeenCalledWith(
+            expect.objectContaining({ isWater: false, feature: 'LAND', failedOpen: false }),
+        );
     });
 
     it('stop() halts further ticks', async () => {

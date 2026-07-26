@@ -22,9 +22,11 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('useEndpointNames');
 
 export interface EndpointCoord {
-    latitude: number;
+    latitude: number | null;
     longitude: number | null;
 }
+
+type UsableEndpointCoord = { latitude: number; longitude: number };
 
 /** 4 decimal places ≈ 11 m — well inside "same berth". */
 const key = (lat: number, lon: number) => `${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -96,14 +98,37 @@ export async function reverseGeocodePlace(lat: number, lon: number): Promise<str
     }
 }
 
-/** Hemisphere-tagged latitude — the last-resort label when nothing resolves. */
-const coarseFallback = (c: EndpointCoord | undefined): string | null => {
-    if (!c || !c.latitude) return null;
-    return `${Math.abs(c.latitude).toFixed(1)}°${c.latitude >= 0 ? 'N' : 'S'}`;
+/**
+ * Two-decimal GPS fallback for an endpoint that has no usable place name.
+ *
+ * This is deliberately a display-only fallback: it never changes the saved
+ * log entry, so a future successful reverse-geocode can still replace it with
+ * a harbour, anchorage, or town name. Reject the common `(0, 0)` placeholder
+ * rather than presenting it as a real departure or arrival.
+ */
+const hasUsableEndpointCoordinates = (c: EndpointCoord | undefined): c is UsableEndpointCoord => {
+    const lat = c?.latitude;
+    const lon = c?.longitude;
+    return (
+        typeof lat === 'number' &&
+        typeof lon === 'number' &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lon >= -180 &&
+        lon <= 180 &&
+        (lat !== 0 || lon !== 0)
+    );
 };
 
+export function formatEndpointCoordinates(c: EndpointCoord | undefined): string | null {
+    if (!hasUsableEndpointCoordinates(c)) return null;
+    return `${c.latitude.toFixed(2)}, ${c.longitude.toFixed(2)}`;
+}
+
 /**
- * Place names for a voyage's endpoints. Returns the coarse lat fallback until
+ * Place names for a voyage's endpoints. Returns a two-decimal GPS pair until
  * (or unless) a lookup resolves, so a row is never blank and never blocks.
  */
 export function useEndpointNames(
@@ -112,28 +137,41 @@ export function useEndpointNames(
 ): { startLabel: string | null; endLabel: string | null } {
     const [startLocName, setStartLocName] = useState<string | null>(null);
     const [endLocName, setEndLocName] = useState<string | null>(null);
+    const firstLatitude = first?.latitude ?? null;
+    const firstLongitude = first?.longitude ?? null;
+    const lastLatitude = last?.latitude ?? null;
+    const lastLongitude = last?.longitude ?? null;
 
     useEffect(() => {
         let alive = true;
-        if (first?.latitude && first.latitude !== 0) {
-            void reverseGeocodePlace(first.latitude, first.longitude ?? 0).then((name) => {
-                if (alive && name) setStartLocName(name);
+        const start = { latitude: firstLatitude, longitude: firstLongitude };
+        const end = { latitude: lastLatitude, longitude: lastLongitude };
+        // A card can stay mounted while its live voyage gets a new endpoint.
+        // Clear the old locality before resolving the new pair, otherwise an
+        // earlier voyage name can briefly masquerade as this voyage's start.
+        setStartLocName(null);
+        setEndLocName(null);
+        if (hasUsableEndpointCoordinates(start)) {
+            void reverseGeocodePlace(start.latitude, start.longitude).then((name) => {
+                const resolved = name?.trim();
+                if (alive && resolved) setStartLocName(resolved);
             });
         }
         // The end is geocoded even when it matches the start, so a single-fix
         // voyage still shows a place rather than one bare label.
-        if (last?.latitude && last.latitude !== 0) {
-            void reverseGeocodePlace(last.latitude, last.longitude ?? 0).then((name) => {
-                if (alive && name) setEndLocName(name);
+        if (hasUsableEndpointCoordinates(end)) {
+            void reverseGeocodePlace(end.latitude, end.longitude).then((name) => {
+                const resolved = name?.trim();
+                if (alive && resolved) setEndLocName(resolved);
             });
         }
         return () => {
             alive = false;
         };
-    }, [first?.latitude, first?.longitude, last?.latitude, last?.longitude]);
+    }, [firstLatitude, firstLongitude, lastLatitude, lastLongitude]);
 
     return {
-        startLabel: startLocName || coarseFallback(first),
-        endLabel: endLocName || coarseFallback(last),
+        startLabel: startLocName || formatEndpointCoordinates(first),
+        endLabel: endLocName || formatEndpointCoordinates(last),
     };
 }

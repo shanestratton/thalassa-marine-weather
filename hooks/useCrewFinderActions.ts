@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { CrewFinderState, CrewFinderAction } from './useCrewFinderState';
 import {
@@ -22,6 +21,7 @@ import {
 import { toast } from '../components/Toast';
 import { triggerHaptic } from '../utils/system';
 import { LocationStore } from '../stores/LocationStore';
+import { useKeyboardOffset } from './useKeyboardOffset';
 import React from 'react';
 import {
     authScopedStorageKey,
@@ -203,6 +203,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
         [dispatch],
     );
     const setKbHeight = useCallback((v: number) => dispatch({ type: 'SET_KB_HEIGHT', payload: v }), [dispatch]);
+    const keyboardHeight = useKeyboardOffset(view === 'my_profile');
     const setCurrentCardIndex = useCallback(
         (v: number | ((prev: number) => number)) =>
             dispatch({
@@ -263,65 +264,8 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
 
     // ── Keyboard height detection ──
     useEffect(() => {
-        const scope = identityScope;
-        if (view !== 'my_profile') {
-            setKbHeight(0);
-            return;
-        }
-        let active = true;
-        let cleanup: (() => void) | undefined;
-        if (Capacitor.isNativePlatform()) {
-            void import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    if (!active || !isAuthIdentityScopeCurrent(scope)) return;
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        if (!isAuthIdentityScopeCurrent(scope)) return;
-                        setKbHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        scheduleForIdentity(
-                            scope,
-                            () => {
-                                const focused = document.activeElement as HTMLElement;
-                                const container = myProfileScrollRef.current;
-                                if (!focused || !container) return;
-                                if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
-                                const focusRect = focused.getBoundingClientRect();
-                                const containerRect = container.getBoundingClientRect();
-                                const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
-                                const targetScroll = offsetInContainer - containerRect.height * 0.3;
-                                container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
-                            },
-                            50,
-                        );
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        if (isAuthIdentityScopeCurrent(scope)) setKbHeight(0);
-                    });
-                    cleanup = () => {
-                        void showHandle.then((h) => h.remove());
-                        void hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin unavailable on web */
-                });
-        } else {
-            const vp = window.visualViewport;
-            if (vp) {
-                const handleResize = () => {
-                    if (!isAuthIdentityScopeCurrent(scope)) return;
-                    const kbH = window.innerHeight - vp.height;
-                    setKbHeight(kbH > 50 ? kbH : 0);
-                };
-                vp.addEventListener('resize', handleResize);
-                cleanup = () => vp.removeEventListener('resize', handleResize);
-            }
-        }
-        return () => {
-            active = false;
-            cleanup?.();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [view, identityScope.generation, scheduleForIdentity]);
+        setKbHeight(keyboardHeight);
+    }, [keyboardHeight, setKbHeight]);
 
     // ── Init ──
     useEffect(() => {

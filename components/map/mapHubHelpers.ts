@@ -2,6 +2,42 @@ import type mapboxgl from 'mapbox-gl';
 
 export type MapPoint = { lat: number; lon: number };
 
+/**
+ * A Mapbox/MapTiler style layer we may need to reconcile with a raster base.
+ * Kept deliberately small so the predicate is usable with `map.getStyle()`
+ * layers without coupling this pure helper to Mapbox GL's large layer union.
+ */
+export type MapStyleLayerIdentity = {
+    id: string;
+    type?: string;
+    source?: string;
+};
+
+/**
+ * True for base-style labels that are already baked into Mapbox's
+ * `satellite-streets-v12` raster tiles.
+ *
+ * MapHub's hybrid base is intentionally a raster version of
+ * satellite-streets, so it contains its own city, town, airport and POI text.
+ * Raising the dark base style's matching vector symbols above that raster
+ * produces two copies of every name. Restrict this to known basemap sources so
+ * route, waypoint, AIS and ENC labels never disappear with the hybrid base.
+ */
+export function isBasemapHybridDuplicateLabelLayer(layer: MapStyleLayerIdentity): boolean {
+    if (layer.type !== 'symbol') return false;
+
+    // `composite` is Mapbox's standard base source and `openmaptiles` is the
+    // alternate MapTiler base source used by the app. Source-less symbols and
+    // every other source are intentionally rejected: the app can add those at
+    // runtime, and hiding a route or waypoint label is worse than leaving an
+    // unfamiliar basemap label alone.
+    if (layer.source !== 'composite' && layer.source !== 'openmaptiles') {
+        return false;
+    }
+
+    return /settlement|place.?label|poi.?label|airport.?label|City|Town|Village/i.test(layer.id);
+}
+
 /** Fallback name for a tapped point with no geocoded place name. */
 export function coordName(lat: number, lon: number): string {
     return `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;

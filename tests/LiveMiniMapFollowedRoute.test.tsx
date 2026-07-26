@@ -13,6 +13,9 @@ const leaflet = vi.hoisted(() => {
             addTo: vi.fn(),
             bringToFront: vi.fn(),
             clearLayers: vi.fn(),
+            getTileSize: vi.fn(() => ({ x: 256, y: 256 })),
+            off: vi.fn(),
+            on: vi.fn(),
         };
         layer.addTo.mockReturnValue(layer);
         return layer;

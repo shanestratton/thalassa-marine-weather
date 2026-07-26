@@ -74,6 +74,33 @@ const GLASS = {
     } as React.CSSProperties,
 };
 
+// The four pinned navigation-station controls are operational safety tools,
+// not ordinary shortcuts. Give the group a calm, visible emerald bezel so it
+// can be found immediately, while the alert variant below remains red for
+// genuine emergency states (MOB and a dragging anchor).
+const SAFETY_CONTROL_GROUP = {
+    background:
+        'linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(6, 78, 59, 0.08) 48%, rgba(20, 25, 35, 0.08) 100%)',
+    border: '1px solid rgba(74, 222, 128, 0.28)',
+    boxShadow: '0 0 0 1px rgba(16, 185, 129, 0.06), 0 10px 26px rgba(5, 150, 105, 0.10)',
+} as React.CSSProperties;
+
+const SAFETY_CONTROL_CARD = {
+    ...GLASS.card,
+    background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.15) 0%, rgba(20, 25, 35, 0.82) 72%)',
+    border: '1px solid rgba(74, 222, 128, 0.42)',
+    boxShadow:
+        'inset 0 1px 0 rgba(167, 243, 208, 0.22), 0 0 0 1px rgba(16, 185, 129, 0.10), 0 8px 22px rgba(16, 185, 129, 0.12)',
+} as React.CSSProperties;
+
+const ALERT_SAFETY_CONTROL_CARD = {
+    ...SAFETY_CONTROL_CARD,
+    background: 'linear-gradient(145deg, rgba(127, 29, 29, 0.56) 0%, rgba(20, 25, 35, 0.86) 72%)',
+    border: '1px solid rgba(248, 113, 113, 0.62)',
+    boxShadow:
+        'inset 0 1px 0 rgba(254, 202, 202, 0.20), 0 0 0 1px rgba(239, 68, 68, 0.14), 0 8px 22px rgba(239, 68, 68, 0.16)',
+} as React.CSSProperties;
+
 // ── Bathymetric contour background SVG ──
 const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cdefs%3E%3Cpattern id='c' patternUnits='userSpaceOnUse' width='100' height='100'%3E%3Cpath d='M50 10 C60 25,85 30,90 50 C95 70,75 85,50 90 C25 95,10 75,10 50 C10 25,30 5,50 10Z' fill='none' stroke='rgba(100,140,180,0.04)' stroke-width='0.5'/%3E%3Cpath d='M50 25 C55 35,70 38,75 50 C80 62,68 72,50 75 C32 78,22 65,22 50 C22 35,38 28,50 25Z' fill='none' stroke='rgba(100,140,180,0.03)' stroke-width='0.5'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='400' height='400' fill='url(%23c)'/%3E%3C/svg%3E")`;
 
@@ -92,14 +119,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    // Initial expanded set: Quick Actions (Watch Status) + Sharing.
-    // The 4-bucket IA (2026-05-17) collapses the old 7 sections into:
-    //   - Watch Status (always-expanded, daily ops grid — id 'quick')
-    //   - Sharing      (always-expanded, Diary + Scuttlebutt tiles —
-    //                   id 'sharing'; added 2026-05-17 so the share-
-    //                   your-voyage features sit prominently below
-    //                   Watch Status rather than hidden in the Log
-    //                   kebab or buried inside Wardroom)
+    // The daily operational tiles and the Diary/Scuttlebutt pair are now
+    // permanently visible. Only the low-priority Settings & Connect area
+    // remains collapsible; it starts closed.
+    // The broader IA groups are:
+    //   - Watch Status (always-visible daily ops grid)
+    //   - Diary + Scuttlebutt (always-visible navigation tiles)
     //   - Boat Binder  (collapsed: imports / inventory / reference rows)
     //   - Atmosphere   (collapsed: Music — Scuttlebutt moved out to
     //                   Sharing 2026-05-17, section renamed from
@@ -114,7 +139,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // 'binder', 'connect' + 'account' → 'setup'. Any old persisted
     // expanded-state from localStorage referencing the old IDs is
     // harmless; the Set just won't match any current section.
-    const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick', 'sharing']));
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
     const [binderOpen, setBinderOpen] = useState(false);
     const [_isAdmin, setIsAdmin] = useState(false);
@@ -719,30 +744,24 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 backgroundSize: '400px 400px',
             }}
         >
-            {/* Scrollable content area */}
-            <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
+            {/*
+                Fixed operational deck. This intentionally sits OUTSIDE the
+                scroll port below: Safari can lose `position: sticky` while a
+                stagger entrance animation leaves a transformed ancestor in
+                place. Making the weather/position card and safety controls a
+                non-shrinking flex sibling gives them a real, stationary home
+                while only the lower-priority vessel content scrolls.
+
+                The root already reserves the bottom-tab safe area; keeping
+                this deck in normal flex layout also means its dynamic anchor
+                and voyage states never overlap the first scrollable card.
+            */}
+            <section className="z-20 shrink-0 px-4 pt-4 pb-3" aria-label="Vessel status and safety controls">
                 {/* ═══════════════════════════════════════════ */}
                 {/* HERO BAND — situational awareness           */}
                 {/* Vessel · voyage state · last fix            */}
                 {/* ═══════════════════════════════════════════ */}
-                {/* Sticky on scroll — added 2026-05-18. The boat-name
-                    + voyage-state + position card is the single most
-                    important piece of context on this page; it should
-                    stay pinned at the top while the user explores the
-                    sections below. Negative margins cancel the parent's
-                    px-4/pt-4 so the gradient backdrop covers edge-to-
-                    edge as content scrolls underneath. Backdrop fades
-                    out at the bottom so the next section transitions
-                    softly rather than hitting a hard band. z-20 sits
-                    above the section cards (default stacking) but
-                    below modals/overlays. */}
-                <div
-                    className="sticky top-0 z-20 -mx-4 -mt-4 mb-4 px-4 pb-3 pt-4 backdrop-blur-md"
-                    style={{
-                        background:
-                            'linear-gradient(to bottom, rgba(2,6,23,0.92) 0%, rgba(2,6,23,0.92) 85%, rgba(2,6,23,0) 100%)',
-                    }}
-                >
+                <div>
                     <NavStationHero
                         vesselName={vesselName}
                         vesselNameSet={vesselNameSet}
@@ -797,12 +816,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     and Radio are the live safety states — scrolling down to the
                     Boat Binder should not take them off screen.
                     
-                    These tiles live INSIDE NavStationHero's existing sticky
-                    wrapper rather than being sticky themselves. Two siblings
-                    both stuck at top-0 would simply overlap, and offsetting the
-                    second by the hero's height means hard-coding a height that
-                    changes with anchor state and voyage. One pinned block cannot
-                    drift out of agreement with itself.
+                    The weather card and this grid share the fixed operational
+                    deck above the scroll port. That keeps their variable
+                    anchor/voyage height in one normal-flow block without
+                    hard-coding a sticky offset or letting the controls overlap.
 
                     HEADER REMOVED (Shane: "remove the heading Watch Status, it
                     is just taking up space"). It was also the section's only
@@ -825,7 +842,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             name over state — and the state shrinks to one word.
                             The colour is what gets read at a glance anyway; the
                             word is the confirmation. */}
-                        <div className="grid grid-cols-4 gap-2">
+                        <div
+                            aria-label="Safety controls"
+                            data-testid="vessel-safety-controls"
+                            role="group"
+                            style={SAFETY_CONTROL_GROUP}
+                            className="grid grid-cols-4 gap-2 rounded-[20px] p-1"
+                        >
                             <button
                                 aria-label="Anchor Watch"
                                 onClick={() => {
@@ -836,8 +859,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     triggerHaptic('light');
                                     onNavigate('compass');
                                 }}
-                                style={GLASS.card}
-                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
+                                style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -868,8 +891,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     triggerHaptic('light');
                                     onNavigate('guardian');
                                 }}
-                                style={GLASS.card}
-                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
+                                style={SAFETY_CONTROL_CARD}
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -900,13 +923,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     triggerHaptic('heavy');
                                     onNavigate('mob');
                                 }}
-                                style={{
-                                    ...GLASS.card,
-                                    background:
-                                        'linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(20,25,35,0.6) 100%)',
-                                    borderColor: 'rgba(239,68,68,0.35)',
-                                }}
-                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] card-lift"
+                                style={ALERT_SAFETY_CONTROL_CARD}
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -926,8 +944,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     triggerHaptic('light');
                                     onNavigate('radio');
                                 }}
-                                style={GLASS.card}
-                                className="flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] card-lift"
+                                style={SAFETY_CONTROL_CARD}
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -949,7 +967,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             daily-ops safety tiles: Anchor, Guardian, MOB, Radio. */}
                     </div>
                 </div>
+            </section>
 
+            {/* Only the lower-priority vessel work scrolls. `min-h-0` is
+                essential in this flex column: it constrains the scroll port
+                above the persistent bottom safe-area padding instead of
+                letting content push the fixed operational deck away. */}
+            <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
                 {/* ═══════════════════════════════════════════ */}
                 {/* ═══════════════════════════════════════════ */}
                 {/* SKIPPER DEVICE — who speaks for this boat    */}
@@ -1015,62 +1039,36 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     />
                 </div>
 
-                {/* SHARING — Diary + Scuttlebutt               */}
-                {/* (Added 2026-05-17.) Diary used to be buried */}
-                {/* in the Log-tab kebab menu, which was wrong: */}
-                {/* the diary is half of the "share your voyage"*/}
-                {/* story (the other half being Scuttlebutt —   */}
-                {/* the community feed where crews discuss the  */}
-                {/* same voyages). Pairing them as two full     */}
-                {/* tiles right below Watch Status puts both    */}
-                {/* one tap from Vessel-tab home.               */}
-                {/*                                             */}
-                {/* Tile geometry mirrors the Watch Status grid */}
-                {/* above (grid-cols-2, GLASS.card, icon-on-    */}
-                {/* tinted-square + title + status). Visually   */}
-                {/* reads as a peer to Watch Status, which is   */}
-                {/* the right level of importance.              */}
-                {/* ═══════════════════════════════════════════ */}
+                {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
                 <div className="mb-4">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Sharing"
-                        id="sharing"
-                        expanded={expanded.has('sharing')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('sharing')}>
-                        <div className="grid grid-cols-2 gap-3">
-                            {/* Diary — personal journal (left tile) */}
-                            <button
-                                aria-label="Open Diary"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('diary');
-                                }}
-                                style={GLASS.card}
-                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(94, 234, 212, 0.12)' }}
-                                    >
-                                        <PenIcon color="#5EEAD4" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">Diary</h4>
-                                        <p
-                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
-                                            style={{ color: '#5EEAD4' }}
-                                        >
-                                            Voyage Journal
-                                        </p>
-                                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        {/* Diary — personal journal (left tile) */}
+                        <button
+                            aria-label="Open Diary"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('diary');
+                            }}
+                            style={GLASS.card}
+                            className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(94, 234, 212, 0.12)' }}>
+                                    <PenIcon color="#5EEAD4" />
                                 </div>
-                            </button>
+                                <div>
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">Diary</h4>
+                                    <p
+                                        className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                        style={{ color: '#5EEAD4' }}
+                                    >
+                                        Voyage Journal
+                                    </p>
+                                </div>
+                            </div>
+                        </button>
 
-                            {/* Scuttlebutt — community + DMs + Chandlery
+                        {/* Scuttlebutt — community + DMs + Chandlery
                                 (right tile). Moved here from the Wardroom
                                 section because it's a sharing surface
                                 more than a "lounge" feature — pairs
@@ -1079,35 +1077,31 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 share-your-voyage story. Wardroom keeps
                                 Music; could be renamed if it slims down
                                 further. */}
-                            <button
-                                aria-label="Open Scuttlebutt"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('chat');
-                                }}
-                                style={GLASS.card}
-                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(125, 211, 252, 0.12)' }}
-                                    >
-                                        <ChatBubbleIcon color="#7dd3fc" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h4>
-                                        <p
-                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
-                                            style={{ color: '#7dd3fc' }}
-                                        >
-                                            Community · DMs
-                                        </p>
-                                    </div>
+                        <button
+                            aria-label="Open Scuttlebutt"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('chat');
+                            }}
+                            style={GLASS.card}
+                            className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(125, 211, 252, 0.12)' }}>
+                                    <ChatBubbleIcon color="#7dd3fc" />
                                 </div>
-                            </button>
-                        </div>
-                    </CollapsibleContent>
+                                <div>
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h4>
+                                    <p
+                                        className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                        style={{ color: '#7dd3fc' }}
+                                    >
+                                        Community · DMs
+                                    </p>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
@@ -1266,6 +1260,12 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     updateSettings,
 }) => {
     const claimHeld = holdsClaim(claim);
+    const statusDescription = claim
+        ? claimHeld
+            ? 'This device publishes the boat’s position to your public page.'
+            : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
+        : 'No device claimed yet — any signed-in device can publish.';
+    const actionLabel = claimHeld ? 'Release — let another device take it' : 'Press to make this the primary device';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;
         claim: SkipperClaim;
@@ -1333,8 +1333,11 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
 
     return (
         <>
-            <div className="mb-4 rounded-2xl border border-cyan-500/20 bg-slate-900/40 p-3">
-                <div className="mb-1.5 flex items-baseline justify-between gap-2">
+            <div
+                data-testid="skipper-device-card"
+                className="mb-4 h-[120px] overflow-hidden rounded-2xl border border-cyan-500/20 bg-slate-900/40 p-3"
+            >
+                <div className="mb-1.5 flex h-5 items-center justify-between gap-2">
                     <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
                         ⚓ Skipper device
                     </span>
@@ -1344,21 +1347,18 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         </span>
                     )}
                 </div>
-                <p className="mb-2 text-[11px] leading-snug text-gray-400">
-                    {claim
-                        ? claimHeld
-                            ? 'This device publishes the boat’s position to your public page.'
-                            : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
-                        : 'No device claimed yet — any signed-in device can publish. Claim one to make it the single source.'}
+                <p className="mb-2 h-4 truncate whitespace-nowrap text-[11px] leading-snug text-gray-400">
+                    {statusDescription}
                 </p>
                 <button
                     type="button"
                     onClick={handleAction}
-                    className={`min-h-[44px] w-full rounded-xl py-2.5 text-[12px] font-black uppercase tracking-widest active:scale-95 ${
+                    aria-label={actionLabel}
+                    className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[10px] font-black uppercase tracking-[0.06em] transition-colors active:brightness-110 ${
                         claimHeld ? 'bg-white/10 text-gray-300' : 'bg-cyan-500/20 text-cyan-300'
                     }`}
                 >
-                    {claimHeld ? 'Release — let another device take it' : 'This is the Skipper’s Primary Device'}
+                    {actionLabel}
                 </button>
             </div>
             <ConfirmDialog

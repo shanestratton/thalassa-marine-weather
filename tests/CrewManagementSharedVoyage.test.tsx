@@ -9,7 +9,6 @@ import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from
 const mocks = vi.hoisted(() => ({
     authUserId: 'crew-user',
     activePassageId: '' as string,
-    setPage: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
     inviteCrew: vi.fn(),
@@ -32,7 +31,6 @@ const mocks = vi.hoisted(() => ({
     updateVoyage: vi.fn(),
     getCachedActiveVoyage: vi.fn(),
     fetchRoutesAndTracks: vi.fn(),
-    deleteVoyage: vi.fn(),
 }));
 
 vi.mock('../theme', () => ({
@@ -48,10 +46,6 @@ vi.mock('../stores/authStore', () => ({
             user: { id: mocks.authUserId, email: `${mocks.authUserId}@example.com` },
             authChecked: true,
         }),
-}));
-
-vi.mock('../context/UIContext', () => ({
-    useUI: () => ({ setPage: mocks.setPage }),
 }));
 
 vi.mock('../services/supabase', () => ({ supabase: null }));
@@ -123,10 +117,6 @@ vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchRoutesAndTracks: mocks.fetchRoutesAndTracks,
 }));
 
-vi.mock('../services/ShipLogService', () => ({
-    ShipLogService: { deleteVoyage: mocks.deleteVoyage },
-}));
-
 vi.mock('../utils/system', () => ({
     triggerHaptic: vi.fn(),
 }));
@@ -147,11 +137,12 @@ vi.mock('../components/SignInScreen', () => ({
 }));
 
 vi.mock('../components/ui/PageHeader', () => ({
-    PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
-}));
-
-vi.mock('../components/ui/DataFreshness', () => ({
-    DataFreshness: () => <div data-testid="freshness" />,
+    PageHeader: ({ title, action }: { title: string; action?: React.ReactNode }) => (
+        <header>
+            <h1>{title}</h1>
+            {action ? <div data-testid="passage-header-action">{action}</div> : null}
+        </header>
+    ),
 }));
 
 vi.mock('../components/ui/UndoToast', () => ({
@@ -241,7 +232,12 @@ vi.mock('../components/crew/InviteCrewModal', () => ({
 interface MockReadinessProps {
     selectedPassageId: string;
     passageStatus: PassageStatus;
-    draftVoyages: Voyage[];
+    draftVoyages: Array<
+        Voyage & {
+            routeCoordinates?: Array<{ lat: number; lon: number }>;
+            plannedRouteId?: string;
+        }
+    >;
     cardDelegations: Record<string, string>;
     onReservesChange: (value: boolean) => void;
     onVesselCheckChange: (value: boolean) => void;
@@ -265,6 +261,8 @@ vi.mock('../components/crew/ReadinessCardStack', () => ({
                 data-has-coordinates={String(
                     Boolean((active as Voyage & { departureCoords?: unknown })?.departureCoords),
                 )}
+                data-route-point-count={String(active?.routeCoordinates?.length ?? 0)}
+                data-planned-route-id={active?.plannedRouteId ?? ''}
                 data-delegation-count={String(Object.keys(props.cardDelegations).length)}
             >
                 <button
@@ -362,7 +360,7 @@ const membership = (ownerId: string, voyageId: string | null): CrewMember => ({
     updated_at: '2026-07-23T00:00:00.000Z',
 });
 
-const route = (id: string, label: string) => ({
+const route = (id: string, label: string, linkedPlanId?: string, savedRouteId?: string) => ({
     id,
     label,
     sublabel: '4 days',
@@ -376,6 +374,8 @@ const route = (id: string, label: string) => ({
     durationHours: 96,
     isLocal: false,
     kind: 'sea' as const,
+    linkedPlanId,
+    savedRouteId,
 });
 
 const noAccess: PassageStatus = {
@@ -418,7 +418,6 @@ describe('CrewManagement shared passage ownership', () => {
         mocks.updateVoyage.mockResolvedValue({ voyage: null });
         mocks.getCachedActiveVoyage.mockReturnValue(null);
         mocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [], tracks: [] });
-        mocks.deleteVoyage.mockResolvedValue(undefined);
         mocks.getAuthorizedSharedVoyages.mockResolvedValue({
             voyages: [],
             complete: true,
@@ -448,6 +447,32 @@ describe('CrewManagement shared passage ownership', () => {
         await act(async () => {
             resolveDrafts([saved]);
         });
+    });
+
+    it('keeps the full Passage Planning title clear and removes bulk route deletion from the active selector', () => {
+        const saved = voyage('saved-route', 'crew-user', 'Brisbane → Moreton');
+        mocks.getCachedDraftVoyages.mockReturnValue([saved]);
+
+        renderPage();
+
+        expect(screen.getByRole('heading', { name: 'Passage Planning' })).toBeInTheDocument();
+        expect(screen.queryByTestId('passage-header-action')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /clear all|delete all/i })).not.toBeInTheDocument();
+    });
+
+    it('never renders a planned mirror after its canonical saved trace was deleted', async () => {
+        const ghost = { ...voyage('ghost-draft', 'crew-user', 'Orphaned second leg'), saved_route_id: 'deleted-trace' };
+        mocks.getCachedDraftVoyages.mockReturnValue([ghost]);
+        mocks.getDraftVoyages.mockResolvedValue([ghost]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({
+            routes: [route('planned-ghost', ghost.voyage_name, ghost.id, 'deleted-trace')],
+            tracks: [],
+        });
+
+        renderPage();
+        await waitFor(() => expect(mocks.fetchRoutesAndTracks).toHaveBeenCalled());
+
+        expect(screen.queryByText(ghost.voyage_name)).not.toBeInTheDocument();
     });
 
     it('retains and marks a verified shared voyage without logbook coordinates', async () => {
@@ -488,8 +513,36 @@ describe('CrewManagement shared passage ownership', () => {
         expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-selected', shared.id);
         expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-owner', 'false');
         expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-has-coordinates', 'false');
-        expect(screen.getByRole('button', { name: /Plan a route/ })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Plan a route/ })).not.toBeInTheDocument();
         expect(screen.getByRole('region', { name: 'My Crew' })).toBeInTheDocument();
+    });
+
+    it('keeps the selected passage bound to its own linked route when route labels repeat', async () => {
+        const older = voyage('voyage-old', 'crew-user', 'Brisbane → Noumea');
+        const selected = voyage('voyage-selected', 'crew-user', 'Brisbane → Noumea');
+        mocks.activePassageId = selected.id;
+        mocks.getDraftVoyages.mockResolvedValue([older, selected]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({
+            routes: [
+                route('planned-old', older.voyage_name, older.id),
+                route('planned-selected', selected.voyage_name, selected.id),
+            ],
+            tracks: [],
+        });
+        mocks.getPassageStatus.mockImplementation(async (id: string | null) => (id ? statusFor(id, true) : noAccess));
+
+        renderPage();
+
+        // Membership hydration triggers a second access verification after
+        // the initial route list arrives. Assert the final rendered state as
+        // one unit so a transient loading frame cannot split these checks
+        // under a full parallel suite.
+        await waitFor(() => {
+            const stack = screen.getByTestId('readiness-stack');
+            expect(stack).toHaveAttribute('data-selected', selected.id);
+            expect(stack).toHaveAttribute('data-planned-route-id', 'planned-selected');
+            expect(stack).toHaveAttribute('data-route-point-count', '2');
+        });
     });
 
     it('clears both selector state and the active-passage store when blank is selected', async () => {
@@ -514,47 +567,6 @@ describe('CrewManagement shared passage ownership', () => {
         expect(mocks.clearPassagePlan).toHaveBeenCalledTimes(1);
         await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledWith(null));
         expect(screen.queryByLabelText('Departure Date')).not.toBeInTheDocument();
-    });
-
-    it('cancels or confirms clear-all through the app dialog and cannot submit twice', async () => {
-        const own = voyage('own-voyage', 'crew-user', 'Route to Moreton');
-        mocks.activePassageId = own.id;
-        mocks.getDraftVoyages.mockResolvedValue([own]);
-        mocks.fetchRoutesAndTracks.mockResolvedValue({
-            routes: [route('planned-own', own.voyage_name)],
-            tracks: [],
-        });
-        mocks.getPassageStatus.mockImplementation(async (id: string | null) =>
-            id === own.id ? statusFor(own.id, true) : noAccess,
-        );
-
-        let finishDelete!: () => void;
-        mocks.deleteVoyage.mockReturnValue(
-            new Promise<void>((resolve) => {
-                finishDelete = resolve;
-            }),
-        );
-
-        renderPage();
-        const clearAll = await screen.findByRole('button', { name: 'Clear all' });
-
-        fireEvent.click(clearAll);
-        expect(screen.getByRole('dialog', { name: 'Clear all saved passages?' })).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Cancel action' }));
-        expect(screen.queryByRole('dialog', { name: 'Clear all saved passages?' })).not.toBeInTheDocument();
-        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
-
-        fireEvent.click(clearAll);
-        const confirm = screen.getByRole('button', { name: 'Confirm action' });
-        fireEvent.click(confirm);
-        fireEvent.click(confirm);
-        await waitFor(() => expect(mocks.deleteVoyage).toHaveBeenCalledTimes(1));
-
-        await act(async () => {
-            finishDelete();
-        });
-        await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith('All saved passages cleared'));
-        expect(screen.queryByRole('dialog', { name: 'Clear all saved passages?' })).not.toBeInTheDocument();
     });
 
     it('resets stale Cast Off readiness whenever the skipper switches passages', async () => {

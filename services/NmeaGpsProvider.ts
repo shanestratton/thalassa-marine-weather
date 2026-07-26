@@ -20,7 +20,7 @@ export interface NmeaGpsPosition {
     latitude: number;
     longitude: number;
     accuracy: number; // Estimated from HDOP (meters)
-    heading: number; // COG or heading from NMEA
+    heading: number | null; // COG or heading from NMEA (null when unavailable)
     speed: number; // SOG from NMEA (kts)
     timestamp: number; // Epoch ms
     source: 'nmea';
@@ -30,6 +30,14 @@ export interface NmeaGpsPosition {
 }
 
 export type NmeaGpsCallback = (pos: NmeaGpsPosition) => void;
+export type NmeaGpsFeedStatus = 'live' | 'stale' | 'unavailable';
+
+// The NMEA listener intentionally emits aggregated samples every 5 seconds,
+// while NmeaStore's visual "live" treatment turns muted after 3 seconds.
+// A GPS source must remain usable across that gap or ship-log / status logic
+// will flap between vessel GPS and phone GPS on a perfectly healthy feed.
+const GPS_LIVE_MAX_AGE_MS = 3_000;
+const GPS_USABLE_MAX_AGE_MS = 12_000;
 
 class NmeaGpsProviderClass {
     private listeners: Set<NmeaGpsCallback> = new Set();
@@ -54,9 +62,51 @@ class NmeaGpsProviderClass {
         this.lastPosition = null;
     }
 
-    /** Whether NMEA GPS has a live fix (< 3s old) */
+    /**
+     * Whether the NMEA GPS feed remains usable for navigation.
+     *
+     * This is deliberately broader than NmeaStore's 3-second *visual* live
+     * tier because the listener emits at a 5-second cadence. A source becomes
+     * unavailable only after two missed sample windows (12 seconds).
+     */
     isActive(): boolean {
-        return NmeaStore.hasGpsFix();
+        return this.getFeedStatus() !== 'unavailable';
+    }
+
+    /** Freshness suitable for receiver-status UI. */
+    getFeedStatus(now = Date.now()): NmeaGpsFeedStatus {
+        const state = NmeaStore.getState();
+        const { latitude, longitude } = state;
+        if (
+            state.connectionStatus !== 'connected' ||
+            latitude.value === null ||
+            longitude.value === null ||
+            latitude.lastUpdated <= 0 ||
+            longitude.lastUpdated <= 0
+        ) {
+            return 'unavailable';
+        }
+
+        // A position needs both coordinates. Use the older timestamp so a
+        // freshly updated latitude cannot mask an old/missing longitude.
+        const ageMs = Math.max(0, now - Math.min(latitude.lastUpdated, longitude.lastUpdated));
+        if (ageMs <= GPS_LIVE_MAX_AGE_MS) return 'live';
+        if (ageMs <= GPS_USABLE_MAX_AGE_MS) return 'stale';
+        return 'unavailable';
+    }
+
+    /** Age of the last valid NMEA position, or null when none exists. */
+    getFixAgeMs(now = Date.now()): number | null {
+        const state = NmeaStore.getState();
+        if (
+            state.latitude.value === null ||
+            state.longitude.value === null ||
+            state.latitude.lastUpdated <= 0 ||
+            state.longitude.lastUpdated <= 0
+        ) {
+            return null;
+        }
+        return Math.max(0, now - Math.min(state.latitude.lastUpdated, state.longitude.lastUpdated));
     }
 
     /** Get current position, or null if not available / stale */
@@ -108,7 +158,9 @@ class NmeaGpsProviderClass {
             latitude: lat,
             longitude: lon,
             accuracy,
-            heading: state.cog.value ?? state.heading.value ?? 0,
+            // Keep an absent COG/heading absent. Replacing it with 0 would
+            // fabricate northbound turns when the next real heading arrives.
+            heading: state.cog.value ?? state.heading.value,
             speed: state.sog.value ?? 0,
             timestamp: state.latitude.lastUpdated,
             source: 'nmea',

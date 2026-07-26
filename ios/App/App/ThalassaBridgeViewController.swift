@@ -53,12 +53,15 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         // trivial to confirm which build is running.
         NSLog("[BUILD-MARKER-SWIFT] thalassa 2026-05-15T22:55Z capacitorDidLoad")
 
-        // ── Audio session: set category, do NOT activate at launch ──
-        // Set our session category to .playback + .mixWithOthers so
-        // any audio we play (TTS, alarms via AlarmAudioPlugin, etc.)
-        // plays back-route through the speaker bypassing the silent
-        // switch (.playback) and is friendly with other apps'
-        // audio (.mixWithOthers).
+        // ── Audio session: input-capable, but inactive, at launch ──
+        // The diary and Bosun both capture through WKWebView's
+        // getUserMedia path. Leaving the shared session in .playback makes
+        // that capture unreliable on iOS: a recorder can appear to start
+        // while the input route is unavailable, producing an empty memo and
+        // no live dictation. Keep the app input-capable from launch, without
+        // activating the session or taking ownership of the microphone.
+        // AppleMusicPlugin reasserts .playback immediately before music/TTS
+        // playback, so this does not change its output behaviour.
         //
         // CRITICAL: do NOT call setActive(true) here. Eager activation
         // was found to block the system music player from taking the
@@ -74,8 +77,12 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         // before triggering system music playback).
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            print("[Audio] Session category configured: .playback + .mixWithOthers (NOT activated)")
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP]
+            )
+            print("[Audio] Session category configured: .playAndRecord + speaker/Bluetooth (NOT activated)")
         } catch {
             print("[Audio] Failed to set audio session category at launch: \(error)")
         }

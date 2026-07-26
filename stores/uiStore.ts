@@ -20,7 +20,6 @@ const VESSEL_CHILDREN = new Set([
     'equipment',
     'documents',
     'diary',
-    'route',
 ]);
 const OVERLAY_PAGES = new Set(['settings', 'warnings', 'voyage']);
 

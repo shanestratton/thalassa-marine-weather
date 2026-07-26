@@ -18,10 +18,10 @@
  *   - `addManual` — the user-initiated entry path. Creates the entry
  *     immediately so the UI updates without waiting for GPS.
  *
- *   - `flushBufferedTrack` — drains the high-frequency GPS buffer,
- *     RDP-thins to keep only significant points, then calls captureLog
- *     for each kept point. The orchestrator wires this as the scheduler's
- *     onTick callback.
+ *   - `flushBufferedTrack` — drains the geographic sampler's selected
+ *     vertices and calls captureLog for each one. The orchestrator invokes
+ *     it immediately after a vertex is selected, with scheduler/heartbeat
+ *     calls as safety nets.
  *
  * Coupling: each function takes a `CaptureContext` with the mutable
  * state and persistence/scheduling hooks it needs. The orchestrator
@@ -97,10 +97,25 @@ export interface CaptureContext {
     saveTrackingState: () => Promise<void>;
 
     isNative: boolean;
+    /**
+     * Latest GPS fix that has cleared the live acceptance gate. This is
+     * intentionally separate from `getCachedFix`: the latter may be a raw
+     * engine-start replay, while this accessor is safe to use for a Voyage
+     * Start marker after an immediate selected-point flush has drained the
+     * track buffer.
+     */
+    getAcceptedFix?: () => CachedPosition | null;
     getCachedFix: () => CachedPosition | null;
     setCachedFix: (pos: CachedPosition | null) => void;
 
     trackBuffer: GpsTrackBuffer;
+    /**
+     * When false, an empty buffer is a successful no-op rather than a reason
+     * to resolve the raw live GPS cache. ShipLogService sets this for
+     * geographic plotting so only sampler-selected vertices are persisted.
+     * The default preserves legacy callers' explicit catch-up behaviour.
+     */
+    allowEmptyBufferFallback?: boolean;
     /**
      * Durable escape hatch for points whose owning session becomes stale
      * after they have been drained. The orchestrator stores these under the
@@ -117,6 +132,15 @@ export interface CaptureContext {
 
 function contextIsCurrent(ctx: CaptureContext): boolean {
     return isAuthIdentityScopeCurrent(ctx.identityScope) && ctx.isSessionCurrent();
+}
+
+/** Keep the heartbeat reference monotonic when async capture paths overlap. */
+function advanceLastEntryTime(ctx: CaptureContext, timestamp: string): void {
+    const previousMs = ctx.trackingState.lastEntryTime ? Date.parse(ctx.trackingState.lastEntryTime) : Number.NaN;
+    const candidateMs = Date.parse(timestamp);
+    if (!Number.isFinite(previousMs) || !Number.isFinite(candidateMs) || candidateMs >= previousMs) {
+        ctx.trackingState.lastEntryTime = timestamp;
+    }
 }
 
 // ── captureImmediate ────────────────────────────────────────────────
@@ -169,10 +193,13 @@ export async function captureImmediate(
 
     // GPS COLD-START WARM-UP.
     //
-    // Voyage Start anchors ONLY on a buffer-accepted fix — one that
-    // cleared the full acceptance gate including the first-fix
-    // consistency check. The cached fix (lastBgLocation) and a blocking
-    // getCurrentPosition are both unvetted: engine-start replays can be
+    // Voyage Start anchors ONLY on a vetted accepted fix — one that
+    // cleared the full acceptance gate including the first-fix consistency
+    // check. That fix is normally still in the track buffer, but an
+    // immediate selected-point flush may already have drained it; the
+    // separate accepted-fix accessor preserves the same vetted evidence.
+    // The cached fix (lastBgLocation) and a blocking getCurrentPosition are
+    // both unvetted: engine-start replays can be
     // RE-STAMPED with the current time, passing every timestamp and
     // receivedAt check while being spatially stale (the cold-start
     // phantom-line bug, round 2). If no vetted fix arrives in the
@@ -187,8 +214,14 @@ export async function captureImmediate(
     const isVoyageStart = waypointLabel === 'Voyage Start';
     const GPS_WARMUP_POLL_MS = 500;
     const GPS_WARMUP_MAX_MS = isVoyageStart ? 30_000 : 5_000;
+    const getVettedStartFix = (): CachedPosition | null => {
+        const buffered = ctx.trackBuffer.peek();
+        if (isFreshFix(buffered)) return buffered;
+        const accepted = ctx.getAcceptedFix?.() ?? null;
+        return isFreshFix(accepted) ? accepted : null;
+    };
     let needsGpsRetry = false;
-    let bestPos: CachedPosition | null = ctx.trackBuffer.peek();
+    let bestPos: CachedPosition | null = isVoyageStart ? getVettedStartFix() : ctx.trackBuffer.peek();
     if (!bestPos && !isVoyageStart) {
         const cached = ctx.getCachedFix();
         if (isFreshFix(cached)) bestPos = cached;
@@ -199,9 +232,9 @@ export async function captureImmediate(
         while (Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_POLL_MS));
             if (!contextIsCurrent(ctx)) return null;
-            const buffered = ctx.trackBuffer.peek();
-            if (buffered) {
-                bestPos = buffered;
+            const vettedStartFix = isVoyageStart ? getVettedStartFix() : ctx.trackBuffer.peek();
+            if (vettedStartFix) {
+                bestPos = vettedStartFix;
                 break;
             }
             if (!isVoyageStart) {
@@ -285,7 +318,14 @@ export async function captureImmediate(
     // this write made a failed Voyage Start/End save invisible to the next
     // fix: distance then continued from a point that did not exist in the
     // log. Only commit the delta anchor after the entry was saved/queued.
-    if (bestPos) {
+    //
+    // A Voyage Start is a lifecycle marker, not a measured track vertex.
+    // Its GPS anchor can arrive asynchronously after a vetted raw fix is
+    // already waiting in the buffer. Making that marker the delta baseline
+    // causes the buffered earlier fix to measure *backwards* from it — the
+    // classic cold-start spur (and a bogus high speed) at the first point.
+    // Let the first raw accepted fix establish the durable baseline instead.
+    if (bestPos && !isVoyageStart) {
         await saveLastPosition(
             {
                 latitude: bestPos.latitude,
@@ -303,7 +343,10 @@ export async function captureImmediate(
         retryGpsAndUpdateEntry(entryId, ctx.identityScope, () => contextIsCurrent(ctx));
     }
 
-    ctx.trackingState.lastEntryTime = timestamp;
+    // A Voyage Start can resolve after the first selected auto vertex was
+    // already persisted. Never let that delayed lifecycle marker rewind the
+    // heartbeat clock and trigger a false overdue capture.
+    advanceLastEntryTime(ctx, timestamp);
     await ctx.saveTrackingState();
     if (!contextIsCurrent(ctx)) return null;
 
@@ -420,27 +463,13 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
         const heading = bestPos?.heading ?? null;
         const isPinOverride = positionOverride !== undefined;
 
-        // Quarter-hour timestamp snap for offshore auto entries (rapid
-        // mode + nearshore/coastal use shorter intervals so keep exact ts).
+        // Preserve the accepted GPS timestamp for every plotting profile.
+        // The offshore sampler now retains real five-minute vertices (plus
+        // boundary / turn safety points), so snapping them to quarter-hours
+        // would fabricate time, collapse distinct vertices, and can make a
+        // continuous inshore → coastal → offshore voyage appear to jump.
         const exactTimeMs = positionOverride?.timestamp ?? bestPos?.timestamp ?? Date.now();
         const entryTime = new Date(exactTimeMs);
-        const isOffshoreMode = !ctx.trackingState.isRapidMode && ctx.trackingState.loggingZone === 'offshore';
-        if (entryType === 'auto' && isOffshoreMode) {
-            const minutes = entryTime.getMinutes();
-            const nearestQuarter = Math.round(minutes / 15) * 15;
-            entryTime.setMinutes(nearestQuarter, 0, 0);
-            if (nearestQuarter === 60) {
-                entryTime.setHours(entryTime.getHours() + 1);
-                entryTime.setMinutes(0, 0, 0);
-            }
-            // Never snap BACKWARD past the previous entry — "nearest"
-            // can rewind up to 7.5 min, colliding/reordering timestamps
-            // and destabilising every timestamp-sorted polyline.
-            const lastEntryMs = ctx.trackingState.lastEntryTime ? Date.parse(ctx.trackingState.lastEntryTime) : 0;
-            if (entryTime.getTime() < lastEntryMs) {
-                entryTime.setTime(exactTimeMs);
-            }
-        }
         const timestamp = entryTime.toISOString();
 
         let lastPos = await getLastPosition(ctx.identityScope);
@@ -596,9 +625,7 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
         // Pins carry a backdated timestamp — rewinding lastEntryTime to
         // it would distort the heartbeat's elapsed check and the snap
         // clamp's monotonic reference.
-        if (!isPinOverride) {
-            ctx.trackingState.lastEntryTime = timestamp;
-        }
+        if (!isPinOverride) advanceLastEntryTime(ctx, timestamp);
         ctx.trackingState.lastCheckTime = Date.now();
         ctx.trackingState.lastCheckDeduped = false;
         await ctx.saveTrackingState();
@@ -724,9 +751,9 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
 // ── flushBufferedTrack ─────────────────────────────────────────────
 
 /**
- * Drains the high-frequency GPS buffer, RDP-thins, and logs each
- * significant point. Wired into the AdaptiveScheduler as the onTick
- * callback.
+ * Drains selected geographic plot points and logs each one. Immediate
+ * selected-point callbacks are the normal path; AdaptiveScheduler is a
+ * recovery safety net.
  */
 export type FlushBufferedTrackResult = 'complete' | 'retry-pending' | 'stale';
 
@@ -792,7 +819,19 @@ export function flushBufferedTrack(ctx: CaptureContext): Promise<FlushBufferedTr
     }
 
     const active = activeFlushes.get(ctx.trackBuffer);
-    if (active) return active;
+    if (active) {
+        // A selected point can arrive while the current durable append is
+        // awaiting storage. Join that append, then immediately drain the
+        // new suffix instead of making it wait for the next 30s/5min timer.
+        // Do not auto-retry a durability failure here; its retained suffix
+        // needs the normal retry path rather than a tight failure loop.
+        return active.then((result) => {
+            if (result === 'complete' && contextIsCurrent(ctx) && ctx.trackBuffer.length > 0) {
+                return flushBufferedTrack(ctx);
+            }
+            return result;
+        });
+    }
 
     const operation = flushBufferedTrackInner(ctx).finally(() => {
         if (activeFlushes.get(ctx.trackBuffer) === operation) {
@@ -807,20 +846,20 @@ async function flushBufferedTrackInner(ctx: CaptureContext): Promise<FlushBuffer
     if (!contextIsCurrent(ctx)) return 'stale';
     const rawPoints = drainBufferedTrackForHandoff(ctx.trackBuffer);
 
-    // Empty buffer → fall back to single capture (heartbeat catch-up).
+    // Geographic plotting keeps the raw UI cache deliberately separate from
+    // persisted vertices. Still enter this function when empty so callers can
+    // join an in-flight flush, but do not manufacture a raw-cache point.
     if (rawPoints.length === 0) {
+        if (ctx.allowEmptyBufferFallback === false) return 'complete';
         const outcome = await captureLogWithOutcome(ctx);
         if (outcome.status === 'durability-failed') return 'retry-pending';
         return outcome.status === 'stale' ? 'stale' : 'complete';
     }
 
-    // 2026-05-19: log every raw point — no RDP, no thinTrack. Shane's
-    // policy after the driving-speed disaster: 5 s cadence with full
-    // retention beats sub-second cadence with smart culling, because
-    // the cull was overly aggressive on straight high-speed legs. The
-    // BgGeo 1 m distanceFilter already removes stationary jitter at
-    // ingest. CourseChangeDetector still emits the visible turn pins
-    // at 30°+ — that pipeline is independent of track storage.
+    // The GPS manager has already chosen these vertices at the active
+    // geographic cadence (plus boundary/turn safety vertices). Do not RDP
+    // thin or otherwise discard them here: this durable layer preserves the
+    // exact track geometry selected by the sampler.
     //
     // 2026-06-12: each buffered point now travels as an explicit
     // fixOverride. The old setCachedFix + getBestPosition route let a

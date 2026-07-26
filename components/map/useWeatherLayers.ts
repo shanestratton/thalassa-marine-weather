@@ -101,17 +101,6 @@ function pressureFrameForValidAt(grid: any, validAt: number | null): number | nu
 export const DEFAULT_LAYERS: WeatherLayer[] = ['wind'];
 
 /**
- * Motion is a useful second read of the wind field, but it should never be a
- * prerequisite for reading it. Keep the particle preference separate from the
- * selected layers so switching particles off leaves the static wind field on.
- */
-export const WIND_PARTICLES_STORAGE_KEY = 'thalassa_wind_particles_enabled';
-
-export function restoreWindParticlesEnabled(stored: string | null): boolean {
-    return stored === '1';
-}
-
-/**
  * Which layers a stored preference should restore.
  *
  * The three cases are deliberately distinct:
@@ -412,23 +401,6 @@ export function useWeatherLayers(
     const [windHour, setWindHourInternal] = useState(0);
     const [windTotalHours, setWindTotalHours] = useState(0);
     const [windPlaying, setWindPlaying] = useState(false);
-    // Particles are opt-in: the calm scalar heatmap is the default chart read,
-    // while the moving field remains one deliberate tap away.
-    const [windParticlesEnabled, setWindParticlesEnabledState] = useState<boolean>(() => {
-        try {
-            return restoreWindParticlesEnabled(localStorage.getItem(WIND_PARTICLES_STORAGE_KEY));
-        } catch {
-            return false;
-        }
-    });
-    const setWindParticlesEnabled = useCallback((enabled: boolean) => {
-        setWindParticlesEnabledState(enabled);
-        try {
-            localStorage.setItem(WIND_PARTICLES_STORAGE_KEY, enabled ? '1' : '0');
-        } catch {
-            /* private mode / quota — retain the in-memory choice */
-        }
-    }, []);
     const [windReady, setWindReady] = useState(false);
     const [windMaxSpeed, setWindMaxSpeed] = useState(30);
     /** The wind scrubber index that corresponds to 'now' (current time) */
@@ -2153,8 +2125,6 @@ export function useWeatherLayers(
         setWindTotalHours,
         windPlaying,
         setWindPlaying,
-        windParticlesEnabled,
-        setWindParticlesEnabled,
         windReady,
         setWindReady,
         windMaxSpeed,

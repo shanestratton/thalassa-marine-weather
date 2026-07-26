@@ -1,10 +1,32 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from './helpers/storageState';
+
+interface WarmLaunchTelemetry {
+    consoleErrors: string[];
+    weatherProviderRequests: string[];
+}
+
+const warmLaunchTelemetry = new WeakMap<Page, WarmLaunchTelemetry>();
 
 test.describe('Anchor Watch', () => {
     test.use({ storageState: ONBOARDED_STORAGE });
 
     test.beforeEach(async ({ page }) => {
+        // Capture startup failures before navigation. A warm-launch fixture
+        // should use its scoped weather/rain caches rather than calling a
+        // live provider during an unrelated Vessel journey.
+        const telemetry: WarmLaunchTelemetry = { consoleErrors: [], weatherProviderRequests: [] };
+        warmLaunchTelemetry.set(page, telemetry);
+        page.on('console', (msg) => {
+            if (msg.type() === 'error') telemetry.consoleErrors.push(msg.text());
+        });
+        page.on('request', (request) => {
+            const url = request.url();
+            if (url.includes('/functions/v1/fetch-weatherkit') || url.includes('/functions/v1/proxy-rainbow')) {
+                telemetry.weatherProviderRequests.push(url);
+            }
+        });
+
         await page.goto('/');
         // Navigate to vessel tab then anchor watch
         const vesselTab = page.locator('button, [role="tab"]').filter({ hasText: /vessel|boat/i });
@@ -27,13 +49,15 @@ test.describe('Anchor Watch', () => {
     });
 
     test('page renders without console errors', async ({ page }) => {
-        const errors: string[] = [];
-        page.on('console', (msg) => {
-            if (msg.type() === 'error') errors.push(msg.text());
-        });
         await page.waitForTimeout(2000);
-        // Filter out expected React dev warnings
-        const realErrors = errors.filter((e) => !e.includes('Warning:') && !e.includes('DevTools'));
-        expect(realErrors.length).toBeLessThanOrEqual(2); // Allow minor errors
+        const telemetry = warmLaunchTelemetry.get(page);
+        expect(telemetry).toBeDefined();
+        // Filter out expected React dev warnings.
+        const realErrors = telemetry!.consoleErrors.filter((e) => !e.includes('Warning:') && !e.includes('DevTools'));
+        expect(realErrors, `Unexpected browser console errors:\n${realErrors.join('\n')}`).toHaveLength(0);
+        expect(
+            telemetry!.weatherProviderRequests,
+            `A warm launch should use its cached weather data:\n${telemetry!.weatherProviderRequests.join('\n')}`,
+        ).toHaveLength(0);
     });
 });

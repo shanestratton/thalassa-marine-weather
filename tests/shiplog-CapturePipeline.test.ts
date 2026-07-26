@@ -1,8 +1,8 @@
 /**
  * Tests for CapturePipeline — focused on the gating logic that lives
  * exclusively in this module after the extraction (dedup threshold,
- * speed-spike rejection, acceleration-spike rejection, quarter-hour
- * timestamp snap, rolling waypoint demotion, flushBufferedTrack drain
+ * speed-spike rejection, acceleration-spike rejection, exact GPS
+ * timestamps, rolling waypoint demotion, flushBufferedTrack drain
  * + thinning + setCachedFix loop).
  *
  * Strategy: heavy mocking of the persistence + GPS resolution surface
@@ -118,6 +118,7 @@ function makeCtx(overrides: Partial<CaptureContext> = {}): CaptureContext {
         trackingState,
         saveTrackingState: vi.fn(async () => undefined),
         isNative: false,
+        getAcceptedFix: () => null,
         getCachedFix: () => cachedFix,
         setCachedFix: (pos) => {
             cachedFix = pos;
@@ -160,6 +161,39 @@ describe('captureImmediate', () => {
         expect(entry!.latitude).toBeCloseTo(-27.5);
         expect(entry!.longitude).toBeCloseTo(153.0);
         expect(saveEntry).toHaveBeenCalledTimes(1);
+        // A lifecycle pin is not the raw-track delta baseline. The first
+        // accepted buffered point establishes that baseline so it cannot be
+        // measured backwards from a delayed Start anchor.
+        expect(saveLastPos).not.toHaveBeenCalled();
+    });
+
+    it('anchors Voyage Start from the vetted accepted-fix accessor after an immediate flush drains the buffer', async () => {
+        // The selected vertex can be saved before the fire-and-forget start
+        // marker gets its next warm-up poll. The raw cache is deliberately a
+        // different location to prove the marker cannot fall back to it.
+        const acceptedFix = makeFix(-27.5, 153.0);
+        const rawReplay = makeFix(-26.9, 152.4);
+        const ctx = makeCtx({
+            getAcceptedFix: () => acceptedFix,
+            getCachedFix: () => rawReplay,
+        });
+
+        const entry = await captureImmediate(ctx, undefined, 'Voyage Start');
+
+        expect(entry).not.toBeNull();
+        expect(entry!.latitude).toBeCloseTo(acceptedFix.latitude);
+        expect(entry!.longitude).toBeCloseTo(acceptedFix.longitude);
+        expect(entry!.latitude).not.toBeCloseTo(rawReplay.latitude);
+    });
+
+    it('never rewinds the heartbeat clock when delayed Voyage Start follows a selected track point', async () => {
+        const ctx = makeCtx({ getAcceptedFix: () => makeFix() });
+        const laterTrackPointTime = new Date(Date.now() + 3_000).toISOString();
+        ctx.trackingState.lastEntryTime = laterTrackPointTime;
+
+        await captureImmediate(ctx, undefined, 'Voyage Start');
+
+        expect(ctx.trackingState.lastEntryTime).toBe(laterTrackPointTime);
     });
 
     it('uses the cached fix for Voyage End when fresh', async () => {
@@ -168,6 +202,7 @@ describe('captureImmediate', () => {
         expect(entry).not.toBeNull();
         expect(entry!.latitude).toBeCloseTo(-27.5);
         expect(entry!.longitude).toBeCloseTo(153.0);
+        expect(saveLastPos).toHaveBeenCalledTimes(1);
     });
 
     it('preserves north as a valid 0° heading', async () => {
@@ -346,8 +381,8 @@ describe('captureLog — rolling waypoint promotion', () => {
     });
 });
 
-describe('captureLog — quarter-hour timestamp snap', () => {
-    it('snaps offshore-mode auto entries to xx:00, xx:15, xx:30, xx:45', async () => {
+describe('captureLog — exact GPS timestamps', () => {
+    it('preserves the offshore GPS timestamp rather than snapping it to a clock mark', async () => {
         // Set system time to xx:08
         vi.setSystemTime(new Date('2026-05-02T06:08:23Z'));
         const ctx = makeCtx();
@@ -355,11 +390,10 @@ describe('captureLog — quarter-hour timestamp snap', () => {
         // Fix's own timestamp also xx:08
         bestPosition.mockResolvedValueOnce(makeFix(-27.5, 153.0));
         const result = await captureLog(ctx, { entryType: 'auto' });
-        // Should snap to nearest 15min — 8 → 15.
-        expect(result!.timestamp).toMatch(/06:15:00/);
+        expect(result!.timestamp).toMatch(/06:08:23/);
     });
 
-    it('does NOT snap nearshore / coastal / rapid mode entries', async () => {
+    it('also preserves nearshore / coastal timestamps', async () => {
         vi.setSystemTime(new Date('2026-05-02T06:08:23Z'));
         const ctx = makeCtx();
         ctx.trackingState.loggingZone = 'nearshore';
@@ -413,6 +447,12 @@ describe('flushBufferedTrack', () => {
         expect(saveEntry).toHaveBeenCalledTimes(1);
     });
 
+    it('treats an empty geographic plotting buffer as a no-op instead of resolving a raw cache fix', async () => {
+        const ctx = makeCtx({ allowEmptyBufferFallback: false });
+        await expect(flushBufferedTrack(ctx)).resolves.toBe('complete');
+        expect(saveEntry).not.toHaveBeenCalled();
+    });
+
     it('does nothing when paused', async () => {
         const ctx = makeCtx();
         ctx.trackingState.isPaused = true;
@@ -451,6 +491,38 @@ describe('flushBufferedTrack', () => {
             first.latitude,
             second.latitude,
         ]);
+    });
+
+    it('drains a selected point that arrives while a prior durable flush is still running', async () => {
+        const ctx = makeCtx();
+        const first = makeFix(-27.5, 153);
+        const second = makeFix(-27.499, 153);
+        ctx.trackBuffer.push(first);
+
+        let releaseFirstSave!: () => void;
+        let firstSaveStarted = false;
+        saveEntry.mockImplementationOnce(
+            async (entry: Record<string, unknown>) =>
+                new Promise((resolve) => {
+                    firstSaveStarted = true;
+                    releaseFirstSave = () =>
+                        resolve({ saved: { ...entry, id: 'first' }, entryId: 'first', wasOffline: false });
+                }),
+        );
+
+        const firstFlush = flushBufferedTrack(ctx);
+        for (let attempt = 0; attempt < 10 && !firstSaveStarted; attempt++) await Promise.resolve();
+        expect(firstSaveStarted).toBe(true);
+
+        // A GPS callback requests a flush for this second selected point
+        // while the first Preferences/Supabase write is still in flight.
+        ctx.trackBuffer.push(second);
+        const joinedFlush = flushBufferedTrack(ctx);
+        releaseFirstSave();
+
+        await expect(Promise.all([firstFlush, joinedFlush])).resolves.toEqual(['complete', 'complete']);
+        expect(saveEntry.mock.calls.map(([entry]) => entry.latitude)).toEqual([first.latitude, second.latitude]);
+        expect(ctx.trackBuffer.length).toBe(0);
     });
 
     it('consumes a deliberately filtered spike and still persists the valid suffix', async () => {

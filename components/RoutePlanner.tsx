@@ -41,8 +41,8 @@ import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } fr
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
-import { Capacitor } from '@capacitor/core';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -77,7 +77,6 @@ export const RoutePlanner: React.FC<{
         destination,
         setDestination,
         departureDate,
-        setDepartureDate,
         handleDateChange,
         isMapOpen,
         setIsMapOpen,
@@ -119,10 +118,10 @@ export const RoutePlanner: React.FC<{
         (departMs: number) => {
             // Mirror acceptWindowScenario: the form carries a DATE; the
             // precise time lives in the row the user just read.
-            setDepartureDate(new Date(departMs).toISOString().split('T')[0]);
+            void handleDateChange(new Date(departMs).toISOString().split('T')[0]);
             setShowSweepSheet(false);
         },
-        [setDepartureDate],
+        [handleDateChange],
     );
 
     // Comfort accordion expanded state lives here (lifted up from the
@@ -179,33 +178,7 @@ export const RoutePlanner: React.FC<{
     // accessory bar). On keyboard hide the padding returns to 0 and
     // the form goes back to a non-scrolling state. Other pages don't
     // need this because their layouts are already scroll-friendly.
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
-    useEffect(() => {
-        if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return;
-        let disposed = false;
-        const handles: Array<() => void> = [];
-        import('@capacitor/keyboard')
-            .then(({ Keyboard }) => {
-                if (disposed) return;
-                void Keyboard.addListener('keyboardWillShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight ?? 0);
-                })
-                    .then((h) => handles.push(() => void h.remove()))
-                    .catch((e) => log.warn('Keyboard show listener unavailable:', e));
-                void Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                })
-                    .then((h) => handles.push(() => void h.remove()))
-                    .catch((e) => log.warn('Keyboard hide listener unavailable:', e));
-            })
-            .catch(() => {
-                /* Web — no native keyboard events */
-            });
-        return () => {
-            disposed = true;
-            handles.forEach((off) => off());
-        };
-    }, []);
+    const keyboardHeight = useKeyboardOffset();
 
     // departureTime state removed 2026-05-05 — see comment near the
     // date input above. Time-of-day is set in Passage Planning.
@@ -294,11 +267,21 @@ export const RoutePlanner: React.FC<{
                                     if (!isAuthIdentityScopeCurrent(pickerScope)) return;
                                     setPage('map');
                                 },
-                                ...(route.source === 'logbook-route'
-                                    ? {
-                                          remove: () => deleteLogbookRouteFromLibrary(route.voyageId, pickerScope),
-                                      }
-                                    : {}),
+                                // Saved-route management belongs in this
+                                // dedicated library, rather than beside the
+                                // active-passage picker. Both route stores
+                                // get the same deliberate two-tap confirm in
+                                // the UI below; canonical traces also use a
+                                // scoped tombstone so a delete follows the
+                                // skipper across devices.
+                                remove:
+                                    route.source === 'saved-trace'
+                                        ? async () => {
+                                              const { deleteTrace } = await import('../services/routeTracer');
+                                              if (!isAuthIdentityScopeCurrent(pickerScope)) return false;
+                                              return deleteTrace(route.routeId, pickerScope);
+                                          }
+                                        : () => deleteLogbookRouteFromLibrary(route.voyageId, pickerScope),
                             };
                         });
                     const library = await loadSavedRouteLibrary(pickerScope, (canonical) => {
@@ -392,6 +375,10 @@ export const RoutePlanner: React.FC<{
                 return;
             }
 
+            // A background compatibility merge may still be resolving. Make
+            // its pre-delete snapshot stale before we paint our local removal
+            // so it cannot put the just-deleted route back into this dialog.
+            routePickerRequestRef.current += 1;
             setRoutePicker((current) =>
                 current ? { ...current, items: current.items.filter((candidate) => candidate.key !== item.key) } : null,
             );
@@ -593,8 +580,8 @@ export const RoutePlanner: React.FC<{
                 found nothing scrollable — Capacitor's iOS scrollEnabled
                 is false so window.scrollBy is a no-op.
 
-                The dynamic paddingBottom (set via keyboardHeight state
-                from Capacitor's keyboardWillShow/Hide events) extends
+                The dynamic paddingBottom (from the shared native/web keyboard
+                measurement) extends
                 the form's scrollHeight past its maxHeight while the
                 keyboard is up. That makes the form scrollable just
                 enough for the helper to lift the focused input above
@@ -1141,17 +1128,24 @@ export const RoutePlanner: React.FC<{
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
-                                <span
-                                    id="route-picker-title"
-                                    className="text-sm font-black uppercase tracking-widest text-sky-300"
-                                >
-                                    {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
-                                </span>
+                                <div className="min-w-0">
+                                    <span
+                                        id="route-picker-title"
+                                        className="text-sm font-black uppercase tracking-widest text-sky-300"
+                                    >
+                                        {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
+                                    </span>
+                                    {routePicker.kind === 'saved' && (
+                                        <p className="mt-0.5 text-[10px] leading-snug text-gray-500">
+                                            Open a route, or remove one here with a two-tap confirmation.
+                                        </p>
+                                    )}
+                                </div>
                                 <button
                                     ref={routePickerCloseRef}
                                     type="button"
                                     onClick={closeRoutePicker}
-                                    className="text-sm font-bold text-gray-400"
+                                    className="ml-3 shrink-0 text-sm font-bold text-gray-400"
                                 >
                                     Close
                                 </button>

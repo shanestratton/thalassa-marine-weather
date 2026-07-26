@@ -68,16 +68,13 @@ export function MapWeatherControls({
     const showTimeline = !controlsHidden;
     const hasWindLayer = activeWeatherLayers.includes('wind');
     // Keep the wind controls available when Wind is paired with Rain. The
-    // timeline intentionally changes to Rain in that combination, but wind
-    // model and particle motion remain meaningful controls.
+    // timeline intentionally changes to Rain in that combination, but the
+    // wind-model selector remains available.
     const windFieldControls =
         showTimeline && hasWindLayer ? (
             <WindModelFieldSelector
                 model={weather.windModel}
                 onModelChange={weather.setWindModel}
-                particlesEnabled={weather.windParticlesEnabled}
-                onParticlesEnabledChange={weather.setWindParticlesEnabled}
-                loading={weather.windState.loading}
                 embedded={embedded}
             />
         ) : null;

@@ -14,6 +14,7 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
 import { AisHubService, type AisHubStats } from '../../services/AisHubService';
+import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 
 import { PageHeader } from '../ui/PageHeader';
 import { FormField } from '../ui/FormField';
@@ -22,15 +23,6 @@ interface NmeaPageProps {
     onBack: () => void;
     onNavigateToGlass?: () => void;
 }
-
-// ── Device presets — auto-fills port for common NMEA gateways ──
-const DEVICE_PRESETS = [
-    { id: 'ydwg02', label: 'Yacht Devices YDWG-02', port: '1456' },
-    { id: 'ikonvert', label: 'Digital Yacht iKonvert', port: '2000' },
-    { id: 'w2k1', label: 'Actisense W2K-1', port: '2000' },
-    { id: 'signalk', label: 'Signal K Server', port: '10110' },
-    { id: 'direct', label: 'Direct TCP (NMEA 0183)', port: '10110' },
-] as const;
 
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
     // One-time migrations: clear old defaults so new YDWG-02 defaults take effect
@@ -95,7 +87,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const handleDeviceChange = useCallback((deviceId: string) => {
         setDevice(deviceId);
         localStorage.setItem('nmea_device', deviceId);
-        const preset = DEVICE_PRESETS.find((d) => d.id === deviceId);
+        const preset = NMEA_DEVICE_PROFILES.find((d) => d.id === deviceId);
         if (preset) {
             setPort(preset.port);
             localStorage.setItem('nmea_port', preset.port);
@@ -212,7 +204,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                             backgroundPosition: 'right 12px center',
                                         }}
                                     >
-                                        {DEVICE_PRESETS.map((d) => (
+                                        {NMEA_DEVICE_PROFILES.map((d) => (
                                             <option key={d.id} value={d.id} className="bg-slate-900 text-white">
                                                 {d.label}
                                             </option>
@@ -235,7 +227,9 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                             label="Port"
                                             value={port}
                                             onChange={setPort}
-                                            placeholder={DEVICE_PRESETS.find((d) => d.id === device)?.port || '1456'}
+                                            placeholder={
+                                                NMEA_DEVICE_PROFILES.find((d) => d.id === device)?.port || '1456'
+                                            }
                                             mono
                                             inputMode="numeric"
                                         />

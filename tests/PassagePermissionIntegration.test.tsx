@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PassageStatus } from '../services/PassagePlanService';
 import type { VoyageRow } from '../components/CrewManagement';
+import type { CrewMember } from '../services/CrewService';
 
 vi.mock('../data/customsDb', () => ({
     isSameCountry: vi.fn(() => false),
@@ -52,10 +53,6 @@ vi.mock('../components/chat/GalleyCard', () => ({
         </div>
     ),
 }));
-vi.mock('../components/crew/DelegationBadge', () => ({
-    DelegationBadge: () => <button type="button">Assign</button>,
-}));
-
 import { ReadinessCardStack } from '../components/crew/ReadinessCardStack';
 
 const voyage: VoyageRow = {
@@ -102,13 +99,41 @@ const restrictedChecklistStatus: PassageStatus = {
     canViewChecklist: true,
 };
 
-const renderStack = (passageStatus: PassageStatus) =>
+const crewMember = (overrides: Partial<CrewMember> = {}): CrewMember => ({
+    id: 'crew-1',
+    owner_id: voyage.user_id,
+    crew_user_id: 'crew-user-1',
+    crew_email: 'deckhand@example.com',
+    owner_email: 'owner@example.com',
+    shared_registers: ['passage_checklist'],
+    permissions: {
+        can_view_stores: false,
+        can_edit_stores: false,
+        can_view_galley: false,
+        can_view_nav: false,
+        can_view_weather: false,
+        can_edit_log: false,
+        can_view_passage: true,
+        can_view_passage_meals: false,
+        can_view_passage_chat: false,
+        can_view_passage_route: false,
+        can_view_passage_checklist: true,
+    },
+    status: 'pending',
+    role: 'deckhand',
+    voyage_id: voyage.id,
+    created_at: '2026-07-23T00:00:00.000Z',
+    updated_at: '2026-07-23T00:00:00.000Z',
+    ...overrides,
+});
+
+const renderStack = (passageStatus: PassageStatus, visibleCrew: CrewMember[] = []) =>
     render(
         <ReadinessCardStack
             selectedPassageId={voyage.id}
             passageStatus={passageStatus}
             draftVoyages={[voyage]}
-            visibleCrew={[]}
+            visibleCrew={visibleCrew}
             planCrewCount={4}
             reservesReady={false}
             vesselChecked={false}
@@ -136,7 +161,7 @@ const renderStack = (passageStatus: PassageStatus) =>
     );
 
 describe('passage permission integration', () => {
-    it('mounts every child-card family and owner delegation controls for a verified owner', () => {
+    it('mounts every child-card family but hides delegation controls for a solo owner', () => {
         renderStack(ownerStatus);
 
         expect(screen.getByTestId('passage-summary-card')).toBeInTheDocument();
@@ -145,7 +170,19 @@ describe('passage permission integration', () => {
         expect(screen.getByTestId('galley-card')).toHaveAttribute('data-can-view-meals', 'true');
         expect(screen.getByTestId('watch-schedule-card')).toBeInTheDocument();
         expect(screen.getByTestId('vessel-profile-card')).toBeInTheDocument();
-        expect(screen.getAllByRole('button', { name: 'Assign' }).length).toBeGreaterThan(0);
+        expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument();
+    });
+
+    it('shows delegation controls as soon as a pending crew invite exists', () => {
+        renderStack(ownerStatus, [crewMember()]);
+
+        expect(screen.getAllByRole('button', { name: /assign/i }).length).toBeGreaterThan(0);
+    });
+
+    it('does not treat a declined invite as an assignable crew member', () => {
+        renderStack(ownerStatus, [crewMember({ status: 'declined' })]);
+
+        expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument();
     });
 
     it('mounts only shared checklist cards for restricted crew and never owner controls', () => {
@@ -158,7 +195,7 @@ describe('passage permission integration', () => {
         expect(screen.getByTestId('watch-schedule-card')).toBeInTheDocument();
         expect(screen.getByTestId('navigation-card')).toBeInTheDocument();
         expect(screen.getByTestId('vessel-profile-card')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Assign' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument();
     });
 
     it('rejects an otherwise valid grant when it belongs to a different voyage', () => {

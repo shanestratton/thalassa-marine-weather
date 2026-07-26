@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarineWeatherReport } from '../types';
 
@@ -16,13 +16,14 @@ const contextMocks = vi.hoisted(() => ({
         forecastModel: 'gfs',
         satelliteMode: false,
     },
+    settingsLoading: true,
 }));
 
 vi.mock('../context/SettingsContext', () => ({
     useSettings: () => ({
         settings: contextMocks.settings,
         updateSettings: contextMocks.updateSettings,
-        loading: true,
+        loading: contextMocks.settingsLoading,
     }),
 }));
 
@@ -121,6 +122,7 @@ beforeEach(() => {
         forecastModel: 'gfs',
         satelliteMode: false,
     });
+    contextMocks.settingsLoading = true;
     latestContext = null;
     accountAContext = null;
     setAuthIdentityScope('account-a');
@@ -133,6 +135,26 @@ afterEach(() => {
 });
 
 describe('WeatherProvider identity transition', () => {
+    it('completes initialization through React StrictMode effect replay', async () => {
+        contextMocks.settingsLoading = false;
+        Object.assign(contextMocks.settings, {
+            defaultLocation: undefined,
+            defaultLocationCoords: undefined,
+        });
+
+        render(
+            <React.StrictMode>
+                <WeatherProvider>
+                    <Probe />
+                </WeatherProvider>
+            </React.StrictMode>,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByTestId('weather-state')).toHaveTextContent('none|no-voyage|ready');
+        });
+    });
+
     it('replaces visible A state and the Zustand bridge with blank B state', async () => {
         const scopeA = getAuthIdentityScope();
         contextMocks.storage.set(weatherCacheKeysForScope(scopeA).data, makeReport('Account A port'));

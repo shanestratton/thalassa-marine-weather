@@ -40,6 +40,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
+import { PCM_BATCH_SAFETY_FLUSH_MS, pcmBatchBytesForSampleRate } from './pcmBatching';
 
 // ── Module-level config ────────────────────────────────────────────────
 
@@ -1104,42 +1105,40 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // Two possible proxy hosts:
     //   1. Cloudflare Worker (preferred when VITE_DEEPGRAM_PROXY_URL is set)
     //      — stable under iOS audio load, designed for WS bridging
-    //   2. Supabase Edge Function (fallback / cutover)
-    //      — dies after ~1s with iOS-paced packets, kept for testing
-    // Both endpoints consume the same one-use ticket before opening upstream.
+    //   2. Supabase Edge Function (automatic failover / cutover)
+    //      — less robust on long iOS sessions, but still much better than
+    //        dropping a diary dictation altogether when the Worker is down
+    //        or has an expired/missing secret.
+    // Both endpoints consume a one-use ticket before opening upstream.
     // Claiming first matters: a prewarmed socket has already consumed its
     // one-use ticket. Minting another ticket in that case wastes quota and
     // leaves an unnecessary credential in memory until it expires.
     const prewarmedSocket = claimPrewarmedWebSocket(sampleRate);
-    let wsUrl = '';
-    if (!prewarmedSocket) {
+    type ProxyStrategy = 'cloudflare-worker' | 'supabase-edge';
+    const mintTicket = async (): Promise<string> => {
         emitEvent('[DG] start: minting secure proxy ticket…');
         const ticketStart = Date.now();
-        let ticket: string;
         try {
-            ticket = await mintDeepgramProxyTicket();
+            const ticket = await mintDeepgramProxyTicket();
+            emitEvent(`[DG] proxy ticket ready (${Date.now() - ticketStart}ms)`);
+            return ticket;
         } catch (err) {
-            releaseOwnedStream();
-            await audioContext.close().catch(() => {});
             emitEvent(`[DG] proxy ticket mint failed: ${(err as Error).message}`);
             throw err;
         }
-        emitEvent(`[DG] proxy ticket ready (${Date.now() - ticketStart}ms)`);
-
-        if (DEEPGRAM_PROXY_URL) {
+    };
+    const proxyUrl = (strategy: ProxyStrategy, ticket: string): string => {
+        if (strategy === 'cloudflare-worker') {
             const cfHost = DEEPGRAM_PROXY_URL.replace(/^https:/, 'wss:')
                 .replace(/^http:/, 'ws:')
                 .replace(/\/+$/, '');
-            wsUrl = `${cfHost}/?${params.toString()}&ticket=${encodeURIComponent(ticket)}`;
-            emitEvent('[DG] using cloudflare-worker proxy');
-        } else {
-            const sbHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
-            wsUrl = `${sbHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}&ticket=${encodeURIComponent(ticket)}`;
-            emitEvent('[DG] using supabase-edge proxy');
+            return `${cfHost}/?${params.toString()}&ticket=${encodeURIComponent(ticket)}`;
         }
-    }
+        const sbHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+        return `${sbHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}&ticket=${encodeURIComponent(ticket)}`;
+    };
 
-    async function tryConnect(strategy: 'supabase-proxy'): Promise<WebSocket> {
+    async function tryConnect(strategy: ProxyStrategy, wsUrl: string): Promise<WebSocket> {
         const stratStart = Date.now();
         let s: WebSocket;
         try {
@@ -1225,13 +1224,35 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         ws = prewarmedSocket;
         emitEvent(`[DG] reused prewarmed WebSocket (saved ~150-300ms)`);
     } else {
+        const primary: ProxyStrategy = DEEPGRAM_PROXY_URL ? 'cloudflare-worker' : 'supabase-edge';
         try {
-            ws = await tryConnect('supabase-proxy');
-        } catch (err) {
-            releaseOwnedStream();
-            await audioContext.close().catch(() => {});
-            emitEvent(`[DG] proxy ws failed: ${(err as Error).message}`);
-            throw new Error(`Deepgram proxy failed: ${(err as Error).message}`);
+            const ticket = await mintTicket();
+            emitEvent(`[DG] using ${primary} proxy`);
+            ws = await tryConnect(primary, proxyUrl(primary, ticket));
+        } catch (primaryError) {
+            // The Worker is the preferred route, but it is separately
+            // deployed from the app. Do not turn an expired Worker secret or
+            // transient Cloudflare issue into a dead diary microphone. A
+            // ticket may already have been consumed by the failed Worker, so
+            // mint a fresh one before trying the Supabase proxy.
+            if (primary !== 'cloudflare-worker') {
+                releaseOwnedStream();
+                await audioContext.close().catch(() => {});
+                emitEvent(`[DG] proxy ws failed: ${(primaryError as Error).message}`);
+                throw new Error(`Deepgram proxy failed: ${(primaryError as Error).message}`);
+            }
+
+            emitEvent(`[DG] cloudflare-worker failed; retrying supabase-edge: ${(primaryError as Error).message}`);
+            try {
+                const fallbackTicket = await mintTicket();
+                emitEvent('[DG] using supabase-edge proxy');
+                ws = await tryConnect('supabase-edge', proxyUrl('supabase-edge', fallbackTicket));
+            } catch (fallbackError) {
+                releaseOwnedStream();
+                await audioContext.close().catch(() => {});
+                emitEvent(`[DG] both proxy routes failed: ${(fallbackError as Error).message}`);
+                throw new Error(`Deepgram proxy failed: ${(fallbackError as Error).message}`);
+            }
         }
     }
     emitEvent(`[DG] proxy ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
@@ -1342,11 +1363,11 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         // at 16-bit mono), one every ~2.7ms at 48kHz — that's ~375
         // tiny WebSocket sends per second. iOS WKWebView's WebSocket
         // implementation chokes on that rate and tends to close the
-        // socket abruptly with code=1005. Batch up to ~50ms of audio
-        // (8192 bytes at 48kHz mono int16) before sending so we hit
-        // ~20 sends/sec instead — well within any sensible rate limit
-        // and Deepgram is fine with that frame size.
-        const BATCH_BYTES_TARGET = 8192;
+        // socket abruptly with code=1005. Use the actual context rate so
+        // each binary frame holds about 45ms of PCM (~22 sends/sec at any
+        // supported sample rate): responsive live partials without a flood
+        // of tiny WebSocket messages.
+        const BATCH_BYTES_TARGET = pcmBatchBytesForSampleRate(sampleRate);
         const batchBuffers: ArrayBuffer[] = [];
         let batchSize = 0;
         const flushBatch = (): void => {
@@ -1414,15 +1435,16 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             emitEvent(`[DG] flushed ${flushedChunks} prewarmed ring chunks (${flushedBytes}B leading audio recovered)`);
         }
 
-        // Safety flush every 100ms so even quiet/short utterances get
-        // partial frames to Deepgram (otherwise a quiet 80ms reply
-        // would never reach the threshold and never get sent).
+        // Safety flush every 60ms so even short/irregular utterances get
+        // partial frames to Deepgram. Continuous speech normally flushes
+        // from the ~45ms size threshold above, so this is a guard rather
+        // than an extra send cadence.
         // Cleared in teardown to stop the timer + flush remaining bytes.
         flushInterval = setInterval(() => {
             if (!stopped && ws.readyState === WebSocket.OPEN && batchSize > 0) {
                 flushBatch();
             }
-        }, 100);
+        }, PCM_BATCH_SAFETY_FLUSH_MS);
 
         // Connect mic → worklet only if the prewarmed graph wasn't
         // already wired. Reusing the prewarmed graph means audio's

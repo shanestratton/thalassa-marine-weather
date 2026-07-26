@@ -49,6 +49,7 @@ const {
     mockToastError,
     mockToastInfo,
     mockGetChannelsFresh,
+    mockRequestPermissionAndRegister,
 } = vi.hoisted(() => ({
     mockInitialize: vi.fn().mockResolvedValue(undefined),
     mockGetChannels: vi.fn().mockResolvedValue([]),
@@ -104,6 +105,7 @@ const {
     mockToastSuccess: vi.fn(),
     mockToastError: vi.fn(),
     mockToastInfo: vi.fn(),
+    mockRequestPermissionAndRegister: vi.fn().mockResolvedValue('apns-token'),
 }));
 
 vi.mock('../../services/ChatService', () => ({
@@ -153,6 +155,12 @@ vi.mock('../../services/ProfilePhotoService', () => ({
 
 vi.mock('../../utils/system', () => ({
     triggerHaptic: mockTriggerHaptic,
+}));
+
+vi.mock('../../services/PushNotificationService', () => ({
+    PushNotificationService: {
+        requestPermissionAndRegister: mockRequestPermissionAndRegister,
+    },
 }));
 
 import { useChatMessages } from '../../hooks/chat/useChatMessages';
@@ -465,6 +473,14 @@ describe('useChatDMs', () => {
         expect(result.current.dmConversations).toEqual(convs);
     });
 
+    it('registers the current device for APNs when a sailor deliberately opens direct messages', async () => {
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+
+        await act(() => result.current.openDMInbox());
+
+        expect(mockRequestPermissionAndRegister).toHaveBeenCalledOnce();
+    });
+
     it('clears loading and explains an inbox load failure', async () => {
         mockGetDMConversations.mockRejectedValueOnce(new Error('network down'));
         const opts = { ...defaultDMOpts };
@@ -491,6 +507,29 @@ describe('useChatDMs', () => {
         expect(result.current.dmThread).toEqual(thread);
         expect(result.current.isUserBlocked).toBe(false);
         expect(opts.setView).toHaveBeenCalledWith('dm_thread');
+    });
+
+    it('does not duplicate an in-flight direct-message push registration', async () => {
+        let resolveRegistration!: (token: string | null) => void;
+        mockRequestPermissionAndRegister.mockImplementationOnce(
+            () =>
+                new Promise<string | null>((resolve) => {
+                    resolveRegistration = resolve;
+                }),
+        );
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+
+        await act(async () => {
+            void result.current.openDMInbox();
+            void result.current.openDMThread('u2', 'Bob');
+            await Promise.resolve();
+        });
+
+        expect(mockRequestPermissionAndRegister).toHaveBeenCalledOnce();
+        await act(async () => {
+            resolveRegistration('apns-token');
+            await Promise.resolve();
+        });
     });
 
     it('clears loading and explains a DM thread load failure', async () => {

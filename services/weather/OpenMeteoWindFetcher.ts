@@ -14,10 +14,27 @@ import { fetchOpenMeteoPoints } from './openMeteoProxy';
 import type { WindGrid } from './windField';
 import type { ModelSource } from './WindFieldAdapter';
 import { AVAILABLE_MODELS, type WeatherModelId, recommendModels } from './MultiModelWeatherService';
+import { continuousEastForLongitudeRange } from './windLongitude';
 const log = createLogger('OMWind');
 
 const FORECAST_HOURS = 168; // 7 days for passage planning
 const CONCURRENCY = 4; // Parallel API calls
+
+/**
+ * Open-Meteo accepts conventional -180…180 longitudes, while Mapbox bounds
+ * deliberately stay continuous as the camera crosses the International Date
+ * Line (for example, 170…190 rather than 170…-170). Keep those two concerns
+ * separate: the provider gets a wrapped coordinate, but the WindGrid keeps
+ * its continuous axis so the renderer can split the field at the date line
+ * without inventing a giant line across the world.
+ */
+function providerLongitude(longitude: number): number {
+    const wrapped = ((((longitude + 180) % 360) + 360) % 360) - 180;
+    // Retain the positive spelling of the eastern date line. Both values are
+    // valid to the provider, but this avoids needlessly flipping 180 → -180
+    // in a consecutive request axis.
+    return wrapped === -180 && longitude > 0 ? 180 : wrapped;
+}
 
 /**
  * Fetch a WindGrid for a specific weather model covering the route bbox.
@@ -41,13 +58,18 @@ export async function fetchModelWindGrid(
 
     // Grid resolution: ~2° for ocean routing (default), finer for the chart overlay.
     const RES = resolutionDeg;
+    // Mapbox may express a viewport that crosses the Date Line as either
+    // 170…190 or 170…-170. Work on one continuous x-axis in both cases.
+    // `uniqueLons` intentionally stays unwrapped; only `allPoints` below is
+    // converted for the provider request.
+    const east = continuousEastForLongitudeRange(bounds.west, bounds.east);
     const uniqueLats: number[] = [];
     const uniqueLons: number[] = [];
     for (let lat = bounds.south; lat <= bounds.north + 0.01; lat += RES) {
         uniqueLats.push(Math.round(Math.min(lat, bounds.north) * 100) / 100);
     }
-    for (let lon = bounds.west; lon <= bounds.east + 0.01; lon += RES) {
-        uniqueLons.push(Math.round(Math.min(lon, bounds.east) * 100) / 100);
+    for (let lon = bounds.west; lon <= east + 0.01; lon += RES) {
+        uniqueLons.push(Math.round(Math.min(lon, east) * 100) / 100);
     }
 
     // Ensure minimum grid size
@@ -57,9 +79,9 @@ export async function fetchModelWindGrid(
         uniqueLats.push(bounds.south, mid, bounds.north);
     }
     if (uniqueLons.length < 3) {
-        const mid = (bounds.west + bounds.east) / 2;
+        const mid = (bounds.west + east) / 2;
         uniqueLons.length = 0;
-        uniqueLons.push(bounds.west, mid, bounds.east);
+        uniqueLons.push(bounds.west, mid, east);
     }
 
     const rows = uniqueLats.length;
@@ -69,7 +91,7 @@ export async function fetchModelWindGrid(
     const allPoints: { lat: number; lon: number }[] = [];
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            allPoints.push({ lat: uniqueLats[r], lon: uniqueLons[c] });
+            allPoints.push({ lat: uniqueLats[r], lon: providerLongitude(uniqueLons[c]) });
         }
     }
 

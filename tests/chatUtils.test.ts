@@ -6,6 +6,8 @@ import {
     CREW_RANKS,
     parsePinMessage,
     parseTrackMessage,
+    cleanPinShareCaption,
+    getPinShareKind,
     PIN_PREFIX,
     TRACK_PREFIX,
 } from '../components/chat/chatUtils';
@@ -119,6 +121,18 @@ describe('parsePinMessage', () => {
     it('handles caption with pipe characters', () => {
         const result = parsePinMessage(`${PIN_PREFIX}10.0,20.0|part one|part two`);
         expect(result!.caption).toBe('part one|part two');
+    });
+
+    it('rejects out-of-range or malformed coordinates', () => {
+        expect(parsePinMessage(`${PIN_PREFIX}91,20|bad latitude`)).toBeNull();
+        expect(parsePinMessage(`${PIN_PREFIX}-27,181|bad longitude`)).toBeNull();
+        expect(parsePinMessage(`${PIN_PREFIX}10north,20|not a number`)).toBeNull();
+    });
+
+    it('keeps transport tags out of the received label', () => {
+        expect(getPinShareKind('[LOC] Current location')).toBe('current');
+        expect(getPinShareKind('[POI] Great anchorage')).toBe('place');
+        expect(cleanPinShareCaption('[POI] Great anchorage')).toBe('Great anchorage');
     });
 });
 

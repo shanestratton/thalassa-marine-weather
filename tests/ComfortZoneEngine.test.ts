@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { hasActiveComfortLimits, exceedsComfortLimits } from '../services/ComfortZoneEngine';
+import {
+    buildComfortZoneSegmentGeometry,
+    exceedsComfortLimits,
+    hasActiveComfortLimits,
+} from '../services/ComfortZoneEngine';
 import type { ComfortParams } from '../types/settings';
 
 // ── hasActiveComfortLimits ──────────────────────────────────────
@@ -40,6 +44,15 @@ describe('hasActiveComfortLimits', () => {
                 maxGustKts: 30,
             } as ComfortParams),
         ).toBe(true);
+    });
+});
+
+describe('buildComfortZoneSegmentGeometry', () => {
+    it('splits a continuous Date-Line grid into two Mapbox-safe image sources', () => {
+        expect(buildComfortZoneSegmentGeometry([179, -10, 181, -8], 3)).toEqual([
+            { sourceSuffix: '', startColumn: 0, endColumn: 1, bounds: [179, -10, 180, -8] },
+            { sourceSuffix: '_r', startColumn: 1, endColumn: 2, bounds: [-180, -10, -179, -8] },
+        ]);
     });
 });
 

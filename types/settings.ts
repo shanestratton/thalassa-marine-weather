@@ -61,7 +61,7 @@ export type SubscriptionTier = 'free' | 'crew' | 'owner';
  *   tidy       — light cleanup, keep author's voice
  *   polished   — moderate flow improvements (default)
  *   literary   — flowing prose, descriptive language
- *   poetic     — maximum literary flourish, evocative imagery
+ *   poetic     — Shakespearean maritime prose, high romance and cadence
  */
 export type PolishStyle = 'clean' | 'tidy' | 'polished' | 'literary' | 'poetic';
 
@@ -78,7 +78,9 @@ export const POLISH_LABEL: Record<PolishStyle, string> = {
     tidy: 'Tidy — keep my voice',
     polished: 'Polished — smooth flow',
     literary: 'Literary — flowing prose',
-    poetic: 'Poetic — evocative imagery',
+    // Keep the persisted key as `poetic` for existing skipper settings,
+    // while naming the actual experience plainly in the interface.
+    poetic: 'Shakespearean — maritime grandeur',
 };
 
 export interface UserSettings {

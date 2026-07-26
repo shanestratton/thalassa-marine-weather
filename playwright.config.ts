@@ -13,6 +13,12 @@ export default defineConfig({
         baseURL: 'http://localhost:3000',
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
+        // The app's chart is a real WebGL surface. Playwright's bundled
+        // Chromium has WebGL disabled by default in this environment, so use
+        // its software ANGLE backend for deterministic map coverage.
+        launchOptions: {
+            args: ['--use-angle=swiftshader'],
+        },
     },
 
     projects: [

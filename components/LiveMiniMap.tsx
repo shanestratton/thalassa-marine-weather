@@ -18,7 +18,9 @@ import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
 import { isTrackworthyEntry } from '../services/shiplog/helpers';
 import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
+import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
 import type { RouteCoordinate } from '../utils/routeCoordinates';
+import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
 
 const EMPTY_ROUTE_COORDS: readonly RouteCoordinate[] = [];
 
@@ -114,12 +116,17 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // Esri World Imagery (Shane 2026-07-10: dark carto was too dark —
             // "maybe we could have the satellite layer?"). Matches
             // TrackMapViewer; the neon track palette pops on imagery.
-            L.tileLayer(
+            const satelliteBase = L.tileLayer(
                 piCache.leafletTileTemplate(
                     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 ),
                 { maxZoom: 19 },
-            ).addTo(map);
+            );
+            // The iPhone WebKit seam guard belongs on the opaque imagery
+            // only — overscanning the transparent seamark symbols would make
+            // an icon at a tile edge draw twice.
+            installLeafletTileSeamGuard(satelliteBase);
+            satelliteBase.addTo(map);
 
             // OpenSeaMap overlay
             L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
@@ -220,7 +227,8 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // Trackworthy entries only — turn pins sit at past positions
             // and made the LIVE map zig-zag even after the full viewer
             // was fixed; (0,0) placeholders draw across the planet.
-            const valid = entries.filter(isTrackworthyEntry);
+            const geometryEntries = stripInitialTrackWarmupRebounds(entries);
+            const valid = geometryEntries.filter(isTrackworthyEntry);
             if (valid.length === 0) {
                 trackCoordsRef.current = [];
                 fitVisibleGeometry();

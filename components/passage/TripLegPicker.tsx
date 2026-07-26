@@ -83,6 +83,28 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
         setTripSnapshot({ scope, trips: buildTrips(scope) });
     };
 
+    // A deletion can promote leg 2 to leg 1 while this card remains mounted.
+    // Refresh at the shared library boundary instead of making the skipper
+    // close/reopen the picker to lose a stale "2nd Leg" row.
+    React.useEffect(() => {
+        const onSavedRoutesChanged = (event: Event): void => {
+            const detail = (event as CustomEvent<{ scopeKey?: string; scopeGeneration?: number }>).detail;
+            const scope = getAuthIdentityScope();
+            if (
+                detail?.scopeKey &&
+                (detail.scopeKey !== scope.key ||
+                    (detail.scopeGeneration !== undefined && detail.scopeGeneration !== scope.generation))
+            ) {
+                return;
+            }
+            setTripSnapshot({ scope, trips: buildTrips(scope) });
+            setLegsOpen(false);
+            setSelectedKey('');
+        };
+        window.addEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
+        return () => window.removeEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
+    }, []);
+
     const selected = trips.find((t) => t.key === selectedKey) ?? null;
     const lastLeg = selected ? selected.legs[selected.legs.length - 1] : null;
     const seed = lastLeg ? nextLegSeed(lastLeg) : null;

@@ -65,27 +65,34 @@ async function sendApnsPush(
     body: string,
     data: Record<string, unknown>,
 ): Promise<boolean> {
-    const bundleId = Deno.env.get('APNS_BUNDLE_ID') || 'com.thalassa.weather';
-    const criticalAlertsEntitled = Deno.env.get('APNS_CRITICAL_ALERTS_ENABLED') === 'true';
-    const jwt = await createApnsJwt();
-
-    // Use production APNs (switch to api.sandbox.push.apple.com for dev)
-    const useProduction = Deno.env.get('APNS_PRODUCTION') !== 'false';
-    const host = useProduction ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
-
-    const alertSound = criticalAlertsEntitled ? { critical: 1, name: 'default', volume: 1.0 } : 'default';
-    const payload = {
-        aps: {
-            alert: { title, body },
-            sound: alertSound,
-            'interruption-level': criticalAlertsEntitled ? 'critical' : 'time-sensitive',
-            'content-available': 1,
-            badge: 1,
-        },
-        ...data,
-    };
-
     try {
+        const bundleId = Deno.env.get('APNS_BUNDLE_ID') || 'com.thalassa.weather';
+        const criticalAlertsEntitled = Deno.env.get('APNS_CRITICAL_ALERTS_ENABLED') === 'true';
+        // Keep signing inside the guarded delivery path. A missing or rotated
+        // APNs key must turn into a normal failed delivery so the queue claim
+        // is released and the scheduled retry can recover after it is fixed.
+        const jwt = await createApnsJwt();
+
+        // Use production APNs (switch to api.sandbox.push.apple.com for dev)
+        const useProduction = Deno.env.get('APNS_PRODUCTION') !== 'false';
+        const host = useProduction ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
+
+        const alertSound = criticalAlertsEntitled ? { critical: 1, name: 'default', volume: 1.0 } : 'default';
+        const payload = {
+            aps: {
+                alert: { title, body },
+                sound: alertSound,
+                'interruption-level': criticalAlertsEntitled ? 'critical' : 'time-sensitive',
+                'content-available': 1,
+                badge: 1,
+            },
+            ...data,
+            // The app's notification tap router relies on this exact value.
+            // Put it last so an untrusted/accidental caller payload cannot
+            // send an anchor alarm to the wrong screen.
+            notification_type: 'anchor_alarm',
+        };
+
         const response = await fetch(`${host}/3/device/${deviceToken}`, {
             method: 'POST',
             headers: {
@@ -101,11 +108,9 @@ async function sendApnsPush(
 
         if (response.ok) {
             return true;
-        } else {
-            const errorBody = await response.text();
-            return false;
         }
-    } catch (error) {
+        return false;
+    } catch {
         return false;
     }
 }

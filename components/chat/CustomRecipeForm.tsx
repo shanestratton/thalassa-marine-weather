@@ -22,6 +22,7 @@ import { triggerHaptic } from '../../utils/system';
 import { toast } from '../Toast';
 import { createLogger } from '../../utils/createLogger';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
 
@@ -100,58 +101,9 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     // Nautical tags (selectable in Basics step)
     const [selectedTags, setSelectedTags] = useState<Set<NauticalTag>>(new Set());
 
-    // ── Keyboard avoidance ──
-    // The form is a centered modal with max-h-[85dvh]. When the iOS
-    // keyboard slides up, it covers the bottom ~40-45% of the screen.
-    // The previous behaviour was: input gets covered, user can't see
-    // what they're typing. Tracking the keyboard height lets us shrink
-    // the modal AND scroll the focused field into view above it.
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-    useEffect(() => {
-        let cleanup: (() => void) | undefined;
-        // Use a feature-detect pattern instead of importing Capacitor at
-        // top-level — keeps this component web-friendly. The Keyboard
-        // plugin only resolves on native; on web we fall back to the
-        // visualViewport API below.
-        import('@capacitor/core')
-            .then(async ({ Capacitor }) => {
-                if (!Capacitor.isNativePlatform()) return;
-                const { Keyboard } = await import('@capacitor/keyboard');
-                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight);
-                    // Give the modal a beat to shrink, then scroll the
-                    // focused field into the visible area. iOS doesn't
-                    // resize the WKWebView when keyboard shows (we set
-                    // KeyboardResize.None), so we MUST scroll manually.
-                    setTimeout(() => {
-                        const focused = document.activeElement as HTMLElement | null;
-                        if (
-                            focused &&
-                            (focused.tagName === 'INPUT' ||
-                                focused.tagName === 'TEXTAREA' ||
-                                focused.tagName === 'SELECT')
-                        ) {
-                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 200);
-                });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-                cleanup = () => {
-                    showHandle.then((h) => h.remove());
-                    hideHandle.then((h) => h.remove());
-                };
-            })
-            .catch(() => {
-                /* Capacitor unavailable (web build) — nothing to do */
-            });
-
-        return () => {
-            cleanup?.();
-        };
-    }, []);
+    // Makes this nested form shrink above the real native/Safari keyboard;
+    // focused fields are then positioned by the app-wide focus guard.
+    const keyboardHeight = useKeyboardOffset();
 
     // Auto-suggest tags when title changes
     useEffect(() => {

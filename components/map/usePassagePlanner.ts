@@ -55,6 +55,17 @@ import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../servic
 import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
 import { peekPassageRequest, clearPassageRequest } from '../../services/passageHandoff';
 
+const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
+
+function clearComfortZoneOverlay(map: mapboxgl.Map): void {
+    for (const suffix of COMFORT_ZONE_SUFFIXES) {
+        const layerId = `comfort-zone-layer${suffix}`;
+        const sourceId = `comfort-zone${suffix}`;
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+        if (map.getSource(sourceId)) map.removeSource(sourceId);
+    }
+}
+
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
     arrival: { lat: number; lon: number; name: string } | null;
@@ -2042,29 +2053,34 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         try {
                             const czResult = generateComfortZoneOverlay(windGrid, comfortParams);
                             if (czResult) {
-                                // Remove existing comfort zone layer/source
-                                if (map.getLayer('comfort-zone-layer')) map.removeLayer('comfort-zone-layer');
-                                if (map.getSource('comfort-zone')) map.removeSource('comfort-zone');
-
-                                map.addSource('comfort-zone', {
-                                    type: 'image',
-                                    url: czResult.imageDataUrl,
-                                    coordinates: [
-                                        [czResult.bounds[0], czResult.bounds[3]], // top-left
-                                        [czResult.bounds[2], czResult.bounds[3]], // top-right
-                                        [czResult.bounds[2], czResult.bounds[1]], // bottom-right
-                                        [czResult.bounds[0], czResult.bounds[1]], // bottom-left
-                                    ],
-                                });
-                                map.addLayer(
-                                    {
-                                        id: 'comfort-zone-layer',
-                                        type: 'raster',
-                                        source: 'comfort-zone',
-                                        paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 0 },
-                                    },
-                                    'route-line-layer',
-                                ); // Insert BELOW route line
+                                // A route grid can straddle the International
+                                // Date Line. Mapbox image sources cannot, so
+                                // render each safe piece rather than stretching
+                                // one red glow across the whole world.
+                                clearComfortZoneOverlay(map);
+                                for (const segment of czResult.segments) {
+                                    const sourceId = `comfort-zone${segment.sourceSuffix}`;
+                                    const layerId = `comfort-zone-layer${segment.sourceSuffix}`;
+                                    map.addSource(sourceId, {
+                                        type: 'image',
+                                        url: segment.imageDataUrl,
+                                        coordinates: [
+                                            [segment.bounds[0], segment.bounds[3]], // top-left
+                                            [segment.bounds[2], segment.bounds[3]], // top-right
+                                            [segment.bounds[2], segment.bounds[1]], // bottom-right
+                                            [segment.bounds[0], segment.bounds[1]], // bottom-left
+                                        ],
+                                    });
+                                    map.addLayer(
+                                        {
+                                            id: layerId,
+                                            type: 'raster',
+                                            source: sourceId,
+                                            paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 0 },
+                                        },
+                                        'route-line-layer',
+                                    ); // Insert BELOW route line
+                                }
                                 log.info(
                                     `[ComfortZone] Rendered overlay — ${czResult.dangerPercent}% breach, max ${czResult.maxBreachWindKts} kts`,
                                 );
@@ -2518,9 +2534,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
         if (wpSource) wpSource.setData({ type: 'FeatureCollection', features: [] });
 
-        // Clean up comfort zone overlay
-        if (map.getLayer('comfort-zone-layer')) map.removeLayer('comfort-zone-layer');
-        if (map.getSource('comfort-zone')) map.removeSource('comfort-zone');
+        // Clean up every Date-Line-safe comfort-zone image piece.
+        clearComfortZoneOverlay(map);
 
         // Clean up Decision Fan layers
         if (map.getLayer('isochrone-fan-layer')) map.removeLayer('isochrone-fan-layer');

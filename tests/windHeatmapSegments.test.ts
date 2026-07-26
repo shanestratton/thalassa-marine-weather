@@ -24,6 +24,19 @@ describe('wind heatmap longitude segments', () => {
         ]);
     });
 
+    it('keeps a date-line strip in the correct world copy when Mapbox reports west of -180', () => {
+        expect(buildWindHeatmapSegments({ columns: 3, west: -181, east: -179 })).toEqual([
+            { sourceSuffix: '', startColumn: 0, endColumn: 1, west: 179, east: 180 },
+            { sourceSuffix: '_r', startColumn: 1, endColumn: 2, west: -180, east: -179 },
+        ]);
+    });
+
+    it('maps an eastern world-copy strip back to conventional longitudes without a false split', () => {
+        expect(buildWindHeatmapSegments({ columns: 3, west: 181, east: 183 })).toEqual([
+            { sourceSuffix: '', startColumn: 0, endColumn: 2, west: -179, east: -177 },
+        ]);
+    });
+
     it('keeps an ordinary regional grid as one image', () => {
         expect(buildWindHeatmapSegments({ columns: 21, west: 140, east: 160 })).toEqual([
             { sourceSuffix: '', startColumn: 0, endColumn: 20, west: 140, east: 160 },

@@ -7,6 +7,7 @@ import { ChatService, DMConversation, DirectMessage } from '../../services/ChatS
 import { triggerHaptic } from '../../utils/system';
 import { toast } from '../../components/Toast';
 import { QUEUED_DM_SENT_EVENT } from '../../services/chat/constants';
+import { PushNotificationService } from '../../services/PushNotificationService';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -30,12 +31,41 @@ export function useChatDMs(options: UseChatDMsOptions) {
     const [isUserBlocked, setIsUserBlocked] = useState(false);
     const [showBlockConfirm, setShowBlockConfirm] = useState(false);
     const [unreadDMs, setUnreadDMs] = useState(0);
+    // Keep the iOS permission request contextual: the first time a sailor
+    // deliberately opens or starts a direct conversation.  Asking at app
+    // launch is both noisy and easy to deny, which leaves chat-only users
+    // with no APNs token at all.
+    const registeredPushScopeRef = useRef<string | null>(null);
+    const registeringPushScopeRef = useRef<string | null>(null);
 
     // Ref so the DM subscription callback always has fresh partner data
     const dmPartnerRef = useRef(dmPartner);
     useEffect(() => {
         dmPartnerRef.current = dmPartner;
     }, [dmPartner]);
+
+    const ensureDirectMessagePushRegistration = useCallback(() => {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+        if (registeredPushScopeRef.current === scope.key || registeringPushScopeRef.current === scope.key) return;
+
+        registeringPushScopeRef.current = scope.key;
+        void PushNotificationService.requestPermissionAndRegister()
+            .then((token) => {
+                // A token is useful only for the identity that initiated the
+                // request.  A delayed result from a signed-out account must
+                // not suppress registration for the next sailor.
+                if (!isAuthIdentityScopeCurrent(scope) || registeringPushScopeRef.current !== scope.key) return;
+                if (token) registeredPushScopeRef.current = scope.key;
+            })
+            .catch(() => {
+                // Registration is best-effort.  A DM must still open when a
+                // sailor declines notifications or APNs is temporarily down.
+            })
+            .finally(() => {
+                if (registeringPushScopeRef.current === scope.key) registeringPushScopeRef.current = null;
+            });
+    }, []);
 
     useEffect(
         () =>
@@ -95,6 +125,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
     // --- Actions ---
 
     const openDMInbox = useCallback(async () => {
+        ensureDirectMessagePushRegistration();
         const identity = getAuthIdentityScope();
         setNavDirection('forward');
         setView('dm_inbox');
@@ -108,10 +139,11 @@ export function useChatDMs(options: UseChatDMsOptions) {
         }
         setDmConversations(convs);
         setLoading(false);
-    }, [setView, setNavDirection, setLoading]);
+    }, [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading]);
 
     const openDMThread = useCallback(
         async (userId: string, name: string) => {
+            ensureDirectMessagePushRegistration();
             const identity = getAuthIdentityScope();
             setDmPartner({ id: userId, name });
             setNavDirection('forward');
@@ -133,7 +165,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
             setLoading(false);
             setUnreadDMs((prev) => Math.max(0, prev - 1));
         },
-        [setView, setNavDirection, setLoading],
+        [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading],
     );
 
     const sendDMMessage = useCallback(async () => {

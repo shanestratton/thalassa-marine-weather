@@ -405,4 +405,35 @@ export const WatchAssignmentService = {
         writeToLocal(voyageId, cached, scope);
         return true;
     },
+
+    /**
+     * Clear every assignment for a voyage before its watch pattern changes.
+     * Slot indexes only have meaning within one pattern, so retaining them
+     * would silently put people on the wrong watch after a system switch.
+     */
+    async clearAll(voyageId: string): Promise<boolean> {
+        if (!voyageId) return false;
+        const scope = getAuthIdentityScope();
+        if (supabase && scope.userId) {
+            try {
+                const identity = await verifyRemoteIdentity(scope);
+                if (identity === 'stale' || identity === 'mismatch') return false;
+                if (identity === 'match') {
+                    const { error } = await supabase.from('watch_assignments').delete().eq('voyage_id', voyageId);
+                    if (!isAuthIdentityScopeCurrent(scope)) return false;
+                    if (!error) {
+                        if ((await verifyRemoteIdentity(scope)) !== 'match') return false;
+                        writeToLocal(voyageId, [], scope);
+                        return true;
+                    }
+                    log.warn('clearAll Supabase path failed:', error.message);
+                }
+            } catch (e) {
+                log.warn('clearAll failed:', e);
+            }
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        writeToLocal(voyageId, [], scope);
+        return true;
+    },
 };

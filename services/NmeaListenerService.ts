@@ -14,6 +14,7 @@ import { processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { NmeaRateTracker } from './NmeaRateTracker';
+import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
 const log = createLogger('NMEA');
 
 // Count of sentences dropped on checksum mismatch — surfaced occasionally
@@ -32,6 +33,20 @@ const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
 
 export type NmeaConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type NmeaSampleCallback = (sample: NmeaSample) => void;
+
+/**
+ * The known transport endpoint, rather than a claim about the physical GPS
+ * antenna. A regular NMEA 0183 stream cannot tell us its receiver make/model.
+ */
+export interface NmeaConnectionInfo {
+    status: NmeaConnectionStatus;
+    enabled: boolean;
+    host: string;
+    port: number;
+    deviceId: string | null;
+    deviceLabel: string;
+    transport: 'tcp' | 'websocket';
+}
 
 // ── Raw accumulator between emissions ──
 interface RawAccumulator {
@@ -127,6 +142,18 @@ class NmeaListenerServiceClass {
     getStatus(): NmeaConnectionStatus {
         return this.status;
     }
+    getConnectionInfo(): NmeaConnectionInfo {
+        const deviceId = this.readSavedDeviceId();
+        return {
+            status: this.status,
+            enabled: this.enabled,
+            host: this.host,
+            port: this.port,
+            deviceId,
+            deviceLabel: getNmeaDeviceLabel(deviceId),
+            transport: Capacitor.isNativePlatform() ? 'tcp' : 'websocket',
+        };
+    }
     getHasRpmData(): boolean {
         return this.hasRpmData;
     }
@@ -141,6 +168,15 @@ class NmeaListenerServiceClass {
     }
     isEnabled(): boolean {
         return this.enabled;
+    }
+
+    private readSavedDeviceId(): string | null {
+        try {
+            return localStorage.getItem('nmea_device');
+        } catch {
+            // Keep the service import-safe in non-browser test/runtime paths.
+            return null;
+        }
     }
 
     onSample(cb: NmeaSampleCallback) {

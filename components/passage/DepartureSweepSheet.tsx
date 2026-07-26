@@ -29,6 +29,11 @@ import {
     type DepartureSweep,
 } from '../../services/routing/DepartureSweepInshore';
 import type { LonLat } from '../../services/routing/TideAwareAnnotator';
+import {
+    readPersistedShallowRuns,
+    shallowRunsToDepartureSpots,
+    tideAnchorForShallowRuns,
+} from '../../services/routing/inshoreTideSpots';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -133,6 +138,22 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
         return coords && coords.length >= 2 ? (coords as LonLat[]) : null;
     }, [voyagePlan]);
 
+    // Inshore routes persist their charted shallow runs on the GeoJSON
+    // feature. Rehydrate them defensively: a saved passage can legitimately
+    // pre-date this field, but malformed cloud data must never break the
+    // departure sheet.
+    const persistedShallowRuns = useMemo(() => {
+        const properties = (voyagePlan?.routeGeoJSON as { properties?: { shallowRuns?: unknown } } | undefined)
+            ?.properties;
+        return readPersistedShallowRuns(properties?.shallowRuns);
+    }, [voyagePlan?.routeGeoJSON]);
+
+    const shallowSpots = useMemo(
+        () => (polyline ? shallowRunsToDepartureSpots(polyline, persistedShallowRuns) : []),
+        [polyline, persistedShallowRuns],
+    );
+    const tideAnchor = useMemo(() => tideAnchorForShallowRuns(persistedShallowRuns), [persistedShallowRuns]);
+
     useEffect(() => {
         if (!open || !polyline) return;
         let cancelled = false;
@@ -144,12 +165,15 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             const startMs = Date.now();
             const horizonMs = startMs + 36 * 3_600_000;
             const dest = polyline[polyline.length - 1];
+            const tidePoint = tideAnchor ?? { lat: dest[1], lon: dest[0] };
 
-            // Tide curve at the destination (free extremes path, pi-cached).
+            // Match the native chart's tide reference: the longest charted
+            // shallow run, not merely the destination. A destination can be
+            // in a different estuary with a different phase.
             let tide: TideField | null = null;
             try {
                 const { fetchTideCurve } = await import('../../services/TideHeightService');
-                const curve = await fetchTideCurve(dest[1], dest[0], startMs, horizonMs + 24 * 3_600_000);
+                const curve = await fetchTideCurve(tidePoint.lat, tidePoint.lon, startMs, horizonMs + 24 * 3_600_000);
                 if (curve) tide = tideFieldFromCurve(curve);
             } catch (e) {
                 log.warn('tide curve unavailable for sweep:', e);
@@ -180,9 +204,10 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 speed: motoringSpeedModel(vessel?.cruisingSpeed),
                 tide,
                 currents,
-                // shallowSpots arrive with the engine's per-run charted depths
-                // (masterplan Phase 4); until then nothing gates and the sweep
-                // surfaces passage/ETA/current value honestly.
+                // Same charted depth constraints as the native planner. An
+                // absent field on an older/non-inshore plan means no claimed
+                // tide gate — it never invents a depth from the route line.
+                shallowSpots,
                 draftM: vesselDraftMetres(vessel),
                 startMs,
             });
@@ -197,8 +222,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
         return () => {
             cancelled = true;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, polyline]);
+    }, [open, polyline, shallowSpots, tideAnchor, vessel]);
 
     if (!open) return null;
 

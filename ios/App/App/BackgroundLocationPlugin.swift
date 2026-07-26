@@ -1,6 +1,8 @@
 import Foundation
 import Capacitor
 import CoreLocation
+import ExternalAccessory
+import TSLocationManager
 
 /**
  * BackgroundLocationPlugin - Enables continuous GPS tracking while app is backgrounded
@@ -92,6 +94,60 @@ public class BackgroundLocationPlugin: CAPPlugin, CLLocationManagerDelegate {
                 "authorizationStatus": statusString,
                 "canTrackInBackground": status == .authorizedAlways
             ])
+        }
+    }
+
+    /**
+     * Returns provenance for the existing Transistorsoft location cache.
+     *
+     * This deliberately does not touch this plugin's own CLLocationManager:
+     * voyage / anchor tracking already owns the live Core Location stream via
+     * TSLocationManager. Reading that cache adds no second GPS consumer,
+     * battery use, or permission request.
+     */
+    @objc func getActiveLocationSource(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let location = TSLocationManager.sharedInstance()?.lastLocation else {
+                call.resolve([
+                    "hasLocation": false,
+                    "timestampMs": NSNull(),
+                    "externalAccessory": false,
+                    "simulated": false
+                ])
+                return
+            }
+
+            let source = location.sourceInformation
+            call.resolve([
+                "hasLocation": true,
+                "timestampMs": Int64(location.timestamp.timeIntervalSince1970 * 1000),
+                // This is the authoritative iOS signal that the reported
+                // CLLocation was supplied by an external accessory. It is
+                // intentionally not inferred from horizontal accuracy.
+                "externalAccessory": source?.isProducedByAccessory ?? false,
+                "simulated": source?.isSimulatedBySoftware ?? false
+            ])
+        }
+    }
+
+    /**
+     * Best-effort MFi accessory metadata. iOS only exposes accessories that
+     * are made available to this app; we never scan Bluetooth or guess a
+     * vendor protocol. The JS layer uses this only to enrich a verified
+     * external-location source with a human-readable name/model.
+     */
+    @objc func getConnectedAccessories(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let accessories = EAAccessoryManager.shared().connectedAccessories.map { accessory in
+                [
+                    "name": accessory.name,
+                    "manufacturer": accessory.manufacturer,
+                    "modelNumber": accessory.modelNumber,
+                    "firmwareRevision": accessory.firmwareRevision,
+                    "hardwareRevision": accessory.hardwareRevision
+                ]
+            }
+            call.resolve(["accessories": accessories])
         }
     }
     

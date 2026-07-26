@@ -43,63 +43,111 @@ const DEFAULT_ALARM_MIN = 15;
 const ALARM_LEAD_OPTIONS = [5, 10, 15, 30] as const;
 
 const STORAGE_KEY = 'thalassa_watch_schedule';
+const WATCH_SYSTEM_STORAGE_KEY = 'thalassa_watch_system';
 
-/** Generate a watch rotation based on crew count */
-/**
- * Per-day watch schedule. Multi-day passages get this template repeated
- * once per day inside the wrapper below.
- */
-const baseDaySchedule = (
-    crewCount: number,
-): { system: string; pattern: string; watches: { label: string; time: string; crew: string }[] } => {
-    if (crewCount <= 1) {
-        return {
-            system: 'Single-Handed',
-            pattern: 'Cat naps · 20-min alarm cycles · AIS guard zone',
-            watches: [{ label: 'Continuous', time: '24h', crew: 'Skipper (solo)' }],
-        };
+type WatchSystem = 'auto' | 'single_handed' | 'swedish' | 'two_watch_4_4' | 'three_watch' | 'port_starboard';
+
+type WatchRow = { label: string; time: string; crew: string };
+type WatchSchedule = { system: string; pattern: string; watches: WatchRow[] };
+
+const WATCH_SYSTEM_OPTIONS: Array<{ value: WatchSystem; label: string; minCrew: number }> = [
+    { value: 'auto', label: 'Auto — match crew size', minCrew: 1 },
+    { value: 'single_handed', label: 'Single-handed', minCrew: 1 },
+    { value: 'swedish', label: 'Swedish two-watch', minCrew: 2 },
+    { value: 'two_watch_4_4', label: 'Two-watch · 4 on / 4 off', minCrew: 2 },
+    { value: 'three_watch', label: 'Three-watch · 4 on / 8 off', minCrew: 3 },
+    { value: 'port_starboard', label: 'Port / starboard · 6 on / 6 off', minCrew: 4 },
+];
+
+const SOLO_CHECKLIST_ITEMS = [
+    { key: 'solo_lookout', icon: '👀', label: '20-minute lookout/check-in timer is set' },
+    { key: 'solo_guard', icon: '📡', label: 'AIS, radar and guard-zone alerts are configured' },
+    { key: 'solo_fatigue', icon: '😴', label: 'Solo fatigue and rest plan is set' },
+];
+
+const CREW_CHECKLIST_ITEMS = [
+    { key: 'schedule_briefed', icon: '📋', label: 'Watch schedule briefed to all crew' },
+    { key: 'night_duties', icon: '🌙', label: 'Night watch duties & protocols explained' },
+    { key: 'handover', icon: '🤝', label: 'Watch handover procedure agreed' },
+    { key: 'fatigue', icon: '😴', label: 'Fatigue management plan discussed' },
+];
+
+function isWatchSystem(value: string): value is WatchSystem {
+    return WATCH_SYSTEM_OPTIONS.some((option) => option.value === value);
+}
+
+function resolveWatchSystem(selection: WatchSystem, crewCount: number): Exclude<WatchSystem, 'auto'> {
+    if (selection !== 'auto') return selection;
+    if (crewCount <= 1) return 'single_handed';
+    if (crewCount === 2) return 'swedish';
+    if (crewCount === 3) return 'three_watch';
+    return 'port_starboard';
+}
+
+/** Per-day watch schedule. Multi-day passages repeat this template below. */
+const baseDaySchedule = (selection: WatchSystem, crewCount: number): WatchSchedule => {
+    const system = resolveWatchSystem(selection, crewCount);
+
+    switch (system) {
+        case 'single_handed':
+            return {
+                system: 'Single-handed watch plan',
+                pattern: 'Continuous lookout · 20-minute check-ins · AIS guard zone',
+                watches: [{ label: 'Continuous lookout', time: '20-min check-ins', crew: 'Skipper (solo)' }],
+            };
+        case 'swedish':
+            return {
+                system: 'Swedish two-watch system',
+                pattern: '4 on / 4 off with dog watches',
+                watches: [
+                    { label: 'First Watch', time: '2000–0000', crew: 'Watch A' },
+                    { label: 'Middle Watch', time: '0000–0400', crew: 'Watch B' },
+                    { label: 'Morning Watch', time: '0400–0800', crew: 'Watch A' },
+                    { label: 'Forenoon Watch', time: '0800–1200', crew: 'Watch B' },
+                    { label: 'Afternoon Watch', time: '1200–1600', crew: 'Watch A' },
+                    { label: 'Dog Watch (1st)', time: '1600–1800', crew: 'Watch B' },
+                    { label: 'Dog Watch (2nd)', time: '1800–2000', crew: 'Watch A' },
+                ],
+            };
+        case 'two_watch_4_4':
+            return {
+                system: 'Two-watch system',
+                pattern: '4 on / 4 off',
+                watches: [
+                    { label: 'Night Watch A', time: '0000–0400', crew: 'Watch A' },
+                    { label: 'Morning Watch B', time: '0400–0800', crew: 'Watch B' },
+                    { label: 'Day Watch A', time: '0800–1200', crew: 'Watch A' },
+                    { label: 'Afternoon Watch B', time: '1200–1600', crew: 'Watch B' },
+                    { label: 'Evening Watch A', time: '1600–2000', crew: 'Watch A' },
+                    { label: 'First Watch B', time: '2000–0000', crew: 'Watch B' },
+                ],
+            };
+        case 'three_watch':
+            return {
+                system: 'Three-watch system',
+                pattern: '4 on / 8 off — best rest ratio',
+                watches: [
+                    { label: 'First Watch', time: '2000–0000', crew: 'Watch A' },
+                    { label: 'Middle Watch', time: '0000–0400', crew: 'Watch B' },
+                    { label: 'Morning Watch', time: '0400–0800', crew: 'Watch C' },
+                    { label: 'Forenoon Watch', time: '0800–1200', crew: 'Watch A' },
+                    { label: 'Afternoon Watch', time: '1200–1600', crew: 'Watch B' },
+                    { label: 'First Dog', time: '1600–1800', crew: 'Watch C' },
+                    { label: 'Last Dog', time: '1800–2000', crew: 'Watch A' },
+                ],
+            };
+        case 'port_starboard':
+            return {
+                system: 'Port / starboard watch system',
+                pattern: `6 on / 6 off — ${Math.max(2, Math.ceil(crewCount / 2))} crew per watch`,
+                watches: [
+                    { label: 'Port Watch', time: '0000–0600', crew: 'Port team' },
+                    { label: 'Starboard Watch', time: '0600–1200', crew: 'Starboard team' },
+                    { label: 'Port Watch', time: '1200–1800', crew: 'Port team' },
+                    { label: 'Starboard Watch', time: '1800–0000', crew: 'Starboard team' },
+                ],
+            };
     }
-    if (crewCount === 2) {
-        return {
-            system: '2-Watch System (Swedish)',
-            pattern: '4 on / 4 off with dog watches',
-            watches: [
-                { label: 'First Watch', time: '2000–0000', crew: 'Watch A' },
-                { label: 'Middle Watch', time: '0000–0400', crew: 'Watch B' },
-                { label: 'Morning Watch', time: '0400–0800', crew: 'Watch A' },
-                { label: 'Forenoon Watch', time: '0800–1200', crew: 'Watch B' },
-                { label: 'Afternoon Watch', time: '1200–1600', crew: 'Watch A' },
-                { label: 'Dog Watch (1st)', time: '1600–1800', crew: 'Watch B' },
-                { label: 'Dog Watch (2nd)', time: '1800–2000', crew: 'Watch A' },
-            ],
-        };
-    }
-    if (crewCount === 3) {
-        return {
-            system: '3-Watch System',
-            pattern: '4 on / 8 off — best rest ratio',
-            watches: [
-                { label: 'First Watch', time: '2000–0000', crew: 'Watch A' },
-                { label: 'Middle Watch', time: '0000–0400', crew: 'Watch B' },
-                { label: 'Morning Watch', time: '0400–0800', crew: 'Watch C' },
-                { label: 'Forenoon Watch', time: '0800–1200', crew: 'Watch A' },
-                { label: 'Afternoon Watch', time: '1200–1600', crew: 'Watch B' },
-                { label: 'First Dog', time: '1600–1800', crew: 'Watch C' },
-                { label: 'Last Dog', time: '1800–2000', crew: 'Watch A' },
-            ],
-        };
-    }
-    // 4+ crew
-    return {
-        system: `${Math.ceil(crewCount / 2)}-Watch System`,
-        pattern: `${crewCount >= 6 ? '4 on / 8 off' : '6 on / 6 off'} — ${Math.ceil(crewCount / 2)} per watch`,
-        watches: [
-            { label: 'Watch A (Port)', time: '0000–0600', crew: `${Math.ceil(crewCount / 2)} crew` },
-            { label: 'Watch B (Starboard)', time: '0600–1200', crew: `${Math.floor(crewCount / 2)} crew` },
-            { label: 'Watch A (Port)', time: '1200–1800', crew: `${Math.ceil(crewCount / 2)} crew` },
-            { label: 'Watch B (Starboard)', time: '1800–0000', crew: `${Math.floor(crewCount / 2)} crew` },
-        ],
-    };
 };
 
 /**
@@ -124,11 +172,15 @@ const baseDaySchedule = (
 const generateWatchSchedule = (
     crewCount: number,
     passageDurationHours?: number,
-): { system: string; pattern: string; watches: { label: string; time: string; crew: string }[] } => {
-    const base = baseDaySchedule(crewCount);
+    selection: WatchSystem = 'auto',
+): WatchSchedule => {
+    const base = baseDaySchedule(selection, crewCount);
     const days = passageDurationHours && passageDurationHours > 24 ? Math.ceil(passageDurationHours / 24) : 1;
-    if (days <= 1) return base;
-    const watches: { label: string; time: string; crew: string }[] = [];
+    // A solo plan is deliberately continuous rather than a roster of
+    // repeated shifts. Repeating it once per day makes the card imply that
+    // a skipper can hand the boat over to someone between rows.
+    if (days <= 1 || resolveWatchSystem(selection, crewCount) === 'single_handed') return base;
+    const watches: WatchRow[] = [];
     for (let d = 1; d <= days; d += 1) {
         for (const w of base.watches) {
             watches.push({
@@ -145,13 +197,6 @@ const generateWatchSchedule = (
     };
 };
 
-const CHECKLIST_ITEMS = [
-    { key: 'schedule_briefed', icon: '📋', label: 'Watch schedule briefed to all crew' },
-    { key: 'night_duties', icon: '🌙', label: 'Night watch duties & protocols explained' },
-    { key: 'handover', icon: '🤝', label: 'Watch handover procedure agreed' },
-    { key: 'fatigue', icon: '😴', label: 'Fatigue management plan discussed' },
-];
-
 export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     voyageId,
     crewCount,
@@ -166,13 +211,36 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         voyageId,
         {},
     );
+    const [watchSystem, setWatchSystem] = useScopedReadinessStorageState<WatchSystem>(
+        WATCH_SYSTEM_STORAGE_KEY,
+        voyageId,
+        'auto',
+    );
 
-    const { syncCheck } = useReadinessSync(voyageId, 'watch_schedule', checkedItems, setCheckedItems, STORAGE_KEY);
+    const { syncCheck, clearChecks } = useReadinessSync(
+        voyageId,
+        'watch_schedule',
+        checkedItems,
+        setCheckedItems,
+        STORAGE_KEY,
+    );
+
+    // A skipper always counts as one person. CrewManagement previously
+    // forced this to two, which made a solo passage look like a Swedish
+    // two-watch route and prevented a sensible single-handed briefing.
+    const effectiveCrewCount = Math.max(1, crewCount);
+    const requestedSystem = typeof watchSystem === 'string' && isWatchSystem(watchSystem) ? watchSystem : 'auto';
+    const requestedOption = WATCH_SYSTEM_OPTIONS.find((option) => option.value === requestedSystem);
+    const activeWatchSystem =
+        requestedOption && effectiveCrewCount >= requestedOption.minCrew ? requestedSystem : ('auto' as const);
+    const resolvedWatchSystem = resolveWatchSystem(activeWatchSystem, effectiveCrewCount);
+    const isSoloSystem = resolvedWatchSystem === 'single_handed';
 
     const schedule = useMemo(
-        () => generateWatchSchedule(crewCount, passageDurationHours),
-        [crewCount, passageDurationHours],
+        () => generateWatchSchedule(effectiveCrewCount, passageDurationHours, activeWatchSystem),
+        [activeWatchSystem, effectiveCrewCount, passageDurationHours],
     );
+    const checklistItems = isSoloSystem ? SOLO_CHECKLIST_ITEMS : CREW_CHECKLIST_ITEMS;
 
     // ── Watch assignments ──
     // Each watch slot can be assigned to a specific crew member.
@@ -184,6 +252,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const [crew, setCrew] = useState<CrewMember[]>([]);
     const [skipperEmail, setSkipperEmail] = useState<string | undefined>(undefined);
     const [assignSheetIndex, setAssignSheetIndex] = useState<number | null>(null);
+    const [systemChanging, setSystemChanging] = useState(false);
     const lifecycleGenerationRef = useRef(0);
     const assignmentLoadGenerationRef = useRef(0);
     const assignmentMutationRef = useRef(0);
@@ -196,6 +265,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         setCrew([]);
         setSkipperEmail(undefined);
         setAssignSheetIndex(null);
+        setSystemChanging(false);
     }, [identityScope, voyageId]);
 
     // Load assignments + crew on mount / voyage change
@@ -372,8 +442,21 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         const operationGeneration = lifecycleGenerationRef.current;
         const isOperationCurrent = () =>
             isAuthIdentityScopeCurrent(operationScope) && lifecycleGenerationRef.current === operationGeneration;
-        if (!voyageId || !departureTimeIso || !alarmEnabled) {
+        if (!voyageId || !departureTimeIso || !alarmEnabled || isSoloSystem) {
             setAlarmCount(0);
+            // Changing from a crew rotation to single-handed removes all
+            // assignable watches, so cancel any notifications that were
+            // previously scheduled for the old rotation as well.
+            if (voyageId && isSoloSystem) {
+                void (async () => {
+                    try {
+                        const { WatchAlarmService } = await import('../../services/WatchAlarmService');
+                        await WatchAlarmService.cancelForVoyage(voyageId);
+                    } catch {
+                        /* non-critical */
+                    }
+                })();
+            }
             return;
         }
         let cancelled = false;
@@ -398,7 +481,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             cancelled = true;
         };
         // assignments-as-map dep — rebuild alarms when slots change
-    }, [identityScope, voyageId, departureTimeIso, alarmEnabled, alarmLeadMin, assignments]);
+    }, [identityScope, voyageId, departureTimeIso, alarmEnabled, alarmLeadMin, assignments, isSoloSystem]);
 
     // Cancel alarms when component unmounts (e.g., user navigates away
     // from Crew Management) — keeps stale alarms from firing if the
@@ -522,6 +605,49 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const [autofilling, setAutofilling] = useState(false);
     useLayoutEffect(() => setAutofilling(false), [identityScope, voyageId]);
 
+    const handleWatchSystemChange = useCallback(
+        async (value: string) => {
+            if (!isWatchSystem(value) || systemChanging || value === requestedSystem) return;
+            const option = WATCH_SYSTEM_OPTIONS.find((candidate) => candidate.value === value);
+            if (!option || effectiveCrewCount < option.minCrew) return;
+
+            const operationScope = identityScope;
+            const operationGeneration = lifecycleGenerationRef.current;
+            assignmentLoadGenerationRef.current += 1;
+            const mutationGeneration = ++assignmentMutationRef.current;
+            const isOperationCurrent = () =>
+                isAuthIdentityScopeCurrent(operationScope) &&
+                lifecycleGenerationRef.current === operationGeneration &&
+                assignmentMutationRef.current === mutationGeneration;
+
+            // Watch indexes mean different things in each rotation. Clear
+            // them before exposing the new system so nobody silently keeps a
+            // stale assignment on a different time slot.
+            setSystemChanging(true);
+            setWatchSystem(value);
+            setAssignments(new Map());
+            setAssignSheetIndex(null);
+            setAutofillDismissed(false);
+            clearChecks();
+            triggerHaptic('medium');
+            try {
+                if (voyageId) await WatchAssignmentService.clearAll(voyageId);
+            } finally {
+                if (isOperationCurrent()) setSystemChanging(false);
+            }
+        },
+        [
+            clearChecks,
+            effectiveCrewCount,
+            identityScope,
+            requestedSystem,
+            setAutofillDismissed,
+            setWatchSystem,
+            systemChanging,
+            voyageId,
+        ],
+    );
+
     const handleAutofill = useCallback(async () => {
         if (!voyageId || !detectedPattern) return;
         const operationScope = identityScope;
@@ -562,8 +688,8 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const handleDismissAutofill = useCallback(() => {
         setAutofillDismissed(true);
     }, [setAutofillDismissed]);
-    const allChecked = CHECKLIST_ITEMS.every((item) => checkedItems[item.key]);
-    const checkedCount = CHECKLIST_ITEMS.filter((item) => checkedItems[item.key]).length;
+    const allChecked = checklistItems.every((item) => checkedItems[item.key]);
+    const checkedCount = checklistItems.filter((item) => checkedItems[item.key]).length;
 
     const toggleItem = useCallback(
         (key: string) => {
@@ -599,7 +725,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     </div>
                     <div className="ml-auto text-right">
                         <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Crew</div>
-                        <div className="text-sm font-bold text-white">{crewCount}</div>
+                        <div className="text-sm font-bold text-white">{effectiveCrewCount}</div>
                     </div>
                     {durationDisplay && (
                         <div className="text-right">
@@ -611,12 +737,47 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     )}
                 </div>
 
+                <label className="mb-3 flex items-center gap-3 rounded-lg border border-white/[0.08] bg-slate-950/30 px-3 py-2.5">
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        Watch system
+                    </span>
+                    <select
+                        value={requestedSystem}
+                        onChange={(event) => void handleWatchSystemChange(event.target.value)}
+                        disabled={systemChanging}
+                        aria-label="Watch system"
+                        className="min-w-0 flex-1 appearance-none bg-transparent text-right text-xs font-bold text-indigo-200 outline-none disabled:opacity-50"
+                    >
+                        {WATCH_SYSTEM_OPTIONS.map((option) => {
+                            const unavailable = effectiveCrewCount < option.minCrew;
+                            return (
+                                <option
+                                    key={option.value}
+                                    value={option.value}
+                                    disabled={unavailable}
+                                    className="bg-slate-900"
+                                >
+                                    {option.label}
+                                    {unavailable ? ` — needs ${option.minCrew} crew` : ''}
+                                </option>
+                            );
+                        })}
+                    </select>
+                </label>
+
+                {isSoloSystem && (
+                    <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/80">
+                        Solo passages use a continuous lookout rather than a rotating roster. Complete the solo checks
+                        below to mark this plan ready.
+                    </div>
+                )}
+
                 {/* Pre-watch alarm controls — only render when we
                     have a voyage + departure time anchor. Toggles
                     iOS LocalNotifications scheduled by
                     WatchAlarmService for the current user's
                     assigned watches. */}
-                {voyageId && departureTimeIso && (
+                {!isSoloSystem && voyageId && departureTimeIso && (
                     <div className="mb-3 px-3 py-2.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/20 flex items-center gap-3 flex-wrap">
                         <button
                             type="button"
@@ -703,39 +864,47 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     back to the auto-generated placeholder ("Watch A"
                     etc) with a subtle "Tap to assign" hint. */}
                 <div className="space-y-1">
-                    {schedule.watches.map((w, i) => {
-                        const assignment = assignments.get(i);
-                        const isAssigned = !!assignment?.assigned_crew_email;
-                        return (
-                            <button
-                                key={i}
-                                type="button"
-                                onClick={() => setAssignSheetIndex(i)}
-                                disabled={!voyageId}
-                                aria-label={`Assign ${w.label} (${w.time})`}
-                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
-                                    isAssigned
-                                        ? 'bg-indigo-500/15 border-indigo-500/30 hover:bg-indigo-500/20 active:scale-[0.98]'
-                                        : 'bg-white/[0.03] border-white/[0.04] hover:bg-white/[0.05] active:scale-[0.98]'
-                                } ${!voyageId ? 'opacity-50 cursor-default' : ''}`}
-                            >
-                                <div
-                                    className={`w-2 h-2 rounded-full ${i % 2 === 0 ? 'bg-sky-400' : 'bg-purple-400'}`}
-                                />
-                                <span className="text-xs font-bold text-white flex-1 truncate">{w.label}</span>
-                                <span className="text-xs text-gray-400 font-mono">{w.time}</span>
-                                {isAssigned ? (
-                                    <span className="text-[11px] text-indigo-200 font-bold truncate max-w-[100px]">
-                                        👤 {assignment!.assigned_crew_name ?? assignment!.assigned_crew_email}
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-gray-500 italic">
-                                        {voyageId ? 'Tap to assign' : w.crew}
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
+                    {isSoloSystem ? (
+                        <div className="flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-3">
+                            <div className="h-2 w-2 rounded-full bg-emerald-400" />
+                            <span className="flex-1 text-xs font-bold text-white">{schedule.watches[0]?.label}</span>
+                            <span className="text-[11px] font-medium text-emerald-200">Skipper</span>
+                        </div>
+                    ) : (
+                        schedule.watches.map((w, i) => {
+                            const assignment = assignments.get(i);
+                            const isAssigned = !!assignment?.assigned_crew_email;
+                            return (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => setAssignSheetIndex(i)}
+                                    disabled={!voyageId}
+                                    aria-label={`Assign ${w.label} (${w.time})`}
+                                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
+                                        isAssigned
+                                            ? 'bg-indigo-500/15 border-indigo-500/30 hover:bg-indigo-500/20 active:scale-[0.98]'
+                                            : 'bg-white/[0.03] border-white/[0.04] hover:bg-white/[0.05] active:scale-[0.98]'
+                                    } ${!voyageId ? 'opacity-50 cursor-default' : ''}`}
+                                >
+                                    <div
+                                        className={`w-2 h-2 rounded-full ${i % 2 === 0 ? 'bg-sky-400' : 'bg-purple-400'}`}
+                                    />
+                                    <span className="text-xs font-bold text-white flex-1 truncate">{w.label}</span>
+                                    <span className="text-xs text-gray-400 font-mono">{w.time}</span>
+                                    {isAssigned ? (
+                                        <span className="text-[11px] text-indigo-200 font-bold truncate max-w-[100px]">
+                                            👤 {assignment!.assigned_crew_name ?? assignment!.assigned_crew_email}
+                                        </span>
+                                    ) : (
+                                        <span className="text-[11px] text-gray-500 italic">
+                                            {voyageId ? 'Tap to assign' : w.crew}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })
+                    )}
                 </div>
 
                 {/* Publish to Crew — fans out the schedule to each
@@ -745,7 +914,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     publish. The skipper's own assignments are
                     included in the count but the skipper doesn't
                     self-notify (vessel_crew lookup excludes them). */}
-                {voyageId && (
+                {!isSoloSystem && voyageId && (
                     <div className="mt-3">
                         <button
                             type="button"
@@ -794,7 +963,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             {/* ── Briefing Checklist ── */}
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
-                    ✅ Watch Briefing
+                    {isSoloSystem ? '🧭 Solo Watch Readiness' : '✅ Watch Briefing'}
                     <span
                         className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                             allChecked
@@ -802,11 +971,11 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                 : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
                         }`}
                     >
-                        {checkedCount}/{CHECKLIST_ITEMS.length}
+                        {checkedCount}/{checklistItems.length}
                     </span>
                 </h4>
                 <div className="space-y-1.5">
-                    {CHECKLIST_ITEMS.map((item) => {
+                    {checklistItems.map((item) => {
                         const isChecked = !!checkedItems[item.key];
                         return (
                             <button

@@ -66,6 +66,24 @@ function sameIdentityScope(left: AuthIdentityScope, right: AuthIdentityScope): b
 }
 
 /**
+ * Date inputs use a calendar day rather than an instant. Keep this in local
+ * time so a skipper in Brisbane is never offered yesterday just because UTC
+ * is still on the previous day.
+ */
+function localTodayDate(): string {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 10);
+}
+
+/** A passage cannot be planned to depart in the past. */
+function clampDepartureDate(value: string | null | undefined): string {
+    const today = localTodayDate();
+    const candidate = value?.slice(0, 10) ?? '';
+    return /^\d{4}-\d{2}-\d{2}$/.test(candidate) && candidate >= today ? candidate : today;
+}
+
+/**
  * Keep local form state owned by the exact login generation that created it.
  *
  * `useEffect` cleanup is too late for this boundary: React can render once
@@ -183,9 +201,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [origin, setOrigin] = useIdentityScopedState(identityScope, '');
     const [destination, setDestination] = useIdentityScopedState(identityScope, '');
     const [via, setVia] = useIdentityScopedState(identityScope, '');
-    const [departureDate, setDepartureDate] = useIdentityScopedState(
-        identityScope,
-        () => voyagePlan?.departureDate || new Date().toLocaleDateString('en-CA'),
+    const [departureDate, setDepartureDate] = useIdentityScopedState(identityScope, () =>
+        clampDepartureDate(voyagePlan?.departureDate),
     );
 
     // UI State
@@ -273,8 +290,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     // instead of the date the user picked. This effect keeps the form
     // in sync with the loaded plan.
     useEffect(() => {
-        if (voyagePlan?.departureDate && voyagePlan.departureDate !== departureDate) {
-            setDepartureDate(voyagePlan.departureDate);
+        const safeDate = clampDepartureDate(voyagePlan?.departureDate);
+        if (voyagePlan?.departureDate && safeDate !== departureDate) {
+            setDepartureDate(safeDate);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [voyagePlan?.departureDate]);
@@ -298,6 +316,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
      */
     const handleDateChange = useCallback(
         async (newDate: string) => {
+            const safeDate = clampDepartureDate(newDate);
             const operationScope = getAuthIdentityScope();
             if (!sameIdentityScope(operationScope, identityScope) || !isAuthIdentityScopeCurrent(operationScope)) {
                 return;
@@ -311,7 +330,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 sameIdentityScope(operationScope, identityScope) &&
                 isAuthIdentityScopeCurrent(operationScope);
             if (!operationIsCurrent()) return;
-            setDepartureDate(newDate);
+            setDepartureDate(safeDate);
 
             // Try to find the matching active voyage and update its
             // departure_time. We try three sources of origin/destination
@@ -378,7 +397,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // selected date. Preserve duration: if the existing
                 // voyage has a valid (departure_time, eta) pair, the
                 // new eta = new departure + (oldEta - oldDeparture).
-                const newDepartureIso = new Date(`${newDate}T00:00:00Z`).toISOString();
+                const newDepartureIso = new Date(`${safeDate}T00:00:00Z`).toISOString();
                 const patch: { departure_time: string; eta?: string } = {
                     departure_time: newDepartureIso,
                 };
@@ -400,7 +419,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // user hasn't Calculated yet, the WeatherContext has
                 // no plan to update.
                 if (voyagePlan && operationIsCurrent()) {
-                    saveVoyagePlan({ ...voyagePlan, departureDate: newDate });
+                    saveVoyagePlan({ ...voyagePlan, departureDate: safeDate });
                 }
 
                 // Notify any open PassageSummaryCard / banner / etc.
@@ -1379,10 +1398,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             if (!isAuthIdentityScopeCurrent(identityScope)) return;
             // Set departureDate to the YYYY-MM-DD of the scenario's UTC departure
             const dateOnly = scenario.departureTime.split('T')[0];
-            setDepartureDate(dateOnly);
+            void handleDateChange(dateOnly);
             setShowWindowSheet(false);
         },
-        [identityScope, setDepartureDate, setShowWindowSheet],
+        [identityScope, handleDateChange, setShowWindowSheet],
     );
 
     const handleDeepAnalysis = async () => {
@@ -1626,7 +1645,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         isShortTrip,
         activeChecklistTab,
         setActiveChecklistTab,
-        minDate: useMemo(() => new Date().toLocaleDateString('en-CA'), []),
+        minDate: localTodayDate(),
 
         // Context
         voyagePlan,

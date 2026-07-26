@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import {
     getUserPlaylists,
     playPlaylist,
@@ -1060,34 +1061,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
         return () => cancelAnimationFrame(id);
     }, []);
 
-    // Track keyboard for the search input — same pattern as the
-    // create-playlist sheet so the input doesn't slide behind the
-    // keyboard.
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
-    useEffect(() => {
-        let showHandle: { remove: () => Promise<void> } | undefined;
-        let hideHandle: { remove: () => Promise<void> } | undefined;
-        let cancelled = false;
-        void (async () => {
-            try {
-                const { Keyboard } = await import('@capacitor/keyboard');
-                if (cancelled) return;
-                showHandle = await Keyboard.addListener('keyboardWillShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight);
-                });
-                hideHandle = await Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-            } catch {
-                /* keyboard plugin unavailable */
-            }
-        })();
-        return () => {
-            cancelled = true;
-            void showHandle?.remove().catch(() => undefined);
-            void hideHandle?.remove().catch(() => undefined);
-        };
-    }, []);
+    const keyboardHeight = useKeyboardOffset();
 
     const handleSearch = useCallback(async () => {
         const trimmed = query.trim();
@@ -1422,36 +1396,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
 
     const canSubmit = name.trim().length > 0 && !busy;
 
-    // Track the iOS keyboard height so we can shift the modal upward
-    // when the keyboard rises and would otherwise cover the inputs.
-    // @capacitor/keyboard fires keyboardWillShow / keyboardWillHide
-    // with the keyboard's height and animation duration; we pull
-    // both into local state and translate the modal accordingly.
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
-    useEffect(() => {
-        let showHandle: { remove: () => Promise<void> } | undefined;
-        let hideHandle: { remove: () => Promise<void> } | undefined;
-        let cancelled = false;
-        void (async () => {
-            try {
-                const { Keyboard } = await import('@capacitor/keyboard');
-                if (cancelled) return;
-                showHandle = await Keyboard.addListener('keyboardWillShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight);
-                });
-                hideHandle = await Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-            } catch {
-                /* keyboard plugin not available — modal remains static */
-            }
-        })();
-        return () => {
-            cancelled = true;
-            void showHandle?.remove().catch(() => undefined);
-            void hideHandle?.remove().catch(() => undefined);
-        };
-    }, []);
+    const keyboardHeight = useKeyboardOffset();
 
     return (
         <OverlayPortal>

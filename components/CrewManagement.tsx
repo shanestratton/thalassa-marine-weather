@@ -12,7 +12,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { t } from '../theme';
 import { useAuthStore } from '../stores/authStore';
-import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ModalSheet } from './ui/ModalSheet';
 import { UndoToast } from './ui/UndoToast';
 
@@ -45,6 +44,8 @@ import {
     type Voyage,
 } from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
+import { linkTraceToPassage, loadSavedTraces, saveTrace, stripLegBadge } from '../services/routeTracer';
+import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -69,9 +70,7 @@ import { UsersIcon, CompassIcon, CalendarGridIcon, AnchorIcon, AlertTriangleIcon
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
-import { useUI } from '../context/UIContext';
 import { PageHeader } from './ui/PageHeader';
-import { DataFreshness } from './ui/DataFreshness';
 
 const CastOffPanel = lazyRetry(
     () => import('./vessel/CastOffPanel').then((m) => ({ default: m.CastOffPanel })),
@@ -89,11 +88,43 @@ const CastOffPanel = lazyRetry(
 export type VoyageRow = Voyage & {
     departureCoords?: { lat: number; lon: number };
     arrivalCoords?: { lat: number; lon: number };
+    /** Full saved/planned geometry, in passage order. Kept on the row so
+     *  Passage Summary does not have to guess from the global chart route. */
+    routeCoordinates?: Array<{ lat: number; lon: number }>;
+    /** Underlying planned-route log voyage. Distinct from this voyage-row ID. */
+    plannedRouteId?: string;
     durationHours?: number;
     /** True when this voyage belongs to a captain who shared it with us. */
     isShared?: boolean;
     sharedOwnerEmail?: string;
 };
+
+const routeDayKey = (iso: string | null | undefined): string | null => {
+    if (!iso) return null;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
+};
+
+// These labels are generated exclusively by the Route Tracer's chained-leg
+// flow. A pre-link build could leave such a mirror behind after its canonical
+// leg disappeared; promote the surviving geometry back to a normal saved
+// route instead of showing a nonsensical orphaned "2nd Leg" here.
+const GENERATED_LEG_BADGE_ANYWHERE_RE = /\s*\(\d+(?:st|nd|rd|th) Leg\)/i;
+
+function isLegacyGeneratedLeg(label: string): boolean {
+    return GENERATED_LEG_BADGE_ANYWHERE_RE.test(label);
+}
+
+function legacyGeneratedLegName(label: string): string {
+    // Preserve the whole human route label. A surviving “A → B (2nd Leg)” is
+    // promoted to the first/only route, not silently reduced to just “A”.
+    return stripLegBadge(
+        label
+            .replace(GENERATED_LEG_BADGE_ANYWHERE_RE, '')
+            .replace(/\s+—\s+start\s*$/i, '')
+            .trim(),
+    );
+}
 
 interface CrewManagementProps {
     onBack: () => void;
@@ -154,14 +185,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [memberships, setMemberships] = useState<CrewMember[]>([]);
     const [membershipsLoaded, setMembershipsLoaded] = useState(false);
 
-    // Navigation hook — used by the "Plan a route" button at the
-    // top of the page to take the skipper to the standalone Route
-    // Planner. We tried embedding the form inline; it was visually
-    // overwhelming. A button is the right move — single tap into a
-    // focused planning surface, save → bounces back here ready to
-    // plan crew/provisioning.
-    const { setPage } = useUI();
-
     // Edit permissions modal
     const [editTarget, setEditTarget] = useState<CrewMember | null>(null);
     const [editRegisters, setEditRegisters] = useState<SharedRegister[]>([]);
@@ -175,14 +198,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     // Loading
     const [loading, setLoading] = useState(true);
-    // Last-successful-sync timestamp + last-attempt error for the
-    // DataFreshness pill that sits in the PageHeader action slot.
-    // Crew + invites + memberships come from Supabase; users
-    // waiting on an invite acceptance benefit from "synced 30s ago"
-    // visibility so they know whether to pull again.
-    const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
-    const [syncError, setSyncError] = useState<string | null>(null);
-
     // Soft-delete with undo
     const [deletedMember, setDeletedMember] = useState<{ member: CrewMember; mode: 'captain' | 'crew' } | null>(null);
 
@@ -200,8 +215,19 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Paint the account-scoped local cache synchronously. A route picker should
     // never make the skipper wait on an entire logbook download just to see
     // plans that have already been saved on this device.
-    const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>(() => getCachedDraftVoyages());
-    const [savedRoutesLoading, setSavedRoutesLoading] = useState(() => getCachedDraftVoyages().length === 0);
+    const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>(() => {
+        const canonicalIds = new Set(loadSavedTraces().map((trace) => trace.id));
+        return getCachedDraftVoyages().filter(
+            (draft) => !draft.saved_route_id || canonicalIds.has(draft.saved_route_id),
+        );
+    });
+    const [savedRoutesLoading, setSavedRoutesLoading] = useState(() => {
+        const canonicalIds = new Set(loadSavedTraces().map((trace) => trace.id));
+        return (
+            getCachedDraftVoyages().filter((draft) => !draft.saved_route_id || canonicalIds.has(draft.saved_route_id))
+                .length === 0
+        );
+    });
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
     const selectedPassageRef = useRef(selectedPassageId);
     selectedPassageRef.current = selectedPassageId;
@@ -327,13 +353,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
     const [disbandConfirmText, setDisbandConfirmText] = useState('');
     const [disbanding, setDisbanding] = useState(false);
-    const [clearPassagesRequest, setClearPassagesRequest] = useState<{
-        scope: AuthIdentityScope;
-        count: number;
-        visibleNames: string;
-    } | null>(null);
-    const clearPassagesInFlight = useRef(false);
-
     // Planning panel state
     const [planDeparture, setPlanDeparture] = useState('');
 
@@ -367,8 +386,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(Boolean(next.userId));
             setLoading(Boolean(next.userId));
-            setLastSyncedAt(null);
-            setSyncError(null);
             setDeletedMember(null);
             setActiveVoyageName(null);
             setPlanDeparture('');
@@ -391,8 +408,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setShowDisbandConfirm(false);
             setDisbandConfirmText('');
             setDisbanding(false);
-            clearPassagesInFlight.current = false;
-            setClearPassagesRequest(null);
             setDelegationState({
                 scopeKey: next.key,
                 byVoyage: readDelegations(next),
@@ -469,7 +484,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const requestVersion = ++dataLoadVersion.current;
         setLoading(true);
         setMembershipsLoaded(false);
-        setSyncError(null);
         let timeoutId: number | null = null;
         const timeout = new Promise<'timeout'>((resolve) => {
             timeoutId = window.setTimeout(() => {
@@ -484,7 +498,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             if (requestVersion !== dataLoadVersion.current || !scopeStillOwnsPage(scope)) return;
             if (result === 'timeout') {
                 console.warn('[CrewManagement] loadData: timed out after 6s — leaving lists empty for now');
-                setSyncError('Sync timed out — tap retry');
             } else {
                 const [crewRes, invitesRes, shipsRes] = result;
                 if (crewRes.status === 'fulfilled') setMyCrew(crewRes.value);
@@ -493,10 +506,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     setMemberships(shipsRes.value);
                     setMembershipsLoaded(true);
                 }
-                // Surface the freshness signal — even if some lists
-                // failed, the user gets a "synced 2m ago" pill so
-                // they know their view isn't stale-by-default.
-                setLastSyncedAt(Date.now());
             }
         } finally {
             if (timeoutId !== null) {
@@ -591,13 +600,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
         const requestVersion = ++dropdownReloadVersion.current;
-        const cachedDrafts = getCachedDraftVoyages();
-        if (cachedDrafts.length > 0) {
+        const cachedCanonicalIds = new Set(loadSavedTraces(scope).map((trace) => trace.id));
+        const visibleCachedDrafts = getCachedDraftVoyages().filter(
+            (draft) => !draft.saved_route_id || cachedCanonicalIds.has(draft.saved_route_id),
+        );
+        if (visibleCachedDrafts.length > 0) {
             // Keep any verified shared passages while the skipper's own cached
             // routes appear immediately.
             setDraftVoyages((previous) => [
                 ...new Map(
-                    [...cachedDrafts, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
+                    [...visibleCachedDrafts, ...previous.filter((row) => row.isShared)].map(
+                        (row) => [row.id, row] as const,
+                    ),
                 ).values(),
             ]);
             setSavedRoutesLoading(false);
@@ -616,8 +630,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // The voyage index is a compact, indexed query. Render it before doing
         // the legacy scan; the old flow waited for as many as 10,000 log rows
         // before showing a single saved route.
-        const allDrafts = await getDraftVoyages().catch(() => cachedDrafts);
+        const fetchedDrafts = await getDraftVoyages().catch(() => visibleCachedDrafts);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
+        const allDrafts = fetchedDrafts.filter(
+            (draft) => !draft.saved_route_id || cachedCanonicalIds.has(draft.saved_route_id),
+        );
         setDraftVoyages((previous) => [
             ...new Map(
                 [...allDrafts, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
@@ -628,14 +645,130 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // Do not force a refresh here. A cache or in-flight request is already
         // fresh enough to enrich the list, and force=true caused a second full
         // history download when crew membership finished loading.
-        const [routesAndTracks, sharedResult] = await Promise.all([
+        const [routesAndTracks, sharedResult, canonicalTraces] = await Promise.all([
             fetchRoutesAndTracks(),
             membershipsLoaded ? getAuthorizedSharedVoyages() : Promise.resolve({ voyages: [], complete: false }),
+            import('../services/savedRoutesSync')
+                .then(({ syncSavedRoutes }) => syncSavedRoutes())
+                .catch(() => loadSavedTraces(scope)),
         ]);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
+        const canonicalById = new Map(canonicalTraces.map((trace) => [trace.id, trace] as const));
+        const canonicalByPlannedRouteId = new Map<string, (typeof canonicalTraces)[number]>();
+        for (const trace of canonicalTraces) {
+            if (trace.plannedRouteId) canonicalByPlannedRouteId.set(trace.plannedRouteId, trace);
+        }
+        // Backfill precise ids for pre-migration routes only when geometry is
+        // one-to-one. A repeated name or same-day passage is not identity;
+        // the metre-quantised full polyline is. This means existing saved
+        // routes gain the same safe delete lifecycle as new saves without
+        // risking a cross-link between two similar passages.
+        const legacyRoutesByFingerprint = new Map<string, typeof routesAndTracks.routes>();
+        for (const route of routesAndTracks.routes) {
+            if (route.savedRouteId) continue;
+            const fingerprint = savedRouteGeometryFingerprint(route.points);
+            if (!fingerprint) continue;
+            const matches = legacyRoutesByFingerprint.get(fingerprint) ?? [];
+            matches.push(route);
+            legacyRoutesByFingerprint.set(fingerprint, matches);
+        }
+        const canonicalByFingerprint = new Map<string, typeof canonicalTraces>();
+        for (const trace of canonicalTraces) {
+            const fingerprint = savedRouteGeometryFingerprint(trace.points);
+            if (!fingerprint) continue;
+            const matches = canonicalByFingerprint.get(fingerprint) ?? [];
+            matches.push(trace);
+            canonicalByFingerprint.set(fingerprint, matches);
+        }
+        for (const trace of canonicalTraces) {
+            // Prefer every explicit identity available before considering the
+            // geometry-only bridge for pre-migration records. A partial link
+            // is still repairable: for example an old trace may know its
+            // planned_* id but not its planning-row UUID yet.
+            let route = trace.plannedRouteId
+                ? routesAndTracks.routes.find((candidate) => candidate.id === trace.plannedRouteId)
+                : undefined;
+            if (!route && trace.passageVoyageId) {
+                const matches = routesAndTracks.routes.filter(
+                    (candidate) => candidate.linkedPlanId === trace.passageVoyageId,
+                );
+                if (matches.length === 1) route = matches[0];
+            }
+            if (!route) {
+                const matches = routesAndTracks.routes.filter((candidate) => candidate.savedRouteId === trace.id);
+                if (matches.length === 1) route = matches[0];
+            }
+            if (!route) {
+                const fingerprint = savedRouteGeometryFingerprint(trace.points);
+                const routeMatches = fingerprint ? (legacyRoutesByFingerprint.get(fingerprint) ?? []) : [];
+                const traceMatches = fingerprint ? (canonicalByFingerprint.get(fingerprint) ?? []) : [];
+                if (routeMatches.length !== 1 || traceMatches.length !== 1) continue;
+                route = routeMatches[0];
+            }
+            const needsPlannedRouteId = !trace.plannedRouteId;
+            const needsPassageVoyageId = !trace.passageVoyageId && Boolean(route.linkedPlanId);
+            if (!needsPlannedRouteId && !needsPassageVoyageId) continue;
+            const linked = linkTraceToPassage(
+                trace.id,
+                {
+                    ...(needsPlannedRouteId ? { plannedRouteId: route.id } : {}),
+                    ...(needsPassageVoyageId && route.linkedPlanId ? { passageVoyageId: route.linkedPlanId } : {}),
+                },
+                scope,
+            );
+            if (!linked) continue;
+            canonicalById.set(linked.id, linked);
+            canonicalByPlannedRouteId.set(route.id, linked);
+            void import('../services/savedRouteGraph')
+                .then(({ linkSavedRoutePassageGraph }) =>
+                    linkSavedRoutePassageGraph(
+                        linked.id,
+                        { plannedRouteId: route.id, passageVoyageId: route.linkedPlanId },
+                        scope,
+                    ),
+                )
+                .catch(() => {});
+        }
+        // One cautious legacy repair: older builds created the exact
+        // ship-log/voyage mirror but never persisted the canonical trace id.
+        // A recognisable generated "2nd Leg" is not a user-authored route
+        // name; its remaining geometry is promoted to a normal first route,
+        // then all three stores are stamped with the new exact id. We do not
+        // infer links for ordinary names — repeated island runs are common.
+        for (const route of routesAndTracks.routes) {
+            if (route.savedRouteId || !isLegacyGeneratedLeg(route.label) || route.points.length < 2) continue;
+            const alreadyLinked = canonicalTraces.some(
+                (trace) =>
+                    trace.plannedRouteId === route.id ||
+                    (route.linkedPlanId !== undefined && trace.passageVoyageId === route.linkedPlanId),
+            );
+            if (alreadyLinked) continue;
+            const { trace, persisted } = saveTrace(legacyGeneratedLegName(route.label), route.points, {
+                plannedRouteId: route.id,
+                ...(route.linkedPlanId ? { passageVoyageId: route.linkedPlanId } : {}),
+            });
+            if (!persisted) continue;
+            canonicalById.set(trace.id, trace);
+            canonicalByPlannedRouteId.set(route.id, trace);
+            void import('../services/savedRouteGraph')
+                .then(({ linkSavedRoutePassageGraph }) =>
+                    linkSavedRoutePassageGraph(
+                        trace.id,
+                        { plannedRouteId: route.id, passageVoyageId: route.linkedPlanId },
+                        scope,
+                    ),
+                )
+                .catch(() => {});
+        }
+        const visibleDrafts = allDrafts.filter(
+            (draft) => !draft.saved_route_id || canonicalById.has(draft.saved_route_id),
+        );
+        const visibleRoutes = routesAndTracks.routes.filter(
+            (route) => !route.savedRouteId || canonicalById.has(route.savedRouteId),
+        );
         const norm = (s: string) => s.trim().toLowerCase();
         const draftByName = new Map<string, Voyage[]>();
-        for (const draft of allDrafts) {
+        for (const draft of visibleDrafts) {
             const key = norm(draft.voyage_name);
             const matches = draftByName.get(key) ?? [];
             matches.push(draft);
@@ -650,17 +783,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // it, so we don't pollute the table with rows for routes
         // the user never actually picks.
         //
-        // We also attach the route's first/last polyline points as
-        // departureCoords/arrivalCoords so downstream cards (Weather
-        // Windows, Ocean Currents) can light up — they need lat/lon to
-        // run, and the voyages-table schema doesn't carry them. Pulling
-        // from the logbook route is the path of least resistance: the
-        // coords are already there from the original passage save.
-        const ownRows: VoyageRow[] = routesAndTracks.routes.map((r) => {
+        // We also attach the complete saved polyline (and its first/last
+        // points) to the matching voyage row. PassageSummaryCard can then
+        // render the actual sea path without guessing from PassageStore's
+        // globally cached last chart route.
+        const ownRows: VoyageRow[] = visibleRoutes.map((r) => {
             const first = r.points[0];
             const last = r.points[r.points.length - 1];
             const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
             const arrivalCoords = last ? { lat: last.lat, lon: last.lon } : undefined;
+            const routeCoordinates = r.points.map((point) => ({ lat: point.lat, lon: point.lon }));
             const durationHours = r.durationHours;
             // The route's first-entry timestamp is what the user typed
             // as plan.departureDate at save time (PassagePlanSave seeds
@@ -672,11 +804,40 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 durationHours && durationHours > 0
                     ? new Date(r.timestamp + durationHours * 3_600_000).toISOString()
                     : null;
-            const matched = (draftByName.get(norm(r.label)) ?? []).find((draft) => !matchedDraftIds.has(draft.id));
+            // New saves carry the immutable planning-record UUID on every
+            // log row. That is the only authoritative link: route labels can
+            // repeat (e.g. the same island run next season), so never let a
+            // label-only match overwrite a different saved passage.
+            const linkedDraft = r.linkedPlanId
+                ? visibleDrafts.find((draft) => draft.id === r.linkedPlanId && !matchedDraftIds.has(draft.id))
+                : undefined;
+
+            // Older/offline routes predate linked_plan_id. Recover those only
+            // when the label match is unambiguous, preferring the matching
+            // departure day when the skipper has planned the same route more
+            // than once. Ambiguity intentionally remains a separate logbook
+            // row; showing a wrong curve is worse than asking for a re-save.
+            const legacyCandidates = r.linkedPlanId
+                ? []
+                : (draftByName.get(norm(r.label)) ?? []).filter((draft) => !matchedDraftIds.has(draft.id));
+            const sameDayCandidates = legacyCandidates.filter(
+                (draft) => routeDayKey(draft.departure_time ?? draft.created_at) === routeDayKey(inferredDeparture),
+            );
+            const matched =
+                linkedDraft ??
+                (sameDayCandidates.length === 1
+                    ? sameDayCandidates[0]
+                    : legacyCandidates.length === 1
+                      ? legacyCandidates[0]
+                      : undefined);
             if (matched) {
                 matchedDraftIds.add(matched.id);
+                const canonicalName = r.savedRouteId
+                    ? canonicalById.get(r.savedRouteId)?.name
+                    : canonicalByPlannedRouteId.get(r.id)?.name;
                 return {
                     ...matched,
+                    ...(canonicalName ? { voyage_name: canonicalName } : {}),
                     // Fall back to the route-derived dates only when the
                     // matched draft hasn't been given them yet. Don't
                     // overwrite a date the user has explicitly set via
@@ -685,6 +846,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     eta: matched.eta ?? inferredEta,
                     departureCoords,
                     arrivalCoords,
+                    routeCoordinates,
+                    plannedRouteId: r.id,
                     durationHours,
                 };
             }
@@ -696,7 +859,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 id: `logbook:${r.id}`,
                 user_id: '',
                 vessel_id: null,
-                voyage_name: r.label,
+                voyage_name:
+                    (r.savedRouteId
+                        ? canonicalById.get(r.savedRouteId)?.name
+                        : canonicalByPlannedRouteId.get(r.id)?.name) ?? r.label,
                 departure_port: (depPart ?? '').trim() || null,
                 destination_port: (arrPart ?? '').trim() || null,
                 departure_time: inferredDeparture,
@@ -709,6 +875,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 updated_at: new Date(r.timestamp).toISOString(),
                 departureCoords,
                 arrivalCoords,
+                routeCoordinates,
+                plannedRouteId: r.id,
                 durationHours,
             };
         });
@@ -716,14 +884,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // A saved route is still valid when its historic logbook mirror is
         // delayed, archived, or absent. Keep every indexed route in the list
         // rather than letting the slow compatibility scan decide visibility.
-        ownRows.push(...allDrafts.filter((draft) => !matchedDraftIds.has(draft.id)));
+        ownRows.push(...visibleDrafts.filter((draft) => !matchedDraftIds.has(draft.id)));
 
         const activeId = getActivePassageId();
 
         // Keep an explicitly selected, still-valid own draft even when it has
         // no matching logbook route. This mirrors the shared-row rule below:
         // a missing polyline is not evidence that a voyage is unauthorized.
-        const activeOwnDraft = activeId ? allDrafts.find((draft) => draft.id === activeId) : undefined;
+        const activeOwnDraft = activeId ? visibleDrafts.find((draft) => draft.id === activeId) : undefined;
         if (activeOwnDraft && !ownRows.some((row) => row.id === activeOwnDraft.id)) {
             ownRows.push(activeOwnDraft);
         }
@@ -759,7 +927,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             // a valid shared passage.
             const activeStatus = await getPassageStatus(activeId);
             if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
-            if (!activeStatus.visible) {
+            const activeWasDeletedSavedRoute = Boolean(
+                activeId &&
+                fetchedDrafts.some((draft) => draft.id === activeId && draft.saved_route_id) &&
+                !visibleDrafts.some((draft) => draft.id === activeId),
+            );
+            if (!activeStatus.visible || activeWasDeletedSavedRoute) {
                 console.warn(`[CrewManagement] clearing inaccessible active passage "${activeId}"`);
                 clearPassagePlan();
                 selectedPassageRef.current = '';
@@ -799,6 +972,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                           ...result.voyage!,
                                           departureCoords: v.departureCoords,
                                           arrivalCoords: v.arrivalCoords,
+                                          routeCoordinates: v.routeCoordinates,
+                                          plannedRouteId: v.plannedRouteId,
                                           durationHours: v.durationHours,
                                       }
                                     : v,
@@ -832,13 +1007,35 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const onDepartureUpdate = () => {
             void reloadDropdown();
         };
+        // Canonical trace deletion/rebase and its asynchronous Log/Voyage
+        // cleanup can land while Passage Planning stays mounted. Both events
+        // deliberately share this reload path so the selector never retains a
+        // ghost after Plan has already removed it.
+        const onSavedRoutesChanged = (event: Event) => {
+            const detail = (event as CustomEvent<{ scopeKey?: string; scopeGeneration?: number }>).detail;
+            const current = getAuthIdentityScope();
+            if (
+                detail?.scopeKey &&
+                (detail.scopeKey !== current.key ||
+                    (detail.scopeGeneration !== undefined && detail.scopeGeneration !== current.generation))
+            ) {
+                return;
+            }
+            void reloadDropdown();
+        };
         if (typeof window !== 'undefined') {
             window.addEventListener('thalassa:passage-plan-saved', onSaved);
             window.addEventListener('thalassa:departure-time-updated', onDepartureUpdate);
+            window.addEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
+            window.addEventListener('thalassa:passage-route-graph-changed', onSavedRoutesChanged);
+            window.addEventListener('thalassa:routes-and-tracks-changed', onSavedRoutesChanged);
             return () => {
                 dropdownReloadVersion.current += 1;
                 window.removeEventListener('thalassa:passage-plan-saved', onSaved);
                 window.removeEventListener('thalassa:departure-time-updated', onDepartureUpdate);
+                window.removeEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
+                window.removeEventListener('thalassa:passage-route-graph-changed', onSavedRoutesChanged);
+                window.removeEventListener('thalassa:routes-and-tracks-changed', onSavedRoutesChanged);
             };
         }
         return undefined;
@@ -1117,73 +1314,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setEditBoatMemberLoaded(false);
     };
 
-    const requestClearAllPassages = () => {
-        const scope = getAuthIdentityScope();
-        if (!scopeStillOwnsPage(scope) || clearPassagesInFlight.current) return;
-        const ownRows = draftVoyages.filter((voyage) => !voyage.isShared);
-        if (ownRows.length === 0) return;
-        const visibleNames = ownRows
-            .slice(0, 5)
-            .map((voyage) => voyage.voyage_name || '?')
-            .join(', ');
-        const overflow = ownRows.length > 5 ? `, and ${ownRows.length - 5} more` : '';
-        setClearPassagesRequest({
-            scope,
-            count: ownRows.length,
-            visibleNames: `${visibleNames}${overflow}`,
-        });
-    };
-
-    const handleClearAllPassages = async () => {
-        const request = clearPassagesRequest;
-        if (!request || clearPassagesInFlight.current || !scopeStillOwnsPage(request.scope)) {
-            setClearPassagesRequest(null);
-            return;
-        }
-
-        clearPassagesInFlight.current = true;
-        triggerHaptic('medium');
-        try {
-            const { ShipLogService } = await import('../services/ShipLogService');
-            if (!scopeStillOwnsPage(request.scope)) return;
-            const fresh = await fetchRoutesAndTracks(true);
-            if (!scopeStillOwnsPage(request.scope)) return;
-            for (const route of fresh.routes) {
-                if (!scopeStillOwnsPage(request.scope)) return;
-                await ShipLogService.deleteVoyage(route.id);
-                if (!scopeStillOwnsPage(request.scope)) return;
-            }
-
-            const remainingDrafts = await getDraftVoyages();
-            if (!scopeStillOwnsPage(request.scope)) return;
-            for (const draft of remainingDrafts) {
-                if (!scopeStillOwnsPage(request.scope)) return;
-                if (!draft.voyage_name.includes('→')) continue;
-                const { deleteDraftVoyagesByNameAndDay } = await import('../services/VoyageService');
-                if (!scopeStillOwnsPage(request.scope)) return;
-                await deleteDraftVoyagesByNameAndDay(draft.voyage_name, draft.created_at.slice(0, 10));
-            }
-            if (!scopeStillOwnsPage(request.scope)) return;
-
-            setDraftVoyages((previous) => previous.filter((voyage) => voyage.isShared));
-            clearPassagePlan();
-            selectedPassageRef.current = '';
-            setSelectedPassageId('');
-            setActiveVoyageName(null);
-            setPlanDeparture('');
-            setPassageStatus(NO_PASSAGE_ACCESS);
-            resetReadinessState();
-            toast.success('All saved passages cleared');
-        } catch (error) {
-            if (!scopeStillOwnsPage(request.scope)) return;
-            console.error('[CrewManagement] cleanup failed:', error);
-            toast.error('Cleanup failed — try again');
-        } finally {
-            clearPassagesInFlight.current = false;
-            if (scopeStillOwnsPage(request.scope)) setClearPassagesRequest(null);
-        }
-    };
-
     const handleDepartureDateChange = (value: string) => {
         const scope = getAuthIdentityScope();
         const passageId = selectedPassageId;
@@ -1219,6 +1349,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                               ...result.voyage!,
                               departureCoords: voyage.departureCoords,
                               arrivalCoords: voyage.arrivalCoords,
+                              routeCoordinates: voyage.routeCoordinates,
+                              plannedRouteId: voyage.plannedRouteId,
                               durationHours: voyage.durationHours,
                           }
                         : voyage,
@@ -1283,6 +1415,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     ...voyage,
                     departureCoords: row.departureCoords,
                     arrivalCoords: row.arrivalCoords,
+                    routeCoordinates: row.routeCoordinates,
+                    plannedRouteId: row.plannedRouteId,
                     durationHours: row.durationHours,
                 };
                 row = promoted;
@@ -1323,8 +1457,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         ? visibleCrew.filter((member) => member.voyage_id === null || member.voyage_id === selectedPassageId)
         : [];
     const selectedPassageCrewCount = isSelectedPassageOwner
-        ? Math.max(selectedPassageCrew.length + 1, 2)
-        : Math.max(selectedVoyage?.crew_count ?? 2, 2);
+        ? Math.max(selectedPassageCrew.length + 1, 1)
+        : Math.max(selectedVoyage?.crew_count ?? 1, 1);
     const ownVoyageCount = draftVoyages.filter((voyage) => !voyage.isShared).length;
     const sharedVoyageCount = draftVoyages.length - ownVoyageCount;
 
@@ -1393,26 +1527,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            <PageHeader
-                title="Passage Planning"
-                onBack={onBack}
-                action={
-                    // DataFreshness pill — wired 2026-05-17 (the
-                    // component was built earlier today and was
-                    // genuinely unused; this was one of the honest
-                    // score deductions). Lives in the PageHeader's
-                    // action slot. Surfaces when crew + invites +
-                    // memberships were last pulled, lets the user
-                    // tap to refresh. Useful when a skipper is
-                    // waiting on an invitee to accept.
-                    <DataFreshness
-                        lastUpdatedAt={lastSyncedAt}
-                        isLoading={loading}
-                        error={syncError}
-                        onRefresh={() => void loadData()}
-                    />
-                }
-            />
+            <PageHeader title="Passage Planning" onBack={onBack} />
             {/* The "+ Invite Crew" action lives inside the My Crew section
                 header below — it was crowding the page title in the
                 PageHeader's action slot. */}
@@ -1444,43 +1559,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         setInviteSuccess(false);
                     }}
                 />
-
-                {/* ── PLAN A ROUTE — primary CTA into the standalone
-                    Route Planner page. Used to be an inline accordion
-                    embedding the full form, which was visually
-                    overwhelming on the same page as the readiness
-                    cards. A button is the right primitive — single
-                    tap, focused planning surface, the back button
-                    brings the user back here ready to plan crew /
-                    provisioning. */}
-                <button
-                    type="button"
-                    onClick={() => {
-                        setPage('route');
-                        triggerHaptic('light');
-                    }}
-                    className="w-full mb-4 flex items-center justify-between gap-2 px-4 py-3.5 rounded-xl bg-gradient-to-r from-sky-500/15 to-cyan-500/10 border border-sky-500/25 hover:from-sky-500/25 hover:to-cyan-500/20 active:scale-[0.98] transition-all"
-                >
-                    <span className="flex items-center gap-3 min-w-0">
-                        <CompassIcon className="w-5 h-5 text-sky-300" rotation={0} />
-                        <span className="flex flex-col items-start min-w-0">
-                            <span className="text-sm font-bold text-sky-200 tracking-wide">Plan a route</span>
-                            <span className="text-[11px] text-sky-300/70">Origin · destination · departure</span>
-                        </span>
-                    </span>
-                    <svg
-                        className="w-4 h-4 text-sky-300/70 shrink-0"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M9 5l7 7-7 7" />
-                    </svg>
-                </button>
 
                 {/* ── SAVED ROUTES SELECTOR ── */}
                 <div className="mb-4">
@@ -1545,29 +1623,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             </div>
                             <p className="text-xs font-semibold text-slate-200 mb-0.5">No saved routes yet</p>
                             <p className="text-[11px] text-slate-400 leading-relaxed">
-                                Tap <strong className="text-sky-300">Plan a route</strong> above to save your first one.
+                                Plan a route from the Plan tab; saved routes will appear here.
                             </p>
                         </div>
                     )}
 
-                    {/* ── Diagnostic + nuke controls ─────────────────────── */}
-                    {/* Surfaces what's actually populating the dropdown so a */}
-                    {/* "ghost" passage (in DB but no longer in your logbook) */}
-                    {/* can be wiped without poking around in Supabase. */}
+                    {/* A compact count is enough context here. Route removal
+                        lives in the dedicated Saved Routes library (Vessel →
+                        Saved Routes), where each route is reviewed and
+                        confirmed individually. */}
                     <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
                         <span className="text-[10px] text-gray-500 font-mono">
                             {ownVoyageCount} yours
                             {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
                         </span>
-                        {ownVoyageCount > 0 && (!selectedPassageId || isSelectedPassageOwner) && (
-                            <button
-                                type="button"
-                                onClick={requestClearAllPassages}
-                                className="text-[10px] uppercase font-bold tracking-widest text-red-400/70 hover:text-red-400 transition-colors"
-                            >
-                                Clear all
-                            </button>
-                        )}
                     </div>
                 </div>
 
@@ -1911,24 +1980,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 }
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
-            />
-
-            <ConfirmDialog
-                isOpen={clearPassagesRequest !== null}
-                title="Clear all saved passages?"
-                message={
-                    clearPassagesRequest
-                        ? `This will delete ${clearPassagesRequest.count} saved passage route${
-                              clearPassagesRequest.count === 1 ? '' : 's'
-                          } from your logbook (${clearPassagesRequest.visibleNames}). Recorded tracks of voyages you actually sailed will not be touched.`
-                        : ''
-                }
-                confirmLabel="Clear all"
-                destructive
-                onConfirm={handleClearAllPassages}
-                onCancel={() => {
-                    if (!clearPassagesInFlight.current) setClearPassagesRequest(null);
-                }}
             />
 
             {/* ── DISBAND GROUP CONFIRMATION ── */}

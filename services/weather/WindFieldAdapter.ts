@@ -17,6 +17,7 @@
 
 import type { WindGrid } from './windField';
 import type { WindField } from '../IsochroneRouter';
+import { continuousEastForLongitudeRange, continuousLongitudeInGrid } from './windLongitude';
 
 // ── Single-Grid Adapter ──────────────────────────────────────────
 
@@ -54,7 +55,9 @@ export function createWindFieldFromGrid(
 
             // Spatial interpolation — find the grid cell
             const latIdx = ((lat - grid.south) / (grid.north - grid.south)) * (grid.height - 1);
-            const lonIdx = ((lon - grid.west) / (grid.east - grid.west)) * (grid.width - 1);
+            const gridEast = continuousEastForLongitudeRange(grid.west, grid.east);
+            const gridLon = continuousLongitudeInGrid(lon, grid.west, grid.east);
+            const lonIdx = ((gridLon - grid.west) / (gridEast - grid.west)) * (grid.width - 1);
 
             if (latIdx < 0 || latIdx >= grid.height || lonIdx < 0 || lonIdx >= grid.width) {
                 return null; // Outside grid bounds

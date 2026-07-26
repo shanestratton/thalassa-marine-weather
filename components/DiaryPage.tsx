@@ -4,7 +4,6 @@ const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import { ShipLogService } from '../services/ShipLogService';
 import { triggerHaptic } from '../utils/system';
-import { Capacitor } from '@capacitor/core';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
@@ -18,6 +17,7 @@ import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
+import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { POLISH_INTENSITY, type PolishStyle } from '../types/settings';
@@ -157,6 +157,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         (h: number) => dispatch({ type: 'SET_KEYBOARD_HEIGHT', height: h }),
         [dispatch],
     );
+    const sharedKeyboardHeight = useKeyboardOffset(showCompose);
     const setLoading = useCallback((v: boolean) => dispatch({ type: 'SET_LOADING', loading: v }), [dispatch]);
     const setGpsLoading = useCallback((v: boolean) => dispatch({ type: 'SET_GPS_LOADING', loading: v }), [dispatch]);
     const setLat = useCallback(
@@ -273,6 +274,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const voiceBaselineRef = useRef('');
     const voiceTranscriptRef = useRef('');
     const speechHasTranscriptRef = useRef(false);
+    // Startup can outlive a fast tap on Stop (especially while iOS is
+    // presenting the microphone prompt). Keep accepting handles until the
+    // stop path has either claimed or explicitly timed them out, rather than
+    // cancelling a perfectly good capture session mid-startup.
+    const voiceAcceptingStartHandlesRef = useRef<number | null>(null);
+    const liveDictationUnavailableRef = useRef(false);
     // A memo is not owned by a diary entry until Save completes. Keep its IDB
     // ref here so Cancel, retry, and unmount can discard it without leaks.
     const unsavedVoiceAudioRef = useRef<string | null>(null);
@@ -302,6 +309,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             voiceListeningRef.current = false;
             voiceFinalizingSessionRef.current = null;
             speechHasTranscriptRef.current = false;
+            voiceAcceptingStartHandlesRef.current = null;
+            liveDictationUnavailableRef.current = false;
             liveStopRef.current = null;
             liveRecognizerStartRef.current = null;
             audioRecorderStartRef.current = null;
@@ -343,51 +352,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         [setIsRecording, setPolishing, setSaving, setTranscribing],
     );
 
-    // Track iOS keyboard height via Capacitor Keyboard plugin (reliable with KeyboardResize.None)
-    // Falls back to visualViewport for web
+    // Keep the compose reducer in sync with the shared native/web keyboard
+    // measurement. DiaryComposeForm uses this value to lift its bottom actions.
     useEffect(() => {
-        let cleanup: (() => void) | undefined;
-        if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        // After the layout adjusts, scroll the focused field into view
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
-                        }, 250);
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        setKeyboardHeight(0);
-                    });
-                    cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin not available */
-                });
-        } else {
-            // Web fallback: visualViewport
-            const vp = window.visualViewport;
-            if (vp) {
-                const handleResize = () => {
-                    const kbHeight = window.innerHeight - vp.height;
-                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
-                };
-                vp.addEventListener('resize', handleResize);
-                cleanup = () => vp.removeEventListener('resize', handleResize);
-            }
-        }
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, [setKeyboardHeight]);
+        setKeyboardHeight(sharedKeyboardHeight);
+    }, [setKeyboardHeight, sharedKeyboardHeight]);
     // ── Load entries ───────────────────────────────────────────
     const refreshEntries = useCallback(() => {
         DiaryService.getEntries(100).then((data) => {
@@ -589,6 +558,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 };
 
                 let transcript = '';
+                let fallbackTranscriptionFailed = false;
                 try {
                     const speechResult = await liveStopRef.current;
                     transcript = (speechResult || voiceTranscriptRef.current).trim();
@@ -612,17 +582,25 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (!transcript && localAudioUrl && audio) {
                     const fallbackTranscript = await DiaryService.transcribeAudio(localAudioUrl, audio.mimeType);
                     if (!operationIsCurrent()) return;
+                    // null means the transcription service failed or could
+                    // not be reached; an empty string is its explicit result
+                    // for a recording that genuinely contains no speech.
+                    fallbackTranscriptionFailed = fallbackTranscript === null;
                     transcript = fallbackTranscript?.trim() || '';
                     if (transcript) setBody(combineDiaryVoiceTranscript(baseline, transcript));
                 }
 
                 if (!transcript) {
                     toast.error(
-                        localAudioUrl
-                            ? 'We could not hear any speech. Your voice memo was kept so you can try again.'
-                            : speechHasTranscriptRef.current
-                              ? 'Speech was detected, but the final transcript could not complete. Please try again.'
-                              : 'We could not hear any speech. Check microphone access, then try again.',
+                        fallbackTranscriptionFailed && localAudioUrl
+                            ? 'Your voice memo was saved, but transcription is unavailable right now. You can save it and try again when online.'
+                            : localAudioUrl
+                              ? 'We could not hear any speech. Your voice memo was kept so you can try again.'
+                              : speechHasTranscriptRef.current
+                                ? 'Speech was detected, but the final transcript could not complete. Please try again.'
+                                : liveDictationUnavailableRef.current
+                                  ? 'Live dictation could not connect, and no voice memo was captured. Check microphone access and try again.'
+                                  : 'We could not hear any speech. Check microphone access, then try again.',
                     );
                     return;
                 }
@@ -686,6 +664,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         voiceBaselineRef.current = body.trimEnd();
         voiceTranscriptRef.current = '';
         speechHasTranscriptRef.current = false;
+        voiceAcceptingStartHandlesRef.current = sessionId;
+        liveDictationUnavailableRef.current = false;
         liveStopRef.current = null;
         voiceListeningRef.current = true;
 
@@ -694,6 +674,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             isAuthIdentityScopeCurrent(operationScope) &&
             voiceSessionRef.current === sessionId;
         const isListeningSession = () => operationIsCurrent() && voiceListeningRef.current;
+        const canAcceptStartingHandle = () =>
+            operationIsCurrent() && voiceAcceptingStartHandlesRef.current === sessionId;
 
         // Show the active state immediately, including while iOS asks for
         // microphone access, so a second tap correctly means Stop.
@@ -717,11 +699,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // produce the exact silent-dictation failure this diary is avoiding.
         const audioStart = startAudioRecording()
             .then((recorder) => {
-                if (!isListeningSession()) {
+                if (!canAcceptStartingHandle()) {
                     recorder.cancel();
                     return null;
                 }
                 audioRecorderRef.current = recorder;
+
+                // Stop may have landed while iOS was presenting the mic
+                // permission prompt. In that case the stop path has already
+                // captured `audioStart` and will stop this recorder to keep
+                // the raw memo; it cannot also see a recognizer that begins
+                // only now. Do not start a fresh Deepgram session after Stop
+                // or it can remain open without a matching stop()/cancel().
+                if (!isListeningSession()) return recorder;
 
                 const liveStart = startDeepgramRecognizer({
                     stream: recorder.mediaStream(),
@@ -735,7 +725,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     },
                 })
                     .then(async (handle) => {
-                        if (!isListeningSession()) {
+                        if (!canAcceptStartingHandle()) {
                             await handle.cancel();
                             return null;
                         }
@@ -748,6 +738,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         // transcription path instead of losing the entry.
                         if (isListeningSession()) {
                             log.info('[Diary] Live dictation unavailable; using audio transcription fallback:', err);
+                            liveDictationUnavailableRef.current = true;
                         }
                         return null;
                     });
@@ -768,6 +759,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     recordingTimerRef.current = null;
                 }
                 toast.error('Microphone access is unavailable. Enable Microphone access in Settings.');
+                if (voiceAcceptingStartHandlesRef.current === sessionId) {
+                    voiceAcceptingStartHandlesRef.current = null;
+                }
                 return null;
             });
         audioRecorderStartRef.current = audioStart;
@@ -866,6 +860,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
               })();
         void (async () => {
             const [, audio] = await Promise.all([liveStopRef.current, recorderStop]);
+            // Both bounded startup waits have now completed (or timed out).
+            // Any handle arriving after this point belongs to an abandoned
+            // session and will cancel itself in the adoption guard above.
+            if (voiceAcceptingStartHandlesRef.current === sessionId) {
+                voiceAcceptingStartHandlesRef.current = null;
+            }
             if (!isStopSessionCurrent()) return;
             if (audio) {
                 await finaliseVoiceEntry(sessionId, operationScope, baseline, {

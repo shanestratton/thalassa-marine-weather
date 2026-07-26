@@ -25,14 +25,18 @@ const EARTH_RADIUS_NM = 3440.065;
 const NEARSHORE_THRESHOLD_KM = 1.852; // < 1nm from shore
 const COASTAL_THRESHOLD_KM = 9.26; // < 5nm from shore
 
-// Adaptive logging intervals (zone-based — fallback when no speed data)
-export const NEARSHORE_INTERVAL_MS = 30 * 1000; // 30 seconds (< 1nm from shore / on land)
-export const COASTAL_INTERVAL_MS = 60 * 1000; // 60 seconds (1-5nm from shore)
-export const OFFSHORE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes (> 5nm offshore)
+// Persisted plot-point cadence. This is deliberately independent from the
+// device's GPS intake rate: GPS remains live for alarms, UI, and zone changes;
+// the cadence only decides which vetted fixes become voyage vertices.
+//
+// Land and inshore share the dense profile. A single voyage can move between
+// these profiles without stopping or starting a new track.
+export const NEARSHORE_INTERVAL_MS = 3 * 1000; // land / inshore: 3 seconds
+export const COASTAL_INTERVAL_MS = 30 * 1000; // 1-5nm from shore: 30 seconds
+export const OFFSHORE_INTERVAL_MS = 5 * 60 * 1000; // >5nm from shore: 5 minutes
 
-// Speed-adaptive logging intervals (primary — based on SOG)
-// Tuned for sailing yachts: captures enough detail for track replay
-// without filling storage on long passages.
+// Legacy speed-tier intervals retained for UI/debounce compatibility. Live
+// voyage vertices use the geographic profiles above instead.
 export const STATIONARY_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes (< 1 kt — anchored/moored)
 export const SLOW_INTERVAL_MS = 60 * 1000; // 60 seconds (1-6 kts — sailing)
 export const MEDIUM_INTERVAL_MS = 30 * 1000; // 30 seconds (6-20 kts — motoring/fast sail)
@@ -41,6 +45,12 @@ export const FAST_INTERVAL_MS = 30 * 1000; // 30 seconds (20+ kts — planing/fa
 export type SpeedTier = 'stationary' | 'slow' | 'medium' | 'fast';
 
 export type LoggingZone = 'nearshore' | 'coastal' | 'offshore';
+
+/** The active track-detail policy for one accepted GPS fix. */
+export interface PlottingProfile {
+    zone: LoggingZone;
+    intervalMs: number;
+}
 
 // Database table name
 export const SHIP_LOGS_TABLE = 'ship_logs';
@@ -171,6 +181,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         isOnWater: 'is_on_water',
         archived: 'archived',
         linkedPlanId: 'linked_plan_id',
+        savedRouteId: 'saved_route_id',
         legNumber: 'leg_number',
     };
 
@@ -224,6 +235,7 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         isOnWater: row.is_on_water,
         archived: row.archived ?? false,
         linkedPlanId: row.linked_plan_id,
+        savedRouteId: row.saved_route_id,
         legNumber: row.leg_number ?? undefined,
     };
 }
@@ -285,17 +297,18 @@ export function getWeatherSnapshot(): Partial<ShipLogEntry> {
     }
 }
 
-// --- ADAPTIVE LOGGING ZONE DETECTION ---
+// --- LEGACY DASHBOARD ZONE DETECTION ---
 
 /**
  * Determine the logging zone for adaptive GPS intervals.
  *
- * Uses the cached weather data — which reflects the dashboard's selected location.
- * If the dashboard is set to "Current Location" (GPS), this is the vessel's real position.
+ * @deprecated The live voyage recorder uses ShoreZoneResolver instead. This
+ * legacy helper remains for compatibility with older callers, but dashboard
+ * weather may refer to a selected location rather than the vessel itself.
  *
  * SAFETY-FIRST RULES:
- * 1. Default = 'nearshore' (30s) — extra entries are cheap, missed ones are not.
- * 2. Only go 'offshore' (15min) when we have CONFIRMED distance > 5nm from land.
+ * 1. Default = 'nearshore' (3s) — extra entries are cheap, missed ones are not.
+ * 2. Only go 'offshore' (5min) when we have CONFIRMED distance > 5nm from land.
  * 3. Never trust locationType alone for offshore — require distToLandKm confirmation.
  */
 export function determineLoggingZone(): LoggingZone {
@@ -306,7 +319,7 @@ export function determineLoggingZone(): LoggingZone {
         const cachedData = loadLargeDataSync(DATA_CACHE_KEY) as Record<string, any> | null;
         if (!cachedData) return 'nearshore'; // No data = safe default
 
-        // Landlocked = on land = nearshore (30s)
+        // Landlocked = on land = dense nearshore profile (3s)
         if (cachedData?.isLandlocked === true) return 'nearshore';
 
         const locationType = cachedData?.locationType;
@@ -336,12 +349,17 @@ export function determineLoggingZone(): LoggingZone {
 export function getIntervalForZone(zone: LoggingZone): number {
     switch (zone) {
         case 'nearshore':
-            return NEARSHORE_INTERVAL_MS; // 5 seconds
+            return NEARSHORE_INTERVAL_MS;
         case 'coastal':
-            return COASTAL_INTERVAL_MS; // 5 seconds
+            return COASTAL_INTERVAL_MS;
         case 'offshore':
-            return OFFSHORE_INTERVAL_MS; // 30 seconds
+            return OFFSHORE_INTERVAL_MS;
     }
+}
+
+/** Resolve a named zone into the exact per-fix plotting policy. */
+export function getPlottingProfile(zone: LoggingZone): PlottingProfile {
+    return { zone, intervalMs: getIntervalForZone(zone) };
 }
 
 /**
@@ -350,23 +368,23 @@ export function getIntervalForZone(zone: LoggingZone): number {
 export function getZoneLabel(zone: LoggingZone): string {
     switch (zone) {
         case 'nearshore':
-            return '< 1nm (30s intervals)';
+            return 'Land / inshore (3s intervals)';
         case 'coastal':
-            return '1-5nm (60s intervals)';
+            return '1-5nm offshore (30s intervals)';
         case 'offshore':
-            return '> 5nm (2min intervals)';
+            return '> 5nm offshore (5min intervals)';
     }
 }
 
-// --- SPEED-ADAPTIVE INTERVAL DETECTION ---
+// --- SPEED-TIER DETECTION (legacy UI / debounce support) ---
 
 /** m/s → knots conversion */
 const MS_TO_KNOTS = 1.94384;
 
 /**
- * Get the optimal flush interval based on current speed over ground.
- * This is the PRIMARY interval selection method — zone-based is the fallback
- * used only when no GPS speed is available yet (cold start).
+ * Get the historic speed-tier interval. Live voyage plotting is now governed
+ * by ShoreZoneResolver and the per-fix geographic sampler; this helper remains
+ * for the speed-tier debounce/UI compatibility surface.
  *
  * Speed tiers (tuned for sailing yachts):
  *   < 1 kt   → 5 min  (anchored / moored — just confirm position periodically)
@@ -434,6 +452,12 @@ export function isPlausibleTrackPoint(lat: number | null | undefined, lon: numbe
  *
  * Manual entries are excluded for the same class of reason: their
  * position can be a cached fix up to 60 s old, i.e. behind the boat.
+ *
+ * Voyage Start / Voyage End are lifecycle pins. Their timestamp expresses
+ * when tracking was started/stopped, while their GPS anchor can resolve a
+ * little later. They must stay visible as pins but must not become polyline
+ * vertices, otherwise a delayed anchor can fold the first or last leg back
+ * over the real raw track.
  */
 export function isTrackworthyEntry(
     entry: Pick<ShipLogEntry, 'latitude' | 'longitude' | 'entryType' | 'waypointName' | 'notes'>,
@@ -442,6 +466,7 @@ export function isTrackworthyEntry(
     if (entry.entryType === 'manual') return false;
     const name = entry.waypointName ?? '';
     const notes = entry.notes ?? '';
+    if (name === 'Voyage Start' || name === 'Voyage End') return false;
     if (name.startsWith('COG ') || notes.startsWith('Auto: COG')) return false; // turn pin
     return true;
 }

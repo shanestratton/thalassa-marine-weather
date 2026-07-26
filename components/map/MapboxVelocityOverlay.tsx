@@ -10,10 +10,10 @@
  * Cleanup: removes the heatmap plus the optional velocity layer/Leaflet overlay.
  *
  * Usage:
- *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible particlesEnabled={particlesOn} />
+ *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible />
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
 import { WIND_COLORS, WIND_MAX_MS, windColorForKt } from './windRamp';
@@ -64,11 +64,15 @@ interface MapboxVelocityOverlayProps {
  * out now; the stroke does not have to.
  */
 const PARTICLE_LINE_WIDTH = 1;
+// Direction is essential even in the broad synoptic view, so Wind begins at
+// z3 rather than falling back to a speed-only heatmap. The startup guard below
+// protects the third-party renderer from the old delayed-start zoom race.
+const MIN_PARTICLE_ZOOM = 3;
 
 // ── Helper: Create velocity layer ─────────────────────────────
 
 function createVelocityLayer(data: VelocityGribRecord[]): L.Layer {
-    return (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
+    const layer = (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: WIND_MAX_MS,
@@ -79,12 +83,63 @@ function createVelocityLayer(data: VelocityGribRecord[]): L.Layer {
         particlelineWidth: PARTICLE_LINE_WIDTH,
         colorScale: WIND_COLORS,
     });
+    // Keep the third-party delayed-start guard attached to every creation
+    // path, including a replacement after an unsupported data update.
+    guardVelocityLayerStartup(layer);
+    return layer;
 }
 
 type MutableVelocityLayer = L.Layer & {
     _windy?: { setData: (data: VelocityGribRecord[]) => void };
     setData?: (data: VelocityGribRecord[]) => void;
 };
+
+/**
+ * `leaflet-velocity-ts` creates its Windy instance before it creates the
+ * animation bucket used by `Windy.stop()`. A Mapbox zoom can arrive in that
+ * small window (particularly when Wind opens at z3), causing the plugin to
+ * call `this.animationBucket.clear()` while the bucket is still undefined.
+ *
+ * The plugin does not expose a lifecycle hook for this, so guard its private
+ * startup seam at the one place we create a velocity layer. Once `start()`
+ * has run, the original stop implementation remains completely unchanged.
+ */
+type VelocityWindyInternals = {
+    animationBucket?: { clear?: () => void };
+    stop?: () => void;
+    __thalassaSafeStop?: boolean;
+};
+
+type VelocityLayerInternals = MutableVelocityLayer & {
+    _windy?: VelocityWindyInternals;
+    onDrawLayer?: (...args: unknown[]) => unknown;
+    __thalassaStartupGuarded?: boolean;
+};
+
+export function guardVelocityLayerStartup(layer: L.Layer): void {
+    const internalLayer = layer as VelocityLayerInternals;
+    if (internalLayer.__thalassaStartupGuarded || typeof internalLayer.onDrawLayer !== 'function') return;
+
+    internalLayer.__thalassaStartupGuarded = true;
+    const originalOnDrawLayer = internalLayer.onDrawLayer;
+
+    internalLayer.onDrawLayer = (...args: unknown[]) => {
+        const result = originalOnDrawLayer.call(internalLayer, ...args);
+        const windy = internalLayer._windy;
+        if (!windy || windy.__thalassaSafeStop || typeof windy.stop !== 'function') return result;
+
+        const originalStop = windy.stop;
+        windy.__thalassaSafeStop = true;
+        windy.stop = () => {
+            // Before the plugin's delayed `start()` call there is no running
+            // animation to stop. Returning here avoids its unsafe clear().
+            if (!windy.animationBucket) return;
+            originalStop.call(windy);
+        };
+
+        return result;
+    };
+}
 
 function removeVelocityLayer(map: L.Map, layer: L.Layer | null): void {
     if (layer && map.hasLayer(layer)) map.removeLayer(layer);
@@ -124,6 +179,19 @@ type ImageSourceUpdate = {
     updateImage?: (options: { url: string; coordinates: unknown }) => void;
 };
 
+type StyleLayer = {
+    id: string;
+    type?: string;
+    layout?: { visibility?: string };
+};
+
+const HEATMAP_LAYER_IDS = new Set([`${HEATMAP_LAYER}`, `${HEATMAP_LAYER}_r`]);
+// MapTiler Ocean is a translucent weather/bathymetry tint in the normal
+// Hybrid chart, not a true base. Treating it as an opaque base anchor would
+// lift wind above ENC/navigation layers, so only use the actual opaque image
+// bases here.
+const IMAGERY_BASE_LAYER_IDS = ['hybrid-base-layer', 'satellite-base-layer'];
+
 function canRenderHeatMap(map: mapboxgl.Map | null): map is mapboxgl.Map {
     const candidate = map as unknown as {
         addLayer?: unknown;
@@ -142,6 +210,17 @@ function canRenderHeatMap(map: mapboxgl.Map | null): map is mapboxgl.Map {
         typeof candidate.removeLayer === 'function' &&
         typeof candidate.removeSource === 'function',
     );
+}
+
+/**
+ * `MapHub` can still be mounting its base style when a cached wind grid arrives.
+ * Adding an image source in that tiny window throws, and a style replacement
+ * later removes every custom source. Leave the static field dormant until the
+ * style is ready; the style-load listener below then paints the latest frame.
+ */
+function isHeatMapStyleReady(map: mapboxgl.Map): boolean {
+    const candidate = map as unknown as { isStyleLoaded?: () => boolean };
+    return typeof candidate.isStyleLoaded !== 'function' || candidate.isStyleLoaded();
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -165,15 +244,80 @@ function removeHeatMapSegment(map: mapboxgl.Map, suffix: '' | '_r'): void {
     if (map.getSource(sourceId)) map.removeSource(sourceId);
 }
 
-/** Keep wind below the navigation and label chrome, regardless of base style. */
-function heatmapBeforeLayerId(map: mapboxgl.Map): string | undefined {
+function styleLayers(map: mapboxgl.Map): StyleLayer[] {
     try {
         const styleMap = map as unknown as {
-            getStyle?: () => { layers?: Array<{ id: string; type?: string }> };
+            getStyle?: () => { layers?: StyleLayer[] };
         };
-        return styleMap.getStyle?.().layers?.find((layer) => layer.type === 'symbol')?.id;
+        return styleMap.getStyle?.().layers ?? [];
     } catch {
-        return undefined;
+        return [];
+    }
+}
+
+function layerIsVisible(map: mapboxgl.Map, layer: StyleLayer): boolean {
+    try {
+        const layoutMap = map as unknown as {
+            getLayoutProperty?: (layerId: string, property: string) => unknown;
+        };
+        const visibility = layoutMap.getLayoutProperty?.(layer.id, 'visibility') ?? layer.layout?.visibility;
+        return visibility !== 'none';
+    } catch {
+        return layer.layout?.visibility !== 'none';
+    }
+}
+
+/**
+ * Keep the static wind field above whichever opaque base is actually visible,
+ * but beneath ENC/navigation content. Hybrid is appended late by MapHub, so
+ * using the first base-style label as the anchor put the broad-view heatmap
+ * underneath it and made it look as though wind had failed to load.
+ */
+export function getWindHeatmapBeforeLayerId(map: mapboxgl.Map): string | undefined {
+    const layers = styleLayers(map);
+    const visibleBaseIndexes = layers
+        .map((layer, index) => (IMAGERY_BASE_LAYER_IDS.includes(layer.id) && layerIsVisible(map, layer) ? index : -1))
+        .filter((index) => index >= 0);
+    const baseIndex = visibleBaseIndexes.length > 0 ? Math.max(...visibleBaseIndexes) : -1;
+
+    if (baseIndex >= 0) {
+        // The layer immediately after the visible base is the safe ceiling:
+        // usually the first ENC layer, and otherwise the end of the style.
+        // Skip our own layer IDs so a reassertion can never select itself as
+        // its `beforeId` after the base healer has reordered imagery.
+        return layers.slice(baseIndex + 1).find((layer) => !HEATMAP_LAYER_IDS.has(layer.id))?.id;
+    }
+
+    return layers.find((layer) => layer.type === 'symbol')?.id;
+}
+
+/** Reassert the one ordering invariant without writing when it already holds. */
+export function ensureWindHeatmapLayerOrder(map: mapboxgl.Map): void {
+    try {
+        const layers = styleLayers(map);
+        if (layers.length === 0) return;
+        const beforeLayerId = getWindHeatmapBeforeLayerId(map);
+        const beforeIndex = beforeLayerId ? layers.findIndex((layer) => layer.id === beforeLayerId) : layers.length;
+        const visibleBaseIndexes = layers
+            .map((layer, index) =>
+                IMAGERY_BASE_LAYER_IDS.includes(layer.id) && layerIsVisible(map, layer) ? index : -1,
+            )
+            .filter((index) => index >= 0);
+        const baseIndex = visibleBaseIndexes.length > 0 ? Math.max(...visibleBaseIndexes) : -1;
+        const movableMap = map as unknown as { moveLayer?: (layerId: string, beforeId?: string) => void };
+        if (!movableMap.moveLayer) return;
+
+        for (const suffix of ['' as const, '_r' as const]) {
+            const layerId = heatmapLayerId(suffix);
+            const layerIndex = layers.findIndex((layer) => layer.id === layerId);
+            if (layerIndex < 0) continue;
+            const belowBase = baseIndex >= 0 && layerIndex <= baseIndex;
+            const aboveCeiling = beforeIndex >= 0 && layerIndex >= beforeIndex;
+            if (belowBase || aboveCeiling) movableMap.moveLayer(layerId, beforeLayerId);
+        }
+    } catch {
+        // The base style can be in transit; the coalesced styledata pass will
+        // retry after it settles.
     }
 }
 
@@ -295,7 +439,7 @@ function updateHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void 
         return sm.toDataURL('image/png');
     };
 
-    const beforeLayerId = heatmapBeforeLayerId(map);
+    const beforeLayerId = getWindHeatmapBeforeLayerId(map);
     const activeSuffixes = new Set<'' | '_r'>();
     for (const segment of segments) {
         const url = sliceToDataUrl(segment.startColumn, segment.endColumn);
@@ -318,6 +462,7 @@ function updateHeatMap(map: mapboxgl.Map, windData: VelocityGribRecord[]): void 
     for (const suffix of ['' as const, '_r' as const]) {
         if (!activeSuffixes.has(suffix)) removeHeatMapSegment(map, suffix);
     }
+    ensureWindHeatmapLayerOrder(map);
 }
 
 function removeHeatMap(map: mapboxgl.Map): void {
@@ -345,18 +490,46 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
     const zoomEndRef = useRef<(() => void) | null>(null);
+    const [particleZoomSupported, setParticleZoomSupported] = useState(() =>
+        Boolean(mapboxMap && mapboxMap.getZoom() >= MIN_PARTICLE_ZOOM),
+    );
     // Track latest values so the async setup can apply the correct hour
     const windHourRef = useRef(windHour);
     const windGridPropRef = useRef(windGrid);
     windHourRef.current = windHour;
     windGridPropRef.current = windGrid;
 
+    // The OBS wind read is directional at every supported zoom. Wait for the
+    // camera to settle before mounting/unmounting the second map so a z3
+    // transition cannot fight Mapbox's zoom animation.
+    useEffect(() => {
+        if (!mapboxMap || !visible || !particlesEnabled) {
+            setParticleZoomSupported(false);
+            return;
+        }
+
+        const updateParticleZoomSupport = () => {
+            setParticleZoomSupported(mapboxMap.getZoom() >= MIN_PARTICLE_ZOOM);
+        };
+
+        updateParticleZoomSupport();
+        // Wait for the camera to settle before starting/stopping the second
+        // map. That keeps an animation-layer transition out of Mapbox's zoom
+        // animation.
+        mapboxMap.on('zoomend', updateParticleZoomSupport);
+        return () => {
+            mapboxMap.off('zoomend', updateParticleZoomSupport);
+        };
+    }, [mapboxMap, visible, particlesEnabled]);
+
+    const particlesActive = particlesEnabled && particleZoomSupported;
+
     // The selected WindStore grid is the sole particle source. This effect
     // covers grid/hour updates after Leaflet setup, including the first frame.
     // If a model switch clears the grid, remove the old model immediately
     // rather than leaving plausible-looking but incorrectly labelled wind.
     useEffect(() => {
-        if (!particlesEnabled) return;
+        if (!particlesActive) return;
         const leafletMap = leafletMapRef.current;
         if (!leafletMap) return;
 
@@ -381,7 +554,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             if (overlayRef.current) overlayRef.current.style.opacity = '0';
             log.error('[VelocityOverlay] Failed to apply selected wind grid:', err);
         }
-    }, [windHour, windGrid, particlesEnabled]);
+    }, [windHour, windGrid, particlesActive]);
 
     // The static heatmap is intentionally quantised to whole forecast frames.
     // Particles can interpolate smoothly, but turning every scrubber fraction
@@ -395,19 +568,57 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             return;
         }
 
-        const data = windGridFrameToVelocityData(windGrid, heatmapFrame);
-        if (!data) {
-            removeHeatMap(mapboxMap);
-            return;
-        }
+        const renderStaticField = () => {
+            if (!isHeatMapStyleReady(mapboxMap)) return;
 
-        try {
-            updateHeatMap(mapboxMap, data);
-        } catch (err) {
-            removeHeatMap(mapboxMap);
-            log.error('[HeatMap] Failed to render wind field:', err);
-        }
+            const data = windGridFrameToVelocityData(windGrid, heatmapFrame);
+            if (!data) {
+                removeHeatMap(mapboxMap);
+                return;
+            }
+
+            try {
+                updateHeatMap(mapboxMap, data);
+            } catch (err) {
+                removeHeatMap(mapboxMap);
+                log.error('[HeatMap] Failed to render wind field:', err);
+            }
+        };
+
+        renderStaticField();
+        // A Mapbox style replacement deletes all custom sources and layers.
+        // The static field remains the speed underlay at z3, so restore it on
+        // that one lifecycle edge rather than relying on a later grid update
+        // (which may not happen until the user moves the map).
+        mapboxMap.on('style.load', renderStaticField);
+        return () => {
+            mapboxMap.off('style.load', renderStaticField);
+        };
     }, [mapboxMap, visible, windGrid, heatmapFrame]);
+
+    // MapHub may subsequently heal Hybrid/Satellite beneath a late ENC mount.
+    // That move can put opaque imagery over a previously-correct heatmap. A
+    // coalesced order check catches that edge without turning every Mapbox
+    // styledata burst into a write (and therefore another styledata burst).
+    useEffect(() => {
+        if (!mapboxMap || !canRenderHeatMap(mapboxMap) || !visible) return;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const reassertOrder = () => {
+            if (timer) return;
+            timer = setTimeout(() => {
+                timer = null;
+                ensureWindHeatmapLayerOrder(mapboxMap);
+            }, 120);
+        };
+        mapboxMap.on('styledata', reassertOrder);
+        // Covers a source that was added before the current imagery-healer
+        // pass, without waiting for the next unrelated style event.
+        reassertOrder();
+        return () => {
+            if (timer) clearTimeout(timer);
+            mapboxMap.off('styledata', reassertOrder);
+        };
+    }, [mapboxMap, visible]);
 
     // Tear down only when the owning map changes or this overlay unmounts.
     // Updating a forecast frame uses ImageSource.updateImage() above, avoiding
@@ -417,29 +628,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         return () => removeHeatMap(mapboxMap);
     }, [mapboxMap]);
 
-    // ── Zoom-based particle visibility ───────────────────────────
-    useEffect(() => {
-        if (!mapboxMap || !visible || !particlesEnabled) return;
-        const MIN_PARTICLE_ZOOM = 1; // Match wind layer minZoom
-
-        const onZoom = () => {
-            const z = mapboxMap.getZoom();
-            const showParticles = z >= MIN_PARTICLE_ZOOM;
-            if (overlayRef.current) {
-                overlayRef.current.style.display = showParticles ? '' : 'none';
-            }
-        };
-
-        mapboxMap.on('zoom', onZoom);
-        onZoom();
-        return () => {
-            mapboxMap.off('zoom', onZoom);
-        };
-    }, [mapboxMap, visible, particlesEnabled]);
-
     // ── Create/destroy particle overlay ──────────────────────────
     useEffect(() => {
-        if (!mapboxMap || !visible || !particlesEnabled) return;
+        if (!mapboxMap || !visible || !particlesActive) return;
 
         let cancelled = false;
         let snapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -675,7 +866,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
             overlayRef.current = null;
         };
-    }, [mapboxMap, visible, particlesEnabled]);
+    }, [mapboxMap, visible, particlesActive]);
 
     return null;
 };

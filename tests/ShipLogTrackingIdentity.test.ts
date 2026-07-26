@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { CaptureContext, FlushBufferedTrackResult } from '../services/shiplog/CapturePipeline';
 
 const mocks = vi.hoisted(() => {
     const state = {
@@ -14,8 +15,10 @@ const mocks = vi.hoisted(() => {
         releaseStoppedStateWrite: null as null | (() => void),
         gpsOptions: null as null | {
             onFix: (position: unknown) => void;
+            onAcceptedFix?: (position: unknown) => void;
             onSpeedTierChanged: () => void;
             onHeartbeatTick: () => void;
+            onTrackOpened?: () => void;
         },
     };
     return {
@@ -23,8 +26,11 @@ const mocks = vi.hoisted(() => {
         schedulerStop: vi.fn(),
         gpsStop: vi.fn(),
         nativeStop: vi.fn(async () => undefined),
+        setSamplingMode: vi.fn(async () => undefined),
         captureImmediate: vi.fn(async () => null),
-        flushBuffered: vi.fn(async () => 'complete'),
+        captureLog: vi.fn(async () => null),
+        addManual: vi.fn(async () => null),
+        flushBuffered: vi.fn<(ctx: CaptureContext) => Promise<FlushBufferedTrackResult>>(async () => 'complete'),
         syncQueue: vi.fn(async () => 0),
         purge: vi.fn(async () => true),
         cache: vi.fn(async () => undefined),
@@ -68,7 +74,7 @@ vi.mock('../services/BgGeoManager', () => ({
         requestStart: vi.fn(async () => undefined),
         requestStop: mocks.nativeStop,
         isNativeTrackingEnabled: vi.fn(async () => false),
-        setSamplingMode: vi.fn(async () => undefined),
+        setSamplingMode: mocks.setSamplingMode,
     },
 }));
 
@@ -90,6 +96,9 @@ vi.mock('../services/shiplog/AdaptiveScheduler', () => ({
         isRunning() {
             return false;
         }
+        isScheduled() {
+            return false;
+        }
     },
 }));
 
@@ -100,6 +109,9 @@ vi.mock('../services/shiplog/GpsSubscriptionManager', () => ({
         }
         stop() {
             mocks.gpsStop();
+        }
+        bufferFinalPoint() {
+            return false;
         }
     },
 }));
@@ -139,6 +151,7 @@ vi.mock('../services/shiplog/EnvironmentPoller', () => ({
     EnvironmentPoller: class {
         start = vi.fn();
         stop = vi.fn();
+        requestCheck = vi.fn();
     },
 }));
 
@@ -148,8 +161,8 @@ vi.mock('../services/shiplog/GpsPrecisionTracker', () => ({
 
 vi.mock('../services/shiplog/CapturePipeline', () => ({
     captureImmediate: mocks.captureImmediate,
-    captureLog: vi.fn(async () => null),
-    addManual: vi.fn(async () => null),
+    captureLog: mocks.captureLog,
+    addManual: mocks.addManual,
     flushBufferedTrack: mocks.flushBuffered,
     drainBufferedTrackForHandoff: (buffer: { drain: () => unknown[] }) => buffer.drain(),
 }));
@@ -325,5 +338,53 @@ describe('ShipLogService tracking owner fence', () => {
             currentVoyageId: voyageId,
         });
         expect(mocks.state.gpsOptions).not.toBeNull();
+    });
+
+    it('leaves fast-lock as soon as the GPS manager opens a vetted track', async () => {
+        if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.pauseTracking();
+        mocks.setSamplingMode.mockClear();
+
+        await ShipLogService.startTracking(false);
+        expect(mocks.setSamplingMode).toHaveBeenCalledWith('fastlock');
+        const flushesBeforeGate = mocks.flushBuffered.mock.calls.length;
+        await mocks.state.schedulerTick?.();
+        expect(mocks.flushBuffered).toHaveBeenCalledTimes(flushesBeforeGate);
+
+        mocks.state.gpsOptions?.onTrackOpened?.();
+        await Promise.resolve();
+
+        expect(mocks.setSamplingMode).toHaveBeenLastCalledWith('default');
+        // Opening the GPS gate alone must not make an empty periodic tick
+        // persist the raw UI cache. The real manager will have put a vetted
+        // selected vertex in the buffer before a normal flush proceeds.
+        await mocks.state.schedulerTick?.();
+        expect(mocks.flushBuffered).toHaveBeenCalledTimes(flushesBeforeGate + 1);
+        expect(mocks.flushBuffered.mock.calls.at(-1)?.[0]).toMatchObject({ allowEmptyBufferFallback: false });
+    });
+
+    it('serialises a manual log entry behind an in-flight selected-point flush', async () => {
+        if (!ShipLogService.getTrackingStatus().isTracking) await ShipLogService.startTracking(false);
+        mocks.addManual.mockClear();
+
+        let releaseFlush!: (result: 'complete') => void;
+        mocks.flushBuffered.mockImplementationOnce(
+            () =>
+                new Promise<'complete'>((resolve) => {
+                    releaseFlush = resolve;
+                }),
+        );
+
+        mocks.state.gpsOptions?.onTrackOpened?.();
+        mocks.state.trackBuffer?.push({ latitude: -27.5, longitude: 153 });
+        mocks.state.gpsOptions?.onHeartbeatTick();
+        await Promise.resolve();
+
+        const manual = ShipLogService.addManualEntry('Checked rigging');
+        await Promise.resolve();
+        expect(mocks.addManual).not.toHaveBeenCalled();
+
+        releaseFlush('complete');
+        await manual;
+        expect(mocks.addManual).toHaveBeenCalledTimes(1);
     });
 });

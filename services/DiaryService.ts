@@ -2251,7 +2251,10 @@ class DiaryServiceClass {
                 return null;
             }
             const data = await res.json();
-            return data?.transcript || null;
+            // Preserve an explicit empty transcript. Callers use `null` to
+            // distinguish an unavailable transcription service from a valid
+            // response where the recording contained no detectable speech.
+            return typeof data?.transcript === 'string' ? data.transcript : null;
         } catch (e) {
             log.error('Audio transcription failed:', e);
             return null;

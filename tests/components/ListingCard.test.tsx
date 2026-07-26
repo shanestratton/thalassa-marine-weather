@@ -22,7 +22,10 @@ vi.mock('../../theme', () => ({ t: { border: { default: 'border-white/5' } } }))
 vi.mock('../../hooks/useSwipeable', () => ({
     useSwipeable: () => ({ swipeOffset: 0, isSwiping: false, resetSwipe: vi.fn(), ref: { current: null } }),
 }));
-vi.mock('../../utils/keyboardScroll', () => ({ scrollInputAboveKeyboard: vi.fn() }));
+vi.mock('../../utils/keyboardScroll', () => ({
+    scrollInputAboveKeyboard: vi.fn(() => () => {}),
+    subscribeKeyboardHeight: vi.fn(() => () => {}),
+}));
 vi.mock('./helpers', () => ({
     formatPrice: (p: number, c: string) => `${c} ${p}`,
     getConditionColor: () => 'text-white',

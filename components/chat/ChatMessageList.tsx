@@ -12,6 +12,8 @@ import {
     parsePinMessage,
     parseTrackMessage,
     exportPinAsGPX,
+    cleanPinShareCaption,
+    getPinShareKind,
 } from './chatUtils';
 import { useUI } from '../../context/UIContext';
 import { LocationStore } from '../../stores/LocationStore';
@@ -430,18 +432,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         const pin = parsePinMessage(msg.message);
                                                         const track = parseTrackMessage(msg.message);
                                                         if (pin) {
-                                                            const isLoc = pin.caption.startsWith('[LOC]');
-                                                            const isPoi = pin.caption.startsWith('[POI]');
-                                                            const cleanCaption = pin.caption.replace(
-                                                                /^\[(LOC|POI)\]\s*/,
-                                                                '',
-                                                            );
+                                                            const pinKind = getPinShareKind(pin.caption);
+                                                            const isLoc = pinKind === 'current';
+                                                            const isPoi = pinKind === 'place';
+                                                            const cleanCaption = cleanPinShareCaption(pin.caption);
                                                             return (
                                                                 <div
                                                                     className={`mt-1.5 rounded-2xl overflow-hidden border ${isLoc ? 'border-emerald-500/20' : isPoi ? 'border-purple-500/20' : 'border-white/[0.08]'} bg-white/[0.02] max-w-[280px]`}
                                                                 >
                                                                     <button
-                                                                        aria-label="Pin message to channel"
+                                                                        aria-label={`Open ${cleanCaption || 'shared location'} on chart`}
                                                                         onClick={() => navigateToPin(pin.lat, pin.lng)}
                                                                         className="w-full cursor-pointer hover:opacity-90 transition-opacity relative"
                                                                     >
@@ -469,9 +469,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                             }`}
                                                                         >
                                                                             {isLoc
-                                                                                ? 'Live Location'
+                                                                                ? 'Current fix'
                                                                                 : isPoi
-                                                                                  ? 'Shared Pin'
+                                                                                  ? 'Shared place'
                                                                                   : 'Pin'}
                                                                         </span>
                                                                     </button>

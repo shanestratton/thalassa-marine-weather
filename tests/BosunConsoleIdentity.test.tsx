@@ -31,6 +31,12 @@ const voiceMocks = vi.hoisted(() => ({
     dgTap: null as ((message: string) => void) | null,
 }));
 
+const nativeAudioMocks = vi.hoisted(() => ({
+    cancelTtsAudio: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+    prepareVoiceInput: vi.fn().mockResolvedValue({ status: 'ready' }),
+    releaseVoiceInput: vi.fn().mockResolvedValue({ status: 'released' }),
+}));
+
 vi.mock('../components/ui/PageHeader', () => ({
     PageHeader: ({ title, action }: { title: string; action?: React.ReactNode }) => (
         <header>
@@ -187,7 +193,9 @@ describe('BosunConsole identity cutover', () => {
             value: {
                 Plugins: {
                     AppleMusic: {
-                        cancelTtsAudio: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+                        cancelTtsAudio: nativeAudioMocks.cancelTtsAudio,
+                        prepareVoiceInput: nativeAudioMocks.prepareVoiceInput,
+                        releaseVoiceInput: nativeAudioMocks.releaseVoiceInput,
                     },
                 },
             },
@@ -315,6 +323,55 @@ describe('BosunConsole identity cutover', () => {
         expect(screen.queryByText('A microphone secret')).not.toBeInTheDocument();
     });
 
+    it('hands native Calypso TTS back to microphone mode before starting Deepgram', async () => {
+        const order: string[] = [];
+        nativeAudioMocks.prepareVoiceInput.mockImplementationOnce(async () => {
+            order.push('native-input');
+            return { status: 'ready' };
+        });
+        voiceMocks.startDeepgramRecognizer.mockImplementationOnce(async () => {
+            order.push('deepgram');
+            return {
+                stop: vi.fn().mockResolvedValue({ text: null, durationMs: 0 }),
+                cancel: vi.fn().mockResolvedValue(undefined),
+            };
+        });
+        await renderReadyConsole();
+
+        fireEvent.click(screen.getByRole('button', { name: /Talk idle/i }));
+
+        await waitFor(() => expect(voiceMocks.startDeepgramRecognizer).toHaveBeenCalledTimes(1));
+        expect(nativeAudioMocks.prepareVoiceInput).toHaveBeenCalledTimes(1);
+        expect(order).toEqual(['native-input', 'deepgram']);
+        expect(voiceMocks.releaseAudioContext).toHaveBeenCalledTimes(1);
+        expect(voiceMocks.releaseMic).toHaveBeenCalledTimes(1);
+        expect(voiceMocks.releaseSocket).not.toHaveBeenCalled();
+    });
+
+    it('discards the prewarmed mic graph when interrupting a spoken Calypso response', async () => {
+        voiceMocks.askHaiku.mockResolvedValueOnce({
+            answerText: 'Calypso response',
+            toolCalls: [],
+        });
+        voiceMocks.synthesiseSpeech.mockResolvedValueOnce('AA==');
+        voiceMocks.startDeepgramRecognizer.mockResolvedValueOnce({
+            stop: vi.fn().mockResolvedValue({ text: null, durationMs: 0 }),
+            cancel: vi.fn().mockResolvedValue(undefined),
+        });
+        const input = await renderReadyConsole();
+
+        fireEvent.change(input, { target: { value: 'Start speaking' } });
+        fireEvent.submit(input.closest('form')!);
+        await waitFor(() => expect(screen.getByRole('button', { name: /Talk playing/i })).toBeEnabled());
+
+        fireEvent.click(screen.getByRole('button', { name: /Talk playing/i }));
+
+        await waitFor(() => expect(voiceMocks.startDeepgramRecognizer).toHaveBeenCalledTimes(1));
+        expect(voiceMocks.releaseAudioContext).toHaveBeenCalledTimes(1);
+        expect(voiceMocks.releaseMic).toHaveBeenCalledTimes(1);
+        expect(voiceMocks.releaseSocket).not.toHaveBeenCalled();
+    });
+
     it('synchronously clears live A UI and terminates active capture, audio, sync, and prewarm resources', async () => {
         const cancel = vi.fn().mockResolvedValue(undefined);
         let callbacks: { onPartial?: (text: string) => void; onFirstPartial?: () => void } | undefined;
@@ -347,5 +404,6 @@ describe('BosunConsole identity cutover', () => {
         expect(voiceMocks.releaseMic).toHaveBeenCalled();
         expect(voiceMocks.releaseSocket).toHaveBeenCalled();
         expect(voiceMocks.releaseAudioContext).toHaveBeenCalled();
+        expect(nativeAudioMocks.releaseVoiceInput).toHaveBeenCalled();
     });
 });

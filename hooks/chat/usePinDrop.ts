@@ -1,11 +1,13 @@
 /**
- * usePinDrop — Extracted from ChatPage.
- * Manages pin drop, POI picker, GPS position, and sending pin/POI messages.
+ * usePinDrop — Location sharing for channel chat.
+ *
+ * Current-location and place sharing deliberately use the same transport,
+ * but they have different promises to the skipper: a current location is a
+ * fresh GPS snapshot, while a place is deliberately chosen on the chart.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatService, ChatMessage, type ChatMessageSendResult } from '../../services/ChatService';
-import { BgGeoManager } from '../../services/BgGeoManager';
-import { PinService, SavedPin } from '../../services/PinService';
+import { PinService, type SavedPin } from '../../services/PinService';
 import { GpsService } from '../../services/GpsService';
 import { createLogger } from '../../utils/createLogger';
 import { PIN_PREFIX } from '../../components/chat/chatUtils';
@@ -18,11 +20,40 @@ import { toast } from '../../components/Toast';
 
 const log = createLogger('usePinDrop');
 
+/** Source shown in the review sheet. `null` means the skipper has not selected a place yet. */
+export type PinSelectionSource = 'current' | 'saved' | 'map' | 'search' | null;
+
+const CURRENT_LOCATION_MAX_AGE_MS = 60_000;
+
 export interface UsePinDropOptions {
     activeChannel: { id: string } | null;
     setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-    setMessageText: (text: string) => void;
     messageEndRef: React.RefObject<HTMLDivElement | null>;
+}
+
+/** A coordinate must be real before it is allowed into a public chat message. */
+export function isValidPinCoordinate(latitude: number, longitude: number): boolean {
+    return (
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180
+    );
+}
+
+function isFreshGpsPosition(
+    position: {
+        latitude: number;
+        longitude: number;
+        timestamp: number;
+    } | null,
+): boolean {
+    if (!position || !isValidPinCoordinate(position.latitude, position.longitude)) return false;
+    if (!Number.isFinite(position.timestamp)) return false;
+    const age = Date.now() - position.timestamp;
+    return age >= -5_000 && age <= CURRENT_LOCATION_MAX_AGE_MS;
 }
 
 function reconcileOptimisticMessage(
@@ -48,9 +79,9 @@ function reconcileOptimisticMessage(
 }
 
 export function usePinDrop(options: UsePinDropOptions) {
-    const { activeChannel, setMessages, setMessageText, messageEndRef } = options;
+    const { activeChannel, setMessages, messageEndRef } = options;
 
-    // --- State ---
+    // --- Sheet / selection state ---
     const [showAttachMenu, setShowAttachMenu] = useState(false);
     const [showPinSheet, setShowPinSheet] = useState(false);
     const [showPoiSheet, setShowPoiSheet] = useState(false);
@@ -58,16 +89,79 @@ export function usePinDrop(options: UsePinDropOptions) {
     const [pinLng, setPinLng] = useState(0);
     const [pinCaption, setPinCaption] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
+    const [pinSource, setPinSource] = useState<PinSelectionSource>(null);
+    const [pinAccuracy, setPinAccuracy] = useState<number | null>(null);
+    const [pinTimestamp, setPinTimestamp] = useState<number | null>(null);
+    const [locationError, setLocationError] = useState<string | null>(null);
+    const [saveToMyPlaces, setSaveToMyPlaces] = useState(false);
     const [savedPins, setSavedPins] = useState<SavedPin[]>([]);
     const [searchingPoi, setSearchingPoi] = useState(false);
+    const [sendingKind, setSendingKind] = useState<'current' | 'place' | null>(null);
+    const shareInFlightRef = useRef(false);
+    const placeSearchEpochRef = useRef(0);
 
     // POI map refs
     const poiMapRef = useRef<HTMLDivElement>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const poiMapInstance = useRef<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const poiMapbox = useRef<any>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const poiMarkerRef = useRef<any>(null);
     const poiMapInitialized = useRef(false);
+
+    const clearSelection = useCallback(() => {
+        setPinLat(0);
+        setPinLng(0);
+        setPinSource(null);
+        setPinAccuracy(null);
+        setPinTimestamp(null);
+    }, []);
+
+    const syncPoiMarker = useCallback((latitude: number, longitude: number, recenter = false) => {
+        const map = poiMapInstance.current;
+        const mapboxgl = poiMapbox.current;
+        if (!map || !mapboxgl || !isValidPinCoordinate(latitude, longitude)) return;
+
+        if (!poiMarkerRef.current) {
+            poiMarkerRef.current = new mapboxgl.Marker({ color: '#38bdf8', draggable: true })
+                .setLngLat([longitude, latitude])
+                .addTo(map);
+        } else {
+            poiMarkerRef.current.setLngLat([longitude, latitude]);
+        }
+        if (recenter) map.flyTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 12) });
+    }, []);
+
+    const selectPoiPosition = useCallback(
+        (
+            latitude: number,
+            longitude: number,
+            source: Exclude<PinSelectionSource, null>,
+            details: { accuracy?: number | null; timestamp?: number | null; recenter?: boolean } = {},
+        ) => {
+            if (!isValidPinCoordinate(latitude, longitude)) return false;
+            setPinLat(latitude);
+            setPinLng(longitude);
+            setPinSource(source);
+            setPinAccuracy(details.accuracy ?? null);
+            setPinTimestamp(details.timestamp ?? null);
+            setLocationError(null);
+            syncPoiMarker(latitude, longitude, details.recenter === true);
+            return true;
+        },
+        [syncPoiMarker],
+    );
+
+    const loadSavedPins = useCallback((identity = getAuthIdentityScope()) => {
+        void PinService.getMyPins(15)
+            .then((pins) => {
+                if (isAuthIdentityScopeCurrent(identity)) setSavedPins(pins);
+            })
+            .catch((error) => {
+                log.warn('could not load saved places:', error);
+            });
+    }, []);
 
     useEffect(
         () =>
@@ -75,232 +169,248 @@ export function usePinDrop(options: UsePinDropOptions) {
                 setShowAttachMenu(false);
                 setShowPinSheet(false);
                 setShowPoiSheet(false);
-                setPinLat(0);
-                setPinLng(0);
+                clearSelection();
                 setPinCaption('');
                 setPinLoading(false);
+                setPinAccuracy(null);
+                setPinTimestamp(null);
+                setLocationError(null);
+                setSaveToMyPlaces(false);
                 setSavedPins([]);
                 setSearchingPoi(false);
+                setSendingKind(null);
+                shareInFlightRef.current = false;
+                placeSearchEpochRef.current += 1;
                 poiMapInstance.current?.remove();
                 poiMapInstance.current = null;
+                poiMapbox.current = null;
                 poiMarkerRef.current = null;
                 poiMapInitialized.current = false;
             }),
-        [],
+        [clearSelection],
     );
 
-    // Snap the marker back to the user's current GPS position.
-    // Bound from the floating "📍" button on the POI sheet.
-    const recenterPoiToMyLocation = useCallback(async () => {
-        const identity = getAuthIdentityScope();
-        try {
-            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 });
-            if (!pos || !isAuthIdentityScopeCurrent(identity)) return;
-            setPinLat(pos.latitude);
-            setPinLng(pos.longitude);
-            if (poiMarkerRef.current && poiMapInstance.current) {
-                poiMarkerRef.current.setLngLat([pos.longitude, pos.latitude]);
-                poiMapInstance.current.flyTo({ center: [pos.longitude, pos.latitude], zoom: 14 });
-            }
-        } catch (e) {
-            log.warn('recenter to my location failed:', e);
-        }
-    }, []);
+    const requestCurrentLocation = useCallback(
+        async (identity = getAuthIdentityScope(), { preserveSelectionOnFailure = false } = {}) => {
+            try {
+                const position = await GpsService.getCurrentPosition({
+                    staleLimitMs: CURRENT_LOCATION_MAX_AGE_MS,
+                    timeoutSec: 10,
+                });
+                if (!isAuthIdentityScopeCurrent(identity)) return false;
+                if (!position || !isFreshGpsPosition(position)) {
+                    if (!preserveSelectionOnFailure) clearSelection();
+                    setLocationError(
+                        "We couldn't get a fresh GPS fix. Check location permission, then try again or drop a place on the chart.",
+                    );
+                    return false;
+                }
 
-    // Forward-geocode a place name and pan the map there. Mapbox
-    // Geocoding (the same one parseLocation uses) returns multiple
-    // candidates; we take the first.
-    const searchPoiLocation = useCallback(async (query: string) => {
-        if (!query.trim()) return;
-        const identity = getAuthIdentityScope();
-        setSearchingPoi(true);
-        try {
-            const { parseLocation } = await import('../../services/weather/api/geocoding');
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            const result = await parseLocation(query.trim());
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (result.lat === 0 && result.lon === 0) {
-                log.info(`no geocode result for "${query}"`);
-                return;
+                return selectPoiPosition(position.latitude, position.longitude, 'current', {
+                    accuracy: position.accuracy,
+                    timestamp: position.timestamp,
+                    recenter: true,
+                });
+            } catch (error) {
+                log.warn('current location unavailable:', error);
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    if (!preserveSelectionOnFailure) clearSelection();
+                    setLocationError(
+                        "We couldn't get a fresh GPS fix. Check location permission, then try again or drop a place on the chart.",
+                    );
+                }
+                return false;
             }
-            setPinLat(result.lat);
-            setPinLng(result.lon);
-            if (poiMarkerRef.current && poiMapInstance.current) {
-                poiMarkerRef.current.setLngLat([result.lon, result.lat]);
-                poiMapInstance.current.flyTo({ center: [result.lon, result.lat], zoom: 14 });
-            }
-        } catch (e) {
-            log.warn('search failed:', e);
-        } finally {
-            if (isAuthIdentityScopeCurrent(identity)) setSearchingPoi(false);
-        }
-    }, []);
+        },
+        [clearSelection, selectPoiPosition],
+    );
 
-    // --- Pin Drop ---
+    // --- Share my current location ---
     const openPinDrop = useCallback(async () => {
         const identity = getAuthIdentityScope();
         setShowAttachMenu(false);
-        setPinLoading(true);
-        setPinCaption('');
+        setShowPoiSheet(false);
         setShowPinSheet(true);
-
-        PinService.getMyPins(15)
-            .then((pins) => {
-                if (isAuthIdentityScopeCurrent(identity)) setSavedPins(pins);
-            })
-            .catch((e) => {
-                console.warn(`[usePinDrop]`, e);
-            });
-
-        try {
-            const pos = BgGeoManager.getLastPosition();
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (pos) {
-                setPinLat(pos.latitude);
-                setPinLng(pos.longitude);
-            } else {
-                const freshPos = await BgGeoManager.getFreshPosition(60000, 10);
-                if (!isAuthIdentityScopeCurrent(identity)) return;
-                if (freshPos) {
-                    setPinLat(freshPos.latitude);
-                    setPinLng(freshPos.longitude);
-                } else {
-                    setPinLat(-33.8568);
-                    setPinLng(151.2153);
-                }
-            }
-        } catch (e) {
-            log.warn('GPS fallback:', e);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            setPinLat(-33.8568);
-            setPinLng(151.2153);
-        }
-        if (isAuthIdentityScopeCurrent(identity)) setPinLoading(false);
-    }, []);
-
-    const sendPin = useCallback(async () => {
-        if (!activeChannel) return;
-        const identity = getAuthIdentityScope();
-        const caption = pinCaption.trim();
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[LOC] ${caption || 'My Location'}`;
-        setShowPinSheet(false);
         setPinCaption('');
-        setMessageText('');
+        setSaveToMyPlaces(false);
+        setLocationError(null);
+        clearSelection();
+        setPinLoading(true);
 
-        const optimistic: ChatMessage = {
-            id: `opt-${crypto.randomUUID()}`,
-            channel_id: activeChannel.id,
-            user_id: 'self',
-            display_name: 'You',
-            message: text,
-            is_question: false,
-            helpful_count: 0,
-            is_pinned: false,
-            deleted_at: null,
-            created_at: new Date().toISOString(),
-            delivery_status: 'sending',
-        };
-        setMessages((prev) => [...prev, optimistic]);
-        const result = await ChatService.sendMessage(activeChannel.id, text, false).catch(() => null);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        setMessages((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
-        if (!result) {
-            setShowPinSheet(true);
-            setPinCaption(caption);
-            toast.error("Pin wasn't sent. Its caption has been restored.");
-            return;
-        }
-        if (result === 'queued') {
-            toast.info('Pin queued — it will send when the connection returns.');
-        }
+        await requestCurrentLocation(identity);
+        if (isAuthIdentityScopeCurrent(identity)) setPinLoading(false);
+    }, [clearSelection, requestCurrentLocation]);
 
-        PinService.savePin({
-            latitude: pinLat,
-            longitude: pinLng,
-            caption: caption || 'Dropped a pin',
-        }).catch((e) => {
-            console.warn(`[usePinDrop]`, e);
-        });
+    const retryCurrentLocation = useCallback(async () => {
+        const identity = getAuthIdentityScope();
+        setPinLoading(true);
+        setLocationError(null);
+        clearSelection();
+        await requestCurrentLocation(identity);
+        if (isAuthIdentityScopeCurrent(identity)) setPinLoading(false);
+    }, [clearSelection, requestCurrentLocation]);
 
-        setTimeout(() => {
-            if (isAuthIdentityScopeCurrent(identity)) {
-                messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }
-        }, 50);
-    }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
-
-    // --- POI Picker ---
-    const openPoiPicker = useCallback(() => {
+    // --- Share a place ---
+    const openPoiPicker = useCallback(async () => {
         const identity = getAuthIdentityScope();
         setShowAttachMenu(false);
+        setShowPinSheet(false);
         setShowPoiSheet(true);
         setPinCaption('');
+        setSaveToMyPlaces(false);
+        setLocationError(null);
+        clearSelection();
         setPinLoading(true);
-        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 }).then((pos) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (pos) {
-                setPinLat(pos.latitude);
-                setPinLng(pos.longitude);
-            } else {
-                setPinLat(-27.4698);
-                setPinLng(153.0251);
-            }
-            setPinLoading(false);
-        });
-    }, []);
+        loadSavedPins(identity);
 
-    const sendPoi = useCallback(async () => {
-        if (!activeChannel) return;
+        await requestCurrentLocation(identity);
+        if (isAuthIdentityScopeCurrent(identity)) setPinLoading(false);
+    }, [clearSelection, loadSavedPins, requestCurrentLocation]);
+
+    const selectSavedPin = useCallback(
+        (savedPin: SavedPin) => {
+            if (!selectPoiPosition(savedPin.latitude, savedPin.longitude, 'saved', { recenter: true })) return;
+            setPinCaption(savedPin.caption);
+            setSaveToMyPlaces(false);
+        },
+        [selectPoiPosition],
+    );
+
+    // Snap the place marker back to the user's current GPS position.
+    const recenterPoiToMyLocation = useCallback(async () => {
         const identity = getAuthIdentityScope();
-        const caption = pinCaption.trim();
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[POI] ${caption || 'Point of interest'}`;
-        setShowPoiSheet(false);
-        setPinCaption('');
-        setMessageText('');
-
-        const optimistic: ChatMessage = {
-            id: `opt-${crypto.randomUUID()}`,
-            channel_id: activeChannel.id,
-            user_id: 'self',
-            display_name: 'You',
-            message: text,
-            is_question: false,
-            helpful_count: 0,
-            is_pinned: false,
-            deleted_at: null,
-            created_at: new Date().toISOString(),
-            delivery_status: 'sending',
-        };
-        setMessages((prev) => [...prev, optimistic]);
-        const result = await ChatService.sendMessage(activeChannel.id, text, false).catch(() => null);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        setMessages((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
-        if (!result) {
-            setShowPoiSheet(true);
-            setPinCaption(caption);
-            toast.error("Point of interest wasn't sent. Its caption has been restored.");
-            return;
+        setLocationError(null);
+        const didFindLocation = await requestCurrentLocation(identity, { preserveSelectionOnFailure: true });
+        if (!didFindLocation && isAuthIdentityScopeCurrent(identity)) {
+            toast.error("We couldn't get your current location. You can still choose a spot on the chart.");
         }
-        if (result === 'queued') {
-            toast.info('Point of interest queued — it will send when the connection returns.');
-        }
+    }, [requestCurrentLocation]);
 
-        PinService.savePin({
-            latitude: pinLat,
-            longitude: pinLng,
-            caption: caption || 'Point of interest',
-        }).catch((e) => {
-            console.warn(`[usePinDrop]`, e);
-        });
-
-        setTimeout(() => {
-            if (isAuthIdentityScopeCurrent(identity)) {
-                messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Forward-geocode a place name and centre the map on the selected result.
+    // The epoch means a slow, earlier search can never overwrite a newer one.
+    const searchPoiLocation = useCallback(
+        async (query: string) => {
+            if (!query.trim()) return;
+            const identity = getAuthIdentityScope();
+            const searchEpoch = ++placeSearchEpochRef.current;
+            setSearchingPoi(true);
+            setLocationError(null);
+            try {
+                const { parseLocation } = await import('../../services/weather/api/geocoding');
+                const result = await parseLocation(query.trim());
+                if (!isAuthIdentityScopeCurrent(identity) || searchEpoch !== placeSearchEpochRef.current) return;
+                if (!isValidPinCoordinate(result.lat, result.lon)) {
+                    setLocationError('No matching place found. Try a more specific name or tap the chart.');
+                    return;
+                }
+                selectPoiPosition(result.lat, result.lon, 'search', { recenter: true });
+                setPinCaption((current) => current.trim() || result.name);
+            } catch (error) {
+                log.warn('place search failed:', error);
+                if (isAuthIdentityScopeCurrent(identity) && searchEpoch === placeSearchEpochRef.current) {
+                    setLocationError("We couldn't search for that place. Check your connection and try again.");
+                }
+            } finally {
+                if (isAuthIdentityScopeCurrent(identity) && searchEpoch === placeSearchEpochRef.current) {
+                    setSearchingPoi(false);
+                }
             }
-        }, 50);
-    }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
+        },
+        [selectPoiPosition],
+    );
 
-    // --- POI Map Init/Cleanup ---
+    const sendSharedPin = useCallback(
+        async (kind: 'current' | 'place') => {
+            if (!activeChannel) {
+                toast.error('Choose a channel before sharing a location.');
+                return;
+            }
+            if (!isValidPinCoordinate(pinLat, pinLng)) {
+                toast.error(
+                    kind === 'current'
+                        ? 'A fresh GPS fix is needed before sharing.'
+                        : 'Choose a place on the chart first.',
+                );
+                return;
+            }
+            if (shareInFlightRef.current) return;
+
+            const identity = getAuthIdentityScope();
+            const latitude = pinLat;
+            const longitude = pinLng;
+            const caption = pinCaption.trim();
+            const defaultCaption = kind === 'current' ? 'Current location' : 'Dropped pin';
+            const text = `${PIN_PREFIX}${latitude.toFixed(6)},${longitude.toFixed(6)}|${kind === 'current' ? '[LOC]' : '[POI]'} ${caption || defaultCaption}`;
+            shareInFlightRef.current = true;
+            setSendingKind(kind);
+
+            const optimistic: ChatMessage = {
+                id: `opt-${crypto.randomUUID()}`,
+                channel_id: activeChannel.id,
+                user_id: 'self',
+                display_name: 'You',
+                message: text,
+                is_question: false,
+                helpful_count: 0,
+                is_pinned: false,
+                deleted_at: null,
+                created_at: new Date().toISOString(),
+                delivery_status: 'sending',
+            };
+
+            try {
+                setMessages((previous) => [...previous, optimistic]);
+                const result = await ChatService.sendMessage(activeChannel.id, text, false).catch(() => null);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                setMessages((previous) => reconcileOptimisticMessage(previous, optimistic.id, result));
+                if (!result) {
+                    kind === 'current' ? setShowPinSheet(true) : setShowPoiSheet(true);
+                    toast.error(
+                        kind === 'current'
+                            ? "Location wasn't sent. Your note is still here."
+                            : "Pin wasn't sent. Your note is still here.",
+                    );
+                    return;
+                }
+
+                if (result === 'queued') {
+                    toast.info(
+                        kind === 'current'
+                            ? 'Location queued — it will send when the connection returns.'
+                            : 'Pin queued — it will send when the connection returns.',
+                    );
+                }
+
+                if (saveToMyPlaces) {
+                    PinService.savePin({
+                        latitude,
+                        longitude,
+                        caption: caption || defaultCaption,
+                    }).catch((error) => {
+                        log.warn('could not save shared place:', error);
+                    });
+                }
+
+                setPinCaption('');
+                setSaveToMyPlaces(false);
+                kind === 'current' ? setShowPinSheet(false) : setShowPoiSheet(false);
+                setTimeout(() => {
+                    if (isAuthIdentityScopeCurrent(identity)) {
+                        messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    }
+                }, 50);
+            } finally {
+                shareInFlightRef.current = false;
+                if (isAuthIdentityScopeCurrent(identity)) setSendingKind(null);
+            }
+        },
+        [activeChannel, messageEndRef, pinCaption, pinLat, pinLng, saveToMyPlaces, setMessages],
+    );
+
+    const sendPin = useCallback(() => sendSharedPin('current'), [sendSharedPin]);
+    const sendPoi = useCallback(() => sendSharedPin('place'), [sendSharedPin]);
+
+    // --- POI map init / cleanup ---
     useEffect(() => {
         if (!showPoiSheet || pinLoading || !poiMapRef.current) return;
         if (poiMapInitialized.current) return;
@@ -314,41 +424,63 @@ export function usePinDrop(options: UsePinDropOptions) {
             document.head.appendChild(link);
         }
 
-        import('mapbox-gl').then((mapboxgl) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (!poiMapRef.current || poiMapInstance.current) return;
-            const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-            if (!token || token.length < 10) return;
+        void import('mapbox-gl')
+            .then((mapboxgl) => {
+                if (!isAuthIdentityScopeCurrent(identity) || !poiMapRef.current || poiMapInstance.current) return;
+                const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+                if (!token || token.length < 10) {
+                    setLocationError('The chart picker is unavailable until its map key is configured.');
+                    poiMapInitialized.current = false;
+                    return;
+                }
 
-            mapboxgl.default.accessToken = token;
-            const map = new mapboxgl.default.Map({
-                container: poiMapRef.current,
-                style: 'mapbox://styles/mapbox/navigation-night-v1',
-                center: [pinLng, pinLat],
-                zoom: 12,
-                attributionControl: false,
-            });
-            map.addControl(new mapboxgl.default.NavigationControl({ showCompass: false }), 'top-right');
+                mapboxgl.default.accessToken = token;
+                poiMapbox.current = mapboxgl.default;
+                const hasSelection = pinSource !== null && isValidPinCoordinate(pinLat, pinLng);
+                const map = new mapboxgl.default.Map({
+                    container: poiMapRef.current,
+                    style: 'mapbox://styles/mapbox/navigation-night-v1',
+                    center: hasSelection ? [pinLng, pinLat] : [0, 20],
+                    zoom: hasSelection ? 12 : 1.75,
+                    attributionControl: false,
+                });
+                map.addControl(new mapboxgl.default.NavigationControl({ showCompass: false }), 'top-right');
 
-            const marker = new mapboxgl.default.Marker({ color: '#38bdf8', draggable: true })
-                .setLngLat([pinLng, pinLat])
-                .addTo(map);
-            poiMarkerRef.current = marker;
+                const bindMarkerDrag = (marker: {
+                    on: (event: string, listener: () => void) => void;
+                    getLngLat: () => { lat: number; lng: number };
+                    __thalassaPinDragBound?: boolean;
+                }) => {
+                    if (marker.__thalassaPinDragBound) return;
+                    marker.__thalassaPinDragBound = true;
+                    marker.on('dragend', () => {
+                        if (!isAuthIdentityScopeCurrent(identity)) return;
+                        const location = marker.getLngLat();
+                        selectPoiPosition(location.lat, location.lng, 'map');
+                    });
+                };
 
-            marker.on('dragend', () => {
-                if (!isAuthIdentityScopeCurrent(identity)) return;
-                const lngLat = marker.getLngLat();
-                setPinLat(lngLat.lat);
-                setPinLng(lngLat.lng);
+                poiMapInstance.current = map;
+                if (hasSelection) {
+                    syncPoiMarker(pinLat, pinLng);
+                    if (poiMarkerRef.current) bindMarkerDrag(poiMarkerRef.current);
+                }
+
+                map.on('click', (event) => {
+                    if (!isAuthIdentityScopeCurrent(identity)) return;
+                    selectPoiPosition(event.lngLat.lat, event.lngLat.lng, 'map');
+                    if (poiMarkerRef.current) bindMarkerDrag(poiMarkerRef.current);
+                });
+            })
+            .catch((error) => {
+                log.warn('chart picker could not start:', error);
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    setLocationError("We couldn't open the chart picker. You can still search for a place.");
+                    poiMapInitialized.current = false;
+                }
             });
-            map.on('click', (e) => {
-                if (!isAuthIdentityScopeCurrent(identity)) return;
-                marker.setLngLat(e.lngLat);
-                setPinLat(e.lngLat.lat);
-                setPinLng(e.lngLat.lng);
-            });
-            poiMapInstance.current = map;
-        });
+        // The initial selection is intentionally read when the map opens. Later
+        // selections use `selectPoiPosition`, which updates the live map marker.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showPoiSheet, pinLoading]);
 
@@ -356,6 +488,7 @@ export function usePinDrop(options: UsePinDropOptions) {
         if (!showPoiSheet && poiMapInstance.current) {
             poiMapInstance.current.remove();
             poiMapInstance.current = null;
+            poiMapbox.current = null;
             poiMarkerRef.current = null;
             poiMapInitialized.current = false;
         }
@@ -376,15 +509,24 @@ export function usePinDrop(options: UsePinDropOptions) {
         pinCaption,
         setPinCaption,
         pinLoading,
+        pinSource,
+        pinAccuracy,
+        pinTimestamp,
+        locationError,
+        saveToMyPlaces,
+        setSaveToMyPlaces,
         savedPins,
         poiMapRef,
         searchingPoi,
+        sendingKind,
 
         // Actions
         openPinDrop,
+        retryCurrentLocation,
         sendPin,
         openPoiPicker,
         sendPoi,
+        selectSavedPin,
         recenterPoiToMyLocation,
         searchPoiLocation,
     };

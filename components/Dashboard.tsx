@@ -31,6 +31,7 @@ import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { glassSafeTopOffset, getGlassTopLayout } from './dashboard/glassLayout';
+import { resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
 
 import { useSettings } from '../context/SettingsContext';
 // useWeather removed with the StalenessBanner — re-add if a new Glass-page
@@ -171,13 +172,26 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const activeDayDataRef = useRef<SourcedWeatherMetrics | null>(null);
     const rafIdRef = useRef<number | null>(null);
 
-    // Sync activeDayData ref & state with current when current first loads
+    // Sync activeDayData with the same location-day high/low pair used by the
+    // Hero row. This closes the short initial-render window before HeroSlide's
+    // active-card callback arrives.
     useEffect(() => {
         if (current && !activeDayDataRef.current) {
-            activeDayDataRef.current = current;
-            setActiveDayData(current);
+            const temperatures = resolveHeroRowTemperatureRange(current, data?.forecast ?? [], hourly ?? [], {
+                timeZone: data?.timeZone,
+                referenceTime: Date.now(),
+                preferForecast: true,
+                allowLeadingPreviousDayFallback: true,
+            });
+            const liveDayData = {
+                ...current,
+                highTemp: temperatures.highTemp,
+                lowTemp: temperatures.lowTemp,
+            };
+            activeDayDataRef.current = liveDayData;
+            setActiveDayData(liveDayData);
         }
-    }, [current]);
+    }, [current, data?.forecast, data?.timeZone, hourly]);
 
     // Minutely rain data — Rainbow.ai for Skipper tier, WeatherKit fallback for others
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
@@ -476,22 +490,25 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     }, [activeDay, activeHour, data?.forecast]);
 
     // Essential mode resets activeDayData to null so safeActive falls
-    // back to `current` (live hour metrics). But `current` doesn't carry
-    // daily high/low temps — those live on the forecast entries — so
-    // the hi/lo indicators in HeroHeader showed '--' whenever the user
-    // toggled to Essential mode. Merge today's high/low from the forecast
-    // so the header stays complete regardless of mode.
+    // back to `current` (live hour metrics). Resolve today's high/low once
+    // in the forecast location's timezone, matching the Hero row. Previously
+    // this simply used forecast[0], which could be yesterday/tomorrow for a
+    // device in a different timezone (or a WeatherKit UTC-labelled entry).
     const safeActive = useMemo(() => {
         if (activeDayData) return activeDayData;
         if (!current) return current;
-        const today = data?.forecast?.[0];
-        if (!today) return current;
+        const temperatures = resolveHeroRowTemperatureRange(current, data?.forecast ?? [], hourly ?? [], {
+            timeZone: data?.timeZone,
+            referenceTime: Date.now(),
+            preferForecast: true,
+            allowLeadingPreviousDayFallback: true,
+        });
         return {
             ...current,
-            highTemp: current.highTemp ?? today.highTemp,
-            lowTemp: current.lowTemp ?? today.lowTemp,
+            highTemp: temperatures.highTemp,
+            lowTemp: temperatures.lowTemp,
         };
-    }, [activeDayData, current, data?.forecast]);
+    }, [activeDayData, current, data?.forecast, data?.timeZone, hourly]);
 
     const widgetSources = useMemo(() => {
         return activeDay === 0 && activeHour === 0 ? current?.sources : safeActive?.sources;

@@ -1,15 +1,14 @@
 /**
  * ChannelProposalModal — Full-screen modal for proposing new channels.
  *
- * Keyboard-aware: tracks iOS keyboard height via Capacitor Keyboard plugin
- * with visualViewport web fallback. Inputs auto-scroll above keyboard on focus.
- * Matches the DiaryPage compose pattern.
+ * Keyboard-aware: consumes the app-wide keyboard measurement so its full-screen
+ * sheet works identically in the Capacitor shell and Safari/PWA.
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import type { ChatChannel } from '../../services/ChatService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { OverlayPortal } from '../ui/OverlayPortal';
 
 interface ChannelProposalModalProps {
@@ -49,58 +48,13 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
     setProposalParentId,
 }) => {
     const [step, setStep] = useState(1);
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const keyboardHeight = useKeyboardOffset();
     const nameInputRef = useRef<HTMLInputElement>(null);
     const stepHeadingRef = useRef<HTMLParagraphElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: nameInputRef,
         onEscape: onClose,
     });
-
-    // Track keyboard height — same pattern as DiaryPage
-    useEffect(() => {
-        let cleanup: (() => void) | undefined;
-
-        if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
-                        }, 250);
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        setKeyboardHeight(0);
-                    });
-                    cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin not available */
-                });
-        } else {
-            const vp = window.visualViewport;
-            if (vp) {
-                const handleResize = () => {
-                    const kbHeight = window.innerHeight - vp.height;
-                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
-                };
-                vp.addEventListener('resize', handleResize);
-                cleanup = () => vp.removeEventListener('resize', handleResize);
-            }
-        }
-
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, []);
 
     useEffect(() => {
         if (step === 1) nameInputRef.current?.focus();

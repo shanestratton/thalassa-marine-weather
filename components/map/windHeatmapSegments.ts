@@ -33,6 +33,18 @@ function mapLongitude(longitude: number, edge: 'west' | 'east'): number {
 }
 
 /**
+ * Mapbox may report a rendered world copy just to either side of the normal
+ * -180…180 world (for example -181…-179 or 181…183). Shift the entire grid
+ * axis into one canonical copy before looking for a date-line crossing. This
+ * is an axis translation only: its pixel order and geographic span remain
+ * exactly the same.
+ */
+function canonicalWest(longitude: number): number {
+    const normalized = ((((longitude + 180) % 360) + 360) % 360) - 180;
+    return normalized === -180 && longitude > 0 ? 180 : normalized;
+}
+
+/**
  * Returns one or two image spans. A split shares its boundary column, avoiding
  * the one-pixel/one-degree gap that otherwise shows through at a world seam.
  */
@@ -42,13 +54,20 @@ export function buildWindHeatmapSegments({ columns, west, east }: WindHeatmapGri
     }
 
     const lastColumn = Math.floor(columns) - 1;
-    let continuousEast = east;
-    while (continuousEast <= west) continuousEast += 360;
-    const span = continuousEast - west;
+    let originalContinuousEast = east;
+    while (originalContinuousEast <= west) originalContinuousEast += 360;
+    const span = originalContinuousEast - west;
     if (!Number.isFinite(span) || span <= 0) return [];
 
+    // Preserve the input span but choose the conventional world copy for the
+    // source coordinates. Without this, -181…-179 normalizes to 179…-179 and
+    // Mapbox interprets it as the long way around the world instead of the
+    // two-degree strip beside the date line.
+    const canonicalWestLongitude = canonicalWest(west);
+    const continuousEast = canonicalWestLongitude + span;
+
     const global = span >= 359;
-    const crossesDateLine = !global && west < 180 && continuousEast > 180;
+    const crossesDateLine = !global && canonicalWestLongitude < 180 && continuousEast > 180;
     const needsSplit = global || crossesDateLine;
     if (!needsSplit) {
         return [
@@ -56,7 +75,7 @@ export function buildWindHeatmapSegments({ columns, west, east }: WindHeatmapGri
                 sourceSuffix: '',
                 startColumn: 0,
                 endColumn: lastColumn,
-                west: mapLongitude(west, 'west'),
+                west: mapLongitude(canonicalWestLongitude, 'west'),
                 east: mapLongitude(continuousEast, 'east'),
             },
         ];
@@ -64,8 +83,8 @@ export function buildWindHeatmapSegments({ columns, west, east }: WindHeatmapGri
 
     // A normalised global grid is -180…180, while an upstream 0…360 grid
     // divides at 180. A smaller regional field only needs a date-line split.
-    const seam = global ? (west < 0 ? 0 : 180) : 180;
-    const rawSplitColumn = Math.round(((seam - west) / span) * lastColumn);
+    const seam = global ? (canonicalWestLongitude < 0 ? 0 : 180) : 180;
+    const rawSplitColumn = Math.round(((seam - canonicalWestLongitude) / span) * lastColumn);
     const splitColumn = Math.max(1, Math.min(lastColumn - 1, rawSplitColumn));
 
     return [
@@ -73,7 +92,7 @@ export function buildWindHeatmapSegments({ columns, west, east }: WindHeatmapGri
             sourceSuffix: '',
             startColumn: 0,
             endColumn: splitColumn,
-            west: mapLongitude(west, 'west'),
+            west: mapLongitude(canonicalWestLongitude, 'west'),
             east: mapLongitude(seam, 'east'),
         },
         {

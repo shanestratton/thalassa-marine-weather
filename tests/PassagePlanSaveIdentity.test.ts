@@ -54,7 +54,7 @@ vi.mock('../services/PassagePlanService', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { savePassagePlanToLogbook } from '../services/shiplog/PassagePlanSave';
+import { savePassagePlanToLogbook, savePassagePlanToLogbookWithLinks } from '../services/shiplog/PassagePlanSave';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -139,6 +139,16 @@ describe('PassagePlanSave persistence and identity ownership', () => {
         );
         expect(mocks.queue).not.toHaveBeenCalled();
         expect(mocks.setActivePassage).not.toHaveBeenCalled();
+    });
+
+    it('stamps a traced route onto both exact compatibility records', async () => {
+        const saved = await savePassagePlanToLogbookWithLinks(plan, { savedRouteId: 'trace-abc' });
+
+        expect(saved).toMatchObject({ plannedRouteId: expect.stringMatching(/^planned_/), passageVoyageId: 'draft-a' });
+        expect(mocks.createVoyage).toHaveBeenCalledWith(expect.objectContaining({ saved_route_id: 'trace-abc' }));
+        const rows = mocks.upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => row.saved_route_id === 'trace-abc')).toBe(true);
     });
 
     it('reuses the exact online operation IDs and draft link in fallback', async () => {

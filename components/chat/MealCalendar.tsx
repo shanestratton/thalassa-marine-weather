@@ -7,7 +7,6 @@
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Capacitor } from '@capacitor/core';
 import {
     scheduleMeal,
     unscheduleMeal,
@@ -31,6 +30,7 @@ import { CaptainsTable } from './CaptainsTable';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
 import { createLogger } from '../../utils/createLogger';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
 
@@ -668,7 +668,7 @@ const SlotPicker: React.FC<{
     const customInputRef = useRef<HTMLInputElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const [keyboardOpen, setKeyboardOpen] = useState(false);
+    const keyboardOpen = useKeyboardOffset() > 0;
     const [showRecipeForm, setShowRecipeForm] = useState(false);
     const [showCaptainsTable, setShowCaptainsTable] = useState(false);
     const [brokenImageIds, setBrokenImageIds] = useState<Set<string | number>>(new Set());
@@ -683,54 +683,6 @@ const SlotPicker: React.FC<{
         initialFocusRef: recipeLibraryCloseRef,
         onEscape: () => setShowCaptainsTable(false),
     });
-
-    // ── Keyboard tracking for iOS ──
-    useEffect(() => {
-        let cleanup: (() => void) | undefined;
-        let disposed = false;
-
-        const attachWebFallback = () => {
-            if (disposed) return;
-            const vp = window.visualViewport;
-            if (!vp) return;
-            const handler = () => setKeyboardOpen(vp.height < window.innerHeight - 150);
-            vp.addEventListener('resize', handler);
-            cleanup = () => vp.removeEventListener('resize', handler);
-        };
-
-        if (!Capacitor.isNativePlatform()) {
-            attachWebFallback();
-        } else {
-            void import('@capacitor/keyboard')
-                .then(async ({ Keyboard }) => {
-                    const listenerResults = await Promise.allSettled([
-                        Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true)),
-                        Keyboard.addListener('keyboardWillHide', () => setKeyboardOpen(false)),
-                    ]);
-                    const handles = listenerResults.flatMap((result) =>
-                        result.status === 'fulfilled' ? [result.value] : [],
-                    );
-                    if (handles.length !== 2) {
-                        await Promise.allSettled(handles.map((handle) => handle.remove()));
-                        attachWebFallback();
-                        return;
-                    }
-                    if (disposed) {
-                        await Promise.allSettled(handles.map((handle) => handle.remove()));
-                        return;
-                    }
-                    cleanup = () => {
-                        void Promise.allSettled(handles.map((handle) => handle.remove()));
-                    };
-                })
-                .catch(attachWebFallback);
-        }
-
-        return () => {
-            disposed = true;
-            cleanup?.();
-        };
-    }, []);
 
     const slotLabel = SLOT_CONFIG.find((s) => s.slot === slot);
     const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
@@ -778,26 +730,32 @@ const SlotPicker: React.FC<{
         setScheduling(false);
     };
 
-    const handleCustomMeal = async () => {
-        if (!customName.trim()) return;
+    const handleScheduleNamedMeal = async (name: string) => {
+        const title = name.trim();
+        if (!title || scheduling) return;
         setScheduling(true);
         try {
             const meal: GalleyMeal = {
                 id: Date.now(),
-                title: customName.trim(),
+                title,
                 readyInMinutes: 45,
                 servings: crewCount,
                 image: '',
                 sourceUrl: '',
                 ingredients: [],
+                isSimpleMeal: true,
             };
             await scheduleMeal(meal, date, slot, voyageId, crewCount, ownerUserId);
             triggerHaptic('medium');
             onScheduled();
         } catch (e) {
-            log.warn('Failed to add custom meal:', e);
+            log.warn('Failed to schedule simple meal:', e);
         }
         setScheduling(false);
+    };
+
+    const handleCustomMeal = () => {
+        void handleScheduleNamedMeal(customName);
     };
 
     // Auto-scroll custom meal input into view when focused
@@ -881,17 +839,18 @@ const SlotPicker: React.FC<{
                                 <div className="relative">
                                     <select
                                         value=""
+                                        disabled={scheduling}
                                         onChange={(e) => {
                                             const v = e.target.value;
                                             if (!v) return;
                                             triggerHaptic('light');
-                                            // Fire the search RIGHT NOW (no 400ms debounce) —
-                                            // the user explicitly picked, so don't make them
-                                            // wait. handleSearch sets the search query AND
-                                            // cancels any pending debounced call internally.
-                                            handleSearch(v, true);
+                                            // Popular choices are also useful when there is no
+                                            // recipe catalogue entry. Save one directly as a
+                                            // simple planned meal rather than stranding the
+                                            // skipper on an empty search result.
+                                            void handleScheduleNamedMeal(v);
                                         }}
-                                        className="w-full bg-amber-500/[0.06] border border-amber-500/20 rounded-xl px-3 py-3 text-sm text-amber-300 font-medium focus:outline-none focus:border-amber-500/50 appearance-none pr-9 [color-scheme:dark]"
+                                        className="w-full bg-amber-500/[0.06] border border-amber-500/20 rounded-xl px-3 py-3 text-sm text-amber-300 font-medium focus:outline-none focus:border-amber-500/50 appearance-none pr-9 [color-scheme:dark] disabled:opacity-50"
                                         aria-label="Pick a popular recipe"
                                     >
                                         <option value="" className="bg-slate-900 text-amber-400/70">

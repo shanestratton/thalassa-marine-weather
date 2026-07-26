@@ -8,7 +8,43 @@
  * iOS will display a blue status bar while background tracking is active.
  */
 
-import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
+import { Capacitor, registerPlugin, PluginListenerHandle } from '@capacitor/core';
+
+/**
+ * Provenance of the most recent location supplied by Core Location.
+ *
+ * `externalAccessory` is iOS's own answer to "did an accessory produce this
+ * position?" It is intentionally separate from the accuracy heuristic used
+ * elsewhere in the app: a very accurate iPhone fix is not proof of a Bad Elf
+ * (or any other receiver) being connected.
+ */
+export interface ActiveLocationSource {
+    hasLocation: boolean;
+    timestampMs: number | null;
+    externalAccessory: boolean;
+    simulated: boolean;
+}
+
+/** Best-effort metadata for an MFi accessory iOS exposes to this app. */
+export interface ConnectedExternalAccessory {
+    name: string | null;
+    manufacturer: string | null;
+    modelNumber: string | null;
+    firmwareRevision: string | null;
+    hardwareRevision: string | null;
+}
+
+export interface NativeGpsReceiverInfo {
+    source: ActiveLocationSource;
+    accessories: ConnectedExternalAccessory[];
+}
+
+const EMPTY_ACTIVE_LOCATION_SOURCE: ActiveLocationSource = {
+    hasLocation: false,
+    timestampMs: null,
+    externalAccessory: false,
+    simulated: false,
+};
 
 // Plugin interface for TypeScript
 interface BackgroundLocationPlugin {
@@ -30,6 +66,10 @@ interface BackgroundLocationPlugin {
         canTrackInBackground: boolean;
     }>;
     requestAlwaysPermission(): Promise<{ requested: boolean }>;
+    /** Read the existing Transistorsoft CLLocation cache; never starts GPS. */
+    getActiveLocationSource(): Promise<ActiveLocationSource>;
+    /** Lists MFi accessories that iOS makes available to the app. */
+    getConnectedAccessories(): Promise<{ accessories: ConnectedExternalAccessory[] }>;
     addListener(
         eventName: 'locationUpdate',
         listenerFunc: (data: LocationUpdate) => void,
@@ -67,7 +107,60 @@ class BackgroundLocationServiceClass {
      * Check if background location is available (iOS only)
      */
     isAvailable(): boolean {
-        return typeof BackgroundLocation !== 'undefined';
+        return Capacitor.isNativePlatform() && typeof BackgroundLocation !== 'undefined';
+    }
+
+    /**
+     * Read GPS provenance and available MFi accessory metadata without
+     * creating a second CLLocationManager or opening a Bluetooth scan.
+     *
+     * iOS does not universally disclose every paired Bluetooth GPS unit.
+     * When it does expose an MFi accessory (for example a Bad Elf), we return
+     * its name/model; otherwise the `externalAccessory` source flag still
+     * tells the UI whether the current location is accessory-provided.
+     */
+    async getGpsReceiverInfo(): Promise<NativeGpsReceiverInfo> {
+        if (!this.isAvailable()) {
+            return { source: EMPTY_ACTIVE_LOCATION_SOURCE, accessories: [] };
+        }
+
+        try {
+            const [sourceResult, accessoryResult] = await Promise.all([
+                BackgroundLocation.getActiveLocationSource().catch(() => EMPTY_ACTIVE_LOCATION_SOURCE),
+                BackgroundLocation.getConnectedAccessories().catch(() => ({ accessories: [] })),
+            ]);
+            const source = {
+                hasLocation: sourceResult.hasLocation === true,
+                timestampMs: typeof sourceResult.timestampMs === 'number' ? sourceResult.timestampMs : null,
+                externalAccessory: sourceResult.externalAccessory === true,
+                simulated: sourceResult.simulated === true,
+            };
+            const accessories = Array.isArray(accessoryResult.accessories)
+                ? accessoryResult.accessories.map((accessory) => ({
+                      name: typeof accessory.name === 'string' && accessory.name.trim() ? accessory.name.trim() : null,
+                      manufacturer:
+                          typeof accessory.manufacturer === 'string' && accessory.manufacturer.trim()
+                              ? accessory.manufacturer.trim()
+                              : null,
+                      modelNumber:
+                          typeof accessory.modelNumber === 'string' && accessory.modelNumber.trim()
+                              ? accessory.modelNumber.trim()
+                              : null,
+                      firmwareRevision:
+                          typeof accessory.firmwareRevision === 'string' && accessory.firmwareRevision.trim()
+                              ? accessory.firmwareRevision.trim()
+                              : null,
+                      hardwareRevision:
+                          typeof accessory.hardwareRevision === 'string' && accessory.hardwareRevision.trim()
+                              ? accessory.hardwareRevision.trim()
+                              : null,
+                  }))
+                : [];
+
+            return { source, accessories };
+        } catch {
+            return { source: EMPTY_ACTIVE_LOCATION_SOURCE, accessories: [] };
+        }
     }
 
     /**

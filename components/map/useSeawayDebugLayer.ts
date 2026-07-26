@@ -146,12 +146,10 @@ export function useSeawayDebugLayer(
             try {
                 const b = map.getBounds();
                 if (!b) return;
-                const result = await compileSeawayGraphForViewport([
-                    b.getWest(),
-                    b.getSouth(),
-                    b.getEast(),
-                    b.getNorth(),
-                ]);
+                const result = await compileSeawayGraphForViewport(
+                    [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+                    map.getZoom(),
+                );
                 if (token !== compileToken.current) return; // stale viewport
                 if (!result) {
                     setAll(EMPTY, EMPTY, EMPTY);

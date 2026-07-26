@@ -1672,6 +1672,12 @@ export function inshoreRouteToGeoJSON(
             source: 'inshore-router',
             distanceNM: result.distanceNM,
             cellsUsed: result.cellsUsed,
+            // The browser departure planner is restored from this persisted
+            // feature, unlike the native map path which still has the
+            // in-memory result. Keep the charted shallow runs alongside the
+            // geometry so both paths gate departures against the same real
+            // depths rather than treating every web route as tide-clear.
+            shallowRuns: result.shallowRuns ?? [],
             origin: { lat: origin.lat, lon: origin.lon },
             destination: { lat: destination.lat, lon: destination.lon },
         },

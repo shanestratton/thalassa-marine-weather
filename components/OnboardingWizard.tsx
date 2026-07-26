@@ -32,12 +32,12 @@ import { fetchWeatherByStrategy } from '../services/weather';
 import { saveLargeDataImmediate, DATA_CACHE_KEY } from '../services/nativeStorage';
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
-import { Capacitor } from '@capacitor/core';
 import { supabase } from '../services/supabase';
 import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 import { FEET_PER_METRE } from '../services/units';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
@@ -47,66 +47,27 @@ interface OnboardingWizardProps {
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ onComplete }) => {
     const [step, setStep] = useState(1);
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const keyboardHeight = useKeyboardOffset();
     // Ref to the outer scroll container so we can snapshot + restore
     // scrollTop across keyboard-hide events (see handler below).
     const scrollRef = React.useRef<HTMLDivElement | null>(null);
     const focusTrapRef = useFocusTrap<HTMLDivElement>(true);
     const stepContentRef = React.useRef<HTMLDivElement | null>(null);
     const previousStepRef = React.useRef(step);
+    const previousKeyboardHeightRef = React.useRef(0);
 
-    // Keyboard tracking — same pattern as DiaryPage
+    // Preserve position when keyboard padding collapses. This fixes WebKit's
+    // tendency to snap a long vessel-details form back to the top on blur.
     useEffect(() => {
-        let cleanup: (() => void) | undefined;
+        const wasKeyboardOpen = previousKeyboardHeightRef.current > 0;
+        previousKeyboardHeightRef.current = keyboardHeight;
+        if (!wasKeyboardOpen || keyboardHeight > 0) return;
 
-        if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
-                        }, 250);
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        // iOS WebView quirk: when the keyboard dismisses
-                        // and the content's padding-bottom collapses by
-                        // its height, WebKit sometimes snaps the outer
-                        // scroll container back to scrollTop=0. That's
-                        // the "page jumps to the top every time I tap a
-                        // checkbox" bug in Vessel Details. Snapshot the
-                        // current scrollTop, let React re-render without
-                        // the keyboard padding, then restore the scroll
-                        // on the next frame so the user's position is
-                        // preserved. requestAnimationFrame fires AFTER
-                        // the layout pass so we're restoring into the
-                        // new collapsed geometry.
-                        const saved = scrollRef.current?.scrollTop ?? 0;
-                        setKeyboardHeight(0);
-                        requestAnimationFrame(() => {
-                            if (scrollRef.current) {
-                                scrollRef.current.scrollTop = saved;
-                            }
-                        });
-                    });
-                    cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin not available */
-                });
-        }
-
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, []);
+        const saved = scrollRef.current?.scrollTop ?? 0;
+        requestAnimationFrame(() => {
+            if (scrollRef.current) scrollRef.current.scrollTop = saved;
+        });
+    }, [keyboardHeight]);
 
     // Reset scroll to the top of the wizard every time the step changes.
     // Without this, navigating from a long step (e.g. Vessel Details,

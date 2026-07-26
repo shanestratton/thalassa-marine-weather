@@ -370,4 +370,37 @@ describe('WindDataController request generation', () => {
             vi.useRealTimers();
         }
     });
+
+    it('pads and reuses a normalized Date-Line viewport on its short continuous axis', async () => {
+        vi.useFakeTimers();
+        try {
+            const { map, on, setBounds } = makeMap();
+            setBounds({ north: -20, south: -30, west: 179, east: -179 });
+            mocks.fetchModelWindGrid.mockResolvedValueOnce(grid('date-line'));
+
+            await controller.activate(map as never);
+
+            expect(mocks.fetchModelWindGrid).toHaveBeenCalledWith(
+                'ecmwf',
+                expect.objectContaining({
+                    north: -17,
+                    south: -33,
+                    west: 178.4,
+                    east: 181.6,
+                }),
+                48,
+                expect.any(Number),
+            );
+
+            // Mapbox reports the same camera in its normalized 179…-179
+            // spelling. It must hit the cache rather than clear and refetch
+            // the static z3 field as though the user crossed the whole world.
+            const moveEnd = on.mock.calls[0][1] as () => void;
+            moveEnd();
+            await vi.advanceTimersByTimeAsync(800);
+            expect(mocks.fetchModelWindGrid).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

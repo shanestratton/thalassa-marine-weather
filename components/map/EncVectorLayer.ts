@@ -1835,6 +1835,22 @@ export function setEncPopupSuppression(map: mapboxgl.Map, suppressed: boolean): 
     popupSuppression.set(map, suppressed);
 }
 
+/**
+ * Depth/keel verdicts are a planning tool, not normal OBS chrome. Keep this
+ * separate from full popup suppression so chart marks and safety notices can
+ * still be inspected on OBS without every tap opening a water-depth verdict.
+ */
+const depthPopupEnabled = new WeakMap<mapboxgl.Map, boolean>();
+export function setEncDepthPopupEnabled(map: mapboxgl.Map, enabled: boolean): void {
+    depthPopupEnabled.set(map, enabled);
+}
+
+function canShowEncDepthPopup(map: mapboxgl.Map): boolean {
+    // Existing embedders retain their historic behaviour until their host
+    // declares a surface explicitly.
+    return depthPopupEnabled.get(map) !== false;
+}
+
 // ONE-SHOT: swallow the popup for the very next click. A long-press that
 // places a tracer pin ALSO emits a click on release; the ENC click handler
 // is a separate listener not covered by useMapInit's suppressNextClick, so
@@ -1985,6 +2001,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             return;
         }
         if (popupSuppression.get(map)) return;
+        const depthPopupAllowed = canShowEncDepthPopup(map);
         // Marks first, through the padded box — the NEAREST mark to the
         // tap wins, so a finger-width miss still answers about the buoy,
         // not the depth area beneath it.
@@ -2064,7 +2081,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             if (!pick) {
                 // No charted area under the tap → uncharted water. Answer with
                 // the coarse GEBCO depth rather than silence (cycle-4 audit #6).
-                showUnchartedDepthPopup(map, e.lngLat);
+                if (depthPopupAllowed) showUnchartedDepthPopup(map, e.lngLat);
                 return;
             }
             feat = areaHits[pick.index];
@@ -2075,6 +2092,11 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         if (!feat) return;
         const layerId = feat.layer?.id ?? '';
         const props = (feat.properties ?? {}) as Record<string, unknown>;
+
+        // OBS remains a clean observational map. A charted water area would
+        // otherwise open the same depth/keel verdict as Passage Planning on
+        // every ordinary tap; marks and non-depth safety features still read.
+        if (layerId === ENC_VEC_LAYERS.DEPARE && !depthPopupAllowed) return;
 
         const existing = attachedHandlers.get(map);
         if (existing?.popup) existing.popup.remove();

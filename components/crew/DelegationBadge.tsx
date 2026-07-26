@@ -8,6 +8,7 @@
  */
 
 import React from 'react';
+import { type CrewMember } from '../../services/CrewService';
 
 /** Cards that can be delegated to qualified crew */
 export const DELEGATABLE_CARDS: Record<string, { label: string; roles: string[] }> = {
@@ -26,7 +27,7 @@ const SKIPPER_ONLY = ['weather_briefing', 'aid_to_navigation'];
 interface DelegationBadgeProps {
     cardKey: string;
     delegations: Record<string, string>;
-    crewList: { crew_email: string }[];
+    crewList: CrewMember[];
     menuOpen: string | null;
     onMenuToggle: (key: string | null) => void;
     onAssign: (cardKey: string, crewEmail: string | null) => void;
@@ -47,6 +48,23 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
             </span>
         );
     }
+
+    // A pending invite is a useful planning target: the skipper can set
+    // responsibility while that crew member is joining. Declined (and
+    // malformed) roster rows must never create an otherwise-empty Assign
+    // control.
+    const eligibleCrew = crewList.filter(
+        (crew) =>
+            (crew.status === 'pending' || crew.status === 'accepted') &&
+            typeof crew.crew_email === 'string' &&
+            crew.crew_email.trim().length > 0,
+    );
+
+    // Passage Planning is deliberately quiet for a solo skipper. The
+    // "Assign" affordance only appears once there is somebody real to
+    // assign it to; the non-interactive skipper badge above still explains
+    // skipper-only readiness gates.
+    if (eligibleCrew.length === 0) return null;
 
     const assigned = delegations[cardKey];
     const emailPrefix = (email: string) => email.split('@')[0].slice(0, 12);
@@ -80,24 +98,20 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                     <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                         {DELEGATABLE_CARDS[cardKey]?.roles.join(' · ') || 'Assign To'}
                     </div>
-                    {crewList.length === 0 ? (
-                        <div className="px-3 py-2 text-[11px] text-gray-500 italic">No crew members yet</div>
-                    ) : (
-                        crewList.map((c) => (
-                            <button
-                                key={c.crew_email}
-                                onClick={() => onAssign(cardKey, c.crew_email)}
-                                className={`w-full text-left px-3 py-2 text-xs transition-colors ${
-                                    assigned === c.crew_email
-                                        ? 'bg-sky-500/10 text-sky-400 font-bold'
-                                        : 'text-gray-300 hover:bg-white/[0.06]'
-                                }`}
-                            >
-                                <span className="mr-1.5">{assigned === c.crew_email ? '✓' : '○'}</span>
-                                {c.crew_email}
-                            </button>
-                        ))
-                    )}
+                    {eligibleCrew.map((crew) => (
+                        <button
+                            key={crew.crew_email}
+                            onClick={() => onAssign(cardKey, crew.crew_email)}
+                            className={`w-full text-left px-3 py-2 text-xs transition-colors ${
+                                assigned === crew.crew_email
+                                    ? 'bg-sky-500/10 text-sky-400 font-bold'
+                                    : 'text-gray-300 hover:bg-white/[0.06]'
+                            }`}
+                        >
+                            <span className="mr-1.5">{assigned === crew.crew_email ? '✓' : '○'}</span>
+                            {crew.crew_email}
+                        </button>
+                    ))}
                     {assigned && (
                         <>
                             <div className="border-t border-white/[0.06] my-1" />
