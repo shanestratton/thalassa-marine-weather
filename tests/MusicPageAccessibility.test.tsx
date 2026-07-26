@@ -51,7 +51,7 @@ const TRACKS = [
 
 async function renderMusicPage() {
     render(<MusicPage onBack={vi.fn()} />);
-    return screen.findByRole('button', { name: /Harbour Mix/i });
+    return screen.findByRole('button', { name: /^Harbour Mix$/i });
 }
 
 async function openPlaylistDetails() {
@@ -169,5 +169,172 @@ describe('MusicPage modal accessibility', () => {
         fireEvent.keyDown(name, { key: 'Escape' });
         await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New playlist' })).not.toBeInTheDocument());
         expect(opener).toHaveFocus();
+    });
+
+    it('offers an explicit playlist-options action for keyboard and switch users', async () => {
+        await renderMusicPage();
+
+        const options = screen.getByRole('button', { name: 'More options for Harbour Mix' });
+        expect(options).toHaveClass('h-11', 'w-11');
+        options.focus();
+        fireEvent.keyDown(options, { key: 'Enter' });
+        fireEvent.click(options);
+
+        expect(await screen.findByRole('dialog', { name: 'Harbour Mix' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Close Harbour Mix playlist details' })).toHaveFocus();
+    });
+
+    it('keeps playlist-preview hydration capped at two MusicKit calls across refreshes', async () => {
+        const playlists = Array.from({ length: 4 }, (_, index) => ({
+            ...PLAYLIST,
+            id: `playlist-${index + 1}`,
+            name: `Watch ${index + 1}`,
+        }));
+        const pending: Array<() => void> = [];
+        let activeCalls = 0;
+        let peakCalls = 0;
+
+        music.getUserPlaylists.mockResolvedValue({ available: true, playlists });
+        music.getPlaylistTracks.mockImplementation(
+            (id: string) =>
+                new Promise((resolve) => {
+                    activeCalls += 1;
+                    peakCalls = Math.max(peakCalls, activeCalls);
+                    pending.push(() => {
+                        activeCalls -= 1;
+                        resolve({
+                            available: true,
+                            name: id,
+                            tracks: [{ ...TRACKS[0], id: `track-${id}` }],
+                        });
+                    });
+                }),
+        );
+
+        render(<MusicPage onBack={vi.fn()} />);
+        await screen.findByRole('button', { name: /^Watch 1$/i });
+        await waitFor(() => expect(music.getPlaylistTracks).toHaveBeenCalledTimes(2));
+        expect(peakCalls).toBe(2);
+
+        const refresh = screen.getByRole('button', { name: 'Refresh Apple Music library' });
+        await waitFor(() => expect(refresh).not.toBeDisabled());
+        fireEvent.click(refresh);
+        await waitFor(() => expect(music.getUserPlaylists).toHaveBeenCalledTimes(2));
+
+        // The second response replaces queued jobs, but must wait for the
+        // two first-generation native calls to release their shared slots.
+        await waitFor(() => expect(music.getPlaylistTracks).toHaveBeenCalledTimes(2));
+        expect(peakCalls).toBe(2);
+
+        await act(async () => {
+            pending.shift()?.();
+            pending.shift()?.();
+        });
+        await waitFor(() => expect(music.getPlaylistTracks).toHaveBeenCalledTimes(4));
+        expect(peakCalls).toBe(2);
+
+        await act(async () => {
+            pending.splice(0).forEach((resolve) => resolve());
+        });
+    });
+
+    it('ignores an older library response after a newer refresh has painted the grid', async () => {
+        const responses: Array<(result: { available: boolean; playlists: (typeof PLAYLIST)[] }) => void> = [];
+        music.getUserPlaylists.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    responses.push(resolve);
+                }),
+        );
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+
+        try {
+            render(<MusicPage onBack={vi.fn()} />);
+            await waitFor(() => expect(music.getUserPlaylists).toHaveBeenCalledTimes(1));
+
+            fireEvent(document, new Event('visibilitychange'));
+            await waitFor(() => expect(music.getUserPlaylists).toHaveBeenCalledTimes(2));
+
+            const current = { ...PLAYLIST, id: 'current-library', name: 'Current Library' };
+            await act(async () => {
+                responses[1]({ available: true, playlists: [current] });
+            });
+            expect(await screen.findByRole('button', { name: /^Current Library$/i })).toBeInTheDocument();
+
+            const stale = { ...PLAYLIST, id: 'stale-library', name: 'Stale Library' };
+            await act(async () => {
+                responses[0]({ available: true, playlists: [stale] });
+            });
+
+            expect(screen.getByRole('button', { name: /^Current Library$/i })).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /^Stale Library$/i })).not.toBeInTheDocument();
+        } finally {
+            visibility.mockRestore();
+        }
+    });
+
+    it('keeps the refresh action busy while the newest library request is still pending', async () => {
+        const responses: Array<(result: { available: boolean; playlists: (typeof PLAYLIST)[] }) => void> = [];
+        music.getUserPlaylists.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    responses.push(resolve);
+                }),
+        );
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+
+        try {
+            render(<MusicPage onBack={vi.fn()} />);
+            await waitFor(() => expect(music.getUserPlaylists).toHaveBeenCalledTimes(1));
+
+            fireEvent(document, new Event('visibilitychange'));
+            await waitFor(() => expect(music.getUserPlaylists).toHaveBeenCalledTimes(2));
+
+            await act(async () => {
+                responses[0]({ available: true, playlists: [{ ...PLAYLIST, name: 'Old Library' }] });
+            });
+
+            const refresh = screen.getByRole('button', { name: 'Refresh Apple Music library' });
+            expect(refresh).toBeDisabled();
+            expect(screen.queryByRole('button', { name: /^Old Library$/i })).not.toBeInTheDocument();
+
+            await act(async () => {
+                responses[1]({ available: true, playlists: [{ ...PLAYLIST, name: 'Latest Library' }] });
+            });
+
+            expect(await screen.findByRole('button', { name: /^Latest Library$/i })).toBeInTheDocument();
+            await waitFor(() => expect(refresh).not.toBeDisabled());
+        } finally {
+            visibility.mockRestore();
+        }
+    });
+
+    it('keeps a confirmed new playlist visible while Apple Music library sync catches up', async () => {
+        music.createPlaylistByName.mockResolvedValue({
+            success: true,
+            id: 'created-night-watch',
+            name: 'Night Watch',
+        });
+
+        await renderMusicPage();
+        fireEvent.click(screen.getByRole('button', { name: 'Create playlist' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Playlist name' }), {
+            target: { value: 'Night Watch' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Create new playlist' }));
+
+        // The mocked next library response still contains only Harbour Mix;
+        // the confirmed create must not disappear while iCloud catches up.
+        expect(await screen.findByRole('button', { name: /^Night Watch$/i })).toBeInTheDocument();
+    });
+
+    it('guides denied Apple Music access to iOS Settings instead of offering a dead-end retry', async () => {
+        music.getAuthorizationStatus.mockResolvedValue({ granted: false, status: 'denied' });
+
+        render(<MusicPage onBack={vi.fn()} />);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Apple Music is turned off');
+        expect(screen.getByRole('button', { name: 'Open Music settings' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Connect Apple Music' })).not.toBeInTheDocument();
     });
 });

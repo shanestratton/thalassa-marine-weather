@@ -134,6 +134,11 @@ export async function deleteSavedRoutePassageGraph(
 
     const plannedRouteIds = new Set<string>();
     const passageVoyageIds = new Set<string>();
+    // These UUIDs came from an immutable link on the trace itself or from a
+    // planned-route row already stamped with this canonical trace. They are
+    // safe to use for the narrowly-scoped pre-link fallback below; a generic
+    // voyage lookup never earns that privilege.
+    const exactPassageVoyageIds = new Set<string>();
     const linkedPassageIdsByRoute = new Map<string, Set<string>>();
     const ambiguousLinkedRoutes = new Set<string>();
     const passageStatusById = new Map<string, string>();
@@ -142,6 +147,7 @@ export async function deleteSavedRoutePassageGraph(
     const addRoutePassageLink = (plannedRouteId: string, passageVoyageId: string): void => {
         if (!isPlannedRouteId(plannedRouteId) || !isPassageVoyageId(passageVoyageId)) return;
         plannedRouteIds.add(plannedRouteId);
+        exactPassageVoyageIds.add(passageVoyageId);
         const linksForRoute = linkedPassageIdsByRoute.get(plannedRouteId) ?? new Set<string>();
         linksForRoute.add(passageVoyageId);
         linkedPassageIdsByRoute.set(plannedRouteId, linksForRoute);
@@ -158,6 +164,7 @@ export async function deleteSavedRoutePassageGraph(
         // A planning row with no surviving log mirror is still an exact
         // canonical link, but its status must be known before we touch it.
         passageVoyageIds.add(suppliedPassageVoyageId);
+        exactPassageVoyageIds.add(suppliedPassageVoyageId);
     }
 
     // The links stored locally handle offline deletes. When online, query the
@@ -300,9 +307,16 @@ export async function deleteSavedRoutePassageGraph(
         // the canonical tombstone keeps its mirror hidden and a later sync
         // retries cleanup once it is safe.
         if (passageStatusById.get(voyageId) !== 'planning') continue;
-        removeCachedDraftVoyageById(voyageId, expectedScope, canonicalId);
+        const allowUnlinkedSavedRoute = exactPassageVoyageIds.has(voyageId);
+        removeCachedDraftVoyageById(voyageId, expectedScope, canonicalId, { allowUnlinkedSavedRoute });
         if (supabase) {
-            const deleted = await deleteDraftVoyageById(voyageId, canonicalId);
+            const deleted = await deleteDraftVoyageById(voyageId, canonicalId, {
+                // A legacy trace can hold the exact passage UUID even though
+                // the backfill of voyages.saved_route_id never completed.
+                // Delete that null-linked row, but never a row linked to a
+                // different trace (enforced by VoyageService).
+                allowUnlinkedSavedRoute,
+            });
             touched = deleted || touched;
         }
     }

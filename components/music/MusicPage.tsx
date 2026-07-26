@@ -52,6 +52,13 @@ interface MusicPageProps {
     onBack: () => void;
 }
 
+interface PlaylistPreviewJob {
+    playlist: UserPlaylist;
+    generation: number;
+}
+
+const MAX_CONCURRENT_PLAYLIST_PREVIEWS = 2;
+
 export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     // Flag the session as "music engaged" the moment this page
     // mounts. GlobalNowPlayingBar gates ALL its polling on this
@@ -68,10 +75,66 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const [loadError, setLoadError] = useState<string | null>(null);
     const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
     const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
+    // Every library refresh has a generation. Both metadata and preview
+    // responses must still be current before they are allowed to repaint
+    // the UI; MusicKit calls cannot be cancelled once they cross the bridge.
+    const playlistPreviewGenerationRef = useRef(0);
+    // A single queue for the component keeps MusicKit hydration capped at
+    // two calls even when the skipper refreshes while an earlier preview
+    // batch is still in flight.
+    const playlistPreviewQueueRef = useRef<PlaylistPreviewJob[]>([]);
+    const activePlaylistPreviewCountRef = useRef(0);
+    // Apple Music can take a few seconds to sync a newly created
+    // playlist into the next MusicLibraryRequest. Keep the confirmed
+    // creation visible until the native library catches up.
+    const pendingCreatedPlaylistsRef = useRef(new Map<string, UserPlaylist>());
     /** Create-playlist modal: open state + busy flag for the submit. */
     const [createOpen, setCreateOpen] = useState(false);
     const [createBusy, setCreateBusy] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
+
+    const drainPlaylistPreviewQueueRef = useRef<() => void>(() => undefined);
+    const drainPlaylistPreviewQueue = useCallback(() => {
+        while (
+            activePlaylistPreviewCountRef.current < MAX_CONCURRENT_PLAYLIST_PREVIEWS &&
+            playlistPreviewQueueRef.current.length > 0
+        ) {
+            const job = playlistPreviewQueueRef.current.shift();
+            if (!job || job.generation !== playlistPreviewGenerationRef.current) continue;
+
+            activePlaylistPreviewCountRef.current += 1;
+            void getPlaylistTracks(job.playlist.id)
+                .then((detail) => {
+                    if (!detail.available || job.generation !== playlistPreviewGenerationRef.current) return;
+                    const preview = detail.tracks.slice(0, 5).map((track) => ({
+                        title: track.title,
+                        artist: track.artist,
+                    }));
+                    setPlaylists((previous) =>
+                        previous.map((current) =>
+                            current.id === job.playlist.id ? { ...current, previewTracks: preview } : current,
+                        ),
+                    );
+                })
+                .catch(() => {
+                    /* Per-playlist preview failure → tile keeps its monogram. */
+                })
+                .finally(() => {
+                    activePlaylistPreviewCountRef.current = Math.max(0, activePlaylistPreviewCountRef.current - 1);
+                    drainPlaylistPreviewQueueRef.current();
+                });
+        }
+    }, []);
+    drainPlaylistPreviewQueueRef.current = drainPlaylistPreviewQueue;
+
+    // Invalidate every in-flight callback after unmount. The calls themselves
+    // may complete later, but cannot set state on a page that no longer exists.
+    useEffect(() => {
+        return () => {
+            playlistPreviewGenerationRef.current += 1;
+            playlistPreviewQueueRef.current = [];
+        };
+    }, []);
 
     /** Load playlists. Triggered after auth + on manual refresh.
      *
@@ -80,46 +143,53 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
      * (MusicKit can't handle N concurrent .with([.tracks]) calls
      * cleanly on a real library):
      *   Phase 1: fetch playlist metadata only — fast, gets the grid up
-     *   Phase 2: fire getPlaylistTracks per playlist in the background
+     *   Phase 2: load track previews in a tiny, bounded background queue
      *           and merge each preview into its tile as it arrives.
-     *           If one stalls, only that tile is missing the song
-     *           list (falls back to monogram).
+     *           MusicKit library hydration is fragile on real-world
+     *           libraries; a burst of concurrent requests can wedge the
+     *           bridge. Two at a time keeps the grid responsive without
+     *           reopening that failure mode.
      */
     const loadPlaylists = useCallback(async () => {
+        const generation = ++playlistPreviewGenerationRef.current;
+        // A newer refresh supersedes every preview that has not crossed the
+        // native bridge yet. In-flight calls finish naturally and the shared
+        // drain starts current work only when a slot becomes free.
+        playlistPreviewQueueRef.current = [];
         setLoadingPlaylists(true);
         setLoadError(null);
         try {
             const r = await getUserPlaylists();
+            if (generation !== playlistPreviewGenerationRef.current) return;
             if (!r.available) {
                 setLoadError(r.reason ?? 'unknown');
                 setPlaylists([]);
                 return;
             }
-            setPlaylists(r.playlists);
-            // Background phase: fetch first-few tracks per playlist
-            // in parallel and patch them onto each tile as they
-            // resolve. Errors on individual playlists swallow.
-            void Promise.all(
-                r.playlists.map(async (p) => {
-                    try {
-                        const detail = await getPlaylistTracks(p.id);
-                        if (!detail.available) return;
-                        const preview = detail.tracks.slice(0, 5).map((t) => ({
-                            title: t.title,
-                            artist: t.artist,
-                        }));
-                        setPlaylists((prev) =>
-                            prev.map((pl) => (pl.id === p.id ? { ...pl, previewTracks: preview } : pl)),
-                        );
-                    } catch {
-                        /* per-playlist preview failure → tile keeps monogram */
-                    }
-                }),
-            ).catch(() => undefined);
+            const returnedIds = new Set(r.playlists.map((playlist) => playlist.id));
+            for (const id of returnedIds) {
+                pendingCreatedPlaylistsRef.current.delete(id);
+            }
+            const pendingCreates = Array.from(pendingCreatedPlaylistsRef.current.values()).filter(
+                (playlist) => !returnedIds.has(playlist.id),
+            );
+            setPlaylists([...r.playlists, ...pendingCreates]);
+            // Background phase: fetch previews through the component-wide
+            // queue. The cap applies across refreshes, not just within one
+            // response, which protects the native MusicLibrary bridge.
+            playlistPreviewQueueRef.current = r.playlists.map((playlist) => ({ playlist, generation }));
+            drainPlaylistPreviewQueue();
+        } catch (error) {
+            if (generation !== playlistPreviewGenerationRef.current) return;
+            setLoadError(
+                error instanceof Error && error.message ? error.message : 'Could not load Apple Music library.',
+            );
         } finally {
-            setLoadingPlaylists(false);
+            if (generation === playlistPreviewGenerationRef.current) {
+                setLoadingPlaylists(false);
+            }
         }
-    }, []);
+    }, [drainPlaylistPreviewQueue]);
 
     /** Initial mount: check auth status, prompt if needed, then load. */
     useEffect(() => {
@@ -200,14 +270,25 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         if (r.granted) await loadPlaylists();
     }, [loadPlaylists]);
 
+    /** MusicKit's denied/restricted state cannot be fixed by asking for
+     * permission again. `app-settings:` is Apple's supported route to this
+     * app's Settings page; avoid undocumented App-Prefs deep links, which
+     * are unreliable and can create App Review risk. */
+    const handleOpenMusicSystemSettings = useCallback(() => {
+        try {
+            window.location.href = 'app-settings:';
+        } catch {
+            /* Browser preview only: there is no safe system-settings fallback. */
+        }
+    }, []);
+
     const handlePlayPlaylist = useCallback(
         async (id: string) => {
-            setActivePlaylistId(id);
+            setLoadError(null);
             try {
                 const r = await playPlaylist(id);
-                if (!r.success) {
-                    setLoadError(`Couldn't play: ${r.error}`);
-                }
+                if (r.success) setActivePlaylistId(id);
+                else setLoadError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start that playlist.');
             } catch (err) {
                 // Hits the JS-side 12s timeout — see services/voice/
                 // integrations/appleMusic.ts withTimeout. Most common
@@ -311,7 +392,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             setActivePlaylistId(detailPlaylist.id);
             closeDetail();
         } else {
-            setDetailError(`Couldn't play: ${r.error}`);
+            setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this playlist.');
         }
     }, [detailPlaylist, closeDetail]);
 
@@ -324,7 +405,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 setActivePlaylistId(detailPlaylist.id);
                 closeDetail();
             } else {
-                setDetailError(`Couldn't play: ${r.error}`);
+                setDetailError(r.error ? `Couldn't play: ${r.error}` : 'Apple Music could not start this track.');
             }
         },
         [detailPlaylist, closeDetail],
@@ -341,7 +422,24 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             setCreateBusy(false);
             if (r.success) {
                 setCreateOpen(false);
-                // Re-load the grid so the new playlist appears.
+                if (r.id) {
+                    const createdPlaylist: UserPlaylist = {
+                        id: r.id,
+                        name: r.name?.trim() || trimmed,
+                        curator: '',
+                        artworkUrl: '',
+                        previewTracks: [],
+                    };
+                    pendingCreatedPlaylistsRef.current.set(createdPlaylist.id, createdPlaylist);
+                    setPlaylists((previous) =>
+                        previous.some((playlist) => playlist.id === createdPlaylist.id)
+                            ? previous
+                            : [...previous, createdPlaylist],
+                    );
+                }
+                // Re-load the grid as well. The pending-create map above
+                // prevents iCloud's delayed response from making the new
+                // tile disappear in the meantime.
                 void loadPlaylists();
             } else {
                 setCreateError(r.error ?? 'Could not create playlist');
@@ -417,6 +515,19 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         [detailPlaylist],
     );
 
+    /** Re-fetch the open playlist while preserving recent optimistic
+     * additions which Apple Music has not yet echoed back to the app. */
+    const refreshDetailTracks = useCallback(async () => {
+        if (!detailPlaylist) return;
+        const r = await getPlaylistTracks(detailPlaylist.id);
+        if (!r.available) return;
+        setDetailTracks((prev) => {
+            const freshIds = new Set(r.tracks.map((track) => track.id));
+            const optimisticOnly = prev.filter((track) => !freshIds.has(track.id));
+            return [...r.tracks, ...optimisticOnly];
+        });
+    }, [detailPlaylist]);
+
     /** Close the add-tracks sheet. We DO re-fetch the playlist tracks
      *  so the detail sheet stays accurate, but the merge logic below
      *  protects the optimistic adds: any track we just optimistically
@@ -427,19 +538,8 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
      *  added" when actually it was. */
     const handleCloseAddTracks = useCallback(async () => {
         setAddTracksOpen(false);
-        if (!detailPlaylist) return;
-        const r = await getPlaylistTracks(detailPlaylist.id);
-        if (!r.available) return;
-        setDetailTracks((prev) => {
-            const freshIds = new Set(r.tracks.map((t) => t.id));
-            // Tracks we have locally that the fresh fetch is missing
-            // — these are recent optimistic adds Apple hasn't synced.
-            // Keep them at the end so the skipper still sees what
-            // they added.
-            const optimisticOnly = prev.filter((t) => !freshIds.has(t.id));
-            return [...r.tracks, ...optimisticOnly];
-        });
-    }, [detailPlaylist]);
+        await refreshDetailTracks();
+    }, [refreshDetailTracks]);
 
     /** Show the delete confirmation prompt. The actual delete fires on
      *  confirm. */
@@ -487,12 +587,54 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             }
             setConfirmDelete(null);
         } else {
-            setDetailError(`Couldn't delete: ${r.error}`);
+            setDetailError(
+                r.error ? `Couldn't delete: ${r.error}` : 'Apple Music could not open this playlist for deletion.',
+            );
             setConfirmDelete(null);
         }
     }, [confirmDelete, closeDetail, loadPlaylists]);
 
+    /** Returning from the Apple Music app after a manual add or delete
+     * must refresh the library. `visibilitychange` covers the web
+     * preview; Capacitor's appStateChange is the reliable signal on an
+     * actual iPhone. */
+    useEffect(() => {
+        let disposed = false;
+        let appStateListener: { remove: () => void } | null = null;
+        const refreshAfterMusicApp = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            void loadPlaylists();
+            void refreshDetailTracks();
+        };
+        const onVisibility = () => {
+            if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+            refreshAfterMusicApp();
+        };
+
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', onVisibility);
+        }
+        void import('@capacitor/app')
+            .then(({ App }) => App.addListener('appStateChange', ({ isActive }) => isActive && refreshAfterMusicApp()))
+            .then((listener) => {
+                if (disposed) listener.remove();
+                else appStateListener = listener;
+            })
+            .catch(() => {
+                /* Browser build: visibilitychange above remains enough. */
+            });
+
+        return () => {
+            disposed = true;
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', onVisibility);
+            }
+            appStateListener?.remove();
+        };
+    }, [loadPlaylists, refreshDetailTracks]);
+
     const nowPlayingVisible = !!(nowPlaying && nowPlaying.title);
+    const musicAccessNeedsSettings = authStatus === 'denied' || authStatus === 'restricted';
 
     // ── Scroll-fade mask ───────────────────────────────────────────
     // Tiles scrolling toward the bottom of the page would otherwise
@@ -514,196 +656,309 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - ${maskFadeStart}), transparent calc(100% - ${maskBottomEnd}))`;
 
     return (
-        <div className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black">
-            <PageHeader
-                title="Music"
-                subtitle="Apple Music playlists"
-                onBack={onBack}
-                action={
-                    authGranted === true ? (
-                        <button
-                            onClick={() => {
-                                triggerHaptic('light');
-                                setCreateError(null);
-                                setCreateOpen(true);
-                            }}
-                            className="w-10 h-10 rounded-full bg-pink-500/15 border border-pink-400/30 flex items-center justify-center text-pink-300 hover:bg-pink-500/25 active:scale-95 transition-all"
-                            aria-label="Create playlist"
-                        >
-                            <svg
-                                className="w-5 h-5"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                            >
-                                <path d="M12 5v14M5 12h14" />
-                            </svg>
-                        </button>
-                    ) : null
-                }
-            />
-
-            {/* Body — bottom padding accounts for the global nav, plus
-             *  extra room when the floating NowPlayingBar is visible
-             *  so the last row of tiles can scroll into view above it.
-             *  The mask-image gradient fades content to transparent
-             *  just above the bar so tiles don't smudge under it. */}
+        <div className="relative flex flex-col h-full overflow-hidden bg-[#050b12]">
+            {/* A restrained deep-water glow keeps this surface tied to the
+             * rest of Thalassa without competing with the album artwork. */}
             <div
-                className="flex-1 overflow-y-auto px-4"
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 top-0 h-80 opacity-80"
                 style={{
-                    paddingBottom: nowPlayingVisible
-                        ? 'calc(4rem + 4.75rem + env(safe-area-inset-bottom) + 1rem)'
-                        : 'calc(4rem + env(safe-area-inset-bottom) + 1rem)',
-                    maskImage: fadeMask,
-                    WebkitMaskImage: fadeMask,
+                    background:
+                        'radial-gradient(ellipse at 82% -20%, rgba(14, 165, 233, 0.19), transparent 52%), radial-gradient(ellipse at 4% 0%, rgba(13, 148, 136, 0.11), transparent 48%)',
                 }}
-            >
-                {authGranted === false && (
-                    <div className="flex flex-col items-center justify-center pt-16 px-6 text-center">
-                        <div className="w-20 h-20 rounded-full bg-pink-500/10 flex items-center justify-center mb-4">
-                            <MusicIcon className="w-10 h-10 text-pink-400" />
-                        </div>
-                        <div className="text-white font-bold text-lg mb-2">Apple Music access required</div>
-                        <div className="text-gray-400 text-sm mb-6 max-w-xs">
-                            Tap to grant access so Calypso can browse your library and play your playlists.
-                        </div>
-                        <button
-                            onClick={() => void handleGrantAccess()}
-                            className="px-6 py-3 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 text-white font-bold shadow-lg active:scale-[0.97] transition-transform"
-                        >
-                            Grant access
-                        </button>
-                        {authStatus && authStatus !== 'notDetermined' && (
-                            <div className="text-xs text-gray-500 mt-4">
-                                Status: <code>{authStatus}</code>
+            />
+            <div className="relative flex min-h-0 flex-1 flex-col">
+                <PageHeader
+                    title="Apple Music"
+                    subtitle="Soundtrack for the watch"
+                    onBack={onBack}
+                    status={
+                        authGranted === true ? (
+                            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100">
+                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+                                Linked
+                            </span>
+                        ) : null
+                    }
+                    action={
+                        authGranted === true ? (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => void loadPlaylists()}
+                                    disabled={loadingPlaylists}
+                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] text-cyan-100 transition-all hover:border-cyan-300/35 hover:bg-cyan-300/10 active:scale-95 disabled:opacity-40"
+                                    aria-label="Refresh Apple Music library"
+                                >
+                                    <RefreshIcon className={`h-4 w-4 ${loadingPlaylists ? 'animate-spin' : ''}`} />
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setCreateError(null);
+                                        setCreateOpen(true);
+                                    }}
+                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/35 bg-cyan-300 text-[#04131d] shadow-[0_8px_22px_rgba(34,211,238,0.18)] transition-all hover:bg-cyan-200 active:scale-95"
+                                    aria-label="Create playlist"
+                                >
+                                    <svg
+                                        className="w-5 h-5"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2.5"
+                                        strokeLinecap="round"
+                                    >
+                                        <path d="M12 5v14M5 12h14" />
+                                    </svg>
+                                </button>
                             </div>
-                        )}
-                    </div>
-                )}
+                        ) : null
+                    }
+                />
 
-                {authGranted === true && loadingPlaylists && playlists.length === 0 && (
-                    <div className="flex items-center justify-center pt-16">
-                        <div className="text-gray-400 text-sm">Loading your playlists…</div>
-                    </div>
-                )}
-
-                {authGranted === true && !loadingPlaylists && playlists.length === 0 && !loadError && (
-                    <div className="flex flex-col items-center justify-center pt-16 px-6 text-center">
-                        <div className="text-white font-bold mb-2">No playlists found</div>
-                        <div className="text-gray-400 text-sm max-w-xs">
-                            Create some playlists in the Apple Music app, then come back and tap refresh.
+                {/* Body — bottom padding accounts for the global nav, plus
+                 *  extra room when the floating NowPlayingBar is visible
+                 *  so the last row of tiles can scroll into view above it.
+                 *  The mask-image gradient fades content to transparent
+                 *  just above the bar so tiles don't smudge under it. */}
+                <div
+                    className="flex-1 overflow-y-auto px-4"
+                    style={{
+                        paddingBottom: nowPlayingVisible
+                            ? 'calc(4rem + 4.75rem + env(safe-area-inset-bottom) + 1rem)'
+                            : 'calc(4rem + env(safe-area-inset-bottom) + 1rem)',
+                        maskImage: fadeMask,
+                        WebkitMaskImage: fadeMask,
+                    }}
+                >
+                    {authGranted === false && (
+                        <div className="mx-auto flex max-w-md flex-col items-center justify-center pt-12 text-center">
+                            <div className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-[1.7rem] border border-cyan-300/25 bg-gradient-to-br from-cyan-300/20 to-sky-500/10 shadow-[0_18px_45px_rgba(8,145,178,0.16)]">
+                                <div className="absolute inset-2 rounded-2xl border border-cyan-100/10" />
+                                <MusicIcon className="relative h-9 w-9 text-cyan-200" />
+                            </div>
+                            <div className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200/75">
+                                Onboard audio
+                            </div>
+                            <div className="mt-2 text-xl font-extrabold text-white">Connect Apple Music</div>
+                            <div className="mt-2 max-w-xs text-sm leading-relaxed text-slate-300">
+                                Give Calypso access to your library, playlists, and proper hands-free playback while you
+                                sail.
+                            </div>
+                            {musicAccessNeedsSettings ? (
+                                <div
+                                    role="alert"
+                                    className="mt-6 max-w-sm rounded-2xl border border-amber-300/25 bg-amber-300/[0.075] p-3.5 text-left"
+                                >
+                                    <div className="text-sm font-extrabold text-amber-100">
+                                        Apple Music is turned off
+                                    </div>
+                                    <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                                        Allow Apple Music for Thalassa in iOS Settings, then return here to connect it.
+                                    </p>
+                                    <button
+                                        onClick={handleOpenMusicSystemSettings}
+                                        className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-200 px-3.5 py-2 text-xs font-extrabold text-[#251603] shadow-[0_8px_18px_rgba(251,191,36,0.13)] active:scale-[0.98]"
+                                    >
+                                        Open Music settings
+                                    </button>
+                                </div>
+                            ) : authStatus === 'unsupported' ? (
+                                <div className="mt-6 max-w-xs rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs leading-relaxed text-slate-300">
+                                    Apple Music controls are available in the Thalassa iPhone app.
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => void handleGrantAccess()}
+                                    className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-extrabold text-[#04131d] shadow-[0_12px_30px_rgba(34,211,238,0.2)] transition-all hover:bg-cyan-200 active:scale-[0.97]"
+                                >
+                                    <MusicIcon className="h-4 w-4" />
+                                    Connect Apple Music
+                                </button>
+                            )}
+                            <p className="mt-4 max-w-xs text-xs leading-relaxed text-slate-500">
+                                Your library stays yours. Thalassa only uses access to play and organise the music you
+                                choose.
+                            </p>
+                            {authStatus && authStatus !== 'notDetermined' && !musicAccessNeedsSettings && (
+                                <div className="mt-4 text-xs text-slate-500">
+                                    Status: <code>{authStatus}</code>
+                                </div>
+                            )}
                         </div>
-                        <button
-                            onClick={() => void loadPlaylists()}
-                            className="mt-6 px-4 py-2 rounded-xl border border-pink-400/40 text-pink-300 text-sm hover:bg-pink-400/10 transition-colors"
+                    )}
+
+                    {authGranted === true && loadingPlaylists && playlists.length === 0 && (
+                        <div className="pt-3" aria-label="Loading Apple Music playlists">
+                            <div className="mb-4 h-24 animate-pulse rounded-[1.4rem] border border-white/[0.06] bg-white/[0.035]" />
+                            <div className="grid grid-cols-2 gap-4">
+                                {[0, 1, 2, 3].map((skeleton) => (
+                                    <div
+                                        key={skeleton}
+                                        className="aspect-square animate-pulse rounded-[1.35rem] border border-white/[0.06] bg-gradient-to-br from-slate-800/70 to-slate-950/70"
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {authGranted === true && !loadingPlaylists && playlists.length === 0 && !loadError && (
+                        <div className="mx-auto flex max-w-md flex-col items-center justify-center pt-14 px-6 text-center">
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-300/10">
+                                <LibraryIcon className="h-6 w-6 text-cyan-200" />
+                            </div>
+                            <div className="text-lg font-extrabold text-white">Your library is clear</div>
+                            <div className="mt-2 max-w-xs text-sm leading-relaxed text-slate-400">
+                                Create some playlists in the Apple Music app, then come back and tap refresh.
+                            </div>
+                            <button
+                                onClick={() => void loadPlaylists()}
+                                className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100 transition-colors hover:bg-cyan-300/15"
+                            >
+                                <RefreshIcon className="h-4 w-4" />
+                                Refresh library
+                            </button>
+                        </div>
+                    )}
+
+                    {loadError && (
+                        <div
+                            role="alert"
+                            className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.075] px-4 py-3 text-sm text-amber-100"
                         >
-                            Refresh
-                        </button>
+                            <div className="font-bold">Apple Music needs attention</div>
+                            <div className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                                {loadError === 'permission_denied'
+                                    ? 'Access is denied. Enable Apple Music for Thalassa in iOS Settings, then return here.'
+                                    : loadError}
+                            </div>
+                            {loadError !== 'permission_denied' && (
+                                <button
+                                    onClick={() => void loadPlaylists()}
+                                    className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-200/25 bg-amber-100/10 px-3 text-xs font-bold text-amber-50 active:scale-[0.98]"
+                                >
+                                    <RefreshIcon className="h-3.5 w-3.5" />
+                                    Try again
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {playlists.length > 0 && (
+                        <div className="pt-1">
+                            <section className="mb-4 rounded-[1.4rem] border border-cyan-300/15 bg-gradient-to-br from-cyan-300/[0.10] via-slate-900/65 to-slate-950/80 px-4 py-3.5 shadow-[0_16px_40px_rgba(3,22,35,0.28)]">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-100/75">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+                                            Your library
+                                        </div>
+                                        <div className="mt-1 text-base font-extrabold text-white">
+                                            {playlists.length} playlist{playlists.length === 1 ? '' : 's'} ready for the
+                                            watch
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-white/10 bg-black/20 px-2.5 py-1.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                                        Tap to play
+                                        <span className="mt-0.5 block font-medium normal-case tracking-normal text-slate-500">
+                                            ⋯ for options
+                                        </span>
+                                    </div>
+                                </div>
+                            </section>
+                            <div className="grid grid-cols-2 gap-4 pb-2">
+                                {playlists.map((p) => (
+                                    <PlaylistTile
+                                        key={p.id}
+                                        playlist={p}
+                                        active={activePlaylistId === p.id}
+                                        // Tap = play instantly (the common case —
+                                        // skipper just wants the music going).
+                                        // Long-press = open detail sheet (Play,
+                                        // Add tracks, Delete) for less common
+                                        // actions. Briefly tried single-tap to
+                                        // open the sheet but the skipper noted
+                                        // it added a click to the most-frequent
+                                        // action; reverted.
+                                        onTap={() => void handlePlayPlaylist(p.id)}
+                                        onLongPress={() => void openDetail(p)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Floating now-playing bar — fixed-positioned above the
+                 *  global bottom-nav so it overlays the playlist grid
+                 *  rather than pushing tiles upward. The grid scroll area
+                 *  above gets extra bottom padding so the last row stays
+                 *  reachable. z-[800] sits below the nav (z-[900]) and
+                 *  above page content. */}
+                {nowPlayingVisible && (
+                    <div
+                        className="fixed left-0 right-0 z-[800] pointer-events-none"
+                        style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+                    >
+                        <div className="pointer-events-auto px-3 pb-2">
+                            <div className="overflow-hidden rounded-[1.35rem] border border-cyan-300/20 bg-[#07131f]/90 shadow-[0_18px_45px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+                                <NowPlayingBar
+                                    nowPlaying={nowPlaying!}
+                                    onPause={() => void handlePause()}
+                                    onResume={() => void handleResume()}
+                                    onNext={() => void handleNext()}
+                                    onPrevious={() => void handlePrevious()}
+                                />
+                            </div>
+                        </div>
                     </div>
                 )}
 
-                {loadError && (
-                    <div className="text-amber-400 text-sm px-2 py-3 mb-3 bg-amber-500/10 rounded-lg">
-                        {loadError === 'permission_denied'
-                            ? 'Apple Music access denied. Enable in iOS Settings → Thalassa → Apple Music.'
-                            : `Couldn't load playlists: ${loadError}`}
-                    </div>
+                {/* Playlist detail sheet — opens on long-press */}
+                {detailPlaylist && (
+                    <PlaylistDetailSheet
+                        playlist={detailPlaylist}
+                        tracks={detailTracks}
+                        loading={detailLoading}
+                        error={detailError}
+                        covered={addTracksOpen || confirmDelete !== null}
+                        onClose={closeDetail}
+                        onPlayAll={() => void handlePlayAll()}
+                        onPlayTrack={(trackId) => void handlePlayTrack(trackId)}
+                        onAddTracks={handleOpenAddTracks}
+                        onDelete={handleRequestDelete}
+                    />
                 )}
 
-                {playlists.length > 0 && (
-                    <div className="grid grid-cols-2 gap-3 pt-2">
-                        {playlists.map((p) => (
-                            <PlaylistTile
-                                key={p.id}
-                                playlist={p}
-                                active={activePlaylistId === p.id}
-                                // Tap = play instantly (the common case —
-                                // skipper just wants the music going).
-                                // Long-press = open detail sheet (Play,
-                                // Add tracks, Delete) for less common
-                                // actions. Briefly tried single-tap to
-                                // open the sheet but the skipper noted
-                                // it added a click to the most-frequent
-                                // action; reverted.
-                                onTap={() => void handlePlayPlaylist(p.id)}
-                                onLongPress={() => void openDetail(p)}
-                            />
-                        ))}
-                    </div>
+                {/* Add-tracks (catalog search) sheet — overlays the detail sheet */}
+                {addTracksOpen && detailPlaylist && (
+                    <AddTracksSheet
+                        playlistName={detailPlaylist.name}
+                        onClose={() => void handleCloseAddTracks()}
+                        onAddSong={handleAddSongToPlaylist}
+                    />
+                )}
+
+                {/* Delete confirmation — small modal over everything */}
+                {confirmDelete && (
+                    <DeleteConfirmSheet
+                        playlistName={confirmDelete.name}
+                        busy={deleteBusy}
+                        onCancel={() => setConfirmDelete(null)}
+                        onConfirm={() => void handleConfirmDelete()}
+                    />
+                )}
+
+                {/* Create-playlist modal — opens from the + button in the header */}
+                {createOpen && (
+                    <CreatePlaylistSheet
+                        busy={createBusy}
+                        error={createError}
+                        onClose={() => setCreateOpen(false)}
+                        onSubmit={(n, d) => void handleCreatePlaylist(n, d)}
+                    />
                 )}
             </div>
-
-            {/* Floating now-playing bar — fixed-positioned above the
-             *  global bottom-nav so it overlays the playlist grid
-             *  rather than pushing tiles upward. The grid scroll area
-             *  above gets extra bottom padding so the last row stays
-             *  reachable. z-[800] sits below the nav (z-[900]) and
-             *  above page content. */}
-            {nowPlayingVisible && (
-                <div
-                    className="fixed left-0 right-0 z-[800] pointer-events-none"
-                    style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
-                >
-                    <div className="pointer-events-auto px-3 pb-2">
-                        <div className="rounded-2xl overflow-hidden bg-black/70 backdrop-blur-xl border border-white/10 shadow-2xl">
-                            <NowPlayingBar
-                                nowPlaying={nowPlaying!}
-                                onPause={() => void handlePause()}
-                                onResume={() => void handleResume()}
-                                onNext={() => void handleNext()}
-                                onPrevious={() => void handlePrevious()}
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Playlist detail sheet — opens on long-press */}
-            {detailPlaylist && (
-                <PlaylistDetailSheet
-                    playlist={detailPlaylist}
-                    tracks={detailTracks}
-                    loading={detailLoading}
-                    error={detailError}
-                    covered={addTracksOpen || confirmDelete !== null}
-                    onClose={closeDetail}
-                    onPlayAll={() => void handlePlayAll()}
-                    onPlayTrack={(trackId) => void handlePlayTrack(trackId)}
-                    onAddTracks={handleOpenAddTracks}
-                    onDelete={handleRequestDelete}
-                />
-            )}
-
-            {/* Add-tracks (catalog search) sheet — overlays the detail sheet */}
-            {addTracksOpen && detailPlaylist && (
-                <AddTracksSheet
-                    playlistName={detailPlaylist.name}
-                    onClose={() => void handleCloseAddTracks()}
-                    onAddSong={handleAddSongToPlaylist}
-                />
-            )}
-
-            {/* Delete confirmation — small modal over everything */}
-            {confirmDelete && (
-                <DeleteConfirmSheet
-                    playlistName={confirmDelete.name}
-                    busy={deleteBusy}
-                    onCancel={() => setConfirmDelete(null)}
-                    onConfirm={() => void handleConfirmDelete()}
-                />
-            )}
-
-            {/* Create-playlist modal — opens from the + button in the header */}
-            {createOpen && (
-                <CreatePlaylistSheet
-                    busy={createBusy}
-                    error={createError}
-                    onClose={() => setCreateOpen(false)}
-                    onSubmit={(n, d) => void handleCreatePlaylist(n, d)}
-                />
-            )}
         </div>
     );
 };
@@ -729,6 +984,7 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
     // When that happens we swap to the generated mesh-gradient cover.
     const [imageFailed, setImageFailed] = useState(false);
     const [pressing, setPressing] = useState(false);
+    const instructionsId = useId();
     const showRemote = !!playlist.artworkUrl && !imageFailed;
 
     // Long-press detection. Touch start kicks off a 500ms timer; if it
@@ -768,39 +1024,83 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
     }, [onTap]);
 
     return (
-        <button
-            onClick={handleClick}
-            onTouchStart={startPress}
-            onTouchEnd={cancelPress}
-            onTouchMove={cancelPress}
-            onTouchCancel={cancelPress}
-            onMouseDown={startPress}
-            onMouseUp={cancelPress}
-            onMouseLeave={cancelPress}
-            className={`relative aspect-square rounded-2xl overflow-hidden border transition-all ${
-                pressing ? 'scale-[0.94]' : 'active:scale-[0.97]'
-            } ${active ? 'border-pink-400/60 ring-2 ring-pink-400/40' : 'border-white/10 hover:border-white/30'}`}
-        >
-            {showRemote ? (
-                <SafeImage
-                    src={playlist.artworkUrl}
-                    alt={playlist.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    onError={() => setImageFailed(true)}
-                    fallback={<GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />}
-                />
-            ) : (
-                <GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />
-            )}
-            {/* Title overlay */}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
-                <div className="text-white font-bold text-sm truncate text-left">{playlist.name}</div>
-                {playlist.curator && (
-                    <div className="text-white/60 text-xs truncate text-left mt-0.5">{playlist.curator}</div>
+        <div className="relative">
+            <button
+                onClick={handleClick}
+                onTouchStart={startPress}
+                onTouchEnd={cancelPress}
+                onTouchMove={cancelPress}
+                onTouchCancel={cancelPress}
+                onMouseDown={startPress}
+                onMouseUp={cancelPress}
+                onMouseLeave={cancelPress}
+                aria-label={playlist.name}
+                aria-describedby={instructionsId}
+                className={`group relative block w-full aspect-square overflow-hidden rounded-[1.35rem] border bg-slate-900 text-left shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050b12] ${
+                    pressing ? 'scale-[0.94]' : 'active:scale-[0.97]'
+                } ${
+                    active
+                        ? 'border-cyan-200/70 ring-2 ring-cyan-300/35 shadow-[0_14px_32px_rgba(34,211,238,0.16)]'
+                        : 'border-white/10 hover:-translate-y-0.5 hover:border-cyan-200/35 hover:shadow-[0_14px_30px_rgba(0,0,0,0.32)]'
+                }`}
+            >
+                {showRemote ? (
+                    <SafeImage
+                        src={playlist.artworkUrl}
+                        alt={playlist.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={() => setImageFailed(true)}
+                        fallback={
+                            <GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />
+                        }
+                    />
+                ) : (
+                    <GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />
                 )}
-            </div>
-        </button>
+                <div className="absolute inset-0 bg-gradient-to-t from-[#02070c] via-[#02070c]/18 to-transparent" />
+                {/* One visual language for both remote and generated artwork:
+                 * a small operational badge, then a strong title treatment at
+                 * the waterline. It makes a mixed library feel intentional. */}
+                <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#06111c]/75 px-2 py-1 backdrop-blur-md">
+                    {active ? (
+                        <>
+                            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.95)]" />
+                            <span className="text-[9px] font-black uppercase tracking-[0.14em] text-cyan-100">
+                                Playing
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            <PlayIcon className="h-2.5 w-2.5 text-cyan-100" />
+                            <span className="text-[9px] font-black uppercase tracking-[0.14em] text-white/75">
+                                Playlist
+                            </span>
+                        </>
+                    )}
+                </div>
+                <div className="absolute inset-x-0 bottom-0 p-3 pt-10">
+                    <div className="truncate text-[15px] font-extrabold leading-tight text-white">{playlist.name}</div>
+                    {playlist.curator && (
+                        <div className="mt-1 truncate text-[11px] font-medium text-white/65">{playlist.curator}</div>
+                    )}
+                </div>
+            </button>
+            <button
+                type="button"
+                onClick={() => {
+                    triggerHaptic('light');
+                    onLongPress();
+                }}
+                aria-label={`More options for ${playlist.name}`}
+                className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-[#06111c]/75 text-white/85 shadow-sm backdrop-blur-md transition-all hover:border-cyan-100/35 hover:bg-cyan-300/[0.14] hover:text-cyan-50 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+            >
+                <MoreIcon className="h-4 w-4" />
+            </button>
+            <span id={instructionsId} className="sr-only">
+                Tap to play. Use more options to view tracks, add music, or manage this playlist.
+            </span>
+        </div>
     );
 };
 
@@ -874,7 +1174,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
-                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
+                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
                 style={{
@@ -897,7 +1197,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
 
                 {/* Hero */}
                 <div className="flex items-center gap-4 px-5 py-4">
-                    <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0 shadow-lg ring-1 ring-white/10">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl shadow-lg ring-1 ring-cyan-100/20">
                         {showRemote ? (
                             <SafeImage
                                 src={playlist.artworkUrl}
@@ -912,7 +1212,10 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         )}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div id={titleId} className="text-white font-bold text-lg truncate leading-tight">
+                        <div className="mb-1 text-[10px] font-black uppercase tracking-[0.17em] text-cyan-100/65">
+                            Playlist
+                        </div>
+                        <div id={titleId} className="truncate text-lg font-extrabold leading-tight text-white">
                             {playlist.name}
                         </div>
                         <div className="text-white/60 text-sm mt-0.5">
@@ -934,7 +1237,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         onClick={onPlayAll}
                         disabled={loading || tracks.length === 0}
                         aria-label={`Play all tracks in ${playlist.name}`}
-                        className="w-full py-3 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-300 py-3 text-sm font-extrabold text-[#04131d] shadow-[0_10px_24px_rgba(34,211,238,0.16)] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                     >
                         <PlayIcon className="w-4 h-4" />
                         <span>Play</span>
@@ -942,7 +1245,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     <button
                         onClick={onAddTracks}
                         aria-label={`Add tracks to ${playlist.name}`}
-                        className="w-full py-3 rounded-2xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan-200/25 bg-cyan-300/[0.09] py-3 text-sm font-bold text-cyan-100 transition-transform active:scale-[0.97]"
                     >
                         <PlusIcon className="w-5 h-5" />
                         <span>Add tracks</span>
@@ -969,7 +1272,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 >
                     {loading && (
                         <div className="flex flex-col items-center justify-center py-12 text-white/40 text-sm gap-2">
-                            <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin" />
+                            <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-cyan-300" />
                             Loading tracks…
                         </div>
                     )}
@@ -979,7 +1282,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                                 key={track.id}
                                 onClick={() => onPlayTrack(track.id)}
                                 aria-label={`Play track ${i + 1}: ${track.title} by ${track.artist}`}
-                                className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl active:bg-white/10 transition-colors text-left"
+                                className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-cyan-300/[0.06] active:bg-cyan-300/[0.1]"
                             >
                                 <div className="w-8 text-center text-white/40 text-sm font-medium tabular-nums shrink-0">
                                     {i + 1}
@@ -1115,7 +1418,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                 aria-modal="true"
                 aria-labelledby={titleId}
                 aria-describedby={descriptionId}
-                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
+                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
                 style={{
@@ -1180,7 +1483,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Song or artist…"
                         aria-label="Search Apple Music catalog"
-                        className="flex-1 bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
+                        className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') void handleSearch();
                         }}
@@ -1188,7 +1491,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                     <button
                         onClick={() => void handleSearch()}
                         disabled={searching || !query.trim()}
-                        className="px-4 py-3 rounded-xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold text-sm active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                        className="rounded-xl border border-cyan-200/30 bg-cyan-300 px-4 py-3 text-sm font-extrabold text-[#04131d] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                     >
                         {searching ? '…' : 'Search'}
                     </button>
@@ -1251,7 +1554,11 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redi
                 song.artist
             }${song.album ? ` from ${song.album}` : ''}`}
             className={`w-full flex items-center gap-3 px-2 py-2 rounded-xl transition-colors text-left ${
-                added ? 'bg-emerald-500/10' : redirected ? 'bg-amber-500/10' : 'active:bg-white/10'
+                added
+                    ? 'bg-emerald-500/10'
+                    : redirected
+                      ? 'bg-amber-500/10'
+                      : 'hover:bg-cyan-300/[0.06] active:bg-cyan-300/[0.1]'
             }`}
         >
             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5">
@@ -1276,13 +1583,13 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redi
             </div>
             <div className="w-8 h-8 flex items-center justify-center shrink-0">
                 {adding ? (
-                    <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin" />
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-cyan-300" />
                 ) : added ? (
                     <CheckIcon className="w-5 h-5 text-emerald-400" />
                 ) : redirected ? (
                     <ExternalLinkIcon className="w-5 h-5 text-amber-300" />
                 ) : (
-                    <PlusIcon className="w-5 h-5 text-pink-300" />
+                    <PlusIcon className="h-5 w-5 text-cyan-200" />
                 )}
             </div>
         </button>
@@ -1327,7 +1634,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                     aria-modal="true"
                     aria-labelledby={titleId}
                     aria-describedby={descriptionId}
-                    className={`relative w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl border border-white/10 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+                    className={`relative w-full max-w-sm rounded-3xl border border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
                 >
@@ -1353,7 +1660,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                                 onClick={onConfirm}
                                 disabled={busy}
                                 aria-label={`Open Apple Music to delete ${playlistName} playlist`}
-                                className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-300 py-3 text-sm font-extrabold text-[#04131d] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (
                                     <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
@@ -1425,7 +1732,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                     aria-modal="true"
                     aria-labelledby={titleId}
                     aria-describedby={descriptionId}
-                    className={`relative w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl border border-white/10 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+                    className={`relative w-full max-w-sm rounded-3xl border border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
                 >
@@ -1449,7 +1756,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 aria-label="Playlist name"
                                 disabled={busy}
                                 maxLength={80}
-                                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
+                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' && canSubmit) {
                                         onSubmit(name, description);
@@ -1470,7 +1777,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 aria-label="Playlist description"
                                 disabled={busy}
                                 maxLength={140}
-                                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
+                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
                             />
                         </label>
 
@@ -1493,7 +1800,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 onClick={() => onSubmit(name, description)}
                                 disabled={!canSubmit}
                                 aria-label="Create new playlist"
-                                className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-300 py-3 text-sm font-extrabold text-[#04131d] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (
                                     <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
@@ -1521,29 +1828,29 @@ function formatDuration(ms: number): string {
 // ── Generated playlist artwork ─────────────────────────────────────
 //
 // When a user-made playlist has no curator-assigned cover, MusicKit
-// returns a null artwork URL and we used to drop a sad pink/purple
-// gradient + music-note in there. This generator produces something
-// closer to Apple Music's quality: a three-blob radial mesh gradient
-// in a palette deterministically picked from a hash of the playlist
-// name, a subtle horizon wave at the bottom (the Thalassa nod), and
-// a serif initial overlaid in the centre.
+// returns a null artwork URL. This generator gives it a proper,
+// understated Thalassa cover: a three-blob deep-water mesh gradient
+// in a palette deterministically picked from the playlist name, a
+// subtle horizon wave, and a serif initial overlaid in the centre.
 //
 // Deterministic = the same playlist always renders the same artwork
 // across sessions, and the 2-col grid stays visually varied because
 // adjacent playlists hash to different palettes.
 
-/** 10 marine + sunset palettes — every playlist hashes to one. */
+/** 10 deep-water, chart-light, and warm-beacon palettes — every
+ * playlist hashes to one. Deliberately no candy-colour treatment: a
+ * mixed library should look calm, legible, and seaworthy. */
 const PLAYLIST_PALETTES: ReadonlyArray<{ a: string; b: string; c: string; bg: string }> = [
-    { a: '#ff6b9d', b: '#c44dd6', c: '#5a3aa3', bg: '#1e1b4b' }, // pink dusk
-    { a: '#06b6d4', b: '#3b82f6', c: '#1e3a8a', bg: '#0c1f3f' }, // deep ocean
-    { a: '#fbbf24', b: '#f97316', c: '#9a3412', bg: '#3b1d12' }, // sunset
-    { a: '#10b981', b: '#0ea5e9', c: '#1e3a8a', bg: '#0a2540' }, // tropic reef
-    { a: '#a855f7', b: '#7c3aed', c: '#1e1b4b', bg: '#171232' }, // violet night
-    { a: '#f43f5e', b: '#a855f7', c: '#3730a3', bg: '#1f1240' }, // rose horizon
-    { a: '#14b8a6', b: '#0891b2', c: '#0c4a6e', bg: '#082f49' }, // lagoon
-    { a: '#f87171', b: '#fb7185', c: '#9f1239', bg: '#3f0a1f' }, // hibiscus
-    { a: '#fde68a', b: '#fb923c', c: '#7c2d12', bg: '#3a1a0c' }, // golden hour
-    { a: '#67e8f9', b: '#0ea5e9', c: '#1e1b4b', bg: '#0c1530' }, // moonlit bay
+    { a: '#22d3ee', b: '#0e7490', c: '#0c4a6e', bg: '#061827' }, // tidal cyan
+    { a: '#38bdf8', b: '#2563eb', c: '#172554', bg: '#07152d' }, // bluewater
+    { a: '#fbbf24', b: '#d97706', c: '#78350f', bg: '#21150a' }, // beacon amber
+    { a: '#2dd4bf', b: '#0f766e', c: '#164e63', bg: '#061c25' }, // reef green
+    { a: '#94a3b8', b: '#334155', c: '#0f172a', bg: '#070d16' }, // storm slate
+    { a: '#f59e0b', b: '#ea580c', c: '#7c2d12', bg: '#211109' }, // sun on canvas
+    { a: '#14b8a6', b: '#0891b2', c: '#0c4a6e', bg: '#08202a' }, // lagoon chart
+    { a: '#a3e635', b: '#15803d', c: '#14532d', bg: '#071b16' }, // kelp line
+    { a: '#fcd34d', b: '#b45309', c: '#713f12', bg: '#21180a' }, // brass compass
+    { a: '#67e8f9', b: '#0284c7', c: '#1e3a8a', bg: '#07142a' }, // moonlit passage
 ];
 
 function paletteFor(name: string): (typeof PLAYLIST_PALETTES)[number] {
@@ -1719,36 +2026,42 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
     const pct = showProgress ? (clamped / duration) * 100 : 0;
 
     return (
-        <div className="p-3">
+        <div className="p-3.5">
             <div className="flex items-center gap-3">
                 {showRemote ? (
                     <SafeImage
                         src={nowPlaying.artworkUrl}
                         alt=""
-                        className="w-12 h-12 rounded-lg object-cover shrink-0"
+                        className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-cyan-100/20"
                         loading="eager"
                         onError={() => setImageFailed(true)}
                         fallback={
-                            <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-cyan-100/20">
                                 <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
                             </div>
                         }
                     />
                 ) : (
-                    <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-cyan-100/20">
                         <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
                     </div>
                 )}
                 <div className="flex-1 min-w-0">
-                    <div className="text-white font-bold text-sm truncate">{nowPlaying.title}</div>
+                    <div className="mb-0.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] text-cyan-100/65">
+                        <span
+                            className={`h-1.5 w-1.5 rounded-full ${nowPlaying.isPlaying ? 'bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.95)]' : 'bg-slate-500'}`}
+                        />
+                        {nowPlaying.isPlaying ? 'Now playing' : 'Paused'}
+                    </div>
+                    <div className="truncate text-sm font-extrabold text-white">{nowPlaying.title}</div>
                     {nowPlaying.artist && (
-                        <div className="text-white/60 text-xs truncate mt-0.5">{nowPlaying.artist}</div>
+                        <div className="mt-0.5 truncate text-xs text-slate-300/75">{nowPlaying.artist}</div>
                     )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     <button
                         onClick={onPrevious}
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:bg-white/10 active:scale-90 transition-all"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-cyan-300/[0.1] hover:text-cyan-100 active:scale-90"
                         aria-label="Previous"
                     >
                         <SkipPrevIcon className="w-5 h-5" />
@@ -1756,7 +2069,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     {nowPlaying.isPlaying ? (
                         <button
                             onClick={onPause}
-                            className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform"
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-300 text-[#04131d] shadow-[0_8px_18px_rgba(34,211,238,0.17)] transition-transform active:scale-90"
                             aria-label="Pause"
                         >
                             <PauseIcon className="w-5 h-5" />
@@ -1764,7 +2077,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     ) : (
                         <button
                             onClick={onResume}
-                            className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform"
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-300 text-[#04131d] shadow-[0_8px_18px_rgba(34,211,238,0.17)] transition-transform active:scale-90"
                             aria-label="Play"
                         >
                             <PlayIcon className="w-5 h-5 ml-0.5" />
@@ -1772,7 +2085,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     )}
                     <button
                         onClick={onNext}
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:bg-white/10 active:scale-90 transition-all"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-cyan-300/[0.1] hover:text-cyan-100 active:scale-90"
                         aria-label="Next"
                     >
                         <SkipNextIcon className="w-5 h-5" />
@@ -1782,7 +2095,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
 
             {showProgress && (
                 <div
-                    className="mt-2 flex items-center gap-2 text-[10px] font-mono text-white/50 tabular-nums"
+                    className="mt-3 flex items-center gap-2 text-[10px] font-mono tabular-nums text-slate-400"
                     role="progressbar"
                     aria-valuemin={0}
                     aria-valuemax={Math.round(duration)}
@@ -1790,9 +2103,9 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     aria-label={`Playback progress — ${formatPlaybackTime(clamped)} of ${formatPlaybackTime(duration)}`}
                 >
                     <span className="w-8 text-right">{formatPlaybackTime(clamped)}</span>
-                    <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
                         <div
-                            className="h-full bg-white/70 rounded-full transition-[width] duration-150 ease-linear"
+                            className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-teal-300 transition-[width] duration-150 ease-linear"
                             style={{ width: `${pct}%` }}
                         />
                     </div>
@@ -1808,6 +2121,49 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
 const MusicIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
         <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
+    </svg>
+);
+
+const RefreshIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M20 11a8 8 0 0 0-14.9-4.1L3 9" />
+        <path d="M3 4v5h5" />
+        <path d="M4 13a8 8 0 0 0 14.9 4.1L21 15" />
+        <path d="M21 20v-5h-5" />
+    </svg>
+);
+
+const LibraryIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <rect x="4" y="4" width="16" height="16" rx="3" />
+        <path d="M9 9v6.5" />
+        <path d="M9 9l6-1.5v6" />
+        <circle cx="7.2" cy="16.2" r="1.8" />
+        <circle cx="13.2" cy="14.7" r="1.8" />
+    </svg>
+);
+
+const MoreIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="5" cy="12" r="1.8" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle cx="19" cy="12" r="1.8" />
     </svg>
 );
 

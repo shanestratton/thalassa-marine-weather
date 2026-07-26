@@ -55,6 +55,7 @@ describe('saved route graph deletion', () => {
             passageVoyageId,
             expect.objectContaining({ userId: 'account-a' }),
             'trace-a',
+            { allowUnlinkedSavedRoute: true },
         );
         expect(mocks.deleteDraftVoyageById).not.toHaveBeenCalled();
         expect(mocks.invalidateRoutesAndTracks).toHaveBeenCalledWith(expect.objectContaining({ userId: 'account-a' }));

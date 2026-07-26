@@ -175,7 +175,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 try session.setCategory(
                     .playAndRecord,
                     mode: .default,
-                    options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth]
+                    options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP]
                 )
                 try session.setActive(true, options: [])
                 NSLog("[AppleMusic] prepareVoiceInput: category=playAndRecord active=true")
