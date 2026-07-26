@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PassageStatus } from '../services/PassagePlanService';
 import type { VoyageRow } from '../components/CrewManagement';
 import type { CrewMember } from '../services/CrewService';
@@ -25,10 +25,18 @@ vi.mock('../components/passage/CustomsClearanceCard', () => ({
     CustomsClearanceCard: () => <div data-testid="customs-card">Customs</div>,
 }));
 vi.mock('../components/passage/AidToNavigationCard', () => ({
-    AidToNavigationCard: () => <div data-testid="navigation-card">Navigation</div>,
+    AidToNavigationCard: ({ allOtherCardsReady }: { allOtherCardsReady?: boolean }) => (
+        <div data-testid="navigation-card" data-other-cards-ready={String(allOtherCardsReady)}>
+            Navigation
+        </div>
+    ),
 }));
 vi.mock('../components/passage/VesselProfileSummary', () => ({
-    VesselProfileSummary: () => <div data-testid="vessel-profile-card">Vessel profile</div>,
+    VesselProfileSummary: ({ voyageId }: { voyageId?: string }) => (
+        <div data-testid="vessel-profile-card" data-voyage-id={voyageId}>
+            Vessel profile
+        </div>
+    ),
 }));
 vi.mock('../components/passage/EssentialReservesCard', () => ({
     EssentialReservesCard: () => <div data-testid="reserves-card">Reserves</div>,
@@ -54,6 +62,7 @@ vi.mock('../components/chat/GalleyCard', () => ({
     ),
 }));
 import { ReadinessCardStack } from '../components/crew/ReadinessCardStack';
+import { isSameCountry } from '../data/customsDb';
 
 const voyage: VoyageRow = {
     id: 'voyage-1',
@@ -127,7 +136,11 @@ const crewMember = (overrides: Partial<CrewMember> = {}): CrewMember => ({
     ...overrides,
 });
 
-const renderStack = (passageStatus: PassageStatus, visibleCrew: CrewMember[] = []) =>
+const renderStack = (
+    passageStatus: PassageStatus,
+    visibleCrew: CrewMember[] = [],
+    overrides: Partial<React.ComponentProps<typeof ReadinessCardStack>> = {},
+) =>
     render(
         <ReadinessCardStack
             selectedPassageId={voyage.id}
@@ -157,8 +170,13 @@ const renderStack = (passageStatus: PassageStatus, visibleCrew: CrewMember[] = [
             onVesselProfileChange={vi.fn()}
             onWeatherWindowChange={vi.fn()}
             onCurrentsChange={vi.fn()}
+            {...overrides}
         />,
     );
+
+afterEach(() => {
+    vi.mocked(isSameCountry).mockReturnValue(false);
+});
 
 describe('passage permission integration', () => {
     it('mounts every child-card family but hides delegation controls for a solo owner', () => {
@@ -170,7 +188,39 @@ describe('passage permission integration', () => {
         expect(screen.getByTestId('galley-card')).toHaveAttribute('data-can-view-meals', 'true');
         expect(screen.getByTestId('watch-schedule-card')).toBeInTheDocument();
         expect(screen.getByTestId('vessel-profile-card')).toBeInTheDocument();
+        expect(screen.getByTestId('vessel-profile-card')).toHaveAttribute('data-voyage-id', voyage.id);
         expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument();
+    });
+
+    it('starts a fresh international route with no implied readiness ticks', () => {
+        renderStack(ownerStatus);
+
+        expect(screen.getByText('Passage Intelligence').closest('summary')).toHaveTextContent('0/2');
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/3');
+        expect(screen.getByText('Vessel Readiness').closest('summary')).toHaveTextContent('0/5');
+    });
+
+    it('keeps domestic customs informational instead of auto-ticking a new brief', () => {
+        vi.mocked(isSameCountry).mockReturnValue(true);
+        const onCustomsChange = vi.fn();
+        renderStack(ownerStatus, [], { onCustomsChange });
+
+        expect(onCustomsChange).not.toHaveBeenCalled();
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/2');
+        expect(screen.getByText('No Customs Required')).toBeInTheDocument();
+        expect(screen.getByText('Customs & Immigration').closest('summary')).not.toHaveTextContent('✅');
+    });
+
+    it('lets domestic passages progress to the navigation gate without a fictional customs check', () => {
+        vi.mocked(isSameCountry).mockReturnValue(true);
+        renderStack(ownerStatus, [], {
+            weatherWindowReady: true,
+            reservesReady: true,
+            watchBriefed: true,
+            commsReady: true,
+        });
+
+        expect(screen.getByTestId('navigation-card')).toHaveAttribute('data-other-cards-ready', 'true');
     });
 
     it('shows delegation controls as soon as a pending crew invite exists', () => {

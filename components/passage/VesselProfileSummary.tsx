@@ -1,5 +1,5 @@
 /**
- * VesselProfileSummary — Read-only summary of the active vessel.
+ * VesselProfileSummary — summary and per-passage confirmation of the active vessel.
  *
  * Replaces the old VesselProfileCard which had a separate localStorage
  * key (`thalassa_vessel_profile`) and was NOT used by the routing
@@ -8,9 +8,11 @@
  * the canonical record (`settings.vessel`) that the isochrone router
  * actually reads.
  *
- * This card just confirms which vessel the route will be calculated
- * for. Tapping the edit link opens the SettingsModal with the Vessel
- * tab focused, so the user can edit the canonical record in one place.
+ * The canonical vessel profile is deliberately separate from passage
+ * readiness. A completed profile makes a routeable boat available, but it
+ * must not silently mark every new passage as reviewed. The skipper confirms
+ * it for each passage here; that confirmation is stored and synced with the
+ * passage so a saved route resumes at its real level of completeness.
  *
  * Reactivity:
  *   `useSettings()` is a Context-backed hook — every change to vessel
@@ -19,14 +21,20 @@
  *   always match the canonical settings record on the next paint.
  */
 
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useSettings } from '../../context/SettingsContext';
+import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 import { ftToM, ktsToKmh, ktsToMph, ktsToMps } from '../../utils/units';
 
 interface VesselProfileSummaryProps {
-    /** Crew/Passage Intelligence calls this with `true` once vessel exists. */
+    /** The confirmation is deliberately scoped to this one passage. */
+    voyageId?: string;
+    /** Crew/Passage Intelligence receives the real per-passage readiness. */
     onReviewedChange?: (ready: boolean) => void;
 }
+
+const STORAGE_KEY = 'thalassa_vessel_profile_confirmation';
+const CONFIRMATION_KEY = 'confirmed';
 
 /** Convert canonical feet → user's preferred length unit. */
 function lengthInUnit(ft: number, unit: 'ft' | 'm' | undefined): { value: number; unit: 'ft' | 'm' } {
@@ -52,18 +60,34 @@ const fmt1 = (n: number) => {
     return Number.isInteger(r) ? r.toString() : r.toFixed(1);
 };
 
-export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ onReviewedChange }) => {
+export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voyageId, onReviewedChange }) => {
     const { settings } = useSettings();
     const vessel = settings.vessel;
-    const ready = !!vessel && !!vessel.name && !!vessel.cruisingSpeed;
+    const profileComplete = !!vessel && !!vessel.name && !!vessel.cruisingSpeed;
+    const [confirmation, setConfirmation] = useScopedReadinessStorageState<Record<string, boolean>>(
+        STORAGE_KEY,
+        voyageId,
+        {},
+    );
+    const { syncCheck } = useReadinessSync(voyageId, 'vessel_profile', confirmation, setConfirmation, STORAGE_KEY);
+    const confirmedForPassage = confirmation[CONFIRMATION_KEY] === true;
+    const ready = profileComplete && confirmedForPassage;
 
-    // Pulse the readiness gate up to the parent (CrewManagement /
-    // ReadinessCardStack) so the chip flips green automatically whenever
-    // the user's onboarded vessel data is present — no separate save
-    // required for this card.
+    // A configured vessel is necessary but not sufficient: the skipper must
+    // explicitly confirm it for this passage. This prevents a new route from
+    // inheriting a green card merely because onboarding has a vessel profile.
     useEffect(() => {
         onReviewedChange?.(ready);
     }, [ready, onReviewedChange]);
+
+    const toggleConfirmation = useCallback(() => {
+        if (!profileComplete) return;
+        const nextConfirmed = !confirmedForPassage;
+        setConfirmation({ ...confirmation, [CONFIRMATION_KEY]: nextConfirmed });
+        syncCheck(CONFIRMATION_KEY, nextConfirmed, {
+            confirmed_at: nextConfirmed ? new Date().toISOString() : null,
+        });
+    }, [confirmation, confirmedForPassage, profileComplete, setConfirmation, syncCheck]);
 
     if (!vessel) {
         return (
@@ -130,6 +154,35 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ onRe
                     Settings → Vessel Profile to change.
                 </p>
             </div>
+
+            {profileComplete ? (
+                <button
+                    type="button"
+                    aria-pressed={confirmedForPassage}
+                    onClick={toggleConfirmation}
+                    className={`w-full rounded-xl border px-4 py-3 text-left transition-all active:scale-[0.99] ${
+                        confirmedForPassage
+                            ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
+                            : 'border-violet-500/25 bg-violet-500/[0.08] text-violet-200 hover:bg-violet-500/[0.13]'
+                    }`}
+                >
+                    <span className="block text-xs font-bold">
+                        {confirmedForPassage
+                            ? '✓ Vessel confirmed for this passage'
+                            : 'Confirm vessel for this passage'}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] opacity-75">
+                        {confirmedForPassage
+                            ? 'Saved with this route and carried to your other signed-in devices.'
+                            : 'Check that this is the boat, profile, and limits you intend to sail with.'}
+                    </span>
+                </button>
+            ) : (
+                <p className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-[11px] text-amber-200/80">
+                    Complete the vessel name and cruising speed in Settings → Vessel Profile before confirming it for
+                    this passage.
+                </p>
+            )}
         </div>
     );
 };

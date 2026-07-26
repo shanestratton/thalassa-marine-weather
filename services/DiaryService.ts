@@ -248,10 +248,18 @@ class DiaryServiceClass {
                 this.drainDeletedTombstones();
             }, 5000);
             // Periodic retry every 30s — catches stuck pending entries and
-            // undrained deletes (navigator.onLine is unreliable on iOS/Capacitor)
+            // undrained deletes (navigator.onLine is unreliable on iOS/Capacitor).
+            // A few older builds could strand an owned offline draft in the
+            // cache without its pending-queue twin; treat that as retryable
+            // work too so a recovered diary does not need a manual rescue.
             setInterval(() => {
-                // Only probe network if there is actually work queued
-                if (this._getPendingEntries().length > 0) this.syncPending();
+                const scope = getAuthIdentityScope();
+                if (
+                    this._getPendingEntries(scope).length > 0 ||
+                    this._recoverableCachedOfflineDrafts(scope).length > 0
+                ) {
+                    this.syncPending();
+                }
                 if (this._getTombstones().length > 0) this.drainDeletedTombstones();
             }, 30_000);
         }
@@ -264,6 +272,13 @@ class DiaryServiceClass {
         // 1. Merge cached remote entries + pending offline entries + recently-synced buffer
         const cached = this._getCachedEntries(scope);
         const pending = this._getPendingEntries(scope);
+        // Cache-only offline drafts are an old crash/relaunch edge case. They
+        // are already owner-scoped, so recover them through the ordinary
+        // pending queue in the background; never guess ownership from an
+        // anonymous or quarantined legacy record.
+        if (this._recoverableCachedOfflineDrafts(scope, cached, pending).length > 0) {
+            void this.syncPending();
+        }
 
         // Purge stale entries from recently-synced buffer (>30s)
         const now = Date.now();
@@ -298,7 +313,7 @@ class DiaryServiceClass {
         // Strip _offline flag — background sync handles persistence transparently.
         // Showing PENDING badges confuses users when sync is slow or auth is stale.
         if (!isAuthIdentityScopeCurrent(scope)) return [];
-        return merged.map((e) => ({ ...e, _offline: false }));
+        return merged.map((e) => this._toDisplayEntry(e));
     }
 
     async getEntry(id: string): Promise<DiaryEntry | null> {
@@ -309,12 +324,12 @@ class DiaryServiceClass {
         // Check pending first
         const pending = this._getPendingEntries(scope);
         const pendingMatch = pending.find((e) => e.id === id);
-        if (pendingMatch) return pendingMatch;
+        if (pendingMatch) return this._toDisplayEntry(pendingMatch);
 
         // Check cache
         const cached = this._getCachedEntries(scope);
         const cacheMatch = cached.find((e) => e.id === id);
-        if (cacheMatch) return cacheMatch;
+        if (cacheMatch) return this._toDisplayEntry(cacheMatch);
 
         // Fallback to network
         if (!supabase || !scope.userId) return null;
@@ -324,7 +339,7 @@ class DiaryServiceClass {
         if (!isAuthIdentityScopeCurrent(scope) || !data || (data as DiaryEntry).user_id !== scope.userId) return null;
         const owned = { ...(data as DiaryEntry), owner_user_id: scope.userId };
         this._registerEntryMedia(owned, scope);
-        return owned;
+        return this._toDisplayEntry(owned);
     }
 
     // ── Create (offline-first) ─────────────────────────────────
@@ -489,23 +504,37 @@ class DiaryServiceClass {
     async setEntryPublished(id: string, isPublic: boolean): Promise<boolean> {
         const scope = getAuthIdentityScope();
         if (id.startsWith('offline-')) {
-            // Set the flag on the pending entry so it goes up correctly if it
-            // hasn't synced yet.
+            // Public visibility is server-confirmed only. Do not queue an
+            // optimistic `is_public: true`: a failed/offline publish must
+            // remain private rather than later becoming public without the
+            // skipper seeing a successful confirmation. We first sync the
+            // draft as private, then update its mapped server row below.
             const pending = this._getPendingEntries(scope);
             const idx = pending.findIndex((e) => e.id === id);
-            if (idx >= 0) {
-                pending[idx].is_public = isPublic;
+            if (idx >= 0 && !isPublic) {
+                pending[idx] = {
+                    ...pending[idx],
+                    is_public: false,
+                    updated_at: new Date().toISOString(),
+                };
                 this._savePending(pending, scope);
             }
             // Push it to the server now — awaits any in-flight sync too.
             await this.syncPending();
             if (!isAuthIdentityScopeCurrent(scope)) return false;
-            // If it landed, force the flag on the real row directly. Covers the
-            // race where it had already synced as not-public before this call.
-            const synced = this._recentlySynced.find((r) => r.offlineId === id);
-            if (synced) return this._setPublishedOnServer(synced.entry.id, isPublic, scope);
-            // Still offline — the flag is on the pending entry and syncs with it.
-            return this._getPendingEntries(scope).some((e) => e.id === id);
+
+            // If it landed, force the flag on the real row directly. Covers
+            // both the in-flight race (it had synced as private before this
+            // call) and an app relaunched after the short-lived sync buffer
+            // expired, via the durable offline→server id mapping.
+            const synced = this._recentlySynced.find((r) => r.offlineId === id && r.entry.user_id === scope.userId);
+            const serverId = synced?.entry.id ?? this.resolveServerId(id);
+            if (serverId) return this._setPublishedOnServer(serverId, isPublic, scope);
+
+            // Still pending/offline (or the remote insert could not be proven).
+            // It remains private; the skipper can retry publication once the
+            // entry has landed online.
+            return false;
         }
         return this._setPublishedOnServer(id, isPublic, scope);
     }
@@ -514,14 +543,49 @@ class DiaryServiceClass {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return false;
-        const { error } = await supabase
+        // PostgREST returns `{ data: null, error: null }` for an UPDATE that
+        // RLS filtered down to zero rows. A bare `!error` used to turn that
+        // no-op into a false "Published" success. Asking for the exact row
+        // back makes both the ownership filter and the final public flag part
+        // of the success contract.
+        const { data, error } = await supabase
             .from(TABLE)
             .update({ is_public: isPublic, updated_at: new Date().toISOString() })
             .eq('id', id)
-            .eq('user_id', scope.userId);
+            .eq('user_id', scope.userId)
+            .select('id, is_public')
+            .maybeSingle();
         if (!isAuthIdentityScopeCurrent(scope)) return false;
-        if (!error) void this._refreshFromServer(50, scope);
-        return !error;
+        const confirmed =
+            !error &&
+            !!data &&
+            (data as Pick<DiaryEntry, 'id' | 'is_public'>).id === id &&
+            (data as Pick<DiaryEntry, 'id' | 'is_public'>).is_public === isPublic;
+        if (!confirmed) return false;
+
+        // Keep the local read path coherent without pretending the write won
+        // before confirmation. The background refresh still reconciles every
+        // other field from the authoritative server row.
+        const updatedAt = new Date().toISOString();
+        const cached = this._getCachedEntries(scope);
+        if (cached.some((entry) => entry.id === id)) {
+            this._saveCachedEntries(
+                cached.map((entry) =>
+                    entry.id === id ? { ...entry, is_public: isPublic, updated_at: updatedAt } : entry,
+                ),
+                scope,
+            );
+        }
+        this._recentlySynced = this._recentlySynced.map((recent) =>
+            recent.entry.id === id
+                ? {
+                      ...recent,
+                      entry: { ...recent.entry, is_public: isPublic, updated_at: updatedAt },
+                  }
+                : recent,
+        );
+        void this._refreshFromServer(50, scope);
+        return true;
     }
 
     // ── Delete (offline-first) ─────────────────────────────────
@@ -947,8 +1011,7 @@ class DiaryServiceClass {
         const isOnline = await this._checkConnectivity();
         if (!isAuthIdentityScopeCurrent(scope) || !isOnline || !supabase) return;
 
-        const pending = this._getPendingEntries(scope);
-        if (pending.length === 0) return;
+        let pending = this._getPendingEntries(scope);
 
         log.info(`Syncing ${pending.length} pending entries…`);
 
@@ -983,6 +1046,14 @@ class DiaryServiceClass {
             log.warn('Diary sync refused work owned by a different authenticated account');
             return;
         }
+
+        // Repair the narrow legacy state where an owner-scoped offline draft
+        // survived in the local cache but lost its pending-queue copy. These
+        // are safe to retry because both the cache namespace and immutable
+        // owner marker match the authenticated account; anonymous/quarantined
+        // bytes are intentionally never adopted here.
+        pending = this._recoverCachedOfflineDrafts(scope, pending);
+        if (pending.length === 0) return;
 
         let syncedCount = 0;
 
@@ -1132,7 +1203,11 @@ class DiaryServiceClass {
                     continue;
                 }
 
-                // 3. Insert entry to Supabase
+                // 3. Insert entry to Supabase. A local draft is always
+                // private at this boundary. Publishing is a separate,
+                // confirmed UPDATE performed by setEntryPublished once this
+                // insert has returned a real server id. This prevents an
+                // offline tap from silently becoming public on a later retry.
                 const { data, error } = await supabase
                     .from(TABLE)
                     .insert({
@@ -1149,7 +1224,7 @@ class DiaryServiceClass {
                         weather_data: entry.weather_data ?? null,
                         voyage_id: entry.voyage_id,
                         tags: entry.tags,
-                        is_public: entry.is_public ?? false,
+                        is_public: false,
                         created_at: entry.created_at,
                     })
                     .select()
@@ -1526,6 +1601,80 @@ class DiaryServiceClass {
         }
     }
 
+    /**
+     * Client-only ids are safe recovery candidates only when their cache
+     * namespace and immutable owner marker both belong to the current signed-in
+     * skipper. Never reinterpret a server id, a tombstoned draft, or an id
+     * already mapped to a completed server insert as unsynced work.
+     */
+    private _recoverableCachedOfflineDrafts(
+        scope: AuthIdentityScope,
+        cached: DiaryEntry[] = this._getCachedEntries(scope),
+        pending: DiaryEntry[] = this._getPendingEntries(scope),
+    ): DiaryEntry[] {
+        if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const pendingIds = new Set(pending.map((entry) => entry.id));
+        const tombstonedIds = this._tombstonedIdSet(scope);
+        return cached.filter(
+            (entry) =>
+                entry.id.startsWith('offline-') &&
+                entry.owner_user_id === scope.userId &&
+                !pendingIds.has(entry.id) &&
+                !tombstonedIds.has(entry.id) &&
+                !this._resolveServerIdForScope(entry.id, scope),
+        );
+    }
+
+    /**
+     * Move cache-only, owner-verified offline drafts back to the durable queue.
+     * The cache is cleared only after the queue write can be read back, so a
+     * localStorage quota failure cannot discard the user's words.
+     */
+    private _recoverCachedOfflineDrafts(scope: AuthIdentityScope, pending: DiaryEntry[]): DiaryEntry[] {
+        const cached = this._getCachedEntries(scope);
+        const recoverable = this._recoverableCachedOfflineDrafts(scope, cached, pending);
+        if (recoverable.length === 0 || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return pending;
+
+        const recovered = recoverable.map((entry) => ({
+            ...entry,
+            user_id: scope.userId!,
+            owner_user_id: scope.userId,
+            // The rehydrated row must begin private. Public publication is a
+            // separate server-confirmed action (see setEntryPublished).
+            is_public: false,
+            _offline: true,
+        }));
+        const nextPending = [...pending, ...recovered];
+        this._savePending(nextPending, scope);
+
+        const stored = this._getPendingEntries(scope);
+        const storedIds = new Set(stored.map((entry) => entry.id));
+        if (!recovered.every((entry) => storedIds.has(entry.id))) return pending;
+
+        const recoveredIds = new Set(recovered.map((entry) => entry.id));
+        this._saveCachedEntries(
+            cached.filter((entry) => !recoveredIds.has(entry.id)),
+            scope,
+        );
+        log.info(
+            `Recovered ${recovered.length} cache-only offline diary ${recovered.length === 1 ? 'entry' : 'entries'}`,
+        );
+        return stored;
+    }
+
+    /** Keep local public visibility honest until a server row exists. */
+    private _toDisplayEntry(entry: DiaryEntry): DiaryEntry {
+        return {
+            ...entry,
+            // An `offline-*` id has not yet been confirmed as a server row.
+            // Older app builds could leave an optimistic `is_public: true` in
+            // local storage; never let that intent look like a live public
+            // diary entry. A confirmed server id is the only source of truth.
+            is_public: entry.id.startsWith('offline-') ? false : entry.is_public,
+            _offline: false,
+        };
+    }
+
     private _saveCachedEntries(entries: DiaryEntry[], scope: AuthIdentityScope = getAuthIdentityScope()): void {
         try {
             const owned = entries.map((entry) => ({ ...entry, owner_user_id: scope.userId }));
@@ -1688,6 +1837,10 @@ class DiaryServiceClass {
     /** Server id an offline- entry synced as, if known. Public: DiaryPage uses it to spot shadowed offline copies. */
     resolveServerId(offlineId: string): string | null {
         const scope = getAuthIdentityScope();
+        return this._resolveServerIdForScope(offlineId, scope);
+    }
+
+    private _resolveServerIdForScope(offlineId: string, scope: AuthIdentityScope): string | null {
         this._migrateLegacyStorage();
         try {
             const raw = localStorage.getItem(this._storageKey(IDMAP_KEY, scope));
@@ -1890,6 +2043,15 @@ class DiaryServiceClass {
                 // But we must ALSO preserve any still-pending entries so they don't
                 // vanish from the UI while waiting for sync.
                 const pending = this._getPendingEntries(scope);
+                // A background refresh can race the cache-recovery sync above.
+                // Keep any owner-verified cache-only offline drafts in this
+                // merge until the recovery has durably re-queued them; an
+                // empty server response must never erase the skipper's words.
+                const cacheOnlyDrafts = this._recoverableCachedOfflineDrafts(
+                    scope,
+                    this._getCachedEntries(scope),
+                    pending,
+                );
 
                 // Purge stale entries from recently-synced buffer (>30s)
                 const now = Date.now();
@@ -1900,7 +2062,10 @@ class DiaryServiceClass {
 
                 // Merge: server data + pending entries + recently-synced buffer
                 // (pending and recently-synced win on collision with server data)
-                const pendingNotOnServer = pending.filter((e) => !serverIds.has(e.id));
+                const localDrafts = [...pending, ...cacheOnlyDrafts].filter(
+                    (entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index,
+                );
+                const pendingNotOnServer = localDrafts.filter((e) => !serverIds.has(e.id));
                 const recentNotOnServer = this._recentlySynced.map((r) => r.entry).filter((e) => !serverIds.has(e.id));
 
                 // Locally-deleted entries whose server delete hasn't drained yet

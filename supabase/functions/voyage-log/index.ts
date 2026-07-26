@@ -397,32 +397,31 @@ Deno.serve(async (req: Request) => {
         // set-once value, not a real passage.
         let destination: { name: string | null; lat: number; lon: number } | null = null;
 
-        // Hiding a voyage hides its diary entries (and their photos) too —
-        // the whole passage disappears from the page as one unit. Entries
-        // with no voyage_id (dockside musings) are unaffected.
+        // A public Diary entry is an explicit publishing decision. Hiding a
+        // track only controls its plotted geometry; it must not silently
+        // unpublish the skipper's diary (the Settings UI promises exactly
+        // that). Entries remain subject to their own `is_public` filter above.
         const entries = await Promise.all(
-            (entriesRes.data || [])
-                .filter((e) => !hiddenVoyageIds.has((e.voyage_id as string | null) ?? ''))
-                .map(async (e) => ({
-                    id: e.id,
-                    title: e.title,
-                    body: e.body,
-                    mood: e.mood,
-                    photos: await publicPhotos(supabase, e.photos, e.user_id as string),
-                    location_name: e.location_name,
-                    latitude: e.latitude,
-                    longitude: e.longitude,
-                    weather_summary: e.weather_summary,
-                    weather_data: e.weather_data ?? null,
-                    tags: Array.isArray(e.tags) ? e.tags : [],
-                    created_at: e.created_at,
-                    // Byline only in combined scope. Personal scope omits it
-                    // (renderer hides the chip — single voice, no need to attribute).
-                    author:
-                        combinedAuthors && combinedAuthors.has(e.user_id as string)
-                            ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
-                            : null,
-                })),
+            (entriesRes.data || []).map(async (e) => ({
+                id: e.id,
+                title: e.title,
+                body: e.body,
+                mood: e.mood,
+                photos: await publicPhotos(supabase, e.photos, e.user_id as string),
+                location_name: e.location_name,
+                latitude: e.latitude,
+                longitude: e.longitude,
+                weather_summary: e.weather_summary,
+                weather_data: e.weather_data ?? null,
+                tags: Array.isArray(e.tags) ? e.tags : [],
+                created_at: e.created_at,
+                // Byline only in combined scope. Personal scope omits it
+                // (renderer hides the chip — single voice, no need to attribute).
+                author:
+                    combinedAuthors && combinedAuthors.has(e.user_id as string)
+                        ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
+                        : null,
+            })),
         );
 
         const durableTrack = (trackRes.data || []).map((p) => ({

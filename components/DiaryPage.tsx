@@ -1070,9 +1070,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         weather_summary: weatherSummary,
                         weather_data: state.weatherDataObj,
                         tags: [],
-                        // Stamp the recording voyage so the public page's per-voyage
-                        // hide toggle takes this entry (and its photos) with it.
-                        // Null when written at rest — those never hide.
+                        // Stamp the recording voyage so entries can be grouped with
+                        // their passage on the public page. Publishing is still an
+                        // explicit, entry-level decision: hiding a track never hides
+                        // its published Diary entries.
                         voyage_id: ShipLogService.getCurrentVoyageId(),
                     });
                 } catch (error) {

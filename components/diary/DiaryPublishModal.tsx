@@ -8,11 +8,16 @@
  */
 
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryService';
+import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { VoyageLogService, voyageLogPublicUrl } from '../../services/VoyageLogService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import {
+    diaryPublishFailureMessage,
+    publishDiaryEntryToVoyageLog,
+    unpublishDiaryEntryFromVoyageLog,
+} from './diaryPublishing';
 
 type Phase = 'choose' | 'working' | 'done';
 
@@ -80,21 +85,15 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
         setPhase('working');
         setActionError(null);
         triggerHaptic('medium');
-        const [configResult, publishResult] = await Promise.allSettled([
-            VoyageLogService.ensureEnabled(),
-            DiaryService.setEntryPublished(entry.id, true),
-        ]);
-        const published = publishResult.status === 'fulfilled' && publishResult.value;
-        if (!published) {
-            setActionError('This entry could not be published. It is still private; please try again.');
+        const publish = await publishDiaryEntryToVoyageLog(entry.id);
+        if (!publish.ok) {
+            setActionError(diaryPublishFailureMessage(publish.reason));
             setPhase('choose');
             return;
         }
 
         onPublishChange({ ...entry, is_public: true });
-        if (configResult.status === 'fulfilled' && configResult.value) {
-            setPublicUrl(voyageLogPublicUrl(configResult.value.handle, configResult.value.api_key));
-        }
+        setPublicUrl(voyageLogPublicUrl(publish.config.handle, publish.config.api_key));
         setResult('published');
         setPhase('done');
         triggerHaptic('light');
@@ -104,21 +103,16 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
         setPhase('working');
         setActionError(null);
         triggerHaptic('medium');
-        try {
-            const ok = await DiaryService.setEntryPublished(entry.id, false);
-            if (!ok) {
-                setActionError('This entry could not be unpublished. It is still on your Voyage Log.');
-                setPhase('choose');
-                return;
-            }
-            onPublishChange({ ...entry, is_public: false });
-            setResult('unpublished');
-            setPhase('done');
-            triggerHaptic('light');
-        } catch {
+        const unpublished = await unpublishDiaryEntryFromVoyageLog(entry.id);
+        if (!unpublished) {
             setActionError('This entry could not be unpublished. It is still on your Voyage Log.');
             setPhase('choose');
+            return;
         }
+        onPublishChange({ ...entry, is_public: false });
+        setResult('unpublished');
+        setPhase('done');
+        triggerHaptic('light');
     };
 
     const handleCopy = async () => {
@@ -145,7 +139,8 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     if (phase === 'done' && result === 'published') {
         icon = '🌍';
         heading = 'Published to your Voyage Log';
-        blurb = 'Anyone with your log link can now read this entry.';
+        blurb =
+            'Anyone with your log link can now read this entry. It may take up to a minute to appear for a fresh visitor.';
     } else if (phase === 'done' && result === 'unpublished') {
         icon = '🔒';
         heading = 'Removed from your Voyage Log';
@@ -243,7 +238,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                             </button>
                         ) : (
                             <p className="text-[12px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 leading-relaxed">
-                                Entry marked to publish. Your voyage log will go live once you're back online.
+                                This entry is already public. Reconnect to load its share link.
                             </p>
                         )}
                     </div>

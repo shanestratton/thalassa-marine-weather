@@ -336,12 +336,14 @@ describe('content workflow dialog accessibility', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
         const workingDialog = screen.getByRole('dialog', { name: 'Share to your Voyage Log?' });
         expect(workingDialog).toHaveAttribute('aria-busy', 'true');
+        expect(serviceMocks.setEntryPublished).not.toHaveBeenCalled();
         fireEvent.keyDown(workingDialog, { key: 'Escape' });
         expect(onClose).not.toHaveBeenCalled();
 
         await act(async () => {
             resolveConfig?.({ handle: 'captain', api_key: 'public-key' });
         });
+        expect(serviceMocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
 
         const done = await screen.findByRole('button', { name: 'Done' });
         expect(screen.getByRole('dialog', { name: 'Published to your Voyage Log' })).toContainElement(done);
@@ -360,10 +362,25 @@ describe('content workflow dialog accessibility', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
 
-        expect(await screen.findByRole('alert')).toHaveTextContent('This entry could not be published');
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+            'could not confirm this entry online, so it has not been published',
+        );
         expect(screen.getByRole('dialog', { name: 'Share to your Voyage Log?' })).toHaveAttribute('aria-busy', 'false');
         expect(onPublishChange).not.toHaveBeenCalled();
         expect(screen.queryByRole('heading', { name: 'Published to your Voyage Log' })).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Keep this entry private' })).toHaveFocus();
+    });
+
+    it('does not touch the diary row when Voyage Log setup is unavailable', async () => {
+        serviceMocks.ensureEnabled.mockResolvedValueOnce(null);
+        const onPublishChange = vi.fn();
+        render(<DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={onPublishChange} />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't prepare your Voyage Log");
+        expect(serviceMocks.setEntryPublished).not.toHaveBeenCalled();
+        expect(onPublishChange).not.toHaveBeenCalled();
+        expect(screen.queryByRole('heading', { name: 'Published to your Voyage Log' })).not.toBeInTheDocument();
     });
 });
