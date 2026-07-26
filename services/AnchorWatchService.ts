@@ -505,7 +505,7 @@ class AnchorWatchServiceClass {
                 latitude: nmeaPos.latitude,
                 longitude: nmeaPos.longitude,
                 accuracy: nmeaPos.accuracy,
-                heading: nmeaPos.heading,
+                heading: nmeaPos.heading ?? 0,
                 speed: nmeaPos.speed,
                 timestamp: nmeaPos.timestamp,
             };
@@ -679,7 +679,7 @@ class AnchorWatchServiceClass {
                     latitude: nmeaPos.latitude,
                     longitude: nmeaPos.longitude,
                     accuracy: nmeaPos.accuracy,
-                    heading: nmeaPos.heading,
+                    heading: nmeaPos.heading ?? 0,
                     speed: nmeaPos.speed,
                     timestamp: nmeaPos.timestamp,
                 });

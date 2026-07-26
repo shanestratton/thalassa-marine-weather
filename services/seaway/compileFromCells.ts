@@ -33,16 +33,22 @@ const PAD_DEG = 0.025;
  */
 export async function compileSeawayGraphForViewport(
     bbox: [number, number, number, number],
+    /** Current map zoom lets EncHazardService retain its viewport/LOD budget. */
+    zoom?: number,
 ): Promise<ViewportCompile | null> {
-    const merged = await getMergedVectorData();
-    if (!merged) return null;
-
     const [minLon, minLat, maxLon, maxLat] = [
         bbox[0] - PAD_DEG,
         bbox[1] - PAD_DEG,
         bbox[2] + PAD_DEG,
         bbox[3] + PAD_DEG,
     ];
+
+    // The original debug-only path did a whole-library merge, which becomes
+    // needlessly expensive when this same compiler feeds planning furniture.
+    // The padded window retains adjacent gates needed for channel ordering;
+    // the current zoom preserves the ENC renderer's normal data budget.
+    const merged = await getMergedVectorData([minLon, minLat, maxLon, maxLat], zoom);
+    if (!merged) return null;
 
     const all = ([...merged.BOYLAT.features, ...merged.BCNLAT.features] as PointFeatureLike[]).filter((f) => {
         const g = f.geometry;

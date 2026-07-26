@@ -91,27 +91,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // Canvas ref no longer needed — SwingCircleCanvas manages its own ref
 
-    // Track iOS keyboard height via visualViewport so the modal stays above the keyboard
-    const [_keyboardOffset, setKeyboardOffset] = useState(0);
-    useEffect(() => {
-        if (!showShoreModal) {
-            setKeyboardOffset(0);
-            return;
-        }
-        const vv = window.visualViewport;
-        if (!vv) return;
-        const update = () => {
-            // On iOS, when keyboard opens, visualViewport.height shrinks
-            const offset = Math.max(0, window.innerHeight - vv.height);
-            setKeyboardOffset(offset);
-        };
-        vv.addEventListener('resize', update);
-        vv.addEventListener('scroll', update);
-        return () => {
-            vv.removeEventListener('resize', update);
-            vv.removeEventListener('scroll', update);
-        };
-    }, [showShoreModal]);
     const [isSettingAnchor, setIsSettingAnchor] = useState(false);
     const [gpsStatus, setGpsStatus] = useState<string>('Waiting for GPS...');
 

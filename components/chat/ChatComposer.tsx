@@ -139,38 +139,68 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                             id={attachMenuId}
                                             role="menu"
                                             aria-label="Share an attachment"
-                                            className="absolute bottom-12 left-0 z-50 w-56 rounded-2xl bg-slate-900 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down"
+                                            className="absolute bottom-12 left-0 z-50 w-72 rounded-2xl bg-slate-900 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down"
                                         >
+                                            <div className="px-4 pt-3 pb-2" role="presentation">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-300/70">
+                                                    Share with the crew
+                                                </p>
+                                            </div>
                                             <button
                                                 role="menuitem"
                                                 onClick={() => chooseAttachment(onOpenPinDrop)}
-                                                aria-label="Drop a pin to share location"
-                                                className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                                aria-label="Share my current location"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-emerald-400/[0.08] transition-colors text-left min-h-[64px]"
                                             >
-                                                <p className="text-sm text-white/85 font-medium">Drop a Pin</p>
-                                                <p className="text-[11px] text-white/50 mt-0.5">Share your location</p>
+                                                <span className="w-10 h-10 rounded-xl bg-emerald-400/10 border border-emerald-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                    📍
+                                                </span>
+                                                <span className="min-w-0">
+                                                    <span className="block text-sm text-white/90 font-semibold">
+                                                        Share my location
+                                                    </span>
+                                                    <span className="block text-[11px] text-white/50 mt-0.5">
+                                                        Send your latest GPS fix
+                                                    </span>
+                                                </span>
                                             </button>
                                             <div role="separator" className="h-px bg-white/[0.06]" />
                                             <button
                                                 role="menuitem"
                                                 onClick={() => chooseAttachment(onOpenPoiPicker)}
-                                                aria-label="Share a point of interest"
-                                                className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                                aria-label="Drop a pin on the chart"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-sky-400/[0.08] transition-colors text-left min-h-[64px]"
                                             >
-                                                <p className="text-sm text-white/85 font-medium">Share Point</p>
-                                                <p className="text-[11px] text-white/50 mt-0.5">
-                                                    Pick any spot on the map
-                                                </p>
+                                                <span className="w-10 h-10 rounded-xl bg-sky-400/10 border border-sky-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                    📌
+                                                </span>
+                                                <span className="min-w-0">
+                                                    <span className="block text-sm text-white/90 font-semibold">
+                                                        Drop a pin
+                                                    </span>
+                                                    <span className="block text-[11px] text-white/50 mt-0.5">
+                                                        Search or choose any place on the chart
+                                                    </span>
+                                                </span>
                                             </button>
                                             <div role="separator" className="h-px bg-white/[0.06]" />
                                             <button
                                                 role="menuitem"
                                                 onClick={() => chooseAttachment(onOpenTrackPicker)}
                                                 aria-label="Share a voyage track"
-                                                className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[64px]"
                                             >
-                                                <p className="text-sm text-white/85 font-medium">Share Voyage Track</p>
-                                                <p className="text-[11px] text-white/50 mt-0.5">From your ship's log</p>
+                                                <span className="w-10 h-10 rounded-xl bg-violet-400/10 border border-violet-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                    🗺️
+                                                </span>
+                                                <span className="min-w-0">
+                                                    <span className="block text-sm text-white/90 font-semibold">
+                                                        Share voyage track
+                                                    </span>
+                                                    <span className="block text-[11px] text-white/50 mt-0.5">
+                                                        Choose a track from your ship's log
+                                                    </span>
+                                                </span>
                                             </button>
                                         </div>
                                     </>

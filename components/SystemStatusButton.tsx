@@ -13,13 +13,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
-import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
-import { SailBoatIcon, AnchorIcon } from './Icons';
+import { AnchorIcon } from './Icons';
 import { NmeaListenerService } from '../services/NmeaListenerService';
-import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
-import { NmeaStore } from '../services/NmeaStore';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
+import { GpsReceiverStatusService, type GpsReceiverStatus } from '../services/GpsReceiverStatusService';
 import { NmeaRateSparkline } from './NmeaRateSparkline';
 import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
@@ -30,19 +28,6 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 // ── Types ──
 
 interface SystemState {
-    /**
-     * Active Voyage Mode — true while there's a voyage with status
-     * 'active' (i.e. the user has Cast Off and hasn't ended the
-     * voyage). Surfaced in the System Status modal so the skipper
-     * can see at a glance that the boat is in Active Voyage Mode +
-     * which voyage. Drives the same hero-card "Underway" label in
-     * VesselHub.
-     */
-    activeVoyageMode: {
-        active: boolean;
-        voyageName: string;
-        route: string;
-    };
     gpsTracking: {
         active: boolean;
         isMoving: boolean;
@@ -58,15 +43,9 @@ interface SystemState {
     };
     nmea: {
         active: boolean;
+        detail: string;
     };
-    extGps: {
-        active: boolean;
-        isNmea: boolean;
-        satellites: number | null;
-        hdop: number | null;
-        avgAccuracy: number | null;
-        qualityLabel: string;
-    };
+    extGps: GpsReceiverStatus;
     followRoute: {
         active: boolean;
         origin: string;
@@ -128,7 +107,6 @@ const SystemStatusModal: React.FC<{
         onEscape: onClose,
     });
     const activeCount = [
-        state.activeVoyageMode.active,
         state.gpsTracking.active,
         state.anchorWatch.active,
         state.nmea.active,
@@ -188,23 +166,6 @@ const SystemStatusModal: React.FC<{
 
                 {/* Systems Grid */}
                 <div className="px-5 py-4 space-y-3">
-                    {/* ── Active Voyage Mode ──
-                        Surfaces the post-Cast-Off "Underway" state at
-                        the top of the system list since it's the most
-                        consequential mode the boat can be in. Stays
-                        active until the user explicitly ends the
-                        voyage from the passage planner. */}
-                    {state.activeVoyageMode.active && (
-                        <SystemRow
-                            icon={<SailBoatIcon className="w-4 h-4" />}
-                            label="Active Voyage Mode"
-                            active={state.activeVoyageMode.active}
-                            detail={state.activeVoyageMode.route || 'Underway'}
-                            dotColor="bg-emerald-400"
-                            pulse={true}
-                        />
-                    )}
-
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
                         icon={
@@ -276,7 +237,7 @@ const SystemStatusModal: React.FC<{
                         }
                         label="NMEA Backbone"
                         active={state.nmea.active}
-                        detail={state.nmea.active ? 'Connected — live vessel data' : 'Not connected'}
+                        detail={state.nmea.detail}
                         dotColor={state.nmea.active ? 'bg-emerald-400' : 'bg-slate-600'}
                     />
 
@@ -297,20 +258,16 @@ const SystemStatusModal: React.FC<{
                                 />
                             </svg>
                         }
-                        label="External GPS"
+                        label={state.extGps.label}
                         active={state.extGps.active}
-                        detail={
-                            state.extGps.active
-                                ? state.extGps.isNmea
-                                    ? `${state.extGps.qualityLabel}${state.extGps.satellites != null ? ` · ${state.extGps.satellites} sats` : ''}${state.extGps.hdop != null ? ` · HDOP ${state.extGps.hdop.toFixed(1)}` : ''}`
-                                    : `${state.extGps.qualityLabel}${state.extGps.avgAccuracy != null ? ` · ±${state.extGps.avgAccuracy}m` : ''}`
-                                : 'No external GPS detected'
-                        }
+                        detail={state.extGps.detail}
                         dotColor={
                             state.extGps.active
-                                ? state.extGps.isNmea
+                                ? state.extGps.kind === 'vessel-nmea'
                                     ? 'bg-sky-400'
-                                    : 'bg-emerald-400'
+                                    : state.extGps.kind === 'precision-location'
+                                      ? 'bg-violet-400'
+                                      : 'bg-emerald-400'
                                 : 'bg-slate-600'
                         }
                         pulse={state.extGps.active}
@@ -545,26 +502,6 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         return () => clearInterval(id);
     }, [showModal]);
 
-    // ── Active Voyage state ──
-    // Read from getCachedActiveVoyage (synchronous, localStorage-backed).
-    // Refreshed every 5s while the modal is open + on a window event
-    // dispatched by Cast Off / End Voyage flows. No network call.
-    const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
-    useEffect(() => {
-        const refresh = () => setActiveVoyage(getCachedActiveVoyage());
-        // Window event from castOff() / endVoyage() — fired by
-        // VoyageService when the active voyage changes.
-        const handler = () => refresh();
-        window.addEventListener('thalassa:active-voyage-changed', handler);
-        // Tighter polling while modal is open (5s cadence — same as
-        // piCache); cheap because it's a localStorage read.
-        const interval = showModal ? setInterval(refresh, 5_000) : null;
-        return () => {
-            window.removeEventListener('thalassa:active-voyage-changed', handler);
-            if (interval) clearInterval(interval);
-        };
-    }, [showModal]);
-
     // ── GPS Tracking state ──
     const [gpsTracking, setGpsTracking] = useState(() => ShipLogService.getTrackingStatus());
     const [isMoving, setIsMoving] = useState(false);
@@ -575,13 +512,12 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     // ── NMEA state ──
     const [nmeaStatus, setNmeaStatus] = useState(NmeaListenerService.getStatus());
 
-    // ── External GPS state ──
-    const [nmeaGpsActive, setNmeaGpsActive] = useState(false);
-    const [precisionActive, setPrecisionActive] = useState(false);
-    const [satellites, setSatellites] = useState<number | null>(null);
-    const [hdop, setHdop] = useState<number | null>(null);
-    const [avgAccuracy, setAvgAccuracy] = useState<number | null>(null);
-    const [qualityLabel, setQualityLabel] = useState('GPS');
+    // ── GPS receiver identity + feed state ──
+    // This is intentionally not inferred from accuracy alone. The service
+    // distinguishes a live on-board NMEA feed, an iOS accessory supplying the
+    // current Core Location fix, a connected-but-not-used MFi GPS, and a
+    // merely high-precision (unnamed) source.
+    const [gpsReceiver, setGpsReceiver] = useState(() => GpsReceiverStatusService.getStatus());
 
     // ── Follow Route state ──
     const {
@@ -641,10 +577,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     //
     // Cadence: 5 s (was 1 s). This effect is always mounted because
     // SystemStatusButton lives in the App header on every page. At
-    // the old 1 Hz cadence it was firing 9 setState calls per
-    // second (gpsTracking, isMoving, nmeaStatus, nmeaGpsActive,
-    // precisionActive, satellites, hdop, avgAccuracy, qualityLabel)
-    // = 540/min, plus React reconciliation overhead. All of the
+    // the old 1 Hz cadence it was firing a bundle of setState calls per
+    // second for tracking, NMEA, and GPS-quality fields. All of the
     // values being read are synchronous in-memory state, so the
     // poll itself is cheap — but the React work isn't free, and
     // the data being polled (GPS lock state, NMEA bus status,
@@ -661,7 +595,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         const unsub = AnchorWatchService.subscribe(setAnchorSnapshot);
         const nmeaUnsub = NmeaListenerService.onStatusChange((s) => setNmeaStatus(s));
 
-        const id = setInterval(() => {
+        let disposed = false;
+        const refresh = () => {
             if (document.hidden) return;
 
             // GPS Tracking
@@ -673,27 +608,24 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             // NMEA
             setNmeaStatus(NmeaListenerService.getStatus());
 
-            // External GPS
-            const isNmea = NmeaGpsProvider.isActive();
-            const isPrecision = GpsPrecision.isPrecision();
+            // GPS receiver / accessory identity. This reads the native
+            // Transistorsoft location cache; it does not wake GPS or scan
+            // Bluetooth. Check staleness before resolving the precision
+            // fallback so an old fix cannot keep a receiver row lit.
             GpsPrecision.checkStaleness();
-            setNmeaGpsActive(isNmea);
-            setPrecisionActive(isPrecision);
+            void GpsReceiverStatusService.refresh().then((status) => {
+                if (!disposed) setGpsReceiver(status);
+            });
+        };
 
-            if (isNmea) {
-                const store = NmeaStore.getState();
-                setSatellites(store.satellites.value !== null ? Math.round(store.satellites.value) : null);
-                setHdop(store.hdop.value);
-                setQualityLabel(NmeaGpsProvider.getQualityLabel());
-            } else if (isPrecision) {
-                setAvgAccuracy(Math.round(GpsPrecision.getAverageAccuracy() * 10) / 10);
-                setQualityLabel('Precision GPS');
-                setSatellites(null);
-                setHdop(null);
-            }
-        }, 5_000);
+        // Seed immediately instead of leaving the first five seconds to a
+        // timing lottery — particularly noticeable just after a Bad Elf or
+        // boat Wi-Fi connection comes up.
+        refresh();
+        const id = setInterval(refresh, 5_000);
 
         return () => {
+            disposed = true;
             unsub();
             nmeaUnsub();
             clearInterval(id);
@@ -703,14 +635,6 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     // ── Build system state ──
     const systemState: SystemState = useMemo(
         () => ({
-            activeVoyageMode: {
-                active: !!activeVoyage && activeVoyage.status === 'active',
-                voyageName: activeVoyage?.voyage_name || '',
-                route:
-                    activeVoyage?.departure_port && activeVoyage?.destination_port
-                        ? `${activeVoyage.departure_port} → ${activeVoyage.destination_port}`
-                        : activeVoyage?.voyage_name || '',
-            },
             gpsTracking: {
                 active: gpsTracking.isTracking,
                 isMoving,
@@ -734,15 +658,14 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             },
             nmea: {
                 active: nmeaStatus === 'connected',
+                detail:
+                    nmeaStatus === 'connected'
+                        ? `Connected via ${NmeaListenerService.getConnectionInfo().deviceLabel} · live vessel data`
+                        : nmeaStatus === 'connecting'
+                          ? `Connecting to ${NmeaListenerService.getConnectionInfo().deviceLabel}`
+                          : 'Not connected',
             },
-            extGps: {
-                active: nmeaGpsActive || precisionActive,
-                isNmea: nmeaGpsActive,
-                satellites,
-                hdop,
-                avgAccuracy,
-                qualityLabel,
-            },
+            extGps: gpsReceiver,
             followRoute: {
                 active: isFollowing && !!voyagePlan,
                 origin: voyagePlan?.origin?.split(',')[0] || 'Origin',
@@ -777,18 +700,12 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             },
         }),
         [
-            activeVoyage,
             gpsTracking,
             isMoving,
             anchorSnapshot,
             currentView,
             nmeaStatus,
-            nmeaGpsActive,
-            precisionActive,
-            satellites,
-            hdop,
-            avgAccuracy,
-            qualityLabel,
+            gpsReceiver,
             isFollowing,
             voyagePlan,
             routeChanged,
@@ -800,7 +717,6 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
 
     // ── Active count ──
     const activeCount = [
-        systemState.activeVoyageMode.active,
         systemState.gpsTracking.active,
         systemState.anchorWatch.active,
         systemState.nmea.active,

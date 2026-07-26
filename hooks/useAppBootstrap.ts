@@ -79,9 +79,18 @@ export function useAppBootstrap() {
 
     // ── Global keyboard scroll ─────────────────────────────────────
     useEffect(() => {
+        let disposed = false;
+        let stopKeyboardGuard: (() => void) | undefined;
+
         import('../utils/keyboardScroll').then(({ initGlobalKeyboardScroll }) => {
-            initGlobalKeyboardScroll();
+            if (disposed) return;
+            stopKeyboardGuard = initGlobalKeyboardScroll();
         });
+
+        return () => {
+            disposed = true;
+            stopKeyboardGuard?.();
+        };
     }, []);
 
     // ── Global unhandled rejection → Sentry ────────────────────────

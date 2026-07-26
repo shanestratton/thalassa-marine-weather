@@ -83,6 +83,16 @@ export class AdaptiveScheduler {
         return this.intervalId !== undefined;
     }
 
+    /**
+     * True when either the clock-alignment timeout or its recurring interval
+     * is armed. Unlike isRunning(), this treats the first pending tick as a
+     * live schedule. Consumers that merely need to avoid resetting a pending
+     * alignment should use this method.
+     */
+    isScheduled(): boolean {
+        return this.intervalId !== undefined || this.alignTimeoutId !== undefined;
+    }
+
     private fire(onTick: () => Promise<unknown> | unknown): void {
         try {
             const result = onTick();

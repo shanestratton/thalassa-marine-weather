@@ -40,7 +40,10 @@ function jsonResponse(data: unknown, status = 200) {
 
 // ── Gemini API ────────────────────────────────────────────────
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+// Gemini 2.0 Flash was shut down on 1 June 2026. Gemini 3.6 Flash is
+// the supported replacement and retains generateContent inline-audio input
+// support for both diary transcription and the post-stop styling pass.
+const GEMINI_MODEL = 'gemini-3.6-flash';
 
 async function callGemini(apiKey: string, contents: unknown[], systemInstruction?: string) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
@@ -107,7 +110,7 @@ async function handleEnhance(
                 ? `Polished: improve rhythm and readability with restrained nautical colour drawn only from facts already stated. Keep the same overall voice and approximate length.`
                 : intensity <= 85
                   ? `Literary: shape the facts into flowing, evocative maritime prose. Use measured sensory language only where it is supported by what the skipper said.`
-                  : `Poetic: make the entry lyrical and vividly maritime while preserving every fact. Use evocative imagery and cadence, but never invent an event, person, condition, or observation.`;
+                  : `Shakespearean: render the entry as vivid, elevated maritime prose with the dramatic cadence, muscular metaphor, and high romance of Shakespeare's seafaring passages. Let the language feel memorable and alive, with light, intelligible Elizabethan colour where it earns its place; do not turn every sentence into archaic pastiche. Preserve every fact, never invent an event, person, condition, or observation, and keep it as prose rather than verse.`;
 
     const systemPrompt = `You are a precise maritime journal editor. You are polishing a sailor's personal record of an extraordinary voyage.
 

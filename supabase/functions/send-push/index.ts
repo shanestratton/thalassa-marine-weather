@@ -44,6 +44,9 @@ import { encode as base64url } from 'https://deno.land/std@0.177.0/encoding/base
 // ── Retry Config ──
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500; // 500ms, 1s, 2s
+const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
+const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
+const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
 
 // ── JWT Token Cache (re-sign every 45 minutes, Apple allows 1 hour) ──
 let cachedJwt: { token: string; expiresAt: number } | null = null;
@@ -134,6 +137,29 @@ function getCollapseId(type: string, data: Record<string, unknown>): string | nu
     return null;
 }
 
+/**
+ * Alert pushes are accepted by APNs even when a device is temporarily
+ * unreachable.  An expiration of zero tells APNs to discard the alert rather
+ * than retain it, which is right for an immediate safety alarm but wrong for a
+ * private message a sailor may receive while briefly out of coverage.
+ */
+function getApnsExpiration(type: string, isCritical: boolean): string {
+    if (isCritical) return '0';
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    switch (type) {
+        case 'dm':
+        case 'sos':
+        case 'hail':
+        case 'watch_schedule_published':
+            return String(nowSeconds + DIRECT_MESSAGE_TTL_SECONDS);
+        case 'weather_alert':
+            return String(nowSeconds + WEATHER_ALERT_TTL_SECONDS);
+        default:
+            return String(nowSeconds + DEFAULT_ALERT_TTL_SECONDS);
+    }
+}
+
 // ---------- SEND PUSH WITH RETRY ----------
 
 interface PushPayload {
@@ -196,8 +222,17 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
                 authorization: `bearer ${jwt}`,
                 'apns-topic': bundleId,
                 'apns-push-type': 'alert',
-                'apns-priority': payload.isCritical ? '10' : '5',
-                'apns-expiration': '0',
+                // Every payload sent by this function is an APNs `alert`.
+                // Priority 5 is a power-saving/background delivery class and
+                // can defer ordinary direct messages long enough to make the
+                // Notification Center feel unreliable.  Safety pushes are
+                // still distinguished by their interruption level above, but
+                // all visible alerts should reach the device promptly.
+                'apns-priority': '10',
+                'apns-expiration': getApnsExpiration(
+                    typeof payload.data.notification_type === 'string' ? payload.data.notification_type : 'general',
+                    !!payload.isCritical,
+                ),
                 'content-type': 'application/json',
             };
 

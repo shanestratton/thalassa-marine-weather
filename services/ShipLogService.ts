@@ -29,7 +29,7 @@ import { createLogger } from '../utils/createLogger';
 
 // --- Extracted modules ---
 import { savePassagePlanToLogbook as _savePassagePlanToLogbook } from './shiplog/PassagePlanSave';
-import { determineLoggingZone, getIntervalForZone, getIntervalForSpeed, type LoggingZone } from './shiplog/helpers';
+import { getPlottingProfile, type PlottingProfile } from './shiplog/helpers';
 import { GpsTrackBuffer } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import {
@@ -42,6 +42,8 @@ import {
 } from './shiplog/TrackingStateStore';
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
 import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
+import { ShoreZoneResolver } from './shiplog/ShoreZoneResolver';
+import type { WaterCheckResult } from './shiplog/waterDetection';
 import { AdaptiveScheduler } from './shiplog/AdaptiveScheduler';
 import { GpsSubscriptionManager } from './shiplog/GpsSubscriptionManager';
 import {
@@ -106,8 +108,8 @@ const log = createLogger('ShipLog');
 // state interfaces live in TrackingStateStore.ts. Helper functions, DB
 // mapping, and zone detection live in helpers.ts.
 
-const TRACKING_INTERVAL_MS = 60 * 1000; // 60 seconds (fallback / offshore default)
-const RAPID_INTERVAL_MS = 10 * 1000; // 10 seconds for marina/shore navigation (manual override)
+const TRACKING_INTERVAL_MS = 3 * 1000; // land / inshore safe fallback
+const RAPID_INTERVAL_MS = 3 * 1000; // manual marina override matches dense geographic profile
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
 const FAST_LOCK_MS = 30 * 1000; // cold-start fast-lock (distanceFilter:0) duration for a new voyage
 const CAPTURE_HANDOFF_KEY = 'ship_log_capture_handoff';
@@ -145,6 +147,8 @@ class ShipLogServiceClass {
     // background-throttled timer, reload race) is always a clean no-op.
     private fastLockTimeoutId?: NodeJS.Timeout;
     private fastLockArmedForVoyageId?: string;
+    /** False until the GPS subscription has admitted a first vetted track fix. */
+    private trackGpsGateOpen = false;
     // (envCheckIntervalId moved into EnvironmentPoller — see this.envPoller below)
     // GPS subscriptions, fix-acceptance gate, speed-tier debounce, and
     // heartbeat all live in GpsSubscriptionManager.
@@ -159,15 +163,25 @@ class ShipLogServiceClass {
     /** Serialises durable raw-fix handoffs independently per account. */
     private captureHandoffTails = new Map<string, Promise<void>>();
     /**
+     * Serialises all writes that advance a voyage's durable position anchor.
+     * Immediate selected-point flushes and a user-created manual entry can
+     * otherwise both read the same last position then race to overwrite it,
+     * corrupting the following leg's distance/speed. A weak key keeps a
+     * completed voyage state collectable after a new session replaces it.
+     */
+    private captureWriteTails = new WeakMap<TrackingState, Promise<void>>();
+    /**
      * In-memory copy retained until Preferences confirms the write. It is
      * scoped by owner and never exposed through the live buffer of another
      * account.
      */
     private pendingCaptureHandoffs = new Map<string, CaptureHandoffBatch[]>();
 
-    // Cached water detection status — updated every 60s by environment polling.
+    // Cached water detection status — updated by bounded environment polling.
     // Stamped onto every log entry so career totals can filter out land tracks.
     private lastWaterStatus: boolean | undefined = undefined;
+    /** Structured water confidence for ShoreZoneResolver; fail-open is never offshore evidence. */
+    private lastWaterCheck: WaterCheckResult | undefined = undefined;
 
     // --- BATTLE-HARDENED GPS STREAMING ---
     // onLocation continuously caches the latest position. Timers decide WHEN to log,
@@ -175,10 +189,16 @@ class ShipLogServiceClass {
     // and cold starts — the position is always available. The GpsSubscriptionManager
     // keeps this in sync via its `onFix` callback.
     private lastBgLocation: CachedPosition | null = null;
+    /**
+     * Last location that cleared GpsSubscriptionManager's full acceptance
+     * gate. Unlike `lastBgLocation`, this is safe for plotting decisions,
+     * shoreline classification, and non-buffered capture fallbacks.
+     */
+    private lastAcceptedLocation: CachedPosition | null = null;
 
-    // --- HIGH-FREQUENCY GPS BUFFER ---
-    // Captures every GPS fix at device rate (1–10 Hz). On each interval tick,
-    // the buffer is drained and RDP-thinned to keep only significant points.
+    // --- GEOGRAPHIC PLOT-POINT BUFFER ---
+    // GpsSubscriptionManager keeps raw GPS live for UI and alarms, then retains
+    // vetted vertices at the active 3s / 30s / 5min geographic profile.
     private trackBuffer = new GpsTrackBuffer();
 
     // --- POSITION-BASED COURSE CHANGE DETECTION ---
@@ -189,6 +209,8 @@ class ShipLogServiceClass {
     // --- 60s ENVIRONMENT POLLING ---
     // Implementation lives in ./shiplog/EnvironmentPoller.ts. Same pattern.
     private envPoller = new EnvironmentPoller();
+    /** Position-scoped OSM shoreline resolver — never reads dashboard weather. */
+    private shoreZoneResolver = new ShoreZoneResolver();
 
     /**
      * Initialize the ship log service. Sets up GPS listeners, app lifecycle
@@ -381,10 +403,9 @@ class ShipLogServiceClass {
             if (!this.ownerIsCurrent(scope, state)) return;
             const replayBuffer = new GpsTrackBuffer(Math.max(1200, batch.points.length));
             for (const point of batch.points) replayBuffer.push(point);
-            const result = await _flushBufferedTrack({
-                ...this._captureCtx(scope),
-                trackBuffer: replayBuffer,
-            });
+            const result = await this.enqueueCaptureWrite(scope, state, (ctx) =>
+                _flushBufferedTrack({ ...ctx, trackBuffer: replayBuffer }),
+            );
             if (!this.ownerIsCurrent(scope, state) || result !== 'complete') return;
             await this.removeCaptureHandoffBatch(scope, batch.id);
             if (!this.ownerIsCurrent(scope, state)) return;
@@ -406,6 +427,7 @@ class ShipLogServiceClass {
 
         this.scheduler.stop();
         this.gpsSubs.stop();
+        this.trackGpsGateOpen = false;
         this.courseDetector.stop();
         this.courseDetector.reset();
         this.envPoller.stop();
@@ -418,7 +440,9 @@ class ShipLogServiceClass {
             });
         }
         this.lastBgLocation = null;
+        this.lastAcceptedLocation = null;
         this.lastWaterStatus = undefined;
+        this.lastWaterCheck = undefined;
         if (this.rapidModeTimeoutId) {
             clearTimeout(this.rapidModeTimeoutId);
             this.rapidModeTimeoutId = undefined;
@@ -640,9 +664,7 @@ class ShipLogServiceClass {
         await this.startTracking(false, undefined, scope);
     }
 
-    /**
-     * Check if any quarter-hour entries were missed while backgrounded and catch up
-     */
+    /** Check whether the active geographic plotting profile missed a capture while backgrounded. */
     private async checkMissedEntries(scope: AuthIdentityScope): Promise<void> {
         const state = this.trackingState;
         if (!this.ownerIsCurrent(scope, state)) return;
@@ -652,31 +674,30 @@ class ShipLogServiceClass {
         const now = new Date();
         const msSinceLast = now.getTime() - lastEntry.getTime();
 
-        // If more than 15 minutes since last entry, we missed at least one
-        if (msSinceLast >= TRACKING_INTERVAL_MS) {
-            const _missedCount = Math.floor(msSinceLast / TRACKING_INTERVAL_MS);
-
-            // Capture ONE entry now (at current time, not backdated)
-            // We don't backfill because GPS data from the past isn't available
+        const interval = state.currentIntervalMs ?? TRACKING_INTERVAL_MS;
+        if (msSinceLast >= interval) {
+            // Flush a selected GPS vertex if one is waiting. Never use the
+            // raw UI cache as a synthetic catch-up point: the geographic
+            // sampler is the authority for plotted-track density.
             try {
-                const entry = await this.captureLogEntry();
+                const result = await this.flushBufferedTrack(scope, state);
                 if (!this.ownerIsCurrent(scope, state)) return;
-                if (entry) {
-                    log.info('checkMissedEntries: catch-up entry saved');
+                if (result === 'complete') {
+                    log.info('checkMissedEntries: selected track buffer flushed');
                 }
             } catch (err: unknown) {
                 log.error('checkMissedEntries: catch-up entry failed', err);
             }
         }
 
-        // Reschedule to next quarter-hour
+        // Restore the current position's geographic profile.
         void this.rescheduleAdaptiveInterval(scope, state);
     }
 
     /**
-     * Reschedule the logging interval based on current speed (primary)
-     * or shore proximity (fallback).
-     * Called after each GPS fix and from environment polling.
+     * Reschedule the flush cadence from the current vessel-position profile.
+     * The GPS manager independently controls which raw fixes become vertices;
+     * this timer only decides when a selected batch is persisted.
      * Does NOT apply when rapid mode is active.
      *
      * Timer ownership lives in `this.scheduler` (AdaptiveScheduler).
@@ -692,39 +713,95 @@ class ShipLogServiceClass {
         if (state.isRapidMode) return;
         if (!state.isTracking || state.isPaused) return;
 
-        // PRIMARY: Speed-adaptive interval (if we have GPS speed)
-        const pos = this.lastBgLocation;
-        if (pos && pos.speed != null && pos.speed >= 0) {
-            const { interval } = getIntervalForSpeed(pos.speed);
-            const currentInterval = state.currentIntervalMs;
+        await this.applyPlottingProfile(this.plottingProfileFor(this.lastAcceptedLocation), scope, state);
+    }
 
-            // Only reschedule if interval actually changed
-            if (interval !== currentInterval || !this.scheduler.isRunning()) {
-                state.currentIntervalMs = interval;
-                state.loggingZone = undefined; // Speed-based, not zone-based
-                await this.saveTrackingState(scope);
-                if (!this.ownerIsCurrent(scope, state)) return;
-                this.scheduler.scheduleClockAligned(interval, () => this.flushBufferedTrack(scope, state));
-            }
+    /**
+     * Read the current profile synchronously for one incoming GPS fix. The
+     * resolver returns the dense profile until it has real, position-matched
+     * water + coastline evidence, so a slow/offline lookup cannot thin a
+     * coastal track by mistake.
+     */
+    private plottingProfileFor(pos: CachedPosition | null): PlottingProfile {
+        const zone = pos ? this.shoreZoneResolver.profileFor(pos.latitude, pos.longitude) : 'nearshore';
+        return getPlottingProfile(zone);
+    }
+
+    /**
+     * Resolve shore evidence asynchronously without blocking GPS intake. A
+     * newer raw fix supersedes older requests inside ShoreZoneResolver.
+     */
+    private async refreshShoreZone(
+        pos: CachedPosition,
+        scope: AuthIdentityScope,
+        state: TrackingState,
+        waterStatus: WaterCheckResult | undefined = this.waterStatusFor(pos),
+    ): Promise<void> {
+        if (!this.ownerIsCurrent(scope, state)) return;
+        // EnvironmentPoller captures a coordinate before its network request.
+        // If newer accepted GPS fixes arrive before that request returns, its
+        // old water result must not move the live voyage back to an earlier
+        // shoreline profile.
+        if (this.lastAcceptedLocation && pos.timestamp < this.lastAcceptedLocation.timestamp) return;
+        const zone = await this.shoreZoneResolver.observe({
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            waterStatus,
+        });
+        if (zone === null || !this.ownerIsCurrent(scope, state)) return;
+        await this.applyPlottingProfile(getPlottingProfile(zone), scope, state);
+    }
+
+    /** Only use a water response near the coordinate it actually checked. */
+    private waterStatusFor(pos: CachedPosition): WaterCheckResult | undefined {
+        const status = this.lastWaterCheck;
+        if (!status) return undefined;
+        const earthRadiusNm = 3440.065;
+        const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+        const dLat = toRadians(pos.latitude - status.lat);
+        const dLon = toRadians(pos.longitude - status.lon);
+        const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRadians(status.lat)) * Math.cos(toRadians(pos.latitude)) * Math.sin(dLon / 2) ** 2;
+        const distanceNm = earthRadiusNm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return distanceNm <= 1 ? status : undefined;
+    }
+
+    /** Persist the selected profile and optionally publish a boundary vertex immediately. */
+    private async applyPlottingProfile(
+        profile: PlottingProfile,
+        scope: AuthIdentityScope,
+        state: TrackingState,
+        flushBoundary = false,
+    ): Promise<void> {
+        if (
+            !this.ownerIsCurrent(scope, state) ||
+            !state.isTracking ||
+            state.isPaused ||
+            state.isRapidMode ||
+            !this.trackGpsGateOpen
+        ) {
             return;
         }
 
-        // FALLBACK: Zone-based interval (no speed data yet — cold start)
-        const newZone = determineLoggingZone();
-        const newInterval = getIntervalForZone(newZone);
-        const oldZone = state.loggingZone || 'offshore';
+        const changed = state.loggingZone !== profile.zone || state.currentIntervalMs !== profile.intervalMs;
+        // `isRunning()` intentionally excludes a clock-alignment timeout.
+        // Raw GPS can arrive several times during that short window, so use
+        // isScheduled() here or each harmless position refresh would keep
+        // pushing the first flush forward.
+        if (changed || !this.scheduler.isScheduled()) {
+            state.loggingZone = profile.zone;
+            state.currentIntervalMs = profile.intervalMs;
+            await this.saveTrackingState(scope);
+            if (!this.ownerIsCurrent(scope, state)) return;
+            this.scheduler.scheduleClockAligned(profile.intervalMs, () => this.flushBufferedTrack(scope, state));
+        }
 
-        // Only reschedule if zone actually changed
-        if (newZone === oldZone && this.scheduler.isRunning()) return;
-
-        // Update state
-        state.loggingZone = newZone;
-        state.currentIntervalMs = newInterval;
-        await this.saveTrackingState(scope);
-        if (!this.ownerIsCurrent(scope, state)) return;
-
-        // Use clock-aligned scheduling
-        this.scheduler.scheduleClockAligned(newInterval, () => this.flushBufferedTrack(scope, state));
+        if (flushBoundary) {
+            this.flushBufferedTrack(scope, state).catch((error) => {
+                log.warn('failed to flush geographic profile boundary:', error);
+            });
+        }
     }
 
     /**
@@ -790,7 +867,7 @@ class ShipLogServiceClass {
         this.trackingState = {
             isTracking: true,
             isPaused: false,
-            isRapidMode: false, // Rapid Mode (5 s flush cadence) — kept off
+            isRapidMode: false, // Rapid Mode (3 s selected-vertex cadence) — kept off
             // by default; the adaptive scheduler + live decimation cover
             // the same density requirement more efficiently.
             // ── 2026-05-17: Precision Mode is now ON BY DEFAULT ──
@@ -807,6 +884,15 @@ class ShipLogServiceClass {
             lastMovementTime: new Date().toISOString(),
         };
         const sessionState = this.trackingState;
+        // The UI may show raw incoming GPS during acquisition, but no raw
+        // sample from a prior/cold session may become a persisted track point
+        // before GpsSubscriptionManager opens its vetted gate.
+        this.lastBgLocation = null;
+        this.lastAcceptedLocation = null;
+        this.lastWaterStatus = undefined;
+        this.lastWaterCheck = undefined;
+        this.shoreZoneResolver.reset();
+        this.trackGpsGateOpen = false;
 
         await this.saveTrackingState(scope);
         if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) return;
@@ -864,9 +950,22 @@ class ShipLogServiceClass {
                     ? (sessionState.currentIntervalMs ?? TRACKING_INTERVAL_MS)
                     : TRACKING_INTERVAL_MS,
             getLastEntryTime: () => (this.ownerIsCurrent(scope, sessionState) ? sessionState.lastEntryTime : undefined),
+            getPlottingProfile: (pos) =>
+                this.ownerIsCurrent(scope, sessionState)
+                    ? sessionState.isRapidMode
+                        ? getPlottingProfile('nearshore')
+                        : this.plottingProfileFor(pos)
+                    : getPlottingProfile('nearshore'),
             onFix: (pos) => {
                 if (!this.ownerIsCurrent(scope, sessionState)) return;
                 this.lastBgLocation = pos;
+            },
+            onAcceptedFix: (pos) => {
+                if (!this.ownerIsCurrent(scope, sessionState)) return;
+                this.lastAcceptedLocation = pos;
+                this.refreshShoreZone(pos, scope, sessionState).catch((error) => {
+                    log.warn('shore-zone refresh failed:', error);
+                });
             },
             onSpeedTierChanged: () => {
                 this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
@@ -876,6 +975,29 @@ class ShipLogServiceClass {
             onHeartbeatTick: () => {
                 this.flushBufferedTrack(scope, sessionState).catch((e) => {
                     log.warn(``, e);
+                });
+            },
+            onTrackOpened: () => {
+                if (!this.ownerIsCurrent(scope, sessionState)) return;
+                this.trackGpsGateOpen = true;
+                // Fast-lock exists only to obtain the corroborating opening
+                // fix. Keeping distanceFilter:0 active for a fixed 30 s
+                // afterwards records stationary GPS wander at the dock.
+                this.settleFastLock(voyageId, scope, sessionState);
+                this.envPoller.requestCheck();
+            },
+            onPlottingProfileChanged: (profile) => {
+                this.applyPlottingProfile(profile, scope, sessionState, true).catch((error) => {
+                    log.warn('failed to apply geographic plotting profile:', error);
+                });
+            },
+            onPlotPointBuffered: () => {
+                // Persist each selected vertex promptly. The clock-aligned
+                // scheduler remains a background/heartbeat safety net, but
+                // a vertex retained just after a tick must not live only in
+                // JavaScript memory until the next 30-second or 5-minute mark.
+                this.flushBufferedTrack(scope, sessionState).catch((error) => {
+                    log.warn('failed to flush selected plot point:', error);
                 });
             },
         });
@@ -911,47 +1033,51 @@ class ShipLogServiceClass {
         //     },
         // });
 
-        // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
-        // rescheduleAdaptiveInterval() runs after every GPS fix and will refine the
-        // zone once weather-cache data is available (e.g. coastal → 2min, offshore → 15min).
-        const initialZone: LoggingZone = 'nearshore';
-        const initialInterval = getIntervalForZone(initialZone);
-        sessionState.loggingZone = initialZone;
-        sessionState.currentIntervalMs = initialInterval;
+        // Start dense until actual GPS-position shoreline evidence proves a
+        // less detailed profile is safe. We never use the dashboard weather
+        // location for a live voyage.
+        const initialProfile = getPlottingProfile('nearshore');
+        sessionState.loggingZone = initialProfile.zone;
+        sessionState.currentIntervalMs = initialProfile.intervalMs;
         await this.saveTrackingState(scope);
         if (!this.ownerIsCurrent(scope, sessionState)) return;
 
-        // Schedule clock-aligned entries (30s → fires at xx:xx:00, xx:xx:30)
-        this.scheduler.scheduleClockAligned(initialInterval, () => this.flushBufferedTrack(scope, sessionState));
+        this.scheduler.scheduleClockAligned(initialProfile.intervalMs, () =>
+            this.flushBufferedTrack(scope, sessionState),
+        );
 
-        // Kick off async zone refinement in the background — won't block UI
+        // Kick off async zone refinement in the background — won't block UI.
         this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
             log.warn(``, e);
         });
 
         // --- 60-SECOND ENVIRONMENT POLLING ---
-        // Checks water/land status and re-evaluates logging zone every minute.
-        // This lets GPS interval adapt faster when transitioning environments
-        // (e.g. leaving marina → offshore, or driving from land to coast).
+        // Checks water/land status at a bounded cadence and hands the same
+        // actual GPS coordinate to the OSM shoreline resolver.
         this.envPoller.start({
-            getPos: () => this.lastBgLocation,
+            getPos: () => this.lastAcceptedLocation,
             isActive: () =>
                 this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
-            onWaterStatus: (isWater) => {
+            onWaterStatus: (waterStatus) => {
                 if (!this.ownerIsCurrent(scope, sessionState)) return;
                 // Cache for stamping onto subsequent log entries.
-                this.lastWaterStatus = isWater;
+                this.lastWaterStatus = waterStatus.isWater;
+                this.lastWaterCheck = waterStatus;
                 // Update EnvironmentService for UI consumers.
-                EnvironmentService.updateWaterStatus(isWater);
+                EnvironmentService.updateWaterStatus(waterStatus.isWater);
             },
-            onZoneRecheck: () => this.rescheduleAdaptiveInterval(scope, sessionState),
+            onZoneRecheck: (pos, waterStatus) => this.refreshShoreZone(pos, scope, sessionState, waterStatus),
         });
+        // If the track opened before the poller was wired, request its first
+        // real water check now; otherwise onTrackOpened does this.
+        if (this.trackGpsGateOpen) this.envPoller.requestCheck();
     }
 
     // Fix-acceptance gate, GPS subscription wiring, NMEA ingest, heartbeat,
     // speed-tier debounce, cold-start warm-up, and cleanup all moved to
     // ./shiplog/GpsSubscriptionManager.ts. The orchestrator just owns
-    // `lastBgLocation` (updated via the manager's `onFix` callback).
+    // `lastBgLocation` (updated via the manager's raw `onFix` callback) and
+    // `lastAcceptedLocation` (updated only after the full GPS gate).
     //
     // startCourseChangeDetection moved to ./shiplog/CourseChangeDetector.ts.
 
@@ -975,7 +1101,8 @@ class ShipLogServiceClass {
      * Arm cold-start fast-lock for a new voyage: flip the GPS engine to
      * distanceFilter:0 (emit on every chip update, even stationary) so
      * the first-fix consistency gate opens the track promptly, then
-     * auto-revert to the steady 1 m filter after FAST_LOCK_MS.
+     * immediately revert to the steady 1 m filter once that gate opens
+     * (with FAST_LOCK_MS as a safety fallback).
      *
      * The revert callback is idempotent: it only acts if we're still
      * tracking THIS voyage, so a stale fire (stop within 30 s, an
@@ -990,24 +1117,38 @@ class ShipLogServiceClass {
         });
         this.fastLockTimeoutId = setTimeout(() => {
             this.fastLockTimeoutId = undefined;
-            if (
-                this.ownerIsCurrent(scope, state) &&
-                state.isTracking &&
-                state.currentVoyageId === this.fastLockArmedForVoyageId
-            ) {
+            if (this.fastLockArmedForVoyageId !== voyageId) return;
+            if (this.ownerIsCurrent(scope, state) && state.isTracking && state.currentVoyageId === voyageId) {
                 BgGeoManager.setSamplingMode('default').catch((e) => {
                     log.warn('fast-lock revert failed:', e);
                 });
             }
+            this.fastLockArmedForVoyageId = undefined;
         }, FAST_LOCK_MS);
     }
 
-    /** Cancel a pending fast-lock revert timer (no engine change). */
+    /**
+     * Leave high-frequency cold-start sampling as soon as a vetted fix opens
+     * this exact voyage. Late callbacks and old account/voyage generations
+     * are intentionally ignored.
+     */
+    private settleFastLock(voyageId: string, scope: AuthIdentityScope, state: TrackingState): void {
+        if (this.fastLockArmedForVoyageId !== voyageId) return;
+        if (!this.ownerIsCurrent(scope, state) || !state.isTracking || state.currentVoyageId !== voyageId) return;
+
+        this.clearFastLock();
+        BgGeoManager.setSamplingMode('default').catch((e) => {
+            log.warn('fast-lock early revert failed:', e);
+        });
+    }
+
+    /** Cancel a pending fast-lock revert timer and disarm its voyage token. */
     private clearFastLock(): void {
         if (this.fastLockTimeoutId) {
             clearTimeout(this.fastLockTimeoutId);
             this.fastLockTimeoutId = undefined;
         }
+        this.fastLockArmedForVoyageId = undefined;
     }
 
     async pauseTracking(): Promise<void> {
@@ -1016,6 +1157,7 @@ class ShipLogServiceClass {
         this.startAttempt += 1;
         this.scheduler.stop();
         this.clearFastLock();
+        this.trackGpsGateOpen = false;
 
         // Stop course change detection + environment polling while paused
         this.courseDetector.stop();
@@ -1026,6 +1168,7 @@ class ShipLogServiceClass {
 
         // Clean up GPS subscriptions to save battery while paused
         this.gpsSubs.stop();
+        this.trackGpsGateOpen = false;
 
         this.trackingState.isTracking = false;
         this.trackingState.isPaused = true;
@@ -1055,6 +1198,15 @@ class ShipLogServiceClass {
         const previousVoyageId = activeState.currentVoyageId;
         this.scheduler.stop();
 
+        // The geographic sampler may have accepted a recent raw fix that was
+        // not yet due at the current cadence. Preserve it before the final
+        // drain so the voyage ends at the actual last known position.
+        this.gpsSubs.bufferFinalPoint();
+        // Prevent a late zone callback from re-arming the scheduler while the
+        // stop path owns its final drain. Buffered accepted tail points remain
+        // eligible because flushBufferedTrack only blocks an empty fallback.
+        this.trackGpsGateOpen = false;
+
         // Flush before exposing a stopped state. If an older scheduler flush
         // was invalidated by the stop token, its suffix goes to the durable
         // owner-scoped handoff and is replayed here.
@@ -1073,6 +1225,7 @@ class ShipLogServiceClass {
 
         // No callback may append after the final drain.
         this.gpsSubs.stop();
+        this.trackGpsGateOpen = false;
         this.courseDetector.stop();
         this.courseDetector.reset();
         this.envPoller.stop();
@@ -1210,7 +1363,16 @@ class ShipLogServiceClass {
         scope: AuthIdentityScope = this.trackingOwnerScope ?? getAuthIdentityScope(),
     ): Promise<ShipLogEntry | null> {
         if (!isAuthIdentityScopeCurrent(scope)) return null;
-        return _captureImmediate(this._captureCtx(scope), voyageId, waypointLabel);
+        // Voyage Start performs its own bounded GPS-acquisition wait. It no
+        // longer advances last-position, and its heartbeat update is
+        // monotonic, so holding the position-write queue for up to 30s would
+        // only delay the first selected vertex. Every other immediate marker
+        // can advance the anchor and therefore shares the queue.
+        if (waypointLabel === 'Voyage Start') {
+            return _captureImmediate(this._captureCtx(scope), voyageId, waypointLabel);
+        }
+        const state = this.trackingState;
+        return this.enqueueCaptureWrite(scope, state, (ctx) => _captureImmediate(ctx, voyageId, waypointLabel));
     }
 
     /**
@@ -1236,6 +1398,8 @@ class ShipLogServiceClass {
     ): Promise<ShipLogEntry | null> {
         const scope = this.trackingOwnerScope ?? getAuthIdentityScope();
         if (!isAuthIdentityScopeCurrent(scope)) return null;
+        const state = this.trackingState;
+        if (entryType === 'auto' && state.isTracking && !this.trackGpsGateOpen) return null;
         const opts: CaptureLogOptions = {
             entryType,
             notes,
@@ -1245,26 +1409,34 @@ class ShipLogServiceClass {
             voyageId,
             skipDedup,
         };
-        return _captureLog(this._captureCtx(scope), opts);
+        return this.enqueueCaptureWrite(scope, state, (ctx) => _captureLog(ctx, opts));
     }
 
     /**
      * Flush the high-frequency GPS buffer.
      *
-     * Called on every interval tick instead of captureLogEntry().
-     * Drains all buffered GPS fixes, runs RDP thinning to extract only
-     * significant positions (turns ≥22.5°, speed changes, signal recovery),
-     * then creates a log entry for each kept point.
+     * Called by the selected-point callback and as a timer safety net.
+     * Drains only the GPS vertices admitted by the geographic sampler, then
+     * creates a log entry for each selected point.
      *
-     * Falls back to standard captureLogEntry() when the buffer is empty
-     * (e.g., heartbeat catch-up when backgrounded).
+     * Empty ticks intentionally do not invent a position from the live raw
+     * GPS cache; only the geographic sampler's selected vertices are saved.
      */
     private flushBufferedTrack(
         scope: AuthIdentityScope,
         state: TrackingState = this.trackingState,
     ): Promise<FlushBufferedTrackResult> {
         if (!this.ownerIsCurrent(scope, state)) return Promise.resolve('stale');
-        return _flushBufferedTrack(this._captureCtx(scope));
+        // Before the first vetted GPS point, the raw UI cache is explicitly
+        // untrusted and there cannot be a legitimate in-flight selected-point
+        // flush yet.
+        if (!this.trackGpsGateOpen && this.trackBuffer.length === 0) return Promise.resolve('complete');
+        // The geographic sampler is the sole authority on persisted vertices.
+        // CapturePipeline receives allowEmptyBufferFallback:false through the
+        // context below, so an empty scheduler/heartbeat tick is a no-op—not
+        // a raw-cache capture—while an in-flight durable flush can still be
+        // joined by stopTracking.
+        return this.enqueueCaptureWrite(scope, state, (ctx) => _flushBufferedTrack(ctx));
     }
 
     /**
@@ -1289,8 +1461,30 @@ class ShipLogServiceClass {
     ): Promise<ShipLogEntry | null> {
         const scope = this.trackingOwnerScope ?? getAuthIdentityScope();
         if (!isAuthIdentityScopeCurrent(scope)) return null;
+        const state = this.trackingState;
         const opts: AddManualOptions = { notes, waypointName, eventCategory, engineStatus, voyageId };
-        return _addManual(this._captureCtx(scope), opts);
+        return this.enqueueCaptureWrite(scope, state, (ctx) => _addManual(ctx, opts));
+    }
+
+    /** Queue one durable position-anchor operation behind earlier writes in this exact voyage session. */
+    private enqueueCaptureWrite<T>(
+        scope: AuthIdentityScope,
+        state: TrackingState,
+        operation: (ctx: CaptureContext) => Promise<T>,
+    ): Promise<T> {
+        // Snapshot the capture context before queueing so a stale callback
+        // cannot wake later and accidentally adopt a replacement session.
+        const ctx = this._captureCtx(scope);
+        const prior = this.captureWriteTails.get(state) ?? Promise.resolve();
+        const next = prior.catch(() => undefined).then(() => operation(ctx));
+        this.captureWriteTails.set(
+            state,
+            next.then(
+                () => undefined,
+                () => undefined,
+            ),
+        );
+        return next;
     }
 
     /**
@@ -1311,12 +1505,21 @@ class ShipLogServiceClass {
             trackingState: state,
             saveTrackingState: () => _saveTrackingState(state, scope),
             isNative: this.isNative,
-            getCachedFix: () => this.lastBgLocation,
+            // Unlike the raw UI cache, this location cleared the full GPS
+            // acceptance gate. Voyage Start may use it if an immediate
+            // selected-point flush has already drained the live buffer.
+            getAcceptedFix: () => this.lastAcceptedLocation,
+            // Prefer a vetted location for capture paths. The raw cache is
+            // still available before any accepted GPS point exists (e.g. a
+            // user-created manual note during initial acquisition), but it
+            // can never displace an established voyage track vertex.
+            getCachedFix: () => this.lastAcceptedLocation ?? this.lastBgLocation,
             setCachedFix: (pos) => {
                 if (!isAuthIdentityScopeCurrent(scope) || state !== this.trackingState) return;
                 this.lastBgLocation = pos;
             },
             trackBuffer: this.trackBuffer,
+            allowEmptyBufferFallback: false,
             handoffBufferedPoints: (points) =>
                 this.queueCaptureHandoff(scope, state.currentVoyageId, points).catch((error) => {
                     log.warn('failed to persist stale capture suffix:', error);
@@ -1360,7 +1563,7 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Toggle rapid GPS mode (5-second intervals for marina/shore navigation)
+     * Toggle rapid GPS mode (3-second intervals for marina/shore navigation)
      * Activated by 3-second long-press on tracking indicator
      */
     async setRapidMode(enabled: boolean): Promise<void> {
@@ -1384,7 +1587,7 @@ class ShipLogServiceClass {
         this.scheduler.stop();
 
         if (enabled) {
-            // RAPID MODE: 5-second intervals for high-precision marina navigation
+            // RAPID MODE: 3-second selected-vertex cadence for marina navigation.
 
             // Clear any existing rapid mode timeout
             if (this.rapidModeTimeoutId) {
@@ -1399,15 +1602,17 @@ class ShipLogServiceClass {
                 await this.setRapidMode(false);
             }, RAPID_AUTO_DISABLE_MS);
 
-            // Capture first entry immediately when entering rapid mode
-            this.captureLogEntry().catch((err) => {
-                log.warn(``, err);
+            // Flush any already-selected vertex immediately. Raw UI fixes
+            // remain deliberately ineligible for a plotted track.
+            this.flushBufferedTrack(scope, state).catch((err) => {
+                log.warn('rapid-mode initial selected-point flush failed', err);
             });
 
-            // 5-second non-aligned cadence — marina navigation cares about
-            // density, not clock marks.
+            // 3-second non-aligned backup flush — marina navigation cares
+            // about density, not clock marks. The GPS manager also flushes
+            // each retained point immediately.
             this.scheduler.scheduleEvery(RAPID_INTERVAL_MS, () =>
-                this.ownerIsCurrent(scope, state) ? this.captureLogEntry() : null,
+                this.ownerIsCurrent(scope, state) ? this.flushBufferedTrack(scope, state) : null,
             );
         } else {
             // ADAPTIVE MODE: Restore zone-based intervals

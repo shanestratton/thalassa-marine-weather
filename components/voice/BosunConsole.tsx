@@ -31,6 +31,7 @@ import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/vo
 import { askCloudVoice } from '../../services/voice/cloudFallback';
 import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
 import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
+import { selectVoiceQueryRoute } from '../../services/voice/voiceQueryRouting';
 import {
     isDeepgramAvailable,
     prewarmAudioContext,
@@ -95,6 +96,68 @@ const HISTORY_TURN_LIMIT = 2;
  * skipper's iOS device.
  */
 const ENABLE_APPLE_SR_FALLBACK = false;
+
+/**
+ * The native AppleMusic plugin owns Calypso's response TTS. Its playback
+ * path can leave iOS's single shared AVAudioSession in `.playback`, which
+ * means a still-live WKWebView MediaStream may report as started while
+ * delivering no microphone samples. Keep the bridge deliberately optional:
+ * web builds and an older installed native shell simply keep the existing
+ * capture path, while a current iOS shell hands the session back to input
+ * immediately before we acquire/reuse the microphone.
+ */
+type AppleMusicNativeBridge = {
+    cancelTtsAudio?: () => Promise<{ status: string }>;
+    prepareVoiceInput?: () => Promise<{ status: string }>;
+    releaseVoiceInput?: () => Promise<{ status: string }>;
+};
+
+function getAppleMusicNativeBridge(): AppleMusicNativeBridge | undefined {
+    return (
+        globalThis as typeof globalThis & {
+            Capacitor?: {
+                Plugins?: {
+                    AppleMusic?: AppleMusicNativeBridge;
+                };
+            };
+        }
+    ).Capacitor?.Plugins?.AppleMusic;
+}
+
+async function prepareNativeVoiceInput(): Promise<boolean> {
+    const plugin = getAppleMusicNativeBridge();
+    if (!plugin) return false;
+
+    if (plugin.prepareVoiceInput) {
+        try {
+            // The current native shell stops its AVAudioPlayer itself before
+            // switching to `.playAndRecord`, so this is one ordered bridge
+            // call rather than two racing requests to the shared session.
+            await plugin.prepareVoiceInput();
+            return true;
+        } catch (error) {
+            // Do not prevent the browser fallback from trying getUserMedia.
+            // A second, older-shell fallback below still stops native TTS.
+            console.warn('[BosunConsole] native voice-input session handoff failed:', error);
+        }
+    }
+
+    try {
+        // Backward compatibility for an installed native shell from before
+        // prepareVoiceInput existed. It cannot restore the input category,
+        // but it can at least stop a competing native TTS player.
+        await plugin.cancelTtsAudio?.();
+    } catch {
+        // A cancelled / already-finished utterance is not a capture failure.
+    }
+    return false;
+}
+
+function releaseNativeVoiceInput(): void {
+    void getAppleMusicNativeBridge()
+        ?.releaseVoiceInput?.()
+        .catch(() => undefined);
+}
 
 /**
  * Detect "over" at the end of an utterance. The skipper can say "over"
@@ -497,18 +560,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             }
         }
 
-        const cap = (
-            globalThis as typeof globalThis & {
-                Capacitor?: {
-                    Plugins?: {
-                        AppleMusic?: {
-                            cancelTtsAudio?: () => Promise<{ status: string }>;
-                        };
-                    };
-                };
-            }
-        ).Capacitor;
-        void cap?.Plugins?.AppleMusic?.cancelTtsAudio?.().catch(() => undefined);
+        // A console unmount / identity cutover must not leave Calypso's
+        // native AVAudioPlayer or its input-capable audio session behind.
+        // Stop TTS first; after the web capture resources are gone, release
+        // the native session so other audio apps can take ownership again.
+        void getAppleMusicNativeBridge()
+            ?.cancelTtsAudio?.()
+            .catch(() => undefined);
 
         for (const url of audioUrlsRef.current.splice(0)) URL.revokeObjectURL(url);
         for (const controller of requestControllersRef.current) controller.abort();
@@ -519,6 +577,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         releasePrewarmedMicStream();
         releasePrewarmedWebSocket();
         releasePrewarmedAudioContext();
+        releaseNativeVoiceInput();
     }, [clearVoiceTimeouts]);
 
     // Auth scope is a hard boundary for the live sensor. This listener runs
@@ -1146,7 +1205,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             operation: VoiceOperation,
         ) => {
             if (!isVoiceOperationCurrent(operation)) return;
-            if (audioBlob.size === 0 && !preTranscribed) {
+            const hasRecognisedText = Boolean(preTranscribed?.trim());
+            if (audioBlob.size === 0 && !hasRecognisedText) {
                 setErrorMessage('No audio captured — try holding for a moment longer.');
                 setOneButton(to, 'error');
                 scheduleVoiceTimeout(operation, () => setOneButton(to, 'idle'), 1500);
@@ -1158,21 +1218,26 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             setErrorMessage(null);
             try {
                 let response: VoiceQueryResponse;
-                if (to === 'cloud' && preTranscribed) {
-                    // FAST PATH: Apple SR transcribed on-device. Run the
-                    // full Haiku tool-loop on the iPhone so Pi tools are
-                    // dispatched without extra Supabase round-trips.
-                    response = await runOrchestrator(preTranscribed, operation, controller.signal);
-                } else if (to === 'cloud') {
-                    // FALLBACK: SR didn't produce text, ship the audio
-                    // blob to the legacy edge function which runs Scribe
-                    // STT then its own Haiku loop. Path A doesn't extract
-                    // STT yet — separate commit.
+                const route = selectVoiceQueryRoute(to, preTranscribed);
+                if (route.kind === 'cloud-text') {
+                    // FAST PATH: live Deepgram/Apple SR has already produced
+                    // a transcript, so run the tool-loop directly rather
+                    // than making the edge function transcribe a blob again.
+                    response = await runOrchestrator(route.text, operation, controller.signal);
+                } else if (route.kind === 'bosun-text') {
+                    // The boat-side path gets the same benefit. It can run
+                    // its local RAG/LLM immediately instead of asking the Pi
+                    // to run a second Whisper pass over a placeholder blob.
+                    response = await askBosunText({ text: route.text }, controller.signal);
+                } else if (route.kind === 'cloud-audio') {
+                    // FALLBACK: live STT did not produce usable text, so
+                    // retain the established Scribe-backed audio path.
                     const context = gatherThalassaContext();
                     const history = buildHistory(turns);
                     response = await askCloudVoice(audioBlob, context, history, controller.signal);
                 } else {
-                    // Tier-D: Pi cascade (3B + RAG) on local LAN.
+                    // Offline/boat fallback: preserve the Pi Whisper path
+                    // whenever no live transcript was available.
                     response = await askBosunVoice(audioBlob, controller.signal);
                 }
                 if (!isVoiceOperationCurrent(operation)) return;
@@ -1330,6 +1395,23 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     return;
                 }
                 stopAudio();
+                // Calypso's response voice is native AVAudioPlayer on iOS,
+                // not the HTML Audio element stopped above. Hand the shared
+                // AVAudioSession back to `.playAndRecord` before touching
+                // WebKit capture; otherwise an apparently-live prewarmed
+                // stream can send silence after a spoken response.
+                const nativeSessionPrepared = await prepareNativeVoiceInput();
+                if (!isVoiceOperationCurrent(operation)) return;
+                if (nativeSessionPrepared) {
+                    // Native TTS and MusicKit can have changed the input
+                    // route before this tap, including after the UI has
+                    // already returned to idle. Do not reuse a WebKit graph
+                    // that now looks live but supplies silence. Keep the
+                    // prewarmed Deepgram socket: it is independent of
+                    // AVAudioSession and still saves the WS handshake.
+                    releasePrewarmedAudioContext();
+                    releasePrewarmedMicStream();
+                }
                 if (recorderRef.current) {
                     try {
                         recorderRef.current.cancel();

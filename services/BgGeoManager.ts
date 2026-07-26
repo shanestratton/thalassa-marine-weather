@@ -158,13 +158,11 @@ class BgGeoManagerClass {
      *   2026-05-17: introduced two-tier sampling — DEFAULT (1 m/1 Hz)
      *      vs PRECISION (distanceFilter 0, 2 Hz, with live decimation
      *      in pushWithLiveFilter to keep storage sane).
-     *   2026-05-19: collapsed to a single 5 s cadence with NO live
-     *      decimation and NO RDP at flush. The 2 Hz + smart-cull model
-     *      cut too much detail at driving speeds (the 3-point
-     *      collinearity filter killed straight-road runs). 5 s ×
-     *      4-day passage ≈ 72k fixes — large but tractable: ~3.5 MB
-     *      stored, Mapbox handles the polyline, battery is BETTER than
-     *      the old 2 Hz precision mode. Predictability > compression.
+     *   2026-07-26: intake target moved to 3 s so land/inshore plotting can
+     *      preserve every available eligible fix. The app-level geographic
+     *      sampler now controls durable track density (3 s / 30 s / 5 min),
+     *      while this native stream remains live for safety alarms, UI, and
+     *      detecting a zone transition.
      *
      * Modes:
      *   - 'default'   — distanceFilter 1 m (steady state)
@@ -174,7 +172,7 @@ class BgGeoManagerClass {
      *
      * The 1 m distanceFilter is what stops stationary GPS jitter from
      * generating fixes at anchor. During real movement at any speed
-     * above ~0.2 m/s, every 5 s tick produces a fix.
+     * above ~0.2 m/s, available movement fixes are delivered continuously.
      *
      * FAST-LOCK (2026-06-17): on iOS, CLLocationManager delivers fixes
      * by DISTANCE, not time — `locationUpdateInterval` /
@@ -199,8 +197,11 @@ class BgGeoManagerClass {
             await this.ensureReady();
             await BackgroundGeolocation.setConfig({
                 distanceFilter: mode === 'fastlock' ? 0 : 1,
-                locationUpdateInterval: 5000,
-                fastestLocationUpdateInterval: 5000,
+                // Android honours these values. iOS remains distance-driven;
+                // the voyage sampler records each eligible iOS fix no more
+                // often than its active geographic profile permits.
+                locationUpdateInterval: 3000,
+                fastestLocationUpdateInterval: 3000,
             });
             log.info(`GPS sampling → ${mode.toUpperCase()} (distanceFilter ${mode === 'fastlock' ? 0 : 1})`);
         } catch (e) {
@@ -296,13 +297,12 @@ class BgGeoManagerClass {
             await BackgroundGeolocation.ready({
                 // Geolocation — high accuracy for marine navigation
                 desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
-                // 5 s cadence with 1 m gate — matches setSamplingMode().
-                // See the long-form rationale on that method. Stationary
-                // jitter is gated out by distanceFilter; during movement
-                // every 5 s tick produces a kept fix.
+                // 3 s Android target with a 1 m gate — matches
+                // setSamplingMode(). iOS is distance-driven; its available
+                // fixes feed the same app-level geographic sampler.
                 distanceFilter: 1,
-                locationUpdateInterval: 5000,
-                fastestLocationUpdateInterval: 5000,
+                locationUpdateInterval: 3000,
+                fastestLocationUpdateInterval: 3000,
 
                 // Activity recognition
                 stopTimeout: 0, // NEVER auto-stop — vessel may be anchored

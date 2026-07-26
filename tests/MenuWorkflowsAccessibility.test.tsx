@@ -43,13 +43,13 @@ describe('non-modal workflow menus', () => {
 
         expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
         expect(screen.getByRole('menu', { name: 'Share an attachment' })).toBeInTheDocument();
-        const pin = screen.getByRole('menuitem', { name: 'Drop a pin to share location' });
-        const point = screen.getByRole('menuitem', { name: 'Share a point of interest' });
-        expect(pin).toHaveFocus();
+        const location = screen.getByRole('menuitem', { name: 'Share my current location' });
+        const pin = screen.getByRole('menuitem', { name: 'Drop a pin on the chart' });
+        expect(location).toHaveFocus();
 
-        fireEvent.keyDown(pin, { key: 'ArrowDown' });
-        expect(point).toHaveFocus();
-        fireEvent.keyDown(point, { key: 'Escape' });
+        fireEvent.keyDown(location, { key: 'ArrowDown' });
+        expect(pin).toHaveFocus();
+        fireEvent.keyDown(pin, { key: 'Escape' });
 
         expect(screen.queryByRole('menu', { name: 'Share an attachment' })).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
@@ -62,7 +62,7 @@ describe('non-modal workflow menus', () => {
         const trigger = screen.getByRole('button', { name: 'Open attachment menu' });
         trigger.focus();
         fireEvent.click(trigger);
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Drop a pin to share location' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Share my current location' }));
 
         expect(onOpenPinDrop).toHaveBeenCalledOnce();
         expect(screen.queryByRole('menu')).not.toBeInTheDocument();

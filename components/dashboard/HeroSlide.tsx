@@ -751,8 +751,8 @@ const HeroSlideComponent = ({
     // Instead, guard inside each hook and move the fallback UI to just before the final JSX return.
 
     const slides = useMemo(
-        () => buildSlides(data, index, hourlyToRender, forecast),
-        [index, data, hourlyToRender, forecast],
+        () => buildSlides(data, index, hourlyToRender, forecast, timeZone),
+        [index, data, hourlyToRender, forecast, timeZone],
     );
 
     // Phase 2 Optimization: Pre-compute display values for all slides

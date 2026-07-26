@@ -89,6 +89,32 @@ describe('groupByVoyage — isLocal tagging', () => {
         expect(groups[0].id).toBe('track_xyz');
         expect(groups[0].isLocal).toBe(true);
     });
+
+    it('keeps the durable planning-record link with a saved route geometry', () => {
+        const entries: ShipLogEntry[] = [
+            { ...entry('planned_linked', -27.4, 153.0, 0), linkedPlanId: 'voyage-record-42' },
+            { ...entry('planned_linked', -27.2, 153.3, 60), linkedPlanId: 'voyage-record-42' },
+        ];
+
+        const [route] = groupByVoyage(entries, new Set(['planned_linked']));
+
+        expect(route.linkedPlanId).toBe('voyage-record-42');
+        expect(route.points).toEqual([
+            { lat: -27.4, lon: 153.0 },
+            { lat: -27.2, lon: 153.3 },
+        ]);
+    });
+
+    it('does not attach a route to either passage when its durable links conflict', () => {
+        const entries: ShipLogEntry[] = [
+            { ...entry('planned_conflict', -27.4, 153.0, 0), linkedPlanId: 'voyage-record-a' },
+            { ...entry('planned_conflict', -27.2, 153.3, 60), linkedPlanId: 'voyage-record-b' },
+        ];
+
+        const [route] = groupByVoyage(entries, new Set(['planned_conflict']));
+
+        expect(route.linkedPlanId).toBeUndefined();
+    });
 });
 
 describe('classifyTrackKind — sea/land verdict for the voyage picker', () => {

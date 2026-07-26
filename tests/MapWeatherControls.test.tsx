@@ -33,11 +33,9 @@ function weather(overrides: Record<string, unknown> = {}): WeatherControlsWeathe
         windHour: 0,
         windTotalHours: 3,
         windPlaying: false,
-        windParticlesEnabled: false,
         windReady: true,
         setWindHour: vi.fn(),
         setWindPlaying: vi.fn(),
-        setWindParticlesEnabled: vi.fn(),
         windModel: 'icon',
         setWindModel: vi.fn(),
         windState: { loading: false, error: null, grid: windGrid() },
@@ -92,11 +90,10 @@ describe('MapWeatherControls', () => {
         expect(onControlsHiddenChange).toHaveBeenLastCalledWith(false);
     });
 
-    it('keeps particle animation an explicit, accessible wind choice', () => {
-        const setWindParticlesEnabled = vi.fn();
-        const { rerender } = render(
+    it('does not expose a particle-animation control for wind', () => {
+        render(
             <MapWeatherControls
-                weather={weather({ setWindParticlesEnabled, windParticlesEnabled: false })}
+                weather={weather()}
                 visible
                 embedded={false}
                 controlsHidden={false}
@@ -104,33 +101,7 @@ describe('MapWeatherControls', () => {
             />,
         );
 
-        const toggle = screen.getByRole('switch', { name: 'Particles animation' });
-        expect(toggle).toHaveAttribute('aria-checked', 'false');
-        fireEvent.click(toggle);
-        expect(setWindParticlesEnabled).toHaveBeenCalledWith(true);
-
-        rerender(
-            <MapWeatherControls
-                weather={weather({
-                    activeLayers: new Set(['wind', 'rain']),
-                    setWindParticlesEnabled,
-                    windParticlesEnabled: true,
-                    rainLoading: false,
-                    rainReady: true,
-                    rainFrameCount: 2,
-                    rainFrameIndex: 0,
-                    rainPlaying: false,
-                    rainNowIdxRef: { current: 0 },
-                    unifiedFramesRef: { current: [{ label: 'Now', type: 'radar' }] },
-                    setRainFrameIndex: vi.fn(),
-                })}
-                visible
-                embedded={false}
-                controlsHidden={false}
-                onControlsHiddenChange={vi.fn()}
-            />,
-        );
-        expect(screen.getByRole('switch', { name: 'Particles animation' })).toHaveAttribute('aria-checked', 'true');
+        expect(screen.queryByRole('switch', { name: 'Particles animation' })).not.toBeInTheDocument();
     });
 
     it('labels a 48-frame hourly model with hourly offsets instead of the GFS schedule', () => {

@@ -82,6 +82,8 @@ export interface GalleyMeal {
     ratingAvg?: number;
     /** Number of ratings */
     ratingCount?: number;
+    /** A named calendar item with no recipe, ingredients, or instructions attached. */
+    isSimpleMeal?: boolean;
 }
 
 export interface GalleyDayPlan {

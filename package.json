@@ -21,8 +21,8 @@
         "lint:fix": "eslint . --fix",
         "lint:migrations": "node scripts/audit-supabase-migrations.mjs",
         "lint:routes": "node scripts/audit-orphan-routes.mjs --strict",
-        "format": "prettier --write '**/*.{ts,tsx,json,md}' --ignore-path .gitignore",
-        "format:check": "prettier --check '**/*.{ts,tsx,json,md}' --ignore-path .gitignore",
+        "format": "prettier --write '**/*.{ts,tsx,json,md}' --ignore-path .gitignore --ignore-path ios/.gitignore",
+        "format:check": "prettier --check '**/*.{ts,tsx,json,md}' --ignore-path .gitignore --ignore-path ios/.gitignore",
         "prepare": "husky",
         "storybook": "storybook dev -p 6006",
         "build-storybook": "storybook build"

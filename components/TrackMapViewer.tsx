@@ -34,7 +34,9 @@ import {
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
+import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
 import { sanitizeRouteCoordinates, type RouteCoordinate } from '../utils/routeCoordinates';
+import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
 
 // Base-map tile templates: light Voyager by day, dark by night watch.
 // Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
@@ -141,7 +143,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         // and manual entries (possibly stale cached fix) are markers,
         // not vertices; including them made the playback vessel (and the
         // polyline) zig-zag to positions out of sequence.
-        const valid = entries.filter(isTrackworthyEntry);
+        const geometryEntries = stripInitialTrackWarmupRebounds(entries);
+        const valid = geometryEntries.filter(isTrackworthyEntry);
         // When a planned route is overlaid with a sailed voyage, playback and
         // statistics must describe the recorded voyage only. The drawing code
         // below still renders both groups independently.
@@ -233,7 +236,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             // Deepen Voyager's very pale water (the "Mary Poppins" wash) —
             // a saturation/brightness filter on the day base only.
             className: '',
-        }).addTo(map);
+        });
+        installLeafletTileSeamGuard(base);
+        base.addTo(map);
         baseTileRef.current = base;
 
         // OpenSeaMap seamark overlay — always on top of the base.
@@ -328,7 +333,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         const base = L.tileLayer(piCache.leafletTileTemplate(SATELLITE_BASE), {
             maxZoom: 19,
             className: '',
-        }).addTo(map);
+        });
+        installLeafletTileSeamGuard(base);
+        base.addTo(map);
         baseTileRef.current = base;
         if (seamarkTileRef.current) seamarkTileRef.current.bringToFront();
     }, [isOpen]);
@@ -382,7 +389,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         // Markers may come from any plausible entry (turn pins, manual
         // entries); polyline VERTICES only from trackworthy ones — pins
         // sit at past positions and bend the line backwards (zig-zag).
-        const validEntries = entries.filter((e) => isPlausibleTrackPoint(e.latitude, e.longitude));
+        const geometryEntries = stripInitialTrackWarmupRebounds(entries);
+        const validEntries = geometryEntries.filter((e) => isPlausibleTrackPoint(e.latitude, e.longitude));
         if (validEntries.length < 2) {
             if (displayedTrackCoordsRef.current.length > 0) hasFitBoundsRef.current = false;
             displayedTrackCoordsRef.current = [];

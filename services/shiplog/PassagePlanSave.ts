@@ -24,6 +24,17 @@ const log = createLogger('PassagePlanSave');
  */
 export const DUPLICATE_PASSAGE_PLAN_ERROR = 'DUPLICATE_PASSAGE_PLAN';
 
+export interface PassagePlanSaveLinks {
+    /** Canonical Route Tracer id. Omit for ordinary planner-only passages. */
+    savedRouteId?: string;
+}
+
+/** Exact ids of the two compatibility records created for a saved trace. */
+export interface PassagePlanSaveResult {
+    plannedRouteId: string;
+    passageVoyageId: string | null;
+}
+
 /** Normalise a name for case/whitespace-insensitive matching. */
 function normaliseName(s: string): string {
     return s.trim().toLowerCase();
@@ -204,8 +215,12 @@ async function queuePassageBatch(
  * planned-vs-sailed comparison, and recovery in Plan's Saved Routes library.
  * They are intentionally not presented as completed voyages in the Log.
  */
-export async function savePassagePlanToLogbook(inputPlan: import('../../types').VoyagePlan): Promise<string | null> {
+export async function savePassagePlanToLogbookWithLinks(
+    inputPlan: import('../../types').VoyagePlan,
+    options: PassagePlanSaveLinks = {},
+): Promise<PassagePlanSaveResult | null> {
     const operationScope = getAuthIdentityScope();
+    const savedRouteId = typeof options.savedRouteId === 'string' ? options.savedRouteId.trim() : '';
     // Callers retain and edit VoyagePlan objects. Snapshot every field before
     // the first await so a later UI edit cannot change what this operation
     // authenticates, de-duplicates, inserts, or queues.
@@ -381,6 +396,7 @@ export async function savePassagePlanToLogbook(inputPlan: import('../../types').
                 notes: firstNote,
                 isOnWater: true,
                 createdAt: now,
+                ...(savedRouteId ? { savedRouteId } : {}),
             });
         }
 
@@ -419,6 +435,7 @@ export async function savePassagePlanToLogbook(inputPlan: import('../../types').
                             crew_count: 1,
                             departure_time: departureTimeIso,
                             eta: etaIso,
+                            ...(savedRouteId ? { saved_route_id: savedRouteId } : {}),
                         });
                         if (!isAuthIdentityScopeCurrent(operationScope)) return null;
                         if (draft) {
@@ -539,7 +556,7 @@ export async function savePassagePlanToLogbook(inputPlan: import('../../types').
             /* non-critical */
         }
 
-        return voyageId;
+        return { plannedRouteId: voyageId, passageVoyageId: draftVoyageId };
     } catch (err) {
         // Surface the duplicate sentinel so callers can show the
         // "already exists for that day" toast. Other errors get the
@@ -550,4 +567,14 @@ export async function savePassagePlanToLogbook(inputPlan: import('../../types').
         log.error('savePassagePlanToLogbook error:', err);
         return null;
     }
+}
+
+/**
+ * Backward-compatible planner API. Existing callers only need the planned
+ * ship-log voyage id; Route Tracer uses the richer sibling above so deletion
+ * can clean the precise Passage Planning mirror too.
+ */
+export async function savePassagePlanToLogbook(inputPlan: import('../../types').VoyagePlan): Promise<string | null> {
+    const saved = await savePassagePlanToLogbookWithLinks(inputPlan);
+    return saved?.plannedRouteId ?? null;
 }

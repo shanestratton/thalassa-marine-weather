@@ -20,6 +20,7 @@ import type { WindGrid } from '../services/weather/windField';
 import type { ComfortParams } from '../types/settings';
 import type { IsochroneResult } from '../services/IsochroneRouter';
 import { fetchOpenMeteoPoints } from '../services/weather/openMeteoProxy';
+import { continuousEastForLongitudeRange, continuousLongitudeInGrid } from '../services/weather/windLongitude';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ConsensusMatrix');
@@ -182,7 +183,9 @@ function sampleWindGrid(
     if (!speedData || !uData || !vData) return null;
 
     const latIdx = ((lat - grid.south) / (grid.north - grid.south)) * (grid.height - 1);
-    const lonIdx = ((lon - grid.west) / (grid.east - grid.west)) * (grid.width - 1);
+    const gridEast = continuousEastForLongitudeRange(grid.west, grid.east);
+    const gridLon = continuousLongitudeInGrid(lon, grid.west, grid.east);
+    const lonIdx = ((gridLon - grid.west) / (gridEast - grid.west)) * (grid.width - 1);
     if (latIdx < 0 || latIdx >= grid.height || lonIdx < 0 || lonIdx >= grid.width) return null;
 
     const r0 = Math.floor(latIdx),

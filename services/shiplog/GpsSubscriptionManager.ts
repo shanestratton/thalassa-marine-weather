@@ -34,8 +34,14 @@ import { EnvironmentService } from '../EnvironmentService';
 import { NmeaGpsProvider } from '../NmeaGpsProvider';
 import { GpsPrecision } from './GpsPrecisionTracker';
 import type { GpsTrackBuffer } from './GpsTrackBuffer';
-import { haversineMeters } from './GpsTrackBuffer';
-import { getIntervalForSpeed, type SpeedTier } from './helpers';
+import { haversineMeters, headingDelta } from './GpsTrackBuffer';
+import {
+    getIntervalForSpeed,
+    NEARSHORE_INTERVAL_MS,
+    type LoggingZone,
+    type PlottingProfile,
+    type SpeedTier,
+} from './helpers';
 
 const log = createLogger('ShipLog.GpsSub');
 
@@ -52,6 +58,15 @@ const MAX_PLAUSIBLE_SPEED_KTS = 100;
 const GPS_WARMUP_MS = 5_000;
 const SPEED_TIER_DEBOUNCE = 3;
 const WEB_HEARTBEAT_MS = 60_000;
+// A held first fix must be corroborated promptly. Keeping it indefinitely
+// lets a stale cold-start point pair with a much later reading and become the
+// beginning of the voyage.
+const FIRST_FIX_MAX_GAP_MS = 15_000;
+// GPS accuracy is a radius, so two valid readings can legitimately differ by
+// roughly the sum of their radii. Add a small floor for normal receiver
+// noise, then allow actual travel implied by either reading's reported SOG.
+const FIRST_FIX_MIN_ENVELOPE_M = 25;
+const FIRST_FIX_ENVELOPE_PADDING_M = 10;
 
 // ── Cold-start accuracy ramp ────────────────────────────────────────
 // A freshly-woken GPS reports a large accuracy radius and the reported
@@ -71,12 +86,21 @@ const COLD_START_ACCURACY_M = 35;
 const EARLY_ACCURACY_M = 50;
 const COLD_START_WINDOW_MS = 30_000;
 const COLD_START_FALLBACK_MS = 60_000;
-// While the external/NMEA source has buffered a fix this recently, phone
-// GPS fixes are published for the UI but NOT buffered — two receivers
-// offset 10–50 m alternating into one polyline draw a sawtooth no
-// implied-speed cap can catch. Matches PositionResolver's NMEA-first
-// resolution order.
-const NMEA_PRIORITY_WINDOW_MS = 5_000;
+// A selected GPS source gets a short grace window before the other receiver
+// can take over. This prevents 10–50m phone/NMEA offsets from alternating
+// into a sawtooth, while still letting a 3-second nearshore policy fall back
+// to an available phone fix when an otherwise healthy chartplotter reports
+// only every 5–10 seconds. Coastal/offshore retain a 15-second maximum so a
+// truly silent selected receiver never blocks a live backup indefinitely.
+const SOURCE_FALLBACK_MAX_SILENCE_MS = 15_000;
+// Five minutes is a useful offshore storage baseline, but a single 5-minute
+// chord can hide a meaningful turn at speed. Keep a safety vertex when the
+// vessel has covered one nautical mile or made a material change of course.
+const OFFSHORE_MAX_SEGMENT_M = 1_852;
+const TURN_CAPTURE_DEGREES = 25;
+const TURN_CAPTURE_MIN_SPEED_MS = 0.5; // ≈1 kt
+
+type TrackSource = 'phone' | 'nmea';
 
 export interface GpsSubscriptionOptions {
     isNative: boolean;
@@ -97,12 +121,38 @@ export interface GpsSubscriptionOptions {
     getIntervalMs: () => number;
     /** ISO timestamp of last saved entry, or undefined if none yet. */
     getLastEntryTime: () => string | undefined;
+    /**
+     * Returns the active persisted-track detail profile for this exact GPS
+     * fix. It must be synchronous: the manager never blocks an incoming fix
+     * on a network lookup. Unknown geography should return the dense profile.
+     */
+    getPlottingProfile?: (pos: CachedPosition) => PlottingProfile;
+    /** Called after a retained vertex changes the active geographic profile. */
+    onPlottingProfileChanged?: (profile: PlottingProfile) => void;
+    /**
+     * Called after an accepted fix is actually retained as a plot vertex.
+     * The owner can durably flush it immediately; this prevents a point that
+     * lands just after a clock-aligned tick from sitting in memory for an
+     * entire 30-second or five-minute profile interval.
+     */
+    onPlotPointBuffered?: (pos: CachedPosition, profile: PlottingProfile) => void;
     /** Called for every incoming fix from any source. Orchestrator updates its `lastBgLocation` here. */
     onFix: (pos: CachedPosition) => void;
+    /**
+     * Called only after a fix passes the GPS acceptance gate. This stays live
+     * even when the plotting profile defers the vertex, making it the right
+     * feed for position-sensitive background work such as shore resolution.
+     */
+    onAcceptedFix?: (pos: CachedPosition) => void;
     /** Called when the debounced speed tier changes — orchestrator reschedules the interval. */
     onSpeedTierChanged: () => void;
     /** Called when the heartbeat detects a missed tick — orchestrator flushes the track. */
     onHeartbeatTick: () => void;
+    /**
+     * Called once the session has a vetted first track fix. The orchestrator
+     * uses this to leave its short high-frequency GPS acquisition mode.
+     */
+    onTrackOpened?: () => void;
 }
 
 export class GpsSubscriptionManager {
@@ -127,8 +177,24 @@ export class GpsSubscriptionManager {
      */
     private lastAcceptedFix: CachedPosition | null = null;
 
-    /** Epoch-ms of the last NMEA fix accepted into the buffer. */
-    private lastNmeaBufferedAt = 0;
+    /** Receiver currently contributing accepted positions to the voyage. */
+    private selectedTrackSource: TrackSource | null = null;
+
+    /** Epoch-ms of the last accepted external-GPS fix (whether or not it was retained). */
+    private lastNmeaAcceptedAt = 0;
+
+    /** Epoch-ms of the last accepted phone-GPS fix (whether or not it was retained). */
+    private lastPhoneAcceptedAt = 0;
+
+    /**
+     * Plot-point sampler memory. This deliberately survives buffer drains:
+     * a five-minute offshore profile must not reset to every raw fix just
+     * because the scheduler persisted the previous batch.
+     */
+    private lastBufferedAt = 0;
+    private lastBufferedFix: CachedPosition | null = null;
+    private lastBufferedZone: LoggingZone | null = null;
+    private activeOptions: GpsSubscriptionOptions | null = null;
 
     /**
      * First-fix consistency gate (phone path). The Layer-0 timestamp
@@ -143,6 +209,7 @@ export class GpsSubscriptionManager {
      */
     private pendingFirstFix: CachedPosition | null = null;
     private hasBufferedThisSession = false;
+    private trackOpenedNotified = false;
 
     // Speed-tier debounce state. `currentSpeedTier` is the committed tier;
     // `pendingSpeedTier` is the one we've seen recently but not committed
@@ -162,9 +229,16 @@ export class GpsSubscriptionManager {
         this.pendingSpeedTier = null;
         this.speedTierConfirmCount = 0;
         this.lastAcceptedFix = null;
-        this.lastNmeaBufferedAt = 0;
+        this.selectedTrackSource = null;
+        this.lastNmeaAcceptedAt = 0;
+        this.lastPhoneAcceptedAt = 0;
+        this.lastBufferedAt = 0;
+        this.lastBufferedFix = null;
+        this.lastBufferedZone = null;
+        this.activeOptions = opts;
         this.pendingFirstFix = null;
         this.hasBufferedThisSession = false;
+        this.trackOpenedNotified = false;
 
         const onAnyFix = (pos: CachedPosition) => this.handleIncomingFix(pos, opts);
 
@@ -180,7 +254,9 @@ export class GpsSubscriptionManager {
                         longitude: geoPos.coords.longitude,
                         accuracy: geoPos.coords.accuracy,
                         altitude: geoPos.coords.altitude,
-                        heading: geoPos.coords.heading ?? 0,
+                        // Heading is nullable in the browser API. Preserve
+                        // that distinction: a missing value is not north.
+                        heading: geoPos.coords.heading,
                         speed: geoPos.coords.speed ?? 0,
                         timestamp: geoPos.timestamp,
                         receivedAt: Date.now(),
@@ -217,14 +293,24 @@ export class GpsSubscriptionManager {
             // Apply the same fix-acceptance gate as phone GPS.
             // (Previously NMEA bypassed all filters — historical biggest
             // source of polyline hops when an external chartplotter glitched.)
-            if (opts.isActive() && this.acceptFix(cached, opts.trackBuffer)) {
-                opts.trackBuffer.push(cached);
+            if (
+                opts.isActive() &&
+                this.sourceCanContribute('nmea', cached, opts) &&
+                this.acceptFix(cached, opts.trackBuffer)
+            ) {
                 this.lastAcceptedFix = cached;
-                this.lastNmeaBufferedAt = Date.now();
-                // NMEA timestamps are arrival time — replay-proof, so the
-                // session counts as opened and any held phone fix is moot.
+                this.noteAcceptedSource('nmea');
+                opts.onAcceptedFix?.(cached);
+
+                // This externally sourced fix has cleared the same acceptance
+                // gate, so the session counts as opened and any held phone
+                // candidate is moot. Retain the opening point even when the
+                // current geographic cadence would otherwise defer it.
+                const opensTrack = !this.hasBufferedThisSession;
                 this.hasBufferedThisSession = true;
                 this.pendingFirstFix = null;
+                if (opensTrack) this.notifyTrackOpened(opts);
+                this.bufferPlotPoint(cached, opts, opensTrack);
             }
         });
         this.unsubscribers.push(unsubNmea);
@@ -275,6 +361,7 @@ export class GpsSubscriptionManager {
         this.unsubscribers = [];
         this.webWatchId = undefined;
         this.webHeartbeatId = undefined;
+        this.activeOptions = null;
     }
 
     /**
@@ -324,19 +411,20 @@ export class GpsSubscriptionManager {
         // collinearity). At driving speeds the collinearity filter
         // killed straight-road runs because three consecutive 10 m
         // points on a 1 km straight road ARE collinear within tolerance.
-        // The new model is 5 s cadence with raw retention — predictable
-        // at any speed, ~72 k fixes per 4-day passage which is fine
-        // (~3.5 MB stored). isPrecisionMode() is still called by callers
-        // but no longer changes ingest behaviour.
+        // Geographic plotting now retains safe, explicit vertices rather
+        // than applying a generic speed-based cadence. isPrecisionMode() is
+        // still called by callers but no longer changes ingest behaviour.
         //
-        // Single-source arbitration: while the NMEA source is live,
-        // phone fixes stay UI-only — interleaving two receivers into
-        // one polyline draws a sawtooth.
-        const nmeaIsLive = Date.now() - this.lastNmeaBufferedAt < NMEA_PRIORITY_WINDOW_MS;
-        if (opts.isActive() && !nmeaIsLive && this.acceptFix(pos, opts.trackBuffer)) {
+        // Single-source arbitration: do not interleave two receivers into
+        // one polyline. The selected source may yield after its profile-sized
+        // silence window, so a 5–10s NMEA feed cannot block an available
+        // 3-second nearshore phone fix forever.
+        if (opts.isActive() && this.sourceCanContribute('phone', pos, opts) && this.acceptFix(pos, opts.trackBuffer)) {
             if (this.hasBufferedThisSession) {
-                opts.trackBuffer.push(pos);
                 this.lastAcceptedFix = pos;
+                this.noteAcceptedSource('phone');
+                opts.onAcceptedFix?.(pos);
+                this.bufferPlotPoint(pos, opts);
             } else if (!this.pendingFirstFix) {
                 // First candidate of the session — hold it until a second
                 // fix corroborates (re-stamped engine-start replays pass
@@ -344,27 +432,49 @@ export class GpsSubscriptionManager {
                 // the fix that follows them).
                 this.pendingFirstFix = pos;
             } else {
-                const dtSec = Math.max((pos.timestamp - this.pendingFirstFix.timestamp) / 1000, 0.1);
-                const distM = haversineMeters(
-                    this.pendingFirstFix.latitude,
-                    this.pendingFirstFix.longitude,
-                    pos.latitude,
-                    pos.longitude,
-                );
+                const pending = this.pendingFirstFix;
+                const elapsedMs = pos.timestamp - pending.timestamp;
+                if (elapsedMs <= 0) {
+                    // A backwards/duplicate timestamp cannot be safely
+                    // replayed into a timestamp-sorted polyline. Keep the
+                    // original candidate and wait for a chronological fix.
+                    log.warn('GPS first-fix gate: ignoring non-monotonic corroborating timestamp');
+                    return;
+                }
+                if (elapsedMs > FIRST_FIX_MAX_GAP_MS) {
+                    // The held point is too old to prove a cold-start lock;
+                    // start a fresh, bounded confirmation window instead.
+                    this.pendingFirstFix = pos;
+                    return;
+                }
+
+                const dtSec = elapsedMs / 1000;
+                const distM = haversineMeters(pending.latitude, pending.longitude, pos.latitude, pos.longitude);
                 const impliedKts = (distM / dtSec) * MS_TO_KTS;
-                if (impliedKts <= MAX_PLAUSIBLE_SPEED_KTS * 1.5) {
-                    // Agreement — release both, in order.
-                    opts.trackBuffer.push(this.pendingFirstFix);
-                    opts.trackBuffer.push(pos);
+                const reportedTravelM = Math.max(0, pending.speed ?? 0, pos.speed ?? 0) * dtSec;
+                const accuracyEnvelopeM =
+                    Math.max(0, pending.accuracy ?? 0) + Math.max(0, pos.accuracy ?? 0) + FIRST_FIX_ENVELOPE_PADDING_M;
+                const maxCoherentDistanceM = Math.max(FIRST_FIX_MIN_ENVELOPE_M, reportedTravelM + accuracyEnvelopeM);
+
+                if (impliedKts <= MAX_PLAUSIBLE_SPEED_KTS * 1.5 && distM <= maxCoherentDistanceM) {
+                    // Agreement. The held point exists only to corroborate
+                    // the opening fix — never replay it into the saved track.
+                    // Releasing A+B used to let captureImmediate stamp a
+                    // Voyage Start from B then later replay A→B, producing the
+                    // very visible cold-start out-and-back spur.
                     this.lastAcceptedFix = pos;
+                    this.noteAcceptedSource('phone');
                     this.hasBufferedThisSession = true;
                     this.pendingFirstFix = null;
+                    opts.onAcceptedFix?.(pos);
+                    this.notifyTrackOpened(opts);
+                    this.bufferPlotPoint(pos, opts, true);
                 } else {
-                    // Teleport between the pair — the OLDER fix is the
-                    // suspect (stale replay); the newer one becomes the
-                    // held candidate.
+                    // Teleport/settling disagreement — the OLDER fix is the
+                    // suspect (stale replay); the newer one becomes the held
+                    // candidate and needs its own corroboration.
                     log.warn(
-                        `GPS first-fix gate: discarding held fix ${distM.toFixed(0)}m / ${impliedKts.toFixed(0)}kn from successor — stale-replay suspect`,
+                        `GPS first-fix gate: replacing held fix ${distM.toFixed(0)}m / ${impliedKts.toFixed(0)}kn from successor (coherence envelope ${maxCoherentDistanceM.toFixed(0)}m)`,
                     );
                     this.pendingFirstFix = pos;
                 }
@@ -375,6 +485,158 @@ export class GpsSubscriptionManager {
         if (pos.altitude !== null && pos.altitude !== undefined) {
             EnvironmentService.updateFromGPS({ altitude: pos.altitude });
         }
+    }
+
+    /** Notify the owner exactly once when a vetted initial fix opens the track. */
+    private notifyTrackOpened(opts: GpsSubscriptionOptions): void {
+        if (this.trackOpenedNotified) return;
+        this.trackOpenedNotified = true;
+        opts.onTrackOpened?.();
+    }
+
+    /**
+     * Keep one receiver on the track at a time, but do not allow its cadence
+     * to be slower than the active profile when a vetted backup is available.
+     * The profile resolver uses the candidate vessel coordinate, never the
+     * dashboard's selected weather location.
+     */
+    private sourceCanContribute(source: TrackSource, pos: CachedPosition, opts: GpsSubscriptionOptions): boolean {
+        if (!this.selectedTrackSource || this.selectedTrackSource === source) return true;
+
+        const selectedAt = this.selectedTrackSource === 'nmea' ? this.lastNmeaAcceptedAt : this.lastPhoneAcceptedAt;
+        const profile = this.resolvePlottingProfile(pos, opts);
+        const fallbackAfterMs = Math.min(
+            Math.max(profile.intervalMs, NEARSHORE_INTERVAL_MS),
+            SOURCE_FALLBACK_MAX_SILENCE_MS,
+        );
+        return Date.now() - selectedAt >= fallbackAfterMs;
+    }
+
+    /** Record an accepted-source handover only after the common GPS gate passes. */
+    private noteAcceptedSource(source: TrackSource): void {
+        this.selectedTrackSource = source;
+        if (source === 'nmea') this.lastNmeaAcceptedAt = Date.now();
+        else this.lastPhoneAcceptedAt = Date.now();
+    }
+
+    /**
+     * Preserve the latest accepted raw fix when a voyage stops. It closes the
+     * final leg even if that fix arrived just before the current zone cadence
+     * was due. Returns false when there is nothing newer than the last vertex.
+     */
+    bufferFinalPoint(): boolean {
+        const opts = this.activeOptions;
+        const pos = this.lastAcceptedFix;
+        if (!opts || !pos || !opts.isActive()) return false;
+        if (this.lastBufferedAt >= pos.timestamp) return false;
+        // Stopping owns the final flush synchronously. Do not let a last-metre
+        // zone transition re-arm the scheduler while stopTracking is draining.
+        return this.bufferPlotPoint(pos, opts, true, false, false);
+    }
+
+    /**
+     * Apply the per-fix plotting profile after a position clears the full GPS
+     * acceptance gate. GPS remains continuously observed; this only decides
+     * whether the fix becomes a persisted polyline vertex.
+     */
+    private bufferPlotPoint(
+        pos: CachedPosition,
+        opts: GpsSubscriptionOptions,
+        force = false,
+        notifyProfileChange = true,
+        notifyPointBuffered = true,
+    ): boolean {
+        const profile = this.resolvePlottingProfile(pos, opts);
+        const previous = this.lastBufferedFix;
+        const firstPoint = previous === null;
+        const zoneChanged = this.lastBufferedZone !== null && this.lastBufferedZone !== profile.zone;
+        const elapsedMs = firstPoint ? Number.POSITIVE_INFINITY : pos.timestamp - this.lastBufferedAt;
+
+        // Track entries must remain chronological. The first-fix gate already
+        // enforces this for its opening pair; later raw provider duplicates can
+        // still arrive out of order.
+        if (!firstPoint && elapsedMs <= 0) return false;
+
+        const dueByCadence = firstPoint || profile.intervalMs <= 0 || elapsedMs >= profile.intervalMs;
+        const preserveNavigationDetail = this.needsNavigationDetail(pos, profile);
+        if (!force && !zoneChanged && !dueByCadence && !preserveNavigationDetail) {
+            return false;
+        }
+
+        opts.trackBuffer.push(pos);
+        this.lastBufferedAt = pos.timestamp;
+        this.lastBufferedFix = pos;
+        const profileChanged = this.lastBufferedZone !== profile.zone;
+        this.lastBufferedZone = profile.zone;
+
+        if (profileChanged && notifyProfileChange) {
+            try {
+                opts.onPlottingProfileChanged?.(profile);
+            } catch (error) {
+                // A UI/state listener must never take down GPS intake.
+                log.warn('plotting-profile listener threw', error);
+            }
+        }
+        if (notifyPointBuffered) {
+            try {
+                opts.onPlotPointBuffered?.(pos, profile);
+            } catch (error) {
+                // Durability wake-ups are best effort; a listener failure
+                // must never interrupt GPS intake or lose this buffered point.
+                log.warn('plot-point listener threw', error);
+            }
+        }
+        return true;
+    }
+
+    /** Resolve a safe compatibility profile for callers not yet opting in. */
+    private resolvePlottingProfile(pos: CachedPosition, opts: GpsSubscriptionOptions): PlottingProfile {
+        try {
+            const profile = opts.getPlottingProfile?.(pos);
+            if (
+                profile &&
+                (profile.zone === 'nearshore' || profile.zone === 'coastal' || profile.zone === 'offshore') &&
+                Number.isFinite(profile.intervalMs) &&
+                profile.intervalMs >= 0
+            ) {
+                return profile;
+            }
+        } catch (error) {
+            // A resolver failure must retain the dense, backwards-compatible
+            // behaviour rather than silently reducing coastal detail.
+            log.warn('plotting-profile resolver threw; retaining 3-second nearshore cadence', error);
+        }
+        // Missing or failed geographic evidence is deliberately dense, but
+        // still honours the documented 3-second land/inshore policy rather
+        // than silently persisting every raw provider update.
+        return { zone: 'nearshore', intervalMs: NEARSHORE_INTERVAL_MS };
+    }
+
+    /** Extra vertices that protect offshore geometry between five-minute ticks. */
+    private needsNavigationDetail(pos: CachedPosition, profile: PlottingProfile): boolean {
+        const previous = this.lastBufferedFix;
+        if (!previous) return false;
+
+        // Nearshore and coastal have deliberately dense fixed cadences. Turn
+        // vertices are an offshore-only safeguard against hiding geometry in
+        // a five-minute chord; applying them here would silently make a
+        // manoeuvring coastal track much denser than its stated 30s policy.
+        if (profile.zone !== 'offshore') return false;
+
+        const speed = Math.max(0, pos.speed ?? 0, previous.speed ?? 0);
+        const previousHeading = previous.heading;
+        const currentHeading = pos.heading;
+        if (
+            speed >= TURN_CAPTURE_MIN_SPEED_MS &&
+            typeof previousHeading === 'number' &&
+            typeof currentHeading === 'number' &&
+            headingDelta(previousHeading, currentHeading) >= TURN_CAPTURE_DEGREES
+        ) {
+            return true;
+        }
+
+        const distanceM = haversineMeters(previous.latitude, previous.longitude, pos.latitude, pos.longitude);
+        return distanceM >= OFFSHORE_MAX_SEGMENT_M;
     }
 
     /**
@@ -433,8 +695,17 @@ export class GpsSubscriptionManager {
         // back to the session-persistent lastAcceptedFix: the buffer
         // empties on every flush drain, which used to exempt the first
         // fix after each tick from this check.)
-        const lastFix = trackBuffer.peek() ?? this.lastAcceptedFix;
+        const lastFix = this.lastAcceptedFix ?? trackBuffer.peek();
         if (lastFix) {
+            // Never let a provider replay an older or duplicate timestamp
+            // into the accepted stream. bufferPlotPoint() also protects the
+            // persisted polyline, but this earlier guard prevents an
+            // out-of-order fix from overwriting lastAcceptedFix, moving the
+            // shore resolver, or becoming the stop-time tail.
+            if (pos.timestamp <= lastFix.timestamp) {
+                log.warn('GPS rejected: non-monotonic accepted-fix timestamp');
+                return false;
+            }
             const dtSec = (pos.timestamp - lastFix.timestamp) / 1000;
             if (dtSec > 0.1) {
                 // Skip <100ms duplicate / same-tick fixes

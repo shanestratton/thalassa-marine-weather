@@ -31,10 +31,94 @@ export interface ComfortZoneResult {
     imageDataUrl: string;
     /** Map bounds: [west, south, east, north] */
     bounds: [number, number, number, number];
+    /**
+     * One or two Mapbox-safe image pieces. A passage grid can cross the Date
+     * Line, whereas one Mapbox image source may not; callers render these
+     * pieces instead of stretching a red glow across the whole world.
+     */
+    segments: ComfortZoneImageSegment[];
     /** Percentage of grid cells that breach comfort limits */
     dangerPercent: number;
     /** Max wind speed found in breach zones */
     maxBreachWindKts: number;
+}
+
+export interface ComfortZoneImageSegment {
+    sourceSuffix: '' | '_r';
+    imageDataUrl: string;
+    bounds: [number, number, number, number];
+}
+
+export interface ComfortZoneSegmentGeometry {
+    sourceSuffix: '' | '_r';
+    startColumn: number;
+    endColumn: number;
+    bounds: [number, number, number, number];
+}
+
+function canonicalWest(longitude: number): number {
+    const normalized = ((((longitude + 180) % 360) + 360) % 360) - 180;
+    return normalized === -180 && longitude > 0 ? 180 : normalized;
+}
+
+function mapLongitude(longitude: number, edge: 'west' | 'east'): number {
+    // Do not use canonicalWest here: it deliberately spells a positive 180°
+    // as +180 for the first segment. The companion image needs the opposite
+    // spelling (-180°) as its western edge or Mapbox treats it as wrapping
+    // back across the entire world.
+    const normalized = ((((longitude + 180) % 360) + 360) % 360) - 180;
+    if (Math.abs(normalized + 180) < 1e-6) return edge === 'east' ? 180 : -180;
+    return normalized;
+}
+
+/**
+ * Split an image grid at the International Date Line when required. Kept
+ * pure so the rendering path can be regression-tested without a canvas.
+ */
+export function buildComfortZoneSegmentGeometry(
+    bounds: [number, number, number, number],
+    columns: number,
+): ComfortZoneSegmentGeometry[] {
+    const [inputWest, south, inputEast, north] = bounds;
+    if (!Number.isFinite(columns) || columns < 2) return [];
+    let originalEast = inputEast;
+    while (originalEast <= inputWest) originalEast += 360;
+    const span = originalEast - inputWest;
+    if (!Number.isFinite(span) || span <= 0) return [];
+
+    const west = canonicalWest(inputWest);
+    const east = west + span;
+    const lastColumn = Math.floor(columns) - 1;
+    const global = span >= 359;
+    const crossesDateLine = !global && west < 180 && east > 180;
+    if (!global && !crossesDateLine) {
+        return [
+            {
+                sourceSuffix: '',
+                startColumn: 0,
+                endColumn: lastColumn,
+                bounds: [mapLongitude(west, 'west'), south, mapLongitude(east, 'east'), north],
+            },
+        ];
+    }
+
+    const seam = global ? (west < 0 ? 0 : 180) : 180;
+    const rawSplit = Math.round(((seam - west) / span) * lastColumn);
+    const splitColumn = Math.max(1, Math.min(lastColumn - 1, rawSplit));
+    return [
+        {
+            sourceSuffix: '',
+            startColumn: 0,
+            endColumn: splitColumn,
+            bounds: [mapLongitude(west, 'west'), south, mapLongitude(seam, 'east'), north],
+        },
+        {
+            sourceSuffix: '_r',
+            startColumn: splitColumn,
+            endColumn: lastColumn,
+            bounds: [mapLongitude(seam, 'west'), south, mapLongitude(east, 'east'), north],
+        },
+    ];
 }
 
 /**
@@ -153,9 +237,51 @@ export function generateComfortZoneOverlay(
         }
     }
 
+    const bounds: [number, number, number, number] = [grid.west, grid.south, grid.east, grid.north];
+    const imageDataUrl = canvas.toDataURL('image/png');
+    const geometry = buildComfortZoneSegmentGeometry(bounds, grid.width);
+    // Preserve the legacy single-image behaviour for a degenerate one-column
+    // grid. Normal passage grids always take the tested geometry path above.
+    const segmentsToRender =
+        geometry.length > 0
+            ? geometry
+            : [
+                  {
+                      sourceSuffix: '' as const,
+                      startColumn: 0,
+                      endColumn: Math.max(0, grid.width - 1),
+                      bounds,
+                  },
+              ];
+    const segments: ComfortZoneImageSegment[] = [];
+
+    for (const segment of segmentsToRender) {
+        const isFullImage = segment.startColumn === 0 && segment.endColumn === grid.width - 1;
+        let segmentImageDataUrl = imageDataUrl;
+        if (!isFullImage) {
+            const startX = segment.startColumn * SCALE;
+            const segmentWidth = (segment.endColumn - segment.startColumn + 1) * SCALE;
+            const slice = document.createElement('canvas');
+            slice.width = segmentWidth;
+            slice.height = canvasH;
+            const sliceContext = slice.getContext('2d');
+            if (!sliceContext) return null;
+            // The seam column intentionally belongs to both images. That
+            // avoids a transparent one-column crack at ±180°.
+            sliceContext.drawImage(canvas, startX, 0, segmentWidth, canvasH, 0, 0, segmentWidth, canvasH);
+            segmentImageDataUrl = slice.toDataURL('image/png');
+        }
+        segments.push({
+            sourceSuffix: segment.sourceSuffix,
+            imageDataUrl: segmentImageDataUrl,
+            bounds: segment.bounds,
+        });
+    }
+
     return {
-        imageDataUrl: canvas.toDataURL('image/png'),
-        bounds: [grid.west, grid.south, grid.east, grid.north],
+        imageDataUrl,
+        bounds,
+        segments,
         dangerPercent: Math.round((breachCount / totalCells) * 100),
         maxBreachWindKts: Math.round(maxBreachWindKts),
     };

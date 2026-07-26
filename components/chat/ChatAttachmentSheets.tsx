@@ -7,6 +7,7 @@ import { ChatMessage } from '../../services/ChatService';
 import { PinService, SavedPin } from '../../services/PinService';
 import { ShipLogEntry } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import type { PinSelectionSource } from '../../hooks/chat/usePinDrop';
 import { getStaticMapUrl } from './chatUtils';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
@@ -153,17 +154,34 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
 );
 ReportModal.displayName = 'ReportModal';
 
-// --- Pin Drop Sheet ---
+const formatCoordinates = (latitude: number, longitude: number): string =>
+    `${Math.abs(latitude).toFixed(4)}°${latitude < 0 ? 'S' : 'N'}, ${Math.abs(longitude).toFixed(4)}°${longitude < 0 ? 'W' : 'E'}`;
+
+const formatFixAge = (timestamp: number | null): string => {
+    if (!timestamp || !Number.isFinite(timestamp)) return 'Fresh GPS fix';
+    const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1_000));
+    if (seconds < 10) return 'Captured just now';
+    if (seconds < 60) return `Captured ${seconds}s ago`;
+    return `Captured ${Math.floor(seconds / 60)}m ago`;
+};
+
+// --- Current location sheet ---
 export interface PinDropSheetProps {
     pinLat: number;
     pinLng: number;
     pinCaption: string;
     setPinCaption: (v: string) => void;
-    setPinLat: (v: number) => void;
-    setPinLng: (v: number) => void;
     pinLoading: boolean;
-    savedPins: SavedPin[];
+    pinSource: PinSelectionSource;
+    pinAccuracy: number | null;
+    pinTimestamp: number | null;
+    locationError: string | null;
+    saveToMyPlaces: boolean;
+    setSaveToMyPlaces: (value: boolean) => void;
+    sending: boolean;
     onSendPin: () => void;
+    onRetryLocation: () => void;
+    onChoosePlace: () => void;
     onClose: () => void;
 }
 
@@ -173,129 +191,187 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
         pinLng,
         pinCaption,
         setPinCaption,
-        setPinLat,
-        setPinLng,
         pinLoading,
-        savedPins,
+        pinSource,
+        pinAccuracy,
+        pinTimestamp,
+        locationError,
+        saveToMyPlaces,
+        setSaveToMyPlaces,
+        sending,
         onSendPin,
+        onRetryLocation,
+        onChoosePlace,
         onClose,
-    }) => (
-        <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-white/80">Drop a Pin</h3>
-                <button
-                    onClick={onClose}
-                    className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
-                    aria-label="Close attachment sheet"
-                >
-                    ✕
-                </button>
-            </div>
-            {pinLoading ? (
-                <div className="flex items-center justify-center py-6">
-                    <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                    <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
+    }) => {
+        const canShare = pinSource === 'current' && Number.isFinite(pinLat) && Number.isFinite(pinLng);
+        return (
+            <section
+                role="region"
+                aria-label="Share my current location"
+                className="flex-shrink-0 border-t border-emerald-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+            >
+                <div className="flex items-start justify-between gap-4 mb-3">
+                    <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/70 mb-1">
+                            One-time share
+                        </p>
+                        <h3 className="text-base font-bold text-white/90">Share my location</h3>
+                        <p className="text-[11px] text-white/45 mt-1">
+                            Sends one GPS snapshot to this channel — never live tracking.
+                        </p>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        disabled={sending}
+                        className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center flex-shrink-0"
+                        aria-label="Close current location sheet"
+                    >
+                        ✕
+                    </button>
                 </div>
-            ) : (
-                <>
-                    {savedPins.length > 0 && (
-                        <div className="mb-2">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40 mb-1.5">
-                                Recent Pins
-                            </p>
-                            <div
-                                className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
-                                style={{ scrollbarWidth: 'none' }}
+                {pinLoading ? (
+                    <div
+                        className="flex items-center justify-center gap-3 py-8 rounded-2xl bg-white/[0.025] border border-white/[0.06]"
+                        aria-live="polite"
+                    >
+                        <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
+                        <span className="text-sm text-white/60">Finding a fresh GPS fix…</span>
+                    </div>
+                ) : locationError || !canShare ? (
+                    <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] p-4" role="alert">
+                        <div className="flex gap-3">
+                            <span className="w-9 h-9 rounded-xl bg-amber-400/10 flex items-center justify-center flex-shrink-0">
+                                ⌁
+                            </span>
+                            <div>
+                                <p className="text-sm font-semibold text-amber-100">Location unavailable</p>
+                                <p className="text-[11px] leading-relaxed text-amber-100/60 mt-1">
+                                    {locationError || 'A fresh GPS fix is needed before it can be shared.'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mt-4">
+                            <button
+                                type="button"
+                                onClick={onRetryLocation}
+                                className="min-h-[44px] rounded-xl bg-amber-300/10 border border-amber-200/20 text-xs font-bold text-amber-100 active:scale-[0.98] transition-transform"
                             >
-                                {savedPins.map((sp) => (
-                                    <button
-                                        aria-label="Pin drop location"
-                                        key={sp.id}
-                                        onClick={() => {
-                                            setPinLat(sp.latitude);
-                                            setPinLng(sp.longitude);
-                                            setPinCaption(sp.caption);
-                                        }}
-                                        className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-all active:scale-95"
+                                Try again
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onChoosePlace}
+                                className="min-h-[44px] rounded-xl bg-white/[0.05] border border-white/[0.09] text-xs font-bold text-white/75 active:scale-[0.98] transition-transform"
+                            >
+                                Drop a place
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2.5 mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-7 h-7 rounded-lg bg-emerald-300/15 text-emerald-200 flex items-center justify-center">
+                                    ●
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold text-emerald-100">Current GPS fix</p>
+                                    <p className="text-[10px] text-emerald-100/60 mt-0.5">
+                                        {formatFixAge(pinTimestamp)}
+                                    </p>
+                                </div>
+                            </div>
+                            {pinAccuracy != null && Number.isFinite(pinAccuracy) && (
+                                <span className="text-[10px] font-semibold text-emerald-100/75 whitespace-nowrap">
+                                    ±{Math.round(pinAccuracy)} m
+                                </span>
+                            )}
+                        </div>
+                        <div className="relative w-full h-[136px] rounded-2xl overflow-hidden border border-white/[0.1] mb-2">
+                            <SafeImage
+                                src={getStaticMapUrl(pinLat, pinLng)}
+                                alt="Map preview of your current location"
+                                className="w-full h-full object-cover"
+                                loading="eager"
+                            />
+                            {/* Pin marker overlay — centered on the map */}
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="relative -mt-5">
+                                    <svg
+                                        width="24"
+                                        height="32"
+                                        viewBox="0 0 24 32"
+                                        fill="none"
+                                        xmlns="http://www.w3.org/2000/svg"
                                     >
-                                        <span className="text-sm">📍</span>
-                                        <div className="text-left">
-                                            <p className="text-xs text-white/60 font-medium truncate max-w-[140px]">
-                                                {sp.caption}
-                                            </p>
-                                            <p className="text-[11px] text-white/60 tabular-nums">
-                                                {PinService.formatCoords(sp.latitude, sp.longitude)}
-                                            </p>
-                                        </div>
-                                    </button>
-                                ))}
+                                        <path
+                                            d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20c0-6.627-5.373-12-12-12z"
+                                            fill="#ef4444"
+                                        />
+                                        <circle cx="12" cy="12" r="5" fill="white" />
+                                    </svg>
+                                    {/* Drop shadow beneath pin */}
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-1 rounded-full bg-black/40 blur-[2px]" />
+                                </div>
                             </div>
                         </div>
-                    )}
-                    <div className="relative w-full h-[120px] rounded-xl overflow-hidden border border-white/[0.08] mb-2">
-                        <SafeImage
-                            src={getStaticMapUrl(pinLat, pinLng)}
-                            alt="Pin location"
-                            className="w-full h-full object-cover"
-                            loading="eager"
-                        />
-                        {/* Pin marker overlay — centered on the map */}
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="relative -mt-5">
-                                <svg
-                                    width="24"
-                                    height="32"
-                                    viewBox="0 0 24 32"
-                                    fill="none"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <path
-                                        d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20c0-6.627-5.373-12-12-12z"
-                                        fill="#ef4444"
-                                    />
-                                    <circle cx="12" cy="12" r="5" fill="white" />
-                                </svg>
-                                {/* Drop shadow beneath pin */}
-                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-1 rounded-full bg-black/40 blur-[2px]" />
-                            </div>
+                        <p className="text-[11px] text-white/45 mb-3 text-center tabular-nums">
+                            📍 {formatCoordinates(pinLat, pinLng)}
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <input
+                                id="current-location-note"
+                                type="text"
+                                value={pinCaption}
+                                onChange={(e) => setPinCaption(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && canShare && !sending && onSendPin()}
+                                placeholder="Add a note (optional)"
+                                aria-label="Location note"
+                                className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-400/40 transition-colors min-h-[46px]"
+                                maxLength={120}
+                            />
+                            <button
+                                type="button"
+                                aria-label="Share current location"
+                                onClick={onSendPin}
+                                disabled={!canShare || sending}
+                                className="px-4 min-h-[46px] rounded-xl bg-emerald-400/20 border border-emerald-300/20 hover:bg-emerald-400/30 disabled:opacity-40 text-sm text-emerald-50 font-bold transition-all active:scale-95 whitespace-nowrap"
+                            >
+                                {sending ? 'Sharing…' : 'Share'}
+                            </button>
                         </div>
-                    </div>
-                    <p className="text-[11px] text-white/40 mb-2 text-center tabular-nums">
-                        📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°
-                        {pinLng < 0 ? 'W' : 'E'}
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="text"
-                            value={pinCaption}
-                            onChange={(e) => setPinCaption(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && onSendPin()}
-                            placeholder="What's here? (e.g. Great anchorage)"
-                            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
-                            maxLength={120}
-                        />
-                        <button
-                            aria-label="Send attachment"
-                            onClick={onSendPin}
-                            className="px-4 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
-                        >
-                            Drop
-                        </button>
-                    </div>
-                </>
-            )}
-        </div>
-    ),
+                        <label className="flex items-center gap-2.5 mt-3 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={saveToMyPlaces}
+                                onChange={(event) => setSaveToMyPlaces(event.target.checked)}
+                                className="w-4 h-4 accent-emerald-400"
+                            />
+                            <span className="text-[11px] text-white/50">Save this in My Places too</span>
+                        </label>
+                    </>
+                )}
+            </section>
+        );
+    },
 );
 PinDropSheet.displayName = 'PinDropSheet';
 
-// --- POI Picker Sheet ---
+// --- Place picker sheet ---
 export interface PoiPickerSheetProps {
     pinLat: number;
     pinLng: number;
     pinCaption: string;
     setPinCaption: (v: string) => void;
     pinLoading: boolean;
+    pinSource: PinSelectionSource;
+    locationError: string | null;
+    savedPins: SavedPin[];
+    onSelectSavedPin: (pin: SavedPin) => void;
+    saveToMyPlaces: boolean;
+    setSaveToMyPlaces: (value: boolean) => void;
+    sending: boolean;
     poiMapRef: React.RefObject<HTMLDivElement>;
     onSendPoi: () => void;
     onClose: () => void;
@@ -314,6 +390,13 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
         pinCaption,
         setPinCaption,
         pinLoading,
+        pinSource,
+        locationError,
+        savedPins,
+        onSelectSavedPin,
+        saveToMyPlaces,
+        setSaveToMyPlaces,
+        sending,
         poiMapRef,
         onSendPoi,
         onClose,
@@ -327,47 +410,104 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
             if (!q || !onSearch) return;
             onSearch(q);
         };
+        const hasSelection = pinSource !== null && Number.isFinite(pinLat) && Number.isFinite(pinLng);
         return (
-            <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[68vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-bold text-white/80">Drop a POI</h3>
+            <section
+                role="region"
+                aria-label="Drop a pin"
+                className="flex-shrink-0 border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 max-h-[68vh] overflow-y-auto shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+            >
+                <div className="flex items-start justify-between gap-4 mb-3">
+                    <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-300/70 mb-1">
+                            Share a place
+                        </p>
+                        <h3 className="text-base font-bold text-white/90">Drop a pin</h3>
+                        <p className="text-[11px] text-white/45 mt-1">
+                            Search, tap the chart, or drag the pin to the exact spot.
+                        </p>
+                    </div>
                     <button
                         onClick={onClose}
-                        className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
-                        aria-label="Close attachment sheet"
+                        disabled={sending}
+                        className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center flex-shrink-0"
+                        aria-label="Close place picker"
                     >
                         ✕
                     </button>
                 </div>
                 {pinLoading ? (
-                    <div className="flex items-center justify-center py-6">
+                    <div
+                        className="flex items-center justify-center gap-3 py-8 rounded-2xl bg-white/[0.025] border border-white/[0.06]"
+                        aria-live="polite"
+                    >
                         <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                        <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
+                        <span className="text-sm text-white/60">Preparing the chart…</span>
                     </div>
                 ) : (
                     <>
+                        {locationError && (
+                            <p
+                                className="rounded-xl border border-amber-400/15 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-100/70 mb-3"
+                                role="status"
+                            >
+                                {locationError}
+                            </p>
+                        )}
                         {/* Search bar — type a place name (chandlery, customs
                             office, suburb) and we pan the map there. Much
                             faster than dragging the marker to a far spot. */}
                         {onSearch && (
-                            <div className="flex items-center gap-2 mb-2">
+                            <div className="flex items-center gap-2 mb-3">
                                 <input
                                     type="text"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                    placeholder="Search a place… (e.g. Whitworths Chandlery)"
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                    placeholder="Search a place or marina…"
+                                    aria-label="Search for a place"
+                                    className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
                                 />
                                 <button
                                     type="button"
                                     onClick={handleSearch}
                                     disabled={searching}
                                     aria-label="Search for a place"
-                                    className="px-3 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-white/80 disabled:opacity-50"
+                                    className="min-w-[46px] min-h-[46px] rounded-xl bg-sky-500/20 border border-sky-300/15 hover:bg-sky-500/30 text-white/80 disabled:opacity-50"
                                 >
                                     {searching ? '…' : '🔎'}
                                 </button>
+                            </div>
+                        )}
+                        {savedPins.length > 0 && (
+                            <div className="mb-3">
+                                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/35 mb-1.5">
+                                    Recent places
+                                </p>
+                                <div
+                                    className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
+                                    style={{ scrollbarWidth: 'none' }}
+                                >
+                                    {savedPins.map((savedPin) => (
+                                        <button
+                                            type="button"
+                                            key={savedPin.id}
+                                            onClick={() => onSelectSavedPin(savedPin)}
+                                            aria-label={`Use saved place ${savedPin.caption}`}
+                                            className="flex-shrink-0 max-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] active:scale-[0.98] transition-all text-left min-h-[44px]"
+                                        >
+                                            <span className="text-sm">📌</span>
+                                            <span className="min-w-0">
+                                                <span className="block truncate text-xs font-semibold text-white/75">
+                                                    {savedPin.caption}
+                                                </span>
+                                                <span className="block truncate text-[10px] text-white/40 tabular-nums">
+                                                    {PinService.formatCoords(savedPin.latitude, savedPin.longitude)}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                         {/* Bigger map for easier tap/drag targeting. Was
@@ -376,7 +516,8 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                             across a marina. */}
                         <div
                             ref={poiMapRef as React.RefObject<HTMLDivElement>}
-                            className="relative w-full h-[320px] rounded-xl overflow-hidden border border-white/[0.08] mb-2"
+                            aria-label="Interactive chart picker"
+                            className="relative w-full h-[320px] rounded-2xl overflow-hidden border border-white/[0.1] mb-3"
                         >
                             {/* Floating "snap to my location" button —
                                 overlays the map so the user always has a
@@ -386,39 +527,64 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                 <button
                                     type="button"
                                     onClick={onRecenterToMyLocation}
-                                    aria-label="Recenter to my location"
-                                    className="absolute bottom-3 right-3 z-10 w-10 h-10 rounded-full bg-slate-900/90 border border-white/15 backdrop-blur active:scale-90 transition-transform flex items-center justify-center shadow-lg"
+                                    aria-label="Use my current location for this pin"
+                                    className="absolute bottom-3 right-3 z-10 min-h-[42px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
                                 >
-                                    <span className="text-base">📍</span>
+                                    <span>📍</span>
+                                    <span>My location</span>
                                 </button>
                             )}
                         </div>
-                        <p className="text-[11px] text-white/40 mb-2 text-center tabular-nums">
-                            📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°
-                            {pinLng < 0 ? 'W' : 'E'}
-                            <span className="ml-2 text-white/40">· Tap or drag to set</span>
-                        </p>
+                        <div
+                            className={`rounded-xl border px-3 py-2.5 mb-3 ${hasSelection ? 'border-sky-300/15 bg-sky-400/[0.05]' : 'border-white/[0.07] bg-white/[0.025]'}`}
+                            aria-live="polite"
+                        >
+                            <p className="text-[11px] font-semibold text-white/70">
+                                {hasSelection
+                                    ? pinSource === 'current'
+                                        ? 'Current location selected'
+                                        : 'Pinned place selected'
+                                    : 'Choose a place on the chart'}
+                            </p>
+                            <p className="text-[10px] text-white/40 mt-0.5 tabular-nums">
+                                {hasSelection
+                                    ? `📍 ${formatCoordinates(pinLat, pinLng)}`
+                                    : 'Search above, tap the chart, or drag a pin.'}
+                            </p>
+                        </div>
                         <div className="flex items-center gap-2">
                             <input
                                 type="text"
                                 value={pinCaption}
                                 onChange={(e) => setPinCaption(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && onSendPoi()}
-                                placeholder="Describe this spot..."
-                                className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                onKeyDown={(e) => e.key === 'Enter' && hasSelection && !sending && onSendPoi()}
+                                placeholder="Name or note (optional)"
+                                aria-label="Place name or note"
+                                className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
                                 maxLength={120}
                             />
                             <button
-                                aria-label="Send attachment"
+                                type="button"
+                                aria-label="Share pin"
                                 onClick={onSendPoi}
-                                className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                                disabled={!hasSelection || sending}
+                                className="px-4 min-h-[46px] rounded-xl bg-sky-500/20 border border-sky-300/20 hover:bg-sky-500/30 disabled:opacity-40 text-sm text-sky-50 font-bold transition-all active:scale-95 whitespace-nowrap"
                             >
-                                Share
+                                {sending ? 'Sharing…' : 'Share pin'}
                             </button>
                         </div>
+                        <label className="flex items-center gap-2.5 mt-3 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={saveToMyPlaces}
+                                onChange={(event) => setSaveToMyPlaces(event.target.checked)}
+                                className="w-4 h-4 accent-sky-400"
+                            />
+                            <span className="text-[11px] text-white/50">Save this in My Places too</span>
+                        </label>
                     </>
                 )}
-            </div>
+            </section>
         );
     },
 );

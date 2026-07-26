@@ -22,10 +22,10 @@ import {
     BOAT_FEATURES,
 } from '../../services/MarketplaceService';
 import { BgGeoManager } from '../../services/BgGeoManager';
-import { Capacitor } from '@capacitor/core';
 import { haversineNm, getConditionColor, MAX_PHOTOS } from './helpers';
 import { sanitizeText, validateListingTitle, validatePrice, validateDescription } from '../../utils/inputValidation';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
 
@@ -56,66 +56,9 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [locationWarning, setLocationWarning] = useState<string | null>(null);
     const autoFilledLocRef = useRef<{ lat: number; lon: number } | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
-    const scrollRef = useRef<HTMLDivElement>(null);
     const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
-    // ── Keyboard height detection — same pattern as DiaryPage/AuthModal ──
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
-    useEffect(() => {
-        if (!isOpen) {
-            setKeyboardHeight(0);
-            return;
-        }
-        let cleanup: (() => void) | undefined;
-
-        if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        // Scroll focused input into view WITHIN the scroll container only
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            const container = scrollRef.current;
-                            if (!focused || !container) return;
-                            if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
-                            // Calculate position of focused element relative to scroll container
-                            const focusRect = focused.getBoundingClientRect();
-                            const containerRect = container.getBoundingClientRect();
-                            const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
-                            // Scroll so the input sits roughly 1/3 from the top of the container
-                            const targetScroll = offsetInContainer - containerRect.height * 0.3;
-                            container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
-                        }, 50);
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        setKeyboardHeight(0);
-                    });
-                    cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin not available */
-                });
-        } else {
-            const vp = window.visualViewport;
-            if (vp) {
-                const handleResize = () => {
-                    const kbHeight = window.innerHeight - vp.height;
-                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
-                };
-                vp.addEventListener('resize', handleResize);
-                cleanup = () => vp.removeEventListener('resize', handleResize);
-            }
-        }
-
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, [isOpen]);
+    const keyboardHeight = useKeyboardOffset(isOpen);
 
     // ── Boat-specific state ──
     const [boatMake, setBoatMake] = useState('');
@@ -423,7 +366,6 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div
-                    ref={scrollRef}
                     className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5"
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     style={{ paddingBottom: scrollPadBottom, WebkitOverflowScrolling: 'touch' as any }}

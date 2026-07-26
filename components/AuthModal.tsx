@@ -4,8 +4,8 @@ import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/createLogger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
-import { Capacitor } from '@capacitor/core';
 import { OverlayPortal, type OverlayLayer } from './ui/OverlayPortal';
+import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -33,7 +33,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [resendCooldown, setResendCooldown] = useState(0);
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const keyboardHeight = useKeyboardOffset(isOpen);
     const otpInputRef = useRef<HTMLInputElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
 
@@ -45,7 +45,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
             setOtp('');
             setError(null);
             setResendCooldown(0);
-            setKeyboardHeight(0);
         }
     }, [isOpen]);
 
@@ -64,55 +63,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
             otpInputRef.current.focus();
         }
     }, [step]);
-
-    // ── Keyboard avoidance — same pattern as DiaryPage ──
-    // Uses Capacitor Keyboard plugin on native, visualViewport on web
-    useEffect(() => {
-        if (!isOpen) return;
-        let cleanup: (() => void) | undefined;
-
-        if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard')
-                .then(({ Keyboard }) => {
-                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                        // Scroll focused input into view immediately
-                        setTimeout(() => {
-                            const focused = document.activeElement as HTMLElement;
-                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
-                        }, 50);
-                    });
-                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                        setKeyboardHeight(0);
-                    });
-                    cleanup = () => {
-                        showHandle.then((h) => h.remove());
-                        hideHandle.then((h) => h.remove());
-                    };
-                })
-                .catch(() => {
-                    /* Keyboard plugin not available */
-                });
-        } else {
-            // Web fallback: visualViewport
-            const vp = window.visualViewport;
-            if (vp) {
-                const handleResize = () => {
-                    const kbHeight = window.innerHeight - vp.height;
-                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
-                };
-                vp.addEventListener('resize', handleResize);
-                cleanup = () => vp.removeEventListener('resize', handleResize);
-            }
-        }
-
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, [isOpen]);
 
     const focusTrapRef = useFocusTrap(isOpen, { onEscape: onClose });
 

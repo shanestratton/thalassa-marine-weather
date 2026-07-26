@@ -176,6 +176,11 @@ function plan(name: string, withCoordinates = false): VoyagePlan {
     };
 }
 
+function localTodayDate(): string {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
 async function primeRouteForm(result: { current: ReturnType<typeof useVoyageForm> }) {
     act(() => {
         result.current.setOrigin('Account A origin');
@@ -209,6 +214,18 @@ afterEach(() => {
 });
 
 describe('useVoyageForm identity ownership', () => {
+    it('clamps a past departure date to today before it reaches the form', async () => {
+        const rendered = renderHook(() => useVoyageForm(vi.fn()));
+
+        await act(async () => {
+            await rendered.result.current.handleDateChange('2000-01-01');
+        });
+
+        expect(rendered.result.current.departureDate).toBe(localTodayDate());
+        expect(rendered.result.current.minDate).toBe(localTodayDate());
+        rendered.unmount();
+    });
+
     it('drops a delayed calculation from A and synchronously blanks A form state for B', async () => {
         const pending = deferred<VoyagePlan>();
         mocks.computeVoyagePlan.mockReturnValueOnce(pending.promise);

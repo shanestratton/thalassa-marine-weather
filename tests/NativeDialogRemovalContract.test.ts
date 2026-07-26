@@ -18,11 +18,14 @@ describe('native browser dialog removal contract', () => {
         expect(source(path)).not.toMatch(/\b(?:window\.)?(?:confirm|prompt|alert)\s*\(/);
     });
 
-    it('uses app confirmation dialogs with duplicate-action and identity fences', () => {
+    it('uses app-owned destructive-action flows and identity fences', () => {
         const crew = source('components/CrewManagement.tsx');
-        expect(crew).toContain('<ConfirmDialog');
-        expect(crew).toContain('clearPassagesInFlight.current');
-        expect(crew).toContain('scopeStillOwnsPage(request.scope)');
+        // Saved routes are now removed one at a time from their dedicated
+        // library, rather than offering a risky bulk-clear action here.
+        expect(crew).not.toContain('Clear all saved passages');
+        expect(crew).toContain('Type DISBAND to confirm');
+        expect(crew).toContain("disbandConfirmText !== 'DISBAND'");
+        expect(crew).toContain('scopeStillOwnsPage(scope)');
 
         const vessel = source('components/VesselHub.tsx');
         expect(vessel).toContain('<ConfirmDialog');

@@ -34,4 +34,7 @@ CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
     // TTS
     CAP_PLUGIN_METHOD(playTtsAudio, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(cancelTtsAudio, CAPPluginReturnPromise);
+    // Calypso microphone-session handoff
+    CAP_PLUGIN_METHOD(prepareVoiceInput, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(releaseVoiceInput, CAPPluginReturnPromise);
 )

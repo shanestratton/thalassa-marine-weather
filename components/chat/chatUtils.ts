@@ -65,14 +65,38 @@ export function getStaticMapUrl(lat: number, lng: number, zoom = 13, w = 300, h 
 export const PIN_PREFIX = '📍PIN:';
 export const TRACK_PREFIX = '🗺️TRACK:';
 
+export type PinShareKind = 'current' | 'place' | 'pin';
+
+export function getPinShareKind(caption: string): PinShareKind {
+    if (/^\[LOC\]\s*/.test(caption)) return 'current';
+    if (/^\[POI\]\s*/.test(caption)) return 'place';
+    return 'pin';
+}
+
+/** Removes private transport tags before text is shown or exported. */
+export function cleanPinShareCaption(caption: string): string {
+    return caption.replace(/^\[(LOC|POI)\]\s*/i, '').trim();
+}
+
 export function parsePinMessage(msg: string): { lat: number; lng: number; caption: string } | null {
     if (!msg.startsWith(PIN_PREFIX)) return null;
     const rest = msg.slice(PIN_PREFIX.length);
     const [coords, ...captionParts] = rest.split('|');
     const [latStr, lngStr] = coords.split(',');
-    const lat = parseFloat(latStr);
-    const lng = parseFloat(lngStr);
-    if (isNaN(lat) || isNaN(lng)) return null;
+    const lat = Number(latStr);
+    const lng = Number(lngStr);
+    if (
+        !latStr?.trim() ||
+        !lngStr?.trim() ||
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng) ||
+        lat < -90 ||
+        lat > 90 ||
+        lng < -180 ||
+        lng > 180
+    ) {
+        return null;
+    }
     return { lat, lng, caption: captionParts.join('|').trim() };
 }
 
@@ -87,11 +111,12 @@ export function parseTrackMessage(msg: string): { trackId: string; title: string
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export async function exportPinAsGPX(lat: number, lng: number, caption: string): Promise<void> {
-    const safeName = caption.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'pin';
+    const userCaption = cleanPinShareCaption(caption);
+    const safeName = userCaption.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'pin';
     const now = new Date().toISOString();
     // safeName is already alphanumeric, but caption is user-controlled —
     // an unescaped `&` or `<` breaks the GPX for every consumer.
-    const safeDesc = escapeXml(caption);
+    const safeDesc = escapeXml(userCaption);
 
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Thalassa Marine Weather"

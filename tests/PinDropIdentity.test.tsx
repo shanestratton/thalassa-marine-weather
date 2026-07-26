@@ -65,7 +65,6 @@ const renderPinDrop = (
         usePinDrop({
             activeChannel,
             setMessages,
-            setMessageText: vi.fn(),
             messageEndRef: { current: null },
         }),
     );
@@ -95,9 +94,14 @@ describe('usePinDrop identity isolation', () => {
                 created_at: string;
             }[]
         >();
-        const position = deferred<{ latitude: number; longitude: number }>();
+        const position = deferred<{
+            latitude: number;
+            longitude: number;
+            accuracy: number;
+            timestamp: number;
+        } | null>();
         mocks.getMyPins.mockReturnValue(pins.promise);
-        mocks.getFreshPosition.mockReturnValue(position.promise);
+        mocks.getCurrentPosition.mockReturnValue(position.promise);
         const { result } = renderPinDrop();
 
         let pending!: Promise<void>;
@@ -123,7 +127,7 @@ describe('usePinDrop identity isolation', () => {
                 created_at: '2026-01-01T00:00:00.000Z',
             },
         ]);
-        position.resolve({ latitude: -27, longitude: 153 });
+        position.resolve({ latitude: -27, longitude: 153, accuracy: 8, timestamp: Date.now() });
         await act(async () => {
             await pending;
             await pins.promise;
@@ -143,6 +147,7 @@ describe('usePinDrop identity isolation', () => {
             result.current.setPinLat(-27);
             result.current.setPinLng(153);
             result.current.setPinCaption('Account A secret');
+            result.current.setSaveToMyPlaces(true);
         });
 
         let pending!: Promise<void>;
@@ -178,10 +183,10 @@ describe('usePinDrop identity isolation', () => {
         expect(result.current.showPinSheet).toBe(true);
         expect(result.current.pinCaption).toBe('Safe anchorage');
         expect(mocks.savePin).not.toHaveBeenCalled();
-        expect(mocks.toastError).toHaveBeenCalledWith("Pin wasn't sent. Its caption has been restored.");
+        expect(mocks.toastError).toHaveBeenCalledWith("Location wasn't sent. Your note is still here.");
     });
 
-    it('keeps a durably queued pin visible and saves it to the pin library', async () => {
+    it('keeps a durably queued current-location share visible and saves it when requested', async () => {
         mocks.sendMessage.mockResolvedValueOnce('queued');
         const setMessagesMock = vi.fn();
         const setMessages = setMessagesMock as React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -190,6 +195,7 @@ describe('usePinDrop identity isolation', () => {
             result.current.setPinLat(-27);
             result.current.setPinLng(153);
             result.current.setPinCaption('Safe anchorage');
+            result.current.setSaveToMyPlaces(true);
         });
 
         await act(() => result.current.sendPin());
@@ -202,6 +208,67 @@ describe('usePinDrop identity isolation', () => {
         expect(mocks.savePin).toHaveBeenCalledWith(
             expect.objectContaining({ latitude: -27, longitude: 153, caption: 'Safe anchorage' }),
         );
-        expect(mocks.toastInfo).toHaveBeenCalledWith('Pin queued — it will send when the connection returns.');
+        expect(mocks.toastInfo).toHaveBeenCalledWith('Location queued — it will send when the connection returns.');
+    });
+
+    it('never substitutes a city when a fresh GPS fix cannot be obtained', async () => {
+        const { result } = renderPinDrop();
+
+        await act(() => result.current.openPinDrop());
+
+        expect(result.current.pinLat).toBe(0);
+        expect(result.current.pinLng).toBe(0);
+        expect(result.current.pinSource).toBeNull();
+        expect(result.current.locationError).toMatch(/fresh GPS fix/i);
+        expect(result.current.pinLoading).toBe(false);
+    });
+
+    it('rejects a stale GPS fix instead of labelling it as current', async () => {
+        mocks.getCurrentPosition.mockResolvedValueOnce({
+            latitude: -27.4698,
+            longitude: 153.0251,
+            accuracy: 12,
+            timestamp: Date.now() - 61_000,
+        });
+        const { result } = renderPinDrop();
+
+        await act(() => result.current.openPinDrop());
+
+        expect(result.current.pinSource).toBeNull();
+        expect(result.current.pinLat).toBe(0);
+        expect(result.current.locationError).toMatch(/fresh GPS fix/i);
+    });
+
+    it('opens the chart picker when GPS lookup rejects instead of leaving its loader stuck', async () => {
+        mocks.getCurrentPosition.mockRejectedValueOnce(new Error('GPS permission denied'));
+        const { result } = renderPinDrop();
+
+        await act(() => result.current.openPoiPicker());
+
+        expect(result.current.showPoiSheet).toBe(true);
+        expect(result.current.pinLoading).toBe(false);
+        expect(result.current.pinSource).toBeNull();
+        expect(result.current.locationError).toMatch(/fresh GPS fix/i);
+    });
+
+    it('locks a location share while its first send is in flight', async () => {
+        const sent = deferred<void>();
+        mocks.sendMessage.mockReturnValue(sent.promise);
+        const { result } = renderPinDrop();
+        act(() => {
+            result.current.setPinLat(-27);
+            result.current.setPinLng(153);
+        });
+
+        let firstSend!: Promise<void>;
+        act(() => {
+            firstSend = result.current.sendPin();
+            void result.current.sendPin();
+        });
+        await vi.waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledOnce());
+
+        sent.resolve();
+        await act(async () => firstSend);
+        expect(mocks.sendMessage).toHaveBeenCalledOnce();
     });
 });

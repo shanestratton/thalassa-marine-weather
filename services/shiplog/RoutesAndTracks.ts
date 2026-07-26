@@ -76,6 +76,18 @@ export interface RouteOrTrack {
      * either way; pickers should HIDE 'land' and keep the rest.
      */
     kind: 'sea' | 'land' | 'unknown';
+    /**
+     * The durable `voyages.id` this planned-route log group belongs to.
+     *
+     * PassagePlanSave stamps this onto every row after it creates the
+     * planning record. Keeping the link with the recovered geometry lets
+     * Passage Planning choose the exact route for a voyage, rather than
+     * guessing from a potentially duplicated "A → B" label.
+     * Undefined for old/unlinked plans and normal sailed tracks.
+     */
+    linkedPlanId?: string;
+    /** Canonical Route Tracer id, when this planned route is its mirror. */
+    savedRouteId?: string;
 }
 
 export interface RoutesAndTracksResult {
@@ -308,7 +320,42 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
         // Planned routes are sea by construction (PassagePlanSave stamps
         // isOnWater: true); sailed groups earn their verdict.
         const kind = isPlanned(id) ? ('sea' as const) : classifyTrackKind(sorted);
-        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm, durationHours, isLocal, kind });
+        // A group must resolve to exactly one planning row. Treat conflicting
+        // legacy/corrupt links as unlinked rather than letting one passage
+        // inherit another passage's geometry.
+        const linkedPlanIds = new Set(
+            sorted
+                .map((entry) => entry.linkedPlanId)
+                .filter(
+                    (linkedPlanId): linkedPlanId is string =>
+                        typeof linkedPlanId === 'string' && linkedPlanId.length > 0,
+                ),
+        );
+        const linkedPlanId = linkedPlanIds.size === 1 ? Array.from(linkedPlanIds)[0] : undefined;
+        const savedRouteIds = new Set(
+            sorted
+                .map((entry) => entry.savedRouteId)
+                .filter(
+                    (savedRouteId): savedRouteId is string =>
+                        typeof savedRouteId === 'string' && savedRouteId.length > 0,
+                ),
+        );
+        // A mixed/corrupt group must not borrow another trace's authority.
+        const savedRouteId = savedRouteIds.size === 1 ? Array.from(savedRouteIds)[0] : undefined;
+        items.push({
+            id,
+            label,
+            sublabel,
+            points,
+            bbox,
+            timestamp: ts,
+            distanceNm,
+            durationHours,
+            isLocal,
+            kind,
+            linkedPlanId,
+            savedRouteId,
+        });
     }
 
     // Most recent first.

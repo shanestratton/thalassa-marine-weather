@@ -445,6 +445,7 @@ export const NAV_LAYER_IDS = [
     'isochrone-fan-layer',
     'isochrone-time-labels',
     'comfort-zone-layer',
+    'comfort-zone-layer_r',
     'route-glow',
     'route-line-layer',
     'route-harbour-dash',

@@ -96,6 +96,7 @@ import {
     syncDepareBaseTreatment as encSyncDepareBaseTreatment,
     setEncTideOffset,
     setEncPopupSuppression,
+    setEncDepthPopupEnabled,
     encHasClickableFeatureAt,
     encSuppressNextClickPopup,
     setEncDraftAssumed,
@@ -111,6 +112,7 @@ import {
     type TideOffsetRead,
 } from '../../services/TideOffsetService';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
+import { useBuoyageDirectionLayer } from './useBuoyageDirectionLayer';
 import {
     submitTracedRoute,
     communityLanesNear,
@@ -139,6 +141,8 @@ import {
     tideWindowLabelFor,
     loadSavedTraces,
     saveTrace,
+    linkTraceToPassage,
+    attachSavedTraceTombstoneLinks,
     deleteTrace,
     tracePinBlocked,
     snapTraceTapToWater,
@@ -205,6 +209,7 @@ import {
     distMetres,
     fitTraceBounds,
     legCacheKey,
+    isBasemapHybridDuplicateLabelLayer,
     msToLocalInput,
 } from './mapHubHelpers';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
@@ -1640,6 +1645,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         setOverwriteArm(null);
         triggerHaptic('medium');
+        const saveScope = getAuthIdentityScope();
         const { trace, persisted, cloud } = saveTrace(finalName, capturedCoords, {
             ...(existing ? { overwriteId: existing.id } : {}),
             ...(anchor
@@ -1698,7 +1704,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // no-ops instead of twins.
             void (async () => {
                 try {
-                    const [{ savePassagePlanToLogbook }, { withDeadline }] = await Promise.all([
+                    const [{ savePassagePlanToLogbookWithLinks }, { withDeadline }] = await Promise.all([
                         import('../../services/shiplog/PassagePlanSave'),
                         import('../../utils/deadline'),
                     ]);
@@ -1709,9 +1715,37 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ? legVerdicts.map((v) => v!.grade)
                             : undefined,
                     );
-                    await withDeadline(savePassagePlanToLogbook(plan), 25_000, 'trace save → logbook');
+                    const mirrorSave = savePassagePlanToLogbookWithLinks(plan, { savedRouteId: trace.id });
+                    const reconcileMirror = async (saved: Awaited<typeof mirrorSave>): Promise<void> => {
+                        if (!isAuthIdentityScopeCurrent(saveScope) || !saved) return;
+                        // The mirror has now returned immutable ids. Attach
+                        // them to the canonical trace so deleting it can
+                        // remove only its own Log + Passage Planning
+                        // counterparts.
+                        const linked = linkTraceToPassage(trace.id, saved, saveScope);
+                        if (linked) return;
+                        // Delete can win while this background write is in
+                        // flight. Persist the late ids on the delete fence
+                        // before cleaning the mirror. If this cleanup is
+                        // offline, saved-route sync can retry the *exact*
+                        // graph later instead of leaving a Passage Planning
+                        // ghost.
+                        attachSavedTraceTombstoneLinks(trace.id, saved, saveScope);
+                        const { deleteSavedRoutePassageGraph } = await import('../../services/savedRouteGraph');
+                        await deleteSavedRoutePassageGraph(trace.id, saved, saveScope);
+                    };
+                    try {
+                        await reconcileMirror(await withDeadline(mirrorSave, 25_000, 'trace save → logbook'));
+                    } catch (error) {
+                        // Capacitor's native request can finish after the JS
+                        // deadline. It must still reconcile (or clean itself
+                        // up if the trace was deleted) when it eventually
+                        // lands.
+                        void mirrorSave.then(reconcileMirror).catch(() => {});
+                        throw error;
+                    }
                     const { invalidateRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
-                    invalidateRoutesAndTracks();
+                    invalidateRoutesAndTracks(saveScope);
                 } catch (err) {
                     const { DUPLICATE_PASSAGE_PLAN_ERROR } = await import('../../services/shiplog/PassagePlanSave');
                     if (!(err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR)) {
@@ -3144,10 +3178,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // ran it every pass — a needless serialize + GC hit on every
                 // styledata tick. Refreshed only if a (rare) heal actually
                 // moves a layer, keeping the order honest for the 2nd block.
-                let orderIds = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                let styleLayers = map.getStyle()?.layers ?? [];
+                let orderIds = styleLayers.map((layer) => layer.id);
                 let encBottom = orderIds.find((id) => id.startsWith('enc-vec-'));
                 const refreshOrder = () => {
-                    orderIds = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                    styleLayers = map.getStyle()?.layers ?? [];
+                    orderIds = styleLayers.map((layer) => layer.id);
                     encBottom = orderIds.find((id) => id.startsWith('enc-vec-'));
                 };
                 // Hybrid base rides the same conditional-write rules as
@@ -3175,11 +3211,40 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 // PLACE NAMES OVER THE IMAGERY (Shane 2026-07-22: "we just
                 // need more place names on the land, so we know where we
-                // are"). The base style's settlement labels are added at
-                // style load, BEFORE the imagery raster — and the raster is
-                // opaque, so every town name was simply painted over. The
-                // ordering pass above only ever pushed imagery below the ENC
-                // stack; nothing raised the labels.
+                // are"). Raw satellite needs the dark base style's settlement
+                // labels raised above the imagery — it has no text of its own.
+                //
+                // Hybrid is different: satellite-streets raster tiles already
+                // contain city / town / airport / POI names. Raising the same
+                // vector symbols created the doubled city labels seen on OBS.
+                // Hide just those *base-style* symbols for hybrid; route, AIS,
+                // waypoint and ENC labels remain untouched. Restore them for
+                // raw satellite and the normal vector map, where they are the
+                // one useful set of place names.
+                // Use the map's actual state rather than React intent alone.
+                // A style reload can briefly leave the Hybrid layer absent or
+                // hidden; during that interval the vector labels are the only
+                // useful names and must stay visible. The next styledata pass
+                // hides them as soon as the labelled Hybrid raster is live.
+                const hybridRasterVisible =
+                    !!map.getLayer('hybrid-base-layer') &&
+                    ((map.getLayoutProperty('hybrid-base-layer', 'visibility') as string | undefined) ?? 'visible') !==
+                        'none';
+                const duplicateHybridLabels = styleLayers.filter(isBasemapHybridDuplicateLabelLayer);
+                const desiredBaseLabelVisibility = hybridRasterVisible ? 'none' : 'visible';
+                for (const layer of duplicateHybridLabels) {
+                    if (setVis(layer.id, desiredBaseLabelVisibility)) changed = true;
+                }
+
+                // Once raw satellite is active, lift the base labels above its
+                // opaque raster. Hybrid deliberately skips the lift because its
+                // baked labels are the authoritative, single set.
+                //
+                // The base style's settlement labels are added at style load,
+                // BEFORE the imagery raster — and the raster is opaque, so
+                // every town name was simply painted over. The ordering pass
+                // above only ever pushed imagery below the ENC stack; nothing
+                // raised the labels.
                 //
                 // Lift them above whichever imagery layer is on. Deliberately
                 // NOT to the very top: the ENC stack stays above, so marks,
@@ -3192,20 +3257,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                 const litImagery = ['hybrid-base-layer', 'satellite-base-layer'].filter(
                     (id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none',
                 );
-                if (litImagery.length > 0) {
+                if (litImagery.length > 0 && !hybridRasterVisible) {
                     const imageryIdx = Math.max(...litImagery.map((id) => orderIds.indexOf(id)));
-                    // Settlement labels only. Country/state are minimalLabels'
-                    // business, and enc-* must never be reordered from here.
+                    // Country/state are minimalLabels' business, and app-owned
+                    // sources must never be reordered from here.
                     // Decide every move against ONE order snapshot, then apply:
                     // refreshing mid-loop would leave imageryIdx pointing at the
                     // wrong row and make the decisions drift.
-                    const buried = orderIds.filter(
-                        (id, idx) =>
-                            idx < imageryIdx &&
-                            !id.startsWith('enc-') &&
-                            /settlement|place.?label|poi.?label|airport.?label|City|Town|Village/i.test(id) &&
-                            map.getLayer(id)?.type === 'symbol',
-                    );
+                    const buried = styleLayers
+                        .filter(
+                            (layer) =>
+                                orderIds.indexOf(layer.id) < imageryIdx && isBasemapHybridDuplicateLabelLayer(layer),
+                        )
+                        .map((layer) => layer.id);
                     // In original order, each anchored before encBottom, so the
                     // style's own label priority survives the lift.
                     for (const id of buried) map.moveLayer(id, encBottom);
@@ -3549,13 +3613,19 @@ export const MapHub: React.FC<MapHubProps> = ({
     // its info without closing the tracer"). Placement is the LONG PRESS now,
     // so a tap is free to inspect — the old suppression dated from tap-to-
     // place. Picker + weather-inspect still own taps outright (they place /
-    // sample), so they keep suppressing. Per-map flag.
+    // sample), so they keep suppressing. The depth/keel verdict itself is
+    // strictly Plan-owned: OBS keeps mark/safety inspection but never turns a
+    // background tap into a passage-planning depth box. Per-map flags.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
         setEncPopupSuppression(map, pickerMode || browseWeatherInspectMode);
-        return () => setEncPopupSuppression(map, false);
-    }, [pickerMode, browseWeatherInspectMode, mapReady]);
+        setEncDepthPopupEnabled(map, cleanPlanningMap);
+        return () => {
+            setEncPopupSuppression(map, false);
+            setEncDepthPopupEnabled(map, true);
+        };
+    }, [pickerMode, browseWeatherInspectMode, cleanPlanningMap, mapReady]);
     // Picker mode pauses the ENC cloud-hydration walk. Panning the
     // location picker from home water to an un-synced coast (SE QLD →
     // GBR: 74 cells / 95 MB, none on-device) otherwise downloads
@@ -4957,6 +5027,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // has to MOUNT while the tracer is up, or the plotting keel floor has no
     // layers to raise and the plot surface loses its depth read entirely.
     useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM, encHazardDepthM, coordCaptureMode);
+    // Planning-only chart furniture: a few chart-backed direction-of-buoyage
+    // arrows at numbered laterals. OBS stays uncluttered, and a picker must
+    // remain a pure location-selection surface.
+    useBuoyageDirectionLayer(mapRef, mapReady, cleanPlanningMap && !pickerMode);
     // Tracer WYSIWYG (Shane 2026-07-09 "show markers, leads, laterals
     // and cardinals"): while tracing, every mark the grader checks
     // must be ON SCREEN — laterals, cardinals, specials, lights and
@@ -5376,7 +5450,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
-                        particlesEnabled={weather.windParticlesEnabled}
                         windHour={weather.windHour}
                         windGrid={weather.windState.grid ?? undefined}
                     />

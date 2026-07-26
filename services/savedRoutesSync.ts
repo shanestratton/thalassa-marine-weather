@@ -10,7 +10,16 @@
  * an offline overwrite must beat the stale account copy, not revert to it.
  */
 import { supabase, isSupabaseConfigured } from './supabase';
-import { loadSavedTraces, type SavedTrace, type TracePoint } from './routeTracer';
+import {
+    capSavedTracesPreservingTrips,
+    clearSyncedSavedTraceTombstones,
+    getSavedTraceTombstones,
+    loadSavedTraces,
+    notifySavedRoutesChanged,
+    repairOrphanedSavedTraceChains,
+    type SavedTrace,
+    type TracePoint,
+} from './routeTracer';
 import { createLogger } from '../utils/createLogger';
 import {
     authScopedStorageKey,
@@ -22,11 +31,19 @@ import {
 const log = createLogger('savedRoutesSync');
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validPassageVoyageId(value: unknown): value is string {
+    return typeof value === 'string' && UUID_RE.test(value.trim());
+}
 
 function writeLocal(all: SavedTrace[], scope: AuthIdentityScope): void {
     if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
-        localStorage.setItem(authScopedStorageKey(TRACES_KEY, scope), JSON.stringify(all.slice(0, 50)));
+        localStorage.setItem(
+            authScopedStorageKey(TRACES_KEY, scope),
+            JSON.stringify(capSavedTracesPreservingTrips(all)),
+        );
     } catch {
         /* quota — local set unchanged */
     }
@@ -73,6 +90,14 @@ export async function pushSavedRoute(
         points: trace.points.map((p) => [p.lat, p.lon]),
         created_at: trace.createdAt,
         updated_at: trace.updatedAt ?? new Date().toISOString(),
+        trip_id: trace.tripId ?? null,
+        leg_ordinal: trace.legOrdinal ?? null,
+        dest_name: trace.destName ?? null,
+        planned_route_id: trace.plannedRouteId ?? null,
+        // The migration deliberately uses UUID for the actual voyages.id.
+        // Older local caches may hold an arbitrary string, which must not
+        // make the entire canonical route upsert fail.
+        passage_voyage_id: validPassageVoyageId(trace.passageVoyageId) ? trace.passageVoyageId.trim() : null,
         deleted: false,
     });
     if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
@@ -87,6 +112,7 @@ export async function pushSavedRoute(
 export async function pushSavedRouteDelete(
     id: string,
     scope: AuthIdentityScope = getAuthIdentityScope(),
+    deletedAt = new Date().toISOString(),
 ): Promise<void> {
     if (!scope.userId || !isAuthIdentityScopeCurrent(scope) || !(await signedIn(scope))) return;
     const { error } = await supabase!.from('saved_routes').upsert({
@@ -98,7 +124,7 @@ export async function pushSavedRouteDelete(
             [0, 0],
         ],
         deleted: true,
-        updated_at: new Date().toISOString(),
+        updated_at: deletedAt,
     });
     if (!isAuthIdentityScopeCurrent(scope)) return;
     if (error) log.warn(`delete push failed for ${id}: ${error.message}`);
@@ -112,6 +138,7 @@ export async function pushSavedRouteDelete(
 export async function syncSavedRoutes(): Promise<SavedTrace[]> {
     const scope = getAuthIdentityScope();
     const local = loadSavedTraces(scope);
+    const localTombstones = getSavedTraceTombstones(scope);
     if (!scope.userId) return local;
     if (!(await signedIn(scope))) {
         return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();
@@ -119,20 +146,34 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
     try {
         const { data, error } = await supabase!
             .from('saved_routes')
-            .select('id, name, points, created_at, updated_at, deleted')
+            .select(
+                'id, name, points, created_at, updated_at, deleted, trip_id, leg_ordinal, dest_name, planned_route_id, passage_voyage_id',
+            )
             .order('updated_at', { ascending: false })
             .limit(100);
         if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
         if (error) throw new Error(error.message);
         const rows = data ?? [];
         const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
+        const allDeletedIds = new Set([...deletedIds, ...Object.keys(localTombstones)]);
         const remote: SavedTrace[] = rows
-            .filter((r) => !r.deleted && Array.isArray(r.points))
+            .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
             .map((r) => ({
                 id: r.id as string,
                 name: r.name as string,
                 createdAt: (r.created_at as string) ?? new Date().toISOString(),
                 ...(r.updated_at ? { updatedAt: r.updated_at as string } : {}),
+                ...(typeof r.trip_id === 'string' && r.trip_id ? { tripId: r.trip_id } : {}),
+                ...(typeof r.leg_ordinal === 'number' && Number.isInteger(r.leg_ordinal) && r.leg_ordinal > 0
+                    ? { legOrdinal: r.leg_ordinal }
+                    : {}),
+                ...(typeof r.dest_name === 'string' && r.dest_name ? { destName: r.dest_name } : {}),
+                ...(typeof r.planned_route_id === 'string' && r.planned_route_id
+                    ? { plannedRouteId: r.planned_route_id }
+                    : {}),
+                ...(typeof r.passage_voyage_id === 'string' && r.passage_voyage_id
+                    ? { passageVoyageId: r.passage_voyage_id }
+                    : {}),
                 points: (r.points as [number, number][])
                     .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
                     .map(([lat, lon]) => ({ lat, lon }) as TracePoint),
@@ -140,22 +181,53 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             .filter((t) => t.points.length >= 2);
         const remoteById = new Map(remote.map((t) => [t.id, t]));
         const stamp = (t: SavedTrace): number => new Date(t.updatedAt ?? t.createdAt).getTime();
-        const localOnly = local.filter((t) => !remoteById.has(t.id) && !deletedIds.has(t.id));
+        const localOnly = local.filter((t) => !remoteById.has(t.id) && !allDeletedIds.has(t.id));
         // Local overwrites that haven't reached the account yet (offline
         // save): same id, newer stamp — keep the local copy and push it up,
         // or this merge would silently revert the punter's edit.
         const localNewer = local.filter((t) => {
             const r = remoteById.get(t.id);
-            return !!r && stamp(t) > stamp(r);
+            return !!r && !allDeletedIds.has(t.id) && stamp(t) > stamp(r);
         });
         // Catch the account up with offline saves, best-effort.
         for (const t of [...localOnly, ...localNewer]) void pushSavedRoute(t, scope);
+        // A local deletion must win over an in-flight older cloud save. Keep
+        // retrying its tombstone until a later pull actually observes it.
+        for (const [id, tombstone] of Object.entries(localTombstones)) {
+            if (!deletedIds.has(id)) void pushSavedRouteDelete(id, scope, tombstone.deletedAt);
+            // An offline delete may have been able to tombstone the canonical
+            // trace before its Log/Passage mirrors were reachable. Retry the
+            // exact graph cleanup whenever sync regains an authenticated
+            // connection, even after the canonical tombstone is acknowledged.
+            void import('./savedRouteGraph')
+                .then(({ deleteSavedRoutePassageGraph }) => deleteSavedRoutePassageGraph(id, tombstone, scope))
+                .catch(() => {});
+        }
         const localWins = new Set(localNewer.map((t) => t.id));
         const merged = [...localOnly, ...localNewer, ...remote.filter((t) => !localWins.has(t.id))].sort(
             (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
-        writeLocal(merged, scope);
-        return isAuthIdentityScopeCurrent(scope) ? merged : loadSavedTraces();
+        const repaired = repairOrphanedSavedTraceChains(merged, new Date().toISOString());
+        // A repair is a real structural update, not merely a display label.
+        // Publish every promoted leg so the next device cannot recreate the
+        // old missing-root chain on its next pull.
+        for (const trace of repaired.changed) void pushSavedRoute(trace, scope);
+        writeLocal(repaired.traces, scope);
+        // Server tombstones are durable acknowledgement of our local fence.
+        // Do not clear fences merely because a live row disappeared from a
+        // paged result — only an explicit deleted row is safe confirmation.
+        // Tombstones carrying graph links stay as a tiny retry ledger until a
+        // deliberate re-save replaces the id. Plain trace deletes can compact
+        // as soon as Supabase has acknowledged their tombstone.
+        clearSyncedSavedTraceTombstones(
+            [...deletedIds].filter((id) => {
+                const tombstone = localTombstones[id];
+                return !tombstone?.plannedRouteId && !tombstone?.passageVoyageId;
+            }),
+            scope,
+        );
+        if (isAuthIdentityScopeCurrent(scope)) notifySavedRoutesChanged(scope);
+        return isAuthIdentityScopeCurrent(scope) ? repaired.traces : loadSavedTraces();
     } catch (err) {
         log.warn(`sync failed: ${err instanceof Error ? err.message : String(err)}`);
         return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();

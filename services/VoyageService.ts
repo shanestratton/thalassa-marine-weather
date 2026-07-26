@@ -37,6 +37,8 @@ export interface Voyage {
     updated_at: string;
     /** Server timestamp for the immutable Cast Off crew snapshot. */
     manifest_locked_at?: string | null;
+    /** Canonical Route Tracer record that created this planning row. */
+    saved_route_id?: string | null;
 }
 
 // ── Local state (for offline access) ──────────────────────────────────────
@@ -85,7 +87,8 @@ function isVoyage(value: unknown): value is Voyage {
         isNullableString(voyage.notes) &&
         typeof voyage.created_at === 'string' &&
         typeof voyage.updated_at === 'string' &&
-        (voyage.manifest_locked_at === undefined || isNullableString(voyage.manifest_locked_at))
+        (voyage.manifest_locked_at === undefined || isNullableString(voyage.manifest_locked_at)) &&
+        (voyage.saved_route_id === undefined || isNullableString(voyage.saved_route_id))
     );
 }
 
@@ -159,6 +162,34 @@ function readDraftVoyageCache(scope: AuthIdentityScope = getAuthIdentityScope())
  */
 export function getCachedDraftVoyages(): Voyage[] {
     return readDraftVoyageCache();
+}
+
+/**
+ * Remove an owned planning row from the local fast-path cache. Networked
+ * graph deletion still removes the database row; this small helper stops an
+ * offline delete from repainting a just-removed saved route in Passage
+ * Planning while the durable retry catches up.
+ */
+export function removeCachedDraftVoyageById(
+    voyageId: string,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+    expectedSavedRouteId?: string,
+): boolean {
+    const id = voyageId.trim();
+    if (!id || !isAuthIdentityScopeCurrent(scope)) return false;
+    const drafts = readDraftVoyageCache(scope);
+    const ownsExpectedRoute = (voyage: Voyage): boolean =>
+        !expectedSavedRouteId || voyage.saved_route_id === expectedSavedRouteId;
+    if (!drafts.some((voyage) => voyage.id === id && ownsExpectedRoute(voyage))) return false;
+    try {
+        writeDraftVoyageCache(
+            drafts.filter((voyage) => voyage.id !== id || !ownsExpectedRoute(voyage)),
+            scope,
+        );
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function writeDraftVoyageCache(voyages: Voyage[], scope: AuthIdentityScope = getAuthIdentityScope()): void {
@@ -279,6 +310,7 @@ export async function createVoyage(
         vessel_id?: string;
         departure_time?: string | null;
         eta?: string | null;
+        saved_route_id?: string | null;
     },
 ): Promise<{ voyage: Voyage | null; error?: string }> {
     if (!supabase) return { voyage: null, error: 'Offline — no Supabase connection' };
@@ -300,6 +332,7 @@ export async function createVoyage(
         ...(data.vessel_id !== undefined ? { vessel_id: data.vessel_id } : {}),
         ...(data.departure_time !== undefined ? { departure_time: data.departure_time } : {}),
         ...(data.eta !== undefined ? { eta: data.eta } : {}),
+        ...(data.saved_route_id !== undefined ? { saved_route_id: data.saved_route_id } : {}),
         user_id: user.id,
         weather_master_id: user.id,
         status: 'planning' as const,
@@ -568,6 +601,28 @@ export async function deleteDraftVoyagesByNameAndDay(name: string, dayKey: strin
     }
 
     return deletedIds.length;
+}
+
+/**
+ * Remove exactly one *planning* voyage. This is the safe graph-delete path
+ * for a saved trace: a route may have been Cast Off after it was saved, and
+ * deleting its chart copy must never erase that active operational record.
+ */
+export async function deleteDraftVoyageById(voyageId: string, expectedSavedRouteId?: string): Promise<boolean> {
+    const id = voyageId.trim();
+    if (!id || !supabase) return false;
+    const identity = getAuthIdentityScope();
+    if (!identity.userId || !(await revalidateAuth(identity, identity.userId))) return false;
+    const ownerId = identity.userId;
+    let request = supabase.from('voyages').delete().eq('id', id).eq('user_id', ownerId).eq('status', 'planning');
+    if (expectedSavedRouteId) request = request.eq('saved_route_id', expectedSavedRouteId);
+    const { data, error } = await request.select('id, user_id, status').maybeSingle();
+    if (error || !identityStillOwns(identity, ownerId)) return false;
+    if (data !== null && (!data || data.id !== id || data.user_id !== ownerId || data.status !== 'planning')) {
+        return false;
+    }
+    removeCachedDraftVoyageById(id, identity, expectedSavedRouteId);
+    return true;
 }
 
 /** Get all draft (planning) voyages for the current user */

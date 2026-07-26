@@ -108,6 +108,21 @@ describe('AdaptiveScheduler', () => {
         });
     });
 
+    describe('isScheduled', () => {
+        it('counts a pending clock-alignment timeout as an armed schedule', () => {
+            vi.setSystemTime(new Date('2026-05-02T06:00:30Z'));
+            scheduler.scheduleClockAligned(60_000, () => {});
+            expect(scheduler.isRunning()).toBe(false);
+            expect(scheduler.isScheduled()).toBe(true);
+        });
+
+        it('is false after stop()', () => {
+            scheduler.scheduleClockAligned(60_000, () => {});
+            scheduler.stop();
+            expect(scheduler.isScheduled()).toBe(false);
+        });
+    });
+
     describe('stop', () => {
         it('halts both pending alignment timeout and recurring interval', () => {
             vi.setSystemTime(new Date('2026-05-02T06:00:30Z'));

@@ -35,7 +35,8 @@ vi.mock('../components/chat/CaptainsTable', () => ({
 }));
 
 import { MealCalendar } from '../components/chat/MealCalendar';
-import { getStoresAvailability } from '../services/MealPlanService';
+import { getStoresAvailability, scheduleMeal } from '../services/MealPlanService';
+import { searchRecipes } from '../services/GalleyRecipeService';
 import { addManualItem, getShoppingList } from '../services/ShoppingListService';
 
 describe('MealCalendar', () => {
@@ -116,6 +117,40 @@ describe('MealCalendar', () => {
         expect(screen.getByLabelText(/Add Brekky meal/)).toBeDefined();
         expect(screen.getByLabelText(/Add Lunch meal/)).toBeDefined();
         expect(screen.getByLabelText(/Add Dinner meal/)).toBeDefined();
+    });
+
+    it('saves a popular meal as a simple planned meal without searching for a recipe', async () => {
+        const mealDays = {
+            dates: ['2026-03-27'],
+            emergencyDates: new Set<string>(),
+            passageDays: 1,
+            emergencyDays: 0,
+            totalDays: 1,
+        };
+        render(<MealCalendar {...baseProps} mealDays={mealDays} />);
+
+        fireEvent.click(screen.getByRole('button', { name: /Add Dinner meal/ }));
+        fireEvent.change(screen.getByRole('combobox', { name: 'Pick a popular recipe' }), {
+            target: { value: 'Pad Thai' },
+        });
+
+        await waitFor(() =>
+            expect(scheduleMeal).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Pad Thai',
+                    ingredients: [],
+                    isSimpleMeal: true,
+                    servings: 4,
+                }),
+                '2026-03-27',
+                'dinner',
+                'v1',
+                4,
+                'owner-1',
+            ),
+        );
+        expect(searchRecipes).not.toHaveBeenCalled();
+        expect(baseProps.onMealsChanged).toHaveBeenCalledTimes(1);
     });
 
     it('contains the recipe picker and restores focus after Escape', () => {

@@ -797,33 +797,39 @@ const App: React.FC = () => {
                                                                     </p>
                                                                 </div>
                                                             </div>
-                                                        ) : !weatherData ? (
-                                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
-                                                                <ProcessOverlay
-                                                                    message={loadingMessage || 'Loading Marine Data...'}
-                                                                />
+                                                        ) : !weatherData && !loading ? (
+                                                            <div
+                                                                className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center"
+                                                                role="status"
+                                                            >
+                                                                <p className="max-w-sm text-sm text-slate-400">
+                                                                    Weather data is not available yet. Please choose a
+                                                                    location or try again shortly.
+                                                                </p>
                                                             </div>
                                                         ) : (
-                                                            <Dashboard
-                                                                onOpenMap={() => {
-                                                                    mapFromWxRef.current = true;
-                                                                    setMapPickerActive(true);
-                                                                    setPage('map');
-                                                                }}
-                                                                onTriggerUpgrade={() => setIsUpgradeOpen(true)}
-                                                                displayTitle={displayTitle}
-                                                                timeZone={weatherData?.timeZone}
-                                                                utcOffset={weatherData?.utcOffset}
-                                                                timeDisplaySetting={settings.timeDisplay}
-                                                                onToggleFavorite={toggleFavorite}
-                                                                favorites={settings.savedLocations}
-                                                                isRefreshing={loading}
-                                                                isNightMode={effectiveMode === 'night'}
-                                                                isMobileLandscape={isMobileLandscape}
-                                                                viewMode={'overview'}
-                                                                mapboxToken={settings.mapboxToken}
-                                                                onLocationSelect={handleMapTargetSelect}
-                                                            />
+                                                            weatherData && (
+                                                                <Dashboard
+                                                                    onOpenMap={() => {
+                                                                        mapFromWxRef.current = true;
+                                                                        setMapPickerActive(true);
+                                                                        setPage('map');
+                                                                    }}
+                                                                    onTriggerUpgrade={() => setIsUpgradeOpen(true)}
+                                                                    displayTitle={displayTitle}
+                                                                    timeZone={weatherData.timeZone}
+                                                                    utcOffset={weatherData.utcOffset}
+                                                                    timeDisplaySetting={settings.timeDisplay}
+                                                                    onToggleFavorite={toggleFavorite}
+                                                                    favorites={settings.savedLocations}
+                                                                    isRefreshing={loading}
+                                                                    isNightMode={effectiveMode === 'night'}
+                                                                    isMobileLandscape={isMobileLandscape}
+                                                                    viewMode={'overview'}
+                                                                    mapboxToken={settings.mapboxToken}
+                                                                    onLocationSelect={handleMapTargetSelect}
+                                                                />
+                                                            )
                                                         )}
                                                     </>
                                                 )}

@@ -2,8 +2,13 @@
  * heroSlideHelpers — tests for the extracted display value & trend computation.
  */
 import { describe, it, expect } from 'vitest';
-import { computeDisplayValues, computeTrends } from '../components/dashboard/hero/heroSlideHelpers';
-import { SourcedWeatherMetrics } from '../types';
+import {
+    buildSlides,
+    computeDisplayValues,
+    computeTrends,
+    resolveHeroRowTemperatureRange,
+} from '../components/dashboard/hero/heroSlideHelpers';
+import { HourlyForecast, SourcedWeatherMetrics } from '../types';
 
 const baseData: Partial<SourcedWeatherMetrics> = {
     airTemperature: 24,
@@ -124,5 +129,121 @@ describe('computeTrends', () => {
         const farFuture = new Date('2024-12-31T00:00:00Z').getTime();
         const result = computeTrends(baseData as SourcedWeatherMetrics, hourlyData, farFuture);
         expect(result).toBeUndefined();
+    });
+});
+
+describe('Glass day-row temperature range', () => {
+    const honoluluNextHour = {
+        // 00:30 UTC is still 14:30 on the previous calendar day in Honolulu.
+        // This is the exact device-vs-location timezone boundary that caused
+        // the next hourly Glass card to select a different daily high/low.
+        time: '2026-07-27T00:30:00Z',
+        temperature: 25,
+        windSpeed: 12,
+        waveHeight: 1.2,
+        condition: 'Fine',
+    } as HourlyForecast;
+
+    const adjacentDailyForecasts = [
+        {
+            isoDate: '2026-07-26',
+            highTemp: 29,
+            lowTemp: 19,
+            condition: 'Fine',
+            windSpeed: 12,
+            waveHeight: 1.2,
+        },
+        {
+            // What a UTC/device-time lookup sees for the hour above. This
+            // pair must never leak into the July 26 Glass row.
+            isoDate: '2026-07-27',
+            highTemp: 38,
+            lowTemp: 7,
+            condition: 'Stormy',
+            windSpeed: 30,
+            waveHeight: 4,
+        },
+    ];
+
+    it('keeps Now and hourly cards on the same location-day high/low pair', () => {
+        const row = {
+            ...baseData,
+            isoDate: '2026-07-26',
+            date: '2026-07-26',
+            highTemp: 29,
+            lowTemp: 19,
+        } as SourcedWeatherMetrics;
+
+        const slides = buildSlides(row, 0, [honoluluNextHour], adjacentDailyForecasts, 'Pacific/Honolulu');
+
+        expect(slides).toHaveLength(2);
+        expect(slides.map((slide) => [slide.data.highTemp, slide.data.lowTemp])).toEqual([
+            [29, 19],
+            [29, 19],
+        ]);
+    });
+
+    it('uses that same pair for a forecast-day overview and all of its hours', () => {
+        const row = {
+            ...baseData,
+            isoDate: '2026-07-26',
+            date: '2026-07-26',
+            highTemp: 29,
+            lowTemp: 19,
+        } as SourcedWeatherMetrics;
+
+        const slides = buildSlides(row, 1, [honoluluNextHour], adjacentDailyForecasts, 'Pacific/Honolulu');
+
+        expect(slides).toHaveLength(2);
+        expect(slides[0].daily).toMatchObject({ highTemp: 29, lowTemp: 19 });
+        expect(slides[1].data).toMatchObject({ highTemp: 29, lowTemp: 19 });
+    });
+
+    it('uses the forecast-location day as a safe fallback when a row lacks temperatures', () => {
+        const rowWithoutTemperatures = {
+            ...baseData,
+            isoDate: undefined,
+            date: undefined,
+            highTemp: undefined,
+            lowTemp: undefined,
+        } as SourcedWeatherMetrics;
+
+        const temperatures = resolveHeroRowTemperatureRange(
+            rowWithoutTemperatures,
+            adjacentDailyForecasts,
+            [honoluluNextHour],
+            { timeZone: 'Pacific/Honolulu' },
+        );
+
+        expect(temperatures).toEqual({ highTemp: 29, lowTemp: 19 });
+    });
+
+    it('keeps Essential-mode current conditions on the live location day over stale hourly cache', () => {
+        const rowWithoutTemperatures = {
+            ...baseData,
+            isoDate: undefined,
+            date: undefined,
+            highTemp: undefined,
+            lowTemp: undefined,
+        } as SourcedWeatherMetrics;
+        const staleTomorrowHour = {
+            ...honoluluNextHour,
+            // This cached entry is already July 27 in Honolulu, while the
+            // current reference time is still July 26 there.
+            time: '2026-07-28T00:30:00Z',
+        } as HourlyForecast;
+
+        const temperatures = resolveHeroRowTemperatureRange(
+            rowWithoutTemperatures,
+            adjacentDailyForecasts,
+            [staleTomorrowHour],
+            {
+                timeZone: 'Pacific/Honolulu',
+                referenceTime: '2026-07-26T20:00:00Z',
+                preferForecast: true,
+            },
+        );
+
+        expect(temperatures).toEqual({ highTemp: 29, lowTemp: 19 });
     });
 });

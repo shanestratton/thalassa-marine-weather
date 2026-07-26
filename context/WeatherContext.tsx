@@ -193,6 +193,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const isFetchingRef = useRef(false);
     const nextUpdateRef = useRef<number | null>(null);
     const locationModeRef = useRef(locationMode);
+    const pendingDisposeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Wrapper: every weather update also feeds the environment detection service
     const setWeatherData = useCallback(
@@ -292,7 +293,28 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         return new WeatherOrchestrator(callbacks, identityScope);
     });
 
-    useEffect(() => () => orchestrator.dispose(), [orchestrator]);
+    useEffect(() => {
+        // React StrictMode deliberately runs effect setup → cleanup → setup
+        // once in development. The orchestrator is state-held so that replay
+        // refers to the same instance; disposing it synchronously during the
+        // rehearsal permanently fenced its cache-version check and left the
+        // app behind the initial loading overlay. Deferring cleanup one task
+        // lets the replay cancel it, while a genuine unmount still disposes
+        // the instance immediately after the current task completes.
+        if (pendingDisposeRef.current !== null) {
+            clearTimeout(pendingDisposeRef.current);
+            pendingDisposeRef.current = null;
+        }
+
+        return () => {
+            const disposeTimer = setTimeout(() => {
+                if (pendingDisposeRef.current !== disposeTimer) return;
+                pendingDisposeRef.current = null;
+                orchestrator.dispose();
+            }, 0);
+            pendingDisposeRef.current = disposeTimer;
+        };
+    }, [orchestrator]);
 
     // ── INSTANT DISPLAY: Synchronous pre-read from localStorage ─
     useEffect(() => {

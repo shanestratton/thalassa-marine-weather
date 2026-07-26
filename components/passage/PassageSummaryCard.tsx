@@ -44,6 +44,10 @@ interface PassageSummaryCardProps {
     departLon?: number;
     arriveLat?: number;
     arriveLon?: number;
+    /** The saved route geometry for this exact voyage, in passage order. */
+    routeCoordinates?: Array<{ lat: number; lon: number }>;
+    /** The planned-route logbook voyage that supplied routeCoordinates. */
+    plannedRouteId?: string;
     onDepartureTimeChange?: (time: string) => void;
 }
 
@@ -55,6 +59,27 @@ const STORAGE_KEY = 'thalassa_passage_departure_time';
  * a fresh `[]` (which would remount the Mapbox map every render).
  */
 const EMPTY_WAYPOINTS: { id: string; name: string; lat: number; lon: number }[] = [];
+const EMPTY_ROUTE_COORDINATES: [number, number][] = [];
+/** ~9 NM at the equator. Enough for berth/port-centre drift, too tight for a different passage. */
+const ROUTE_ENDPOINT_TOLERANCE_DEG = 0.15;
+
+const isValidLatLon = (lat: number | null | undefined, lon: number | null | undefined): boolean => {
+    if (lat == null || lon == null) return false;
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+    // (0,0) is a common uninitialised sentinel, not a credible voyage end.
+    return Math.abs(lat) >= 0.0001 || Math.abs(lon) >= 0.0001;
+};
+
+const coordinatesAreNear = (
+    left: { lat: number; lon: number },
+    right: { lat: number; lon: number },
+    tolerance = ROUTE_ENDPOINT_TOLERANCE_DEG,
+): boolean => {
+    // Longitude wraps at the International Date Line: +179.99° and
+    // -179.99° are neighbours, not 359.98° apart.
+    const wrappedLonDelta = Math.abs(((left.lon - right.lon + 540) % 360) - 180);
+    return Math.abs(left.lat - right.lat) <= tolerance && wrappedLonDelta <= tolerance;
+};
 
 const formatCoord = (lat: number, lon: number): string => {
     const latDir = lat >= 0 ? 'N' : 'S';
@@ -217,6 +242,8 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     departLon,
     arriveLat,
     arriveLon,
+    routeCoordinates,
+    plannedRouteId,
     onDepartureTimeChange,
 }) => {
     const identityScope = useReadinessIdentityScope();
@@ -329,20 +356,31 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             }
 
             // Fall back to the planned route. PassagePlanSave creates a
-            // separate batch (voyageId starts with `planned_`); match by
-            // voyage_name → route label, same scheme CrewManagement uses.
+            // separate `planned_*` log voyage. Prefer its immutable planning
+            // record link (or the exact route ID supplied by CrewManagement)
+            // over a label: a skipper can legitimately save the same A → B
+            // route more than once, and a label-only find leaks the wrong
+            // geometry into the fullscreen view.
             const expectedLabel = (voyageName || `${departPort ?? ''} → ${destPort ?? ''}`).trim().toLowerCase();
-            if (expectedLabel) {
+            if (expectedLabel || plannedRouteId || voyageId) {
                 const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
                 if (!isOperationCurrent()) return;
                 const { routes } = await fetchRoutesAndTracks();
                 if (!isOperationCurrent()) return;
-                const matched = routes.find((r) => r.label.trim().toLowerCase() === expectedLabel);
+                const exactMatch =
+                    (plannedRouteId ? routes.find((route) => route.id === plannedRouteId) : undefined) ??
+                    (voyageId ? routes.find((route) => route.linkedPlanId === voyageId) : undefined);
+                const labelMatches = expectedLabel
+                    ? routes.filter((route) => route.label.trim().toLowerCase() === expectedLabel)
+                    : [];
+                const matched = exactMatch ?? (labelMatches.length === 1 ? labelMatches[0] : undefined);
                 if (matched) {
                     const planned = all.filter((e) => e.voyageId === matched.id);
-                    setTrackEntries(planned);
-                    if (isOperationCurrent()) void setCachedVoyageTrack(voyageId, planned);
-                    return;
+                    if (planned.length >= 2) {
+                        setTrackEntries(planned);
+                        if (isOperationCurrent()) void setCachedVoyageTrack(voyageId, planned);
+                        return;
+                    }
                 }
             }
             // Nothing fresh resolved — keep any cached track rather than blanking.
@@ -354,7 +392,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         } finally {
             if (isOperationCurrent()) setLoadingTrack(false);
         }
-    }, [identityScope, trackEntries, voyageId, voyageName, departPort, destPort]);
+    }, [identityScope, trackEntries, voyageId, voyageName, departPort, destPort, plannedRouteId]);
 
     useEffect(() => {
         trackEntriesRef.current = trackEntries;
@@ -441,12 +479,6 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // data. Only fall back to PassageStore when the prop is missing.
     // Also reject PassageStore values that look like (0,0) or
     // unreasonably-large distances.
-    const isValidLatLon = (lat: number | null | undefined, lon: number | null | undefined): boolean => {
-        if (lat == null || lon == null) return false;
-        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
-        if (Math.abs(lat) < 0.0001 && Math.abs(lon) < 0.0001) return false;
-        return true;
-    };
     const effectiveDepartLat =
         departLat ?? (isValidLatLon(passage.departLat, passage.departLon) ? passage.departLat : null);
     const effectiveDepartLon =
@@ -487,13 +519,10 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // (distanceNM, totalDuration, etc.) as junk: they refer to
     // somewhere else.
     //
-    // Tolerance: 0.5° (~30 NM) — generous enough to absorb harbour
-    // anchorage drift but tight enough to reject "Newport→Brisbane"
-    // when the active voyage is "Newport→Nouméa". Prior versions just
-    // accepted PassageStore data unconditionally, which is how a
-    // 98 NM Newport-to-Brisbane planning session leaked into the
-    // 870 NM Newport-to-Nouméa active voyage's summary card.
-    const COORD_MATCH_TOLERANCE_DEG = 0.5;
+    // The shared PassageStore has no voyage ID, so it remains only a
+    // tightly-guarded fallback. The saved route passed from the active
+    // VoyageRow below always wins. A 0.15° endpoint tolerance allows normal
+    // harbour/port-centre drift without admitting a nearby but different run.
     const passageMatchesVoyage =
         passage.hasRoute &&
         effectiveDepartLat != null &&
@@ -504,10 +533,14 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         passage.departLon != null &&
         passage.arriveLat != null &&
         passage.arriveLon != null &&
-        Math.abs(passage.departLat - effectiveDepartLat) < COORD_MATCH_TOLERANCE_DEG &&
-        Math.abs(passage.departLon - effectiveDepartLon) < COORD_MATCH_TOLERANCE_DEG &&
-        Math.abs(passage.arriveLat - effectiveArriveLat) < COORD_MATCH_TOLERANCE_DEG &&
-        Math.abs(passage.arriveLon - effectiveArriveLon) < COORD_MATCH_TOLERANCE_DEG;
+        coordinatesAreNear(
+            { lat: passage.departLat, lon: passage.departLon },
+            { lat: effectiveDepartLat, lon: effectiveDepartLon },
+        ) &&
+        coordinatesAreNear(
+            { lat: passage.arriveLat, lon: passage.arriveLon },
+            { lat: effectiveArriveLat, lon: effectiveArriveLon },
+        );
 
     let effectiveDistance = distanceNm ?? (passageMatchesVoyage ? passage.totalDistanceNM : undefined);
     if (
@@ -541,72 +574,54 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // + new map() → flashing + heavy CPU + the "slow as a wet week"
     // performance the user reported.
     //
-    // Memo key uses primitive coord values so the array is only
-    // rebuilt when actual numbers change.
-    const mapRouteCoords = useMemo<[number, number][]>(() => {
-        if (
-            effectiveDepartLat == null ||
-            effectiveDepartLon == null ||
-            effectiveArriveLat == null ||
-            effectiveArriveLon == null
-        )
-            return [];
-        const storeCoordsMatch =
-            passage.hasRoute &&
-            passage.routeCoordinates.length >= 2 &&
-            passage.departLat != null &&
-            passage.arriveLat != null &&
-            Math.abs(passage.departLat - effectiveDepartLat) < 1 &&
-            Math.abs((passage.departLon ?? 0) - effectiveDepartLon) < 1 &&
-            Math.abs(passage.arriveLat - effectiveArriveLat) < 1 &&
-            Math.abs((passage.arriveLon ?? 0) - effectiveArriveLon) < 1;
-        if (storeCoordsMatch) return passage.routeCoordinates;
-        return [
-            [effectiveDepartLon, effectiveDepartLat],
-            [effectiveArriveLon, effectiveArriveLat],
-        ];
-    }, [
-        effectiveDepartLat,
-        effectiveDepartLon,
-        effectiveArriveLat,
-        effectiveArriveLon,
-        passage.hasRoute,
-        passage.routeCoordinates,
-        passage.departLat,
-        passage.departLon,
-        passage.arriveLat,
-        passage.arriveLon,
-    ]);
+    // A VoyageRow carries the full planned geometry recovered from that
+    // voyage's own logbook rows. Prefer it over PassageStore: the latter is
+    // the last route seen on Chart and cannot prove which planning record it
+    // belongs to. Endpoint validation prevents a late/stale parent render
+    // from briefly drawing another passage's curve.
+    const savedVoyageRouteCoords = useMemo<[number, number][]>(() => {
+        if (!routeCoordinates || routeCoordinates.length < 2) return EMPTY_ROUTE_COORDINATES;
+        const coordinates = routeCoordinates
+            .filter((point) => isValidLatLon(point.lat, point.lon))
+            .map((point) => [point.lon, point.lat] as [number, number]);
+        if (coordinates.length < 2) return EMPTY_ROUTE_COORDINATES;
 
-    const mapTurnWaypoints = useMemo(() => {
-        // Only feed turnWaypoints when PassageStore.routeCoordinates
-        // is fresh (we trust the same coords-match check). Empty array
-        // is a stable-reference singleton for the "no waypoints" case.
-        const storeCoordsMatch =
-            passage.hasRoute &&
+        if (
             effectiveDepartLat != null &&
             effectiveDepartLon != null &&
             effectiveArriveLat != null &&
             effectiveArriveLon != null &&
-            passage.departLat != null &&
-            passage.arriveLat != null &&
-            Math.abs(passage.departLat - effectiveDepartLat) < 1 &&
-            Math.abs((passage.departLon ?? 0) - effectiveDepartLon) < 1 &&
-            Math.abs(passage.arriveLat - effectiveArriveLat) < 1 &&
-            Math.abs((passage.arriveLon ?? 0) - effectiveArriveLon) < 1;
-        return storeCoordsMatch ? passage.turnWaypoints : EMPTY_WAYPOINTS;
-    }, [
-        passage.hasRoute,
-        passage.turnWaypoints,
-        passage.departLat,
-        passage.departLon,
-        passage.arriveLat,
-        passage.arriveLon,
-        effectiveDepartLat,
-        effectiveDepartLon,
-        effectiveArriveLat,
-        effectiveArriveLon,
-    ]);
+            (!coordinatesAreNear(
+                { lat: coordinates[0][1], lon: coordinates[0][0] },
+                { lat: effectiveDepartLat, lon: effectiveDepartLon },
+            ) ||
+                !coordinatesAreNear(
+                    { lat: coordinates[coordinates.length - 1][1], lon: coordinates[coordinates.length - 1][0] },
+                    { lat: effectiveArriveLat, lon: effectiveArriveLon },
+                ))
+        ) {
+            return EMPTY_ROUTE_COORDINATES;
+        }
+        return coordinates;
+    }, [routeCoordinates, effectiveDepartLat, effectiveDepartLon, effectiveArriveLat, effectiveArriveLon]);
+
+    // Memo key uses primitive coord values so the array is only rebuilt when
+    // actual numbers change. There is deliberately no manufactured
+    // departure→arrival fallback: a straight line is an unsafe lie when the
+    // saved route's curve has not arrived yet.
+    const mapRouteCoords = useMemo<[number, number][]>(() => {
+        if (savedVoyageRouteCoords.length >= 2) return savedVoyageRouteCoords;
+        if (!passageMatchesVoyage || passage.routeCoordinates.length < 2) return EMPTY_ROUTE_COORDINATES;
+        const coordinates = passage.routeCoordinates.filter(([lon, lat]) => isValidLatLon(lat, lon));
+        return coordinates.length >= 2 ? coordinates : EMPTY_ROUTE_COORDINATES;
+    }, [savedVoyageRouteCoords, passageMatchesVoyage, passage.routeCoordinates]);
+
+    const mapTurnWaypoints = useMemo(() => {
+        // Turn points from the global store are only meaningful for the same
+        // stored polyline. A saved per-voyage curve is already exact, so do
+        // not decorate it with turn markers from some other chart session.
+        return savedVoyageRouteCoords.length === 0 && passageMatchesVoyage ? passage.turnWaypoints : EMPTY_WAYPOINTS;
+    }, [savedVoyageRouteCoords, passageMatchesVoyage, passage.turnWaypoints]);
 
     const effectiveMaxWind = maxWindKt ?? (passage.hasRoute ? passage.maxWindKt : undefined);
     const effectiveMaxWave = maxWaveM ?? (passage.hasRoute ? passage.maxWaveM : undefined);
@@ -713,7 +728,8 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             {effectiveDepartLat != null &&
                 effectiveDepartLon != null &&
                 effectiveArriveLat != null &&
-                effectiveArriveLon != null && (
+                effectiveArriveLon != null &&
+                mapRouteCoords.length >= 2 && (
                     <button
                         type="button"
                         onClick={handleOpenTrackViewer}

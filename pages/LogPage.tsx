@@ -52,6 +52,7 @@ import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAnd
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import { excludeSuggestedRoutes } from '../utils/voyageStats';
 import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
+import { formatEndpointCoordinates } from './log/useEndpointNames';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
 import { GpsDisclaimerModal } from './log/GpsDisclaimerModal';
@@ -70,6 +71,13 @@ import type { RouteCoordinate } from '../utils/routeCoordinates';
 
 const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
 const FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS = 10_000;
+const SYSTEM_LOG_ENDPOINT_NAMES = new Set(['Voyage Start', 'Voyage End', 'Latest Position']);
+
+/** A human-entered waypoint wins; recorder placeholders do not name a place. */
+function meaningfulLogEndpointName(entry: Pick<ShipLogEntry, 'waypointName'> | undefined): string | null {
+    const name = entry?.waypointName?.trim();
+    return name && !SYSTEM_LOG_ENDPOINT_NAMES.has(name) ? name : null;
+}
 
 /** Do not trap the cast-off sheet behind an unbounded marine-data request.
  *  Late fulfilments are consumed but ignored, so they cannot resurrect a
@@ -682,26 +690,26 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // Reverse geocode start and end for title
         (async () => {
             try {
+                const firstWaypointName = meaningfulLogEndpointName(first);
+                const lastWaypointName = meaningfulLogEndpointName(last);
                 const [startName, endName] = await Promise.all([
-                    first.waypointName &&
-                    first.waypointName !== 'Voyage Start' &&
-                    first.waypointName !== 'Latest Position'
-                        ? Promise.resolve(first.waypointName)
-                        : reverseGeocode(first.latitude, first.longitude),
+                    firstWaypointName
+                        ? Promise.resolve(firstWaypointName)
+                        : reverseGeocode(first.latitude, first.longitude).catch(() => null),
                     last.id !== first.id
-                        ? last.waypointName &&
-                          last.waypointName !== 'Voyage Start' &&
-                          last.waypointName !== 'Latest Position'
-                            ? Promise.resolve(last.waypointName)
-                            : reverseGeocode(last.latitude, last.longitude)
+                        ? lastWaypointName
+                            ? Promise.resolve(lastWaypointName)
+                            : reverseGeocode(last.latitude, last.longitude).catch(() => null)
                         : Promise.resolve(null),
                 ]);
                 if (resetId !== shareFormResetRef.current || !isAuthIdentityScopeCurrent(effectScope)) return; // stale
+                const startLabel = startName?.trim() || formatEndpointCoordinates(first);
+                const endLabel = endName?.trim() || formatEndpointCoordinates(last);
                 const title =
-                    endName && endName !== startName ? `${startName || 'Unknown'} → ${endName}` : startName || '';
+                    endLabel && endLabel !== startLabel ? `${startLabel || 'Unknown'} → ${endLabel}` : startLabel || '';
                 setShareAutoTitle(title);
             } catch (e) {
-                if (isAuthIdentityScopeCurrent(effectScope)) log.warn('fallback to empty:', e);
+                if (isAuthIdentityScopeCurrent(effectScope)) log.warn('could not build share title:', e);
             }
         })();
 
@@ -2009,8 +2017,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                     const formatLoc = (e: ShipLogEntry | undefined) => {
                         if (!e) return 'Unknown';
-                        if (e.waypointName) return e.waypointName;
-                        return `${Math.abs(e.latitude ?? 0).toFixed(2)}°${(e.latitude ?? 0) >= 0 ? 'N' : 'S'}`;
+                        const namedWaypoint = meaningfulLogEndpointName(e);
+                        if (namedWaypoint) return namedWaypoint;
+                        return formatEndpointCoordinates(e) ?? 'Unknown';
                     };
 
                     return (

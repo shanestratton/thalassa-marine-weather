@@ -41,6 +41,8 @@ export type SavedRouteLibraryItem =
           points: TracePoint[];
           timestamp: number;
           isLocal: boolean;
+          /** Canonical trace this legacy-looking row mirrors, when known. */
+          savedRouteId?: string;
       };
 
 function finiteCoordinate(value: unknown, min: number, max: number): value is number {
@@ -96,6 +98,7 @@ export function mergeSavedRouteLibrary(
     legacyRoutes: readonly RouteOrTrack[],
 ): SavedRouteLibraryItem[] {
     const canonicalFingerprints = new Set<string>();
+    const canonicalIds = new Set(canonical.map((trace) => trace.id));
     const items: SavedRouteLibraryItem[] = [];
 
     for (const trace of canonical) {
@@ -116,6 +119,10 @@ export function mergeSavedRouteLibrary(
     const legacyFingerprints = new Set<string>();
     const newestLegacyFirst = [...legacyRoutes].sort((left, right) => right.timestamp - left.timestamp);
     for (const route of newestLegacyFirst) {
+        // A planned-log route carrying a canonical id is a mirror, not an
+        // independent saved route. If its trace was deleted/tombstoned, do
+        // not let the older compatibility store resurrect it in Plan.
+        if (route.savedRouteId && !canonicalIds.has(route.savedRouteId)) continue;
         const fingerprint = savedRouteGeometryFingerprint(route.points);
         const points = validPoints(route.points);
         if (!fingerprint || !points || canonicalFingerprints.has(fingerprint) || legacyFingerprints.has(fingerprint)) {
@@ -131,6 +138,7 @@ export function mergeSavedRouteLibrary(
             points,
             timestamp: Number.isFinite(route.timestamp) ? route.timestamp : 0,
             isLocal: route.isLocal,
+            ...(route.savedRouteId ? { savedRouteId: route.savedRouteId } : {}),
         });
     }
 
@@ -192,7 +200,12 @@ export interface EditableLogbookRoute {
     readonly points: TracePoint[];
 }
 
-/** Remove one compatibility-only planned route from its real logbook store. */
+/**
+ * Remove one compatibility-only planned route and, when it carries the exact
+ * linked planning UUID, remove that draft too. This is deliberately *not* a
+ * name/day cascade: an active passage is never touched, while the Saved
+ * Routes selector cannot retain a logbook-deleted planning ghost.
+ */
 export async function deleteLogbookRouteFromLibrary(
     voyageId: string,
     expectedScope: AuthIdentityScope,
@@ -201,10 +214,21 @@ export async function deleteLogbookRouteFromLibrary(
     if (!targetVoyageId.startsWith('planned_') || !isAuthIdentityScopeCurrent(expectedScope)) return false;
 
     try {
-        const { deleteVoyageLogOnly } = await import('./shiplog/EntryCrud');
+        const [{ deleteVoyageLogOnly }, { fetchVoyageAsTrack }] = await Promise.all([
+            import('./shiplog/EntryCrud'),
+            import('./shiplog/RoutesAndTracks'),
+        ]);
+        if (!isAuthIdentityScopeCurrent(expectedScope)) return false;
+        const route = await fetchVoyageAsTrack(targetVoyageId).catch(() => null);
         if (!isAuthIdentityScopeCurrent(expectedScope)) return false;
         const deleted = await deleteVoyageLogOnly(targetVoyageId);
-        return deleted && isAuthIdentityScopeCurrent(expectedScope);
+        if (!deleted || !isAuthIdentityScopeCurrent(expectedScope)) return false;
+        if (route?.linkedPlanId) {
+            const { deleteDraftVoyageById } = await import('./VoyageService');
+            if (!isAuthIdentityScopeCurrent(expectedScope)) return false;
+            await deleteDraftVoyageById(route.linkedPlanId);
+        }
+        return isAuthIdentityScopeCurrent(expectedScope);
     } catch {
         return false;
     }

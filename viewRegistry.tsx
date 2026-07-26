@@ -345,15 +345,6 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         gatedFeature: 'diary',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
-    route: {
-        component: VoyagePlanner,
-        boundaryName: 'RoutePlanner',
-        group: 'vessel',
-        getProps: (ctx) => ({
-            onTriggerUpgrade: () => ctx.setIsUpgradeOpen(true),
-            onBack: () => ctx.setPage('vessel'),
-        }),
-    },
     crew: {
         component: CrewPage,
         boundaryName: 'Crew',

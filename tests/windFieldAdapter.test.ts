@@ -129,6 +129,19 @@ describe('createWindFieldFromGrid without stepHours (legacy hourly)', () => {
         const f = createWindFieldFromGrid(bad);
         expect(f.getWind(QUERY.lat, QUERY.lon, 1.5)!.speed).toBeCloseTo(25, 1);
     });
+
+    it('samples a date-line grid with normalized route longitudes on its continuous axis', () => {
+        const datelineGrid = makeGrid([20], {
+            lons: [179, 181],
+            west: 179,
+            east: 181,
+        });
+        const f = createWindFieldFromGrid(datelineGrid);
+
+        // -179.5° is the same physical longitude as 180.5°, which lies
+        // inside the grid's intentionally unwrapped 179…181° axis.
+        expect(f.getWind(QUERY.lat, -179.5, 0)?.speed).toBeCloseTo(20, 1);
+    });
 });
 
 // ── .wind.bin round-trip preserves the temporal axis ──────────────────────

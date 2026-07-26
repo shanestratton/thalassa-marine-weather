@@ -40,6 +40,12 @@ textarea,
 ──────────────────────────────────────────────────────────────── */
 /* ── Default: Offshore palette (Tailwind slate defaults — no override needed) ── */
 :root {
+    /* Set by utils/keyboardScroll whenever the native/software keyboard is
+       visible.  KeyboardResize.None keeps the app shell and charts steady;
+       this shared inset lets any intentional scrollIntoView use the same safe
+       lower edge instead of guessing at an iPhone keyboard height. */
+    --thalassa-keyboard-height: 0px;
+
     /* Custom Font Families - Available Globally */
     --font-sans:
         'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
@@ -61,6 +67,34 @@ textarea,
     /* Page titles, card headings (= text-lg) */
     --text-hero: 24px;
     /* Hero numbers, stats (= text-2xl) */
+}
+
+/* Native iOS keyboards overlay the Capacitor WebView.  Scroll padding gives
+   browser-managed scrolling (including selects and contenteditable fields) the
+   same clearance as the app-wide keyboard guard. */
+html {
+    scroll-padding-top: max(72px, env(safe-area-inset-top));
+    scroll-padding-bottom: calc(var(--thalassa-keyboard-height) + env(safe-area-inset-bottom) + 20px);
+}
+
+/* Reusable escape hatch for fixed-bottom controls in new sheets.  Existing
+   surfaces can opt in without adding another keyboard listener. */
+.keyboard-safe-bottom {
+    padding-bottom: calc(var(--thalassa-keyboard-height) + env(safe-area-inset-bottom));
+}
+
+/* ModalSheet is used by settings, vessel and planning forms.  Its native
+   listener already handles iOS, while this selector gives the same behaviour
+   to Safari/PWA visualViewport keyboards without each modal growing its own
+   event subscription. */
+html[data-keyboard-open='true'] [data-modal-sheet-backdrop] {
+    align-items: flex-start;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: calc(var(--thalassa-keyboard-height) + env(safe-area-inset-bottom) + 1rem);
+}
+
+html[data-keyboard-open='true'] [data-modal-sheet] {
+    max-height: calc(100dvh - var(--thalassa-keyboard-height) - 2rem) !important;
 }
 
 /* ── Accessibility: Focus-Visible Rings ──

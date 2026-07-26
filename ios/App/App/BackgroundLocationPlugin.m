@@ -8,5 +8,7 @@ CAP_PLUGIN(BackgroundLocationPlugin, "BackgroundLocation",
     CAP_PLUGIN_METHOD(startBackgroundLocation, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(stopBackgroundLocation, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(getStatus, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(getActiveLocationSource, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(getConnectedAccessories, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(requestAlwaysPermission, CAPPluginReturnPromise);
 )

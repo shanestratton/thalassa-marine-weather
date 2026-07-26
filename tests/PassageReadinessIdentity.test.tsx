@@ -20,6 +20,7 @@ const watchMocks = vi.hoisted(() => ({
     publishToCrew: vi.fn(),
     assign: vi.fn(),
     clear: vi.fn(),
+    clearAll: vi.fn(),
     getMyCrew: vi.fn(),
 }));
 
@@ -40,6 +41,7 @@ vi.mock('../services/WatchAssignmentService', () => ({
         publishToCrew: watchMocks.publishToCrew,
         assign: watchMocks.assign,
         clear: watchMocks.clear,
+        clearAll: watchMocks.clearAll,
     },
 }));
 
@@ -139,6 +141,7 @@ describe('passage readiness identity and voyage isolation', () => {
         watchMocks.publishToCrew.mockReset().mockResolvedValue(0);
         watchMocks.assign.mockReset().mockResolvedValue(null);
         watchMocks.clear.mockReset().mockResolvedValue(undefined);
+        watchMocks.clearAll.mockReset().mockResolvedValue(true);
         watchMocks.getMyCrew.mockReset().mockResolvedValue([]);
     });
 
@@ -281,5 +284,32 @@ describe('passage readiness identity and voyage isolation', () => {
 
         expect(screen.getByText(/Voyage B Crew/)).toBeInTheDocument();
         expect(screen.queryByText(/Late Voyage A Crew/)).not.toBeInTheDocument();
+    });
+
+    it('gives a solo skipper a greenable single-handed readiness plan', async () => {
+        const onReviewedChange = vi.fn();
+        render(<WatchScheduleCard voyageId="solo-voyage" crewCount={1} onReviewedChange={onReviewedChange} />);
+
+        await screen.findByText('Single-handed watch plan');
+        expect(screen.getByText('Continuous lookout')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Publish watch schedule to crew/i })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /20-minute lookout\/check-in timer is set/i }));
+        fireEvent.click(screen.getByRole('button', { name: /AIS, radar and guard-zone alerts are configured/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Solo fatigue and rest plan is set/i }));
+
+        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
+    });
+
+    it('replaces stale assignments when the skipper changes the watch system', async () => {
+        render(<WatchScheduleCard voyageId="voyage-1" crewCount={2} />);
+        await screen.findByText('Swedish two-watch system');
+
+        fireEvent.change(screen.getByRole('combobox', { name: 'Watch system' }), {
+            target: { value: 'two_watch_4_4' },
+        });
+
+        await waitFor(() => expect(watchMocks.clearAll).toHaveBeenCalledWith('voyage-1'));
+        expect(screen.getByText('Two-watch system')).toBeInTheDocument();
     });
 });

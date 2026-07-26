@@ -4,6 +4,7 @@ import {
     coordName,
     distMetres,
     fitTraceBounds,
+    isBasemapHybridDuplicateLabelLayer,
     legCacheKey,
     msToLocalInput,
     TRACE_CLUSTER_SPAN_M,
@@ -54,5 +55,44 @@ describe('mapHubHelpers', () => {
     it('formats datetime-local values using local calendar fields', () => {
         const date = new Date(2026, 6, 23, 9, 7, 45);
         expect(msToLocalInput(date.getTime())).toBe('2026-07-23T09:07');
+    });
+
+    it('identifies only basemap labels duplicated by the hybrid raster', () => {
+        expect(
+            isBasemapHybridDuplicateLabelLayer({
+                id: 'settlement-major-label',
+                type: 'symbol',
+                source: 'composite',
+            }),
+        ).toBe(true);
+        expect(
+            isBasemapHybridDuplicateLabelLayer({
+                id: 'airport-label',
+                type: 'symbol',
+                source: 'openmaptiles',
+            }),
+        ).toBe(true);
+
+        // App-owned labels must remain available above the hybrid raster.
+        expect(
+            isBasemapHybridDuplicateLabelLayer({
+                id: 'route-city-label',
+                type: 'symbol',
+                source: 'route-preview',
+            }),
+        ).toBe(false);
+        expect(
+            isBasemapHybridDuplicateLabelLayer({
+                id: 'settlement-major-label',
+                type: 'symbol',
+            }),
+        ).toBe(false);
+        expect(
+            isBasemapHybridDuplicateLabelLayer({
+                id: 'settlement-major-label',
+                type: 'line',
+                source: 'composite',
+            }),
+        ).toBe(false);
     });
 });

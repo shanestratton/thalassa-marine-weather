@@ -210,6 +210,25 @@ describe('MealPlanService', () => {
             expect(result.planned_date).toBe('2026-03-25');
         });
 
+        it('keeps a simple planned meal free of a recipe reference', async () => {
+            const meal = {
+                id: 123456789,
+                title: 'Pad Thai',
+                servings: 4,
+                readyInMinutes: 45,
+                image: '',
+                sourceUrl: '',
+                ingredients: [],
+                isSimpleMeal: true,
+            };
+
+            const result = await scheduleMeal(meal as never, '2026-03-25', 'dinner', 'v-1', 4, OWNER_A);
+            expect(result.title).toBe('Pad Thai');
+            expect(result.ingredients).toEqual([]);
+            expect(result.recipe_id).toBeNull();
+            expect(result.spoonacular_id).toBeNull();
+        });
+
         it('refuses to schedule a voyage meal without an authoritative owner', async () => {
             const meal = { id: 43, title: 'Unscoped', servings: 2, readyInMinutes: 10, image: '', ingredients: [] };
 

@@ -3,9 +3,20 @@
  */
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const getTrackingStatus = vi.hoisted(() => vi.fn());
+const followRouteState = vi.hoisted(() => ({
+    isFollowing: false,
+    voyagePlan: null as { origin?: string; destination?: string } | null,
+    routeChanged: false,
+    isRefreshing: false,
+    stopFollowing: vi.fn(),
+    acceptRouteChange: vi.fn(),
+    dismissRouteChange: vi.fn(),
+    refreshRoute: vi.fn(),
+}));
 
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
@@ -17,6 +28,7 @@ vi.mock('../services/ShipLogService', () => ({
         getActiveVoyage: vi.fn().mockReturnValue(null),
         getTrackingStatus,
         getGpsStatus: vi.fn().mockReturnValue({ hasExternalGps: false, source: 'none' }),
+        getGpsNavData: vi.fn().mockReturnValue({ sogKts: null }),
         onTrackingChange: vi.fn().mockReturnValue(vi.fn()),
     },
 }));
@@ -34,7 +46,7 @@ vi.mock('../stores/LocationStore', () => ({
     },
 }));
 vi.mock('../stores/followRouteStore', () => ({
-    useFollowRouteStore: () => ({ isActive: false }),
+    useFollowRouteStore: () => followRouteState,
 }));
 
 import { SystemStatusButton } from '../components/SystemStatusButton';
@@ -42,7 +54,18 @@ import { SystemStatusButton } from '../components/SystemStatusButton';
 describe('SystemStatusButton', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setAuthIdentityScope(null);
+        localStorage.clear();
         getTrackingStatus.mockReturnValue({ isTracking: false, isMoving: false });
+        followRouteState.isFollowing = false;
+        followRouteState.voyagePlan = null;
+        followRouteState.routeChanged = false;
+        followRouteState.isRefreshing = false;
+    });
+
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        localStorage.clear();
     });
 
     it('renders without crashing', () => {
@@ -54,6 +77,45 @@ describe('SystemStatusButton', () => {
         const { container } = render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
         // Component may be empty when no systems are active
         expect(container).toBeDefined();
+    });
+
+    it('does not surface a cached active voyage as a duplicate system', () => {
+        setAuthIdentityScope('status-owner');
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_active_voyage'),
+            JSON.stringify({
+                id: 'active-voyage',
+                user_id: 'status-owner',
+                vessel_id: 'vessel-1',
+                voyage_name: 'Brisbane to Gladstone',
+                departure_port: 'Brisbane',
+                destination_port: 'Gladstone',
+                departure_time: null,
+                eta: null,
+                crew_count: 1,
+                status: 'active',
+                weather_master_id: 'status-owner',
+                notes: null,
+                created_at: '2026-07-26T00:00:00.000Z',
+                updated_at: '2026-07-26T00:00:00.000Z',
+            }),
+        );
+
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+
+        expect(screen.queryByRole('button', { name: /System status:/ })).not.toBeInTheDocument();
+    });
+
+    it('keeps the controllable following-route status', () => {
+        followRouteState.isFollowing = true;
+        followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
+
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /System status: 1 active/ }));
+
+        expect(screen.getByText('Following Route')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'View signal propagation forecast' }));
+        expect(followRouteState.stopFollowing).toHaveBeenCalledOnce();
     });
 
     it('contains the active-system modal and restores focus after Escape', () => {

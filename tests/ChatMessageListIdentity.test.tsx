@@ -83,7 +83,7 @@ describe('ChatMessageList pin navigation identity fence', () => {
         localStorage.setItem(authScopedStorageKey('chat_last_channel', accountA), 'harbour-chat');
         renderList();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Pin message to channel' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Open Account A anchorage on chart' }));
 
         expect(window.__thalassaPinView).toEqual({
             lat: -27.4705,
@@ -109,7 +109,7 @@ describe('ChatMessageList pin navigation identity fence', () => {
         const dispatch = vi.spyOn(window, 'dispatchEvent');
         renderList();
         const baselineTimers = vi.getTimerCount();
-        fireEvent.click(screen.getByRole('button', { name: 'Pin message to channel' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Open Account A anchorage on chart' }));
         expect(vi.getTimerCount()).toBe(baselineTimers + 1);
 
         act(() => {
@@ -130,7 +130,7 @@ describe('ChatMessageList pin navigation identity fence', () => {
         renderList();
         const baselineTimers = vi.getTimerCount();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Pin message to channel' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Open Account A anchorage on chart' }));
 
         expect(window.__thalassaPinView).toBeUndefined();
         expect(vi.getTimerCount()).toBe(baselineTimers);
@@ -143,7 +143,7 @@ describe('ChatMessageList pin navigation identity fence', () => {
         const accountA = getAuthIdentityScope();
         const view = renderList();
         const baselineTimers = vi.getTimerCount();
-        fireEvent.click(screen.getByRole('button', { name: 'Pin message to channel' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Open Account A anchorage on chart' }));
 
         view.unmount();
 

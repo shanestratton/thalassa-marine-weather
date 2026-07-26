@@ -419,6 +419,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 departLon={activeVoyage.departureCoords?.lon}
                                 arriveLat={activeVoyage.arrivalCoords?.lat}
                                 arriveLon={activeVoyage.arrivalCoords?.lon}
+                                routeCoordinates={activeVoyage.routeCoordinates}
+                                plannedRouteId={activeVoyage.plannedRouteId}
                             />
                         </div>
                     </details>
@@ -549,8 +551,16 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 isReady={watchBriefed}
                                 emoji="⏰"
                                 title="Watch Schedule"
-                                subtitle={`${planCrewCount} crew · Set watch rotation`}
-                                readySubtitle="✅ Watch rotation briefed to crew"
+                                subtitle={
+                                    planCrewCount === 1
+                                        ? 'Solo · Set a single-handed watch plan'
+                                        : `${planCrewCount} crew · Set watch rotation`
+                                }
+                                readySubtitle={
+                                    planCrewCount === 1
+                                        ? '✅ Solo watch plan ready'
+                                        : '✅ Watch rotation briefed to crew'
+                                }
                                 cardKey="watch_schedule"
                                 {...delegationProps}
                                 {...cardAccordionProps('brief', 'watch_schedule')}

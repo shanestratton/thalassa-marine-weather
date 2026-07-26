@@ -68,6 +68,7 @@ import { usePinDrop } from '../hooks/chat/usePinDrop';
 import { useTrackSharing } from '../hooks/chat/useTrackSharing';
 import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
+import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 
 import { CREW_RANKS as _CREW_RANKS } from './chat/chatUtils';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
@@ -264,8 +265,10 @@ export const ChatPage: React.FC = React.memo(() => {
         onEscape: () => setJoinRequestChannel(null),
     });
 
-    // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
-    const [keyboardOffset, setKeyboardOffset] = useState(0);
+    // Shrinks the fixed compose area above the native/web keyboard.  The
+    // shared hook also drives all ordinary text fields, so chat cannot diverge
+    // from the rest of the app on Safari or in the Capacitor shell.
+    const keyboardOffset = useKeyboardOffset(view === 'messages' || view === 'dm_thread');
     const [showTyping, setShowTyping] = useState(false);
 
     // Auth banner state (dismissible)
@@ -299,59 +302,6 @@ export const ChatPage: React.FC = React.memo(() => {
         return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeChannel?.id]);
-    useEffect(() => {
-        // Only track keyboard when compose bar is visible
-        if (view !== 'messages' && view !== 'dm_thread') {
-            setKeyboardOffset(0);
-            return;
-        }
-
-        let disposed = false;
-        let cleanupOwnedListeners: (() => void) | undefined;
-
-        // Try Capacitor Keyboard plugin first (accurate on native iOS)
-        import('@capacitor/keyboard')
-            .then(({ Keyboard }) => {
-                if (disposed) return;
-                const kbShowHandle = Keyboard.addListener('keyboardWillShow', (info) => {
-                    if (disposed) return;
-                    setKeyboardOffset(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                });
-                const kbHideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    if (disposed) return;
-                    setKeyboardOffset(0);
-                });
-                cleanupOwnedListeners = () => {
-                    void kbShowHandle.then((handle) => handle.remove());
-                    void kbHideHandle.then((handle) => handle.remove());
-                };
-            })
-            .catch(() => {
-                if (disposed) return;
-                // Fallback to visualViewport for web (Capacitor plugin not available)
-                const vv = window.visualViewport;
-                if (!vv) return;
-                const handleResize = () => {
-                    if (disposed) return;
-                    const offset = window.innerHeight - vv.height - vv.offsetTop;
-                    setKeyboardOffset(offset > 50 ? offset : 0);
-                };
-                vv.addEventListener('resize', handleResize);
-                vv.addEventListener('scroll', handleResize);
-                handleResize();
-                cleanupOwnedListeners = () => {
-                    vv.removeEventListener('resize', handleResize);
-                    vv.removeEventListener('scroll', handleResize);
-                };
-            });
-
-        return () => {
-            disposed = true;
-            cleanupOwnedListeners?.();
-            cleanupOwnedListeners = undefined;
-        };
-    }, [view]);
-
     // --- Extracted Hook: Profile ---
     const profileHook = useChatProfile({ avatarMap, setView: setView as (v: string) => void });
     const {
@@ -373,7 +323,7 @@ export const ChatPage: React.FC = React.memo(() => {
     } = profileHook;
 
     // --- Extracted Hooks: Pin Drop + Track Sharing ---
-    const pinDrop = usePinDrop({ activeChannel, setMessages, setMessageText, messageEndRef });
+    const pinDrop = usePinDrop({ activeChannel, setMessages, messageEndRef });
     const {
         showAttachMenu,
         setShowAttachMenu,
@@ -382,21 +332,28 @@ export const ChatPage: React.FC = React.memo(() => {
         showPoiSheet,
         setShowPoiSheet,
         pinLat,
-        setPinLat,
         pinLng,
-        setPinLng,
         pinCaption,
         setPinCaption,
         pinLoading,
+        pinSource,
+        pinAccuracy,
+        pinTimestamp,
+        locationError,
+        saveToMyPlaces,
+        setSaveToMyPlaces,
         savedPins,
         poiMapRef,
         openPinDrop,
+        retryCurrentLocation,
         sendPin,
         openPoiPicker,
         sendPoi,
+        selectSavedPin,
         recenterPoiToMyLocation,
         searchPoiLocation,
         searchingPoi,
+        sendingKind,
     } = pinDrop;
 
     const trackSharingHook = useTrackSharing({ activeChannel, setMessages, messageEndRef, setShowAttachMenu });
@@ -987,23 +944,29 @@ export const ChatPage: React.FC = React.memo(() => {
                 />
             )}
 
-            {/* ═══════════ DROP A PIN (static map) ═══════════ */}
+            {/* ═══════════ SHARE CURRENT LOCATION ═══════════ */}
             {showPinSheet && view === 'messages' && (
                 <PinDropSheet
                     pinLat={pinLat}
                     pinLng={pinLng}
                     pinCaption={pinCaption}
                     setPinCaption={setPinCaption}
-                    setPinLat={setPinLat}
-                    setPinLng={setPinLng}
                     pinLoading={pinLoading}
-                    savedPins={savedPins}
+                    pinSource={pinSource}
+                    pinAccuracy={pinAccuracy}
+                    pinTimestamp={pinTimestamp}
+                    locationError={locationError}
+                    saveToMyPlaces={saveToMyPlaces}
+                    setSaveToMyPlaces={setSaveToMyPlaces}
+                    sending={sendingKind === 'current'}
                     onSendPin={sendPin}
+                    onRetryLocation={retryCurrentLocation}
+                    onChoosePlace={openPoiPicker}
                     onClose={() => setShowPinSheet(false)}
                 />
             )}
 
-            {/* ═══════════ SHARE POI (interactive Mapbox GL) ═══════════ */}
+            {/* ═══════════ DROP A PLACE PIN (interactive chart) ═══════════ */}
             {showPoiSheet && view === 'messages' && (
                 <PoiPickerSheet
                     pinLat={pinLat}
@@ -1011,6 +974,13 @@ export const ChatPage: React.FC = React.memo(() => {
                     pinCaption={pinCaption}
                     setPinCaption={setPinCaption}
                     pinLoading={pinLoading}
+                    pinSource={pinSource}
+                    locationError={locationError}
+                    savedPins={savedPins}
+                    onSelectSavedPin={selectSavedPin}
+                    saveToMyPlaces={saveToMyPlaces}
+                    setSaveToMyPlaces={setSaveToMyPlaces}
+                    sending={sendingKind === 'place'}
                     poiMapRef={poiMapRef}
                     onSendPoi={sendPoi}
                     onClose={() => setShowPoiSheet(false)}

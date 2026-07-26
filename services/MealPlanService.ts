@@ -100,7 +100,10 @@ export async function scheduleMeal(
         user_id: owner,
         voyage_id: voyageId,
         recipe_id: null,
-        spoonacular_id: meal.id,
+        // Simple calendar items deliberately have no backing recipe. Keeping
+        // this null prevents a generated local ID being mistaken for a real
+        // Spoonacular recipe later in the cooking flow.
+        spoonacular_id: meal.isSimpleMeal ? null : meal.id,
         title: meal.title,
         planned_date: plannedDate,
         meal_slot: slot,
@@ -117,14 +120,17 @@ export async function scheduleMeal(
 
     await insertLocal(TABLE, plan);
 
-    // Auto-persist the recipe to LocalDatabase for offline access at sea
-    try {
-        const { persistRecipe } = await import('./GalleyRecipeService');
-        persistRecipe(meal).catch(() => {
-            /* offline — recipe may already be stored */
-        });
-    } catch {
-        /* GalleyRecipeService not available */
+    // Auto-persist actual recipes for offline access at sea. A simple meal is
+    // intentionally only a planned title, so it must not create a faux recipe.
+    if (!meal.isSimpleMeal) {
+        try {
+            const { persistRecipe } = await import('./GalleyRecipeService');
+            persistRecipe(meal).catch(() => {
+                /* offline — recipe may already be stored */
+            });
+        } catch {
+            /* GalleyRecipeService not available */
+        }
     }
 
     triggerHaptic('light');

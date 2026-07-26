@@ -51,6 +51,8 @@ export interface ShipLogEntry {
     isOnWater?: boolean;
     archived?: boolean;
     linkedPlanId?: string;
+    /** Canonical Route Tracer id for a planned-route compatibility mirror. */
+    savedRouteId?: string;
     /** Passage leg number (1-indexed). Legs increment on each port departure. */
     legNumber?: number;
 }

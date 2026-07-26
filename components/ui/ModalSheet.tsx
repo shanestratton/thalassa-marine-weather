@@ -5,15 +5,14 @@
  * containers with overflow:hidden/auto, transforms, or scroll
  * contexts cannot affect the fixed positioning.
  *
- * Keyboard-aware: on iOS, listens for keyboard show/hide events
- * (via Capacitor Keyboard plugin) and shrinks the panel + shifts
- * it to the top of the screen so fields stay visible above the
- * keyboard. Also scrolls the focused field into view after resize.
+ * Keyboard-aware: consumes the shared native/web keyboard measurement and
+ * shrinks the panel + shifts it to the top of the screen so fields stay
+ * visible above the keyboard.
  */
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
-import { Capacitor } from '@capacitor/core';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 
 interface ModalSheetProps {
     /** Whether the modal is visible */
@@ -41,56 +40,8 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     zIndex = 'z-[999]',
     alignTop = false,
 }) => {
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const keyboardHeight = useKeyboardOffset(isOpen);
     const panelRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });
-
-    // Listen for keyboard show/hide on native platforms
-    useEffect(() => {
-        if (!isOpen || !Capacitor.isNativePlatform()) return;
-
-        let cleanup: (() => void) | undefined;
-
-        import('@capacitor/keyboard')
-            .then(({ Keyboard }) => {
-                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight);
-
-                    // After the panel shrinks (allow 250ms for CSS transition),
-                    // scroll the focused field into view
-                    setTimeout(() => {
-                        const focused = document.activeElement as HTMLElement;
-                        if (
-                            focused &&
-                            (focused.tagName === 'INPUT' ||
-                                focused.tagName === 'TEXTAREA' ||
-                                focused.tagName === 'SELECT')
-                        ) {
-                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 250);
-                });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                    // Scroll panel back to top when keyboard hides
-                    if (panelRef.current) {
-                        panelRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
-                });
-
-                cleanup = () => {
-                    showHandle.then((h) => h.remove());
-                    hideHandle.then((h) => h.remove());
-                };
-            })
-            .catch(() => {
-                /* Keyboard plugin not available */
-            });
-
-        return () => {
-            cleanup?.();
-            setKeyboardHeight(0);
-        };
-    }, [isOpen, panelRef]);
 
     if (!isOpen) return null;
 
@@ -108,6 +59,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
     const modal = (
         <div
+            data-modal-sheet-backdrop
             className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`}
             onClick={onClose}
             role="dialog"

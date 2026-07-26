@@ -61,7 +61,10 @@ vi.mock('../utils/system', () => ({
         volume: 'l',
     })),
 }));
-vi.mock('../utils/keyboardScroll', () => ({ scrollInputAboveKeyboard: vi.fn() }));
+vi.mock('../utils/keyboardScroll', () => ({
+    scrollInputAboveKeyboard: vi.fn(),
+    subscribeKeyboardHeight: vi.fn(() => () => {}),
+}));
 vi.mock('../utils/lazyRetry', () => ({
     lazyRetry: (fn: () => Promise<any>) => React.lazy(fn),
 }));

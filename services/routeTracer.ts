@@ -40,7 +40,12 @@ import { tideFieldFromCurve } from './routing/env/EnvFields';
 import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
-import { authScopedStorageKey, getAuthIdentityScope, type AuthIdentityScope } from './authIdentityScope';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 
 const log = createLogger('routeTracer');
 
@@ -1207,10 +1212,9 @@ export interface SavedTrace {
     points: TracePoint[];
     // ── Multi-leg trip chain (Shane 2026-07-17: "we need to get our LEGS
     //    functioning") — legs of one trip share a tripId (= leg 1's own id);
-    //    the chain is STRUCTURAL, names are generated decoration. The cloud
-    //    saved_routes table doesn't carry these columns yet, so the sync
-    //    merge grafts them back from the local copy and the name-badge
-    //    parsers below are the cross-device fallback. ──
+    //    the chain is STRUCTURAL and is persisted through saved_routes. Names
+    //    remain generated decoration plus a compatibility fallback for older
+    //    rows created before the chain columns existed. ──
     /** Trip this leg belongs to — leg 1's id. Absent on standalone routes. */
     tripId?: string;
     /** 1-based position within the trip. */
@@ -1218,12 +1222,169 @@ export interface SavedTrace {
     /** This leg's destination as the punter named it ("Woorim") — seeds the
      *  NEXT leg's name prefill without re-parsing the route name. */
     destName?: string;
+    /** Exact planned-route mirror id in ship_logs. Unlike a route label this
+     *  is safe to use for a delete cascade. */
+    plannedRouteId?: string;
+    /** Exact Passage Planning record backing this saved trace. */
+    passageVoyageId?: string;
 }
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
+const TRACE_TOMBSTONES_KEY = 'thalassa_traced_route_tombstones_v1';
+
+/** A local deletion fence. Keeping this separately from saved_routes makes a
+ * delete immediately authoritative even while the cloud tombstone is still
+ * in flight; otherwise a simultaneous pull can put the old remote row back
+ * into Plan before its delete reaches Supabase. */
+export interface SavedTraceTombstone {
+    deletedAt: string;
+    plannedRouteId?: string;
+    passageVoyageId?: string;
+}
+
+/**
+ * The planner can intentionally return no Passage Planning row when a saved
+ * trace is mirrored offline. Accept that nullable result at the tracer
+ * boundary, while only persisting concrete ids into trace/tombstone storage.
+ */
+type TracePassageLinks = {
+    plannedRouteId?: string;
+    passageVoyageId?: string | null;
+};
 
 function tracesStorageKey(scope: AuthIdentityScope = getAuthIdentityScope()): string {
     return authScopedStorageKey(TRACES_KEY, scope);
+}
+
+function traceTombstonesStorageKey(scope: AuthIdentityScope = getAuthIdentityScope()): string {
+    return authScopedStorageKey(TRACE_TOMBSTONES_KEY, scope);
+}
+
+function isFiniteIso(value: unknown): value is string {
+    return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+/** Read only well-formed, account-scoped deletion fences. */
+export function getSavedTraceTombstones(
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Record<string, SavedTraceTombstone> {
+    try {
+        if (!isAuthIdentityScopeCurrent(scope)) return {};
+        const raw = localStorage.getItem(traceTombstonesStorageKey(scope));
+        if (!raw) return {};
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        const tombstones: Record<string, SavedTraceTombstone> = {};
+        for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (!id || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+            const candidate = value as Partial<SavedTraceTombstone>;
+            if (!isFiniteIso(candidate.deletedAt)) continue;
+            tombstones[id] = {
+                deletedAt: candidate.deletedAt,
+                ...(typeof candidate.plannedRouteId === 'string' && candidate.plannedRouteId
+                    ? { plannedRouteId: candidate.plannedRouteId }
+                    : {}),
+                ...(typeof candidate.passageVoyageId === 'string' && candidate.passageVoyageId
+                    ? { passageVoyageId: candidate.passageVoyageId }
+                    : {}),
+            };
+        }
+        return tombstones;
+    } catch {
+        return {};
+    }
+}
+
+function writeSavedTraceTombstones(
+    tombstones: Record<string, SavedTraceTombstone>,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): void {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    localStorage.setItem(traceTombstonesStorageKey(scope), JSON.stringify(tombstones));
+}
+
+/** Clear a locally-recorded delete only when a deliberate new save uses the
+ * same id. Normal route saves mint a fresh id, so a tombstone cannot vanish
+ * just because another route was written. */
+export function clearSavedTraceTombstone(id: string, scope: AuthIdentityScope = getAuthIdentityScope()): void {
+    const traceId = id.trim();
+    if (!traceId || !isAuthIdentityScopeCurrent(scope)) return;
+    const tombstones = getSavedTraceTombstones(scope);
+    if (!Object.prototype.hasOwnProperty.call(tombstones, traceId)) return;
+    delete tombstones[traceId];
+    try {
+        writeSavedTraceTombstones(tombstones, scope);
+    } catch {
+        /* A stale tombstone is safer than resurrecting a deleted route. */
+    }
+}
+
+/**
+ * A planned-route mirror can finish after its canonical trace was deleted.
+ * Preserve those exact ids on the existing deletion fence before attempting
+ * cleanup, so an offline/late cleanup is retried on the next account sync
+ * instead of becoming a permanent Passage Planning orphan.
+ */
+export function attachSavedTraceTombstoneLinks(
+    id: string,
+    links: TracePassageLinks,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): boolean {
+    const traceId = id.trim();
+    if (!traceId || !isAuthIdentityScopeCurrent(scope)) return false;
+    const tombstones = getSavedTraceTombstones(scope);
+    const previous = tombstones[traceId];
+    if (!previous) return false;
+    const next: SavedTraceTombstone = {
+        ...previous,
+        ...(links.plannedRouteId ? { plannedRouteId: links.plannedRouteId } : {}),
+        ...(links.passageVoyageId ? { passageVoyageId: links.passageVoyageId } : {}),
+    };
+    try {
+        writeSavedTraceTombstones({ ...tombstones, [traceId]: next }, scope);
+        return true;
+    } catch {
+        // The immediate cleanup still runs. A missing retry record is less
+        // ideal, but never turn this best-effort metadata write into a route
+        // resurrection or a false success.
+        return false;
+    }
+}
+
+/** Remove deletion fences the account has already acknowledged remotely. */
+export function clearSyncedSavedTraceTombstones(
+    ids: Iterable<string>,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): void {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    const tombstones = getSavedTraceTombstones(scope);
+    let changed = false;
+    for (const id of ids) {
+        if (Object.prototype.hasOwnProperty.call(tombstones, id)) {
+            delete tombstones[id];
+            changed = true;
+        }
+    }
+    if (!changed) return;
+    try {
+        writeSavedTraceTombstones(tombstones, scope);
+    } catch {
+        /* Keep the in-memory result; the next sync can compact again. */
+    }
+}
+
+/** Shared notification for every Saved Routes surface. */
+export function notifySavedRoutesChanged(scope: AuthIdentityScope = getAuthIdentityScope()): void {
+    if (!isAuthIdentityScopeCurrent(scope) || typeof window === 'undefined') return;
+    try {
+        window.dispatchEvent(
+            new CustomEvent('thalassa:saved-routes-changed', {
+                detail: { scopeKey: scope.key, scopeGeneration: scope.generation },
+            }),
+        );
+    } catch {
+        /* non-critical */
+    }
 }
 
 // ── Leg-verdict persistence (Shane 2026-07-17: "sometimes the app wants to
@@ -1353,6 +1514,198 @@ export interface TripGroup {
     legs: SavedTrace[];
 }
 
+function traceStamp(trace: SavedTrace): number {
+    const stamp = Date.parse(trace.updatedAt ?? trace.createdAt);
+    return Number.isFinite(stamp) ? stamp : 0;
+}
+
+/**
+ * Retain a complete trip when enforcing the local route-library cap. The old
+ * row-by-row slice could evict leg 1 while keeping leg 2, which is precisely
+ * how a healthy trip became a stranded "2nd Leg" after a busy season.
+ */
+export function capSavedTracesPreservingTrips(traces: readonly SavedTrace[], cap = 50): SavedTrace[] {
+    if (cap <= 0 || traces.length === 0) return [];
+
+    const grouped = new Map<string, SavedTrace[]>();
+    const encounterOrder: string[] = [];
+    for (const trace of traces) {
+        const key = trace.tripId ?? trace.id;
+        const group = grouped.get(key);
+        if (group) group.push(trace);
+        else {
+            grouped.set(key, [trace]);
+            encounterOrder.push(key);
+        }
+    }
+
+    const newestGroups = encounterOrder
+        .map((key) => ({ key, traces: grouped.get(key)! }))
+        .sort((left, right) => Math.max(...right.traces.map(traceStamp)) - Math.max(...left.traces.map(traceStamp)));
+
+    const kept: SavedTrace[] = [];
+    for (const group of newestGroups) {
+        // A trip is indivisible. A pathological >cap trip is still safer to
+        // retain whole than to leave it structurally corrupt.
+        if (kept.length > 0 && kept.length + group.traces.length > cap) continue;
+        kept.push(...group.traces);
+    }
+    return kept;
+}
+
+function sameTraceContent(left: SavedTrace, right: SavedTrace): boolean {
+    return (
+        left.id === right.id &&
+        left.name === right.name &&
+        left.createdAt === right.createdAt &&
+        left.updatedAt === right.updatedAt &&
+        left.tripId === right.tripId &&
+        left.legOrdinal === right.legOrdinal &&
+        left.destName === right.destName &&
+        left.plannedRouteId === right.plannedRouteId &&
+        left.passageVoyageId === right.passageVoyageId &&
+        left.points.length === right.points.length &&
+        left.points.every(
+            (point, index) => point.lat === right.points[index]?.lat && point.lon === right.points[index]?.lon,
+        )
+    );
+}
+
+function sortTripLegs(legs: readonly SavedTrace[]): SavedTrace[] {
+    return [...legs].sort((a, b) => {
+        const ordinalA = a.legOrdinal ?? legBadgeOrdinal(a.name) ?? 1;
+        const ordinalB = b.legOrdinal ?? legBadgeOrdinal(b.name) ?? 1;
+        if (ordinalA !== ordinalB) return ordinalA - ordinalB;
+        return traceStamp(a) - traceStamp(b);
+    });
+}
+
+/**
+ * Stamp one continuous run as either a standalone route or a properly rooted
+ * chain. Geometry and exact Passage/Log links stay untouched; only the
+ * structural metadata and generated leg badge change.
+ */
+function normaliseTripRun(legs: readonly SavedTrace[], updatedAt: string): SavedTrace[] {
+    const ordered = sortTripLegs(legs);
+    if (ordered.length === 0) return [];
+    if (ordered.length === 1) {
+        const only = ordered[0];
+        return [
+            {
+                ...only,
+                name: stripLegBadge(only.name),
+                ...(only.destName ? { destName: only.destName } : {}),
+                updatedAt,
+                tripId: undefined,
+                legOrdinal: undefined,
+            },
+        ];
+    }
+    const rootId = ordered[0].id;
+    return ordered.map((leg, index) => {
+        const ordinal = index + 1;
+        return {
+            ...leg,
+            name: withLegBadge(leg.name, ordinal),
+            tripId: rootId,
+            legOrdinal: ordinal,
+            destName: leg.destName ?? destNameFromRouteName(leg.name) ?? undefined,
+            updatedAt,
+        };
+    });
+}
+
+/**
+ * Recover a historical chain whose root row has already disappeared. Older
+ * builds could delete leg 1 while leaving leg 2+ with the old tripId, and a
+ * storage cap could create the same shape. Promote the lowest surviving leg
+ * to the new root (or a standalone route when it is the sole survivor), so
+ * Plan never has a stranded “2nd Leg”.
+ *
+ * The repair is pure. `loadSavedTraces()` uses it for immediate truthful UI;
+ * sync persists and publishes the returned `changed` records cross-device.
+ */
+export function repairOrphanedSavedTraceChains(
+    traces: readonly SavedTrace[],
+    updatedAt?: string,
+): SavedTraceDeleteRebase {
+    const ids = new Set(traces.map((trace) => trace.id));
+    const orphanedByTripId = new Map<string, SavedTrace[]>();
+    for (const trace of traces) {
+        if (!trace.tripId || ids.has(trace.tripId)) continue;
+        const group = orphanedByTripId.get(trace.tripId) ?? [];
+        group.push(trace);
+        orphanedByTripId.set(trace.tripId, group);
+    }
+    if (orphanedByTripId.size === 0) return { traces: [...traces], changed: [] };
+
+    const replacementById = new Map<string, SavedTrace>();
+    for (const group of orphanedByTripId.values()) {
+        // One deterministic tick past the newest known row makes a repair
+        // win a newest-version merge without generating a fresh timestamp on
+        // every read before the repaired copy has been persisted.
+        const newestStamp = Math.max(...group.map(traceStamp));
+        const repairStamp =
+            updatedAt ?? (newestStamp > 0 ? new Date(newestStamp + 1).toISOString() : new Date().toISOString());
+        for (const repaired of normaliseTripRun(group, repairStamp)) {
+            replacementById.set(repaired.id, repaired);
+        }
+    }
+
+    const repairedTraces = traces.map((trace) => replacementById.get(trace.id) ?? trace);
+    const changed = repairedTraces.filter((trace) => {
+        const previous = traces.find((candidate) => candidate.id === trace.id);
+        return Boolean(previous && !sameTraceContent(previous, trace));
+    });
+    return { traces: repairedTraces, changed };
+}
+
+export interface SavedTraceDeleteRebase {
+    traces: SavedTrace[];
+    changed: SavedTrace[];
+}
+
+/**
+ * Delete one leg without leaving a dangling trip root. When the first leg is
+ * removed, its successor becomes leg 1. Removing a middle leg deliberately
+ * splits the tail into a new trip: pretending two discontinuous sea paths
+ * are still joined would make the locked starting pin lie.
+ */
+export function rebaseSavedTraceChainAfterDelete(
+    traces: readonly SavedTrace[],
+    removedId: string,
+    updatedAt = new Date().toISOString(),
+): SavedTraceDeleteRebase {
+    const target = traces.find((trace) => trace.id === removedId);
+    if (!target) return { traces: [...traces], changed: [] };
+
+    const tripKey = target.tripId ?? target.id;
+    const chain = sortTripLegs(
+        traces.filter((trace) => trace.id === tripKey || trace.id === target.id || trace.tripId === tripKey),
+    );
+    const removedIndex = chain.findIndex((trace) => trace.id === removedId);
+    if (removedIndex < 0) return { traces: traces.filter((trace) => trace.id !== removedId), changed: [] };
+
+    const before = chain.slice(0, removedIndex);
+    const after = chain.slice(removedIndex + 1);
+    const replacementById = new Map<string, SavedTrace>();
+    // Keeping the prefix and tail separate after a middle delete preserves
+    // positional truth. First-leg deletion naturally has an empty prefix, so
+    // every successor is promoted in one clean reindex.
+    for (const replacement of [...normaliseTripRun(before, updatedAt), ...normaliseTripRun(after, updatedAt)]) {
+        replacementById.set(replacement.id, replacement);
+    }
+
+    const next = traces
+        .filter((trace) => trace.id !== removedId)
+        .map((trace) => replacementById.get(trace.id) ?? trace);
+    const changed = next.filter((trace) => {
+        const previous = traces.find((candidate) => candidate.id === trace.id);
+        return !!previous && !sameTraceContent(previous, trace);
+    });
+    return { traces: next, changed };
+}
+
 /** Group saved traces into trips (SHARED by the PLAN-page Trip box and the
  *  tracer card's "open a saved route" list, so the two can never drift —
  *  2026-07-17). Legs of one trip share tripId (= leg 1's id); order is
@@ -1370,10 +1723,7 @@ export function groupTracesByTrip(traces: readonly SavedTrace[]): TripGroup[] {
         }
     }
     return order.map((key) => {
-        const legs = groups.get(key)!;
-        legs.sort(
-            (a, b) => (a.legOrdinal ?? legBadgeOrdinal(a.name) ?? 1) - (b.legOrdinal ?? legBadgeOrdinal(b.name) ?? 1),
-        );
+        const legs = sortTripLegs(groups.get(key)!);
         const base = stripLegBadge(legs[0].name);
         return { key, legs, label: legs.length > 1 ? `${base} … (${legs.length} legs)` : base };
     });
@@ -1432,10 +1782,25 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
         const raw = localStorage.getItem(tracesStorageKey(scope));
         if (!raw) return [];
         const arr = JSON.parse(raw) as SavedTrace[];
-        return Array.isArray(arr) ? arr.filter((t) => t && Array.isArray(t.points) && t.points.length >= 2) : [];
+        if (!Array.isArray(arr)) return [];
+        const tombstones = getSavedTraceTombstones(scope);
+        const visible = arr.filter(
+            (t) =>
+                t &&
+                typeof t.id === 'string' &&
+                !Object.prototype.hasOwnProperty.call(tombstones, t.id) &&
+                Array.isArray(t.points) &&
+                t.points.length >= 2,
+        );
+        return repairOrphanedSavedTraceChains(visible).traces;
     } catch {
         return [];
     }
+}
+
+function writeSavedTraces(traces: readonly SavedTrace[], scope: AuthIdentityScope): void {
+    if (!isAuthIdentityScopeCurrent(scope)) return;
+    localStorage.setItem(tracesStorageKey(scope), JSON.stringify(capSavedTracesPreservingTrips(traces)));
 }
 
 /** persisted=false means storage refused (quota) — tell the skipper, don't
@@ -1445,7 +1810,14 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
 export function saveTrace(
     name: string,
     points: readonly TracePoint[],
-    opts: { overwriteId?: string; tripId?: string; legOrdinal?: number; destName?: string } = {},
+    opts: {
+        overwriteId?: string;
+        tripId?: string;
+        legOrdinal?: number;
+        destName?: string;
+        plannedRouteId?: string;
+        passageVoyageId?: string;
+    } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
     const identity = getAuthIdentityScope();
     // Overwrite KEEPS the id: the local replace and the cloud upsert (also
@@ -1457,6 +1829,8 @@ export function saveTrace(
     const tripId = opts.tripId ?? existing?.tripId;
     const legOrdinal = opts.legOrdinal ?? existing?.legOrdinal;
     const destName = opts.destName ?? existing?.destName;
+    const plannedRouteId = opts.plannedRouteId ?? existing?.plannedRouteId;
+    const passageVoyageId = opts.passageVoyageId ?? existing?.passageVoyageId;
     const trace: SavedTrace = {
         // Random suffix: two saves in the same millisecond used to mint the
         // SAME id, and the by-id dedupe silently swallowed the first route
@@ -1469,11 +1843,17 @@ export function saveTrace(
         ...(tripId ? { tripId } : {}),
         ...(legOrdinal ? { legOrdinal } : {}),
         ...(destName ? { destName } : {}),
+        ...(plannedRouteId ? { plannedRouteId } : {}),
+        ...(passageVoyageId ? { passageVoyageId } : {}),
     };
-    const all = [trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)].slice(0, 50);
+    const all = capSavedTracesPreservingTrips([trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)]);
     let persisted = false;
     try {
-        localStorage.setItem(tracesStorageKey(identity), JSON.stringify(all));
+        writeSavedTraces(all, identity);
+        // A deliberate save with the same id is the only operation allowed to
+        // revive a local tombstone. Clear it only AFTER the new payload is
+        // durable; a failed write must leave the safer delete fence intact.
+        clearSavedTraceTombstone(trace.id, identity);
         // Same-id overwrite: the OLD copy would satisfy a bare id check even
         // after quota refused the write — match the freshness stamp too.
         persisted = loadSavedTraces(identity).some(
@@ -1487,23 +1867,104 @@ export function saveTrace(
     const cloud = import('./savedRoutesSync')
         .then(({ pushSavedRoute }) => pushSavedRoute(trace, identity))
         .catch(() => 'error' as const);
+    if (persisted) notifySavedRoutesChanged(identity);
     return { trace, persisted, cloud };
 }
 
-export function deleteTrace(id: string): void {
-    const identity = getAuthIdentityScope();
+/**
+ * Attach the exact records created by PassagePlanSave to an already-persisted
+ * trace. It is intentionally a separate mutation: tracer geometry saves
+ * first (offline-first), then the compatibility mirror returns its ids later.
+ */
+export function linkTraceToPassage(
+    id: string,
+    links: TracePassageLinks,
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
+): SavedTrace | null {
+    const traceId = id.trim();
+    if (!traceId || !isAuthIdentityScopeCurrent(expectedScope)) return null;
+    const tombstones = getSavedTraceTombstones(expectedScope);
+    if (Object.prototype.hasOwnProperty.call(tombstones, traceId)) return null;
+    const traces = loadSavedTraces(expectedScope);
+    const previous = traces.find((trace) => trace.id === traceId);
+    if (!previous) return null;
+    const linked: SavedTrace = {
+        ...previous,
+        ...(links.plannedRouteId ? { plannedRouteId: links.plannedRouteId } : {}),
+        ...(links.passageVoyageId ? { passageVoyageId: links.passageVoyageId } : {}),
+        updatedAt: new Date().toISOString(),
+    };
     try {
-        localStorage.setItem(
-            tracesStorageKey(identity),
-            JSON.stringify(loadSavedTraces(identity).filter((t) => t.id !== id)),
+        writeSavedTraces(
+            traces.map((trace) => (trace.id === traceId ? linked : trace)),
+            expectedScope,
         );
     } catch {
-        /* ignore */
+        return null;
     }
-    // Tombstone on the account so the delete syncs across devices too.
     void import('./savedRoutesSync')
-        .then(({ pushSavedRouteDelete }) => pushSavedRouteDelete(id, identity))
+        .then(({ pushSavedRoute }) => pushSavedRoute(linked, expectedScope))
         .catch(() => {});
+    notifySavedRoutesChanged(expectedScope);
+    return linked;
+}
+
+/**
+ * Remove one saved trace locally, then tombstone it for the signed-in account.
+ *
+ * Callers that started an async operation should pass their captured scope so
+ * an account switch cannot turn a late delete into a mutation of the next
+ * skipper's route library.
+ */
+export function deleteTrace(id: string, expectedScope: AuthIdentityScope = getAuthIdentityScope()): boolean {
+    const traceId = id.trim();
+    const identity = expectedScope;
+    if (!traceId || !isAuthIdentityScopeCurrent(identity)) return false;
+    const current = loadSavedTraces(identity);
+    const target = current.find((trace) => trace.id === traceId);
+    if (!target) return false;
+    const deletedAt = new Date().toISOString();
+    const rebased = rebaseSavedTraceChainAfterDelete(current, traceId, deletedAt);
+    try {
+        // Fence first: sync may be running on another task, and must never
+        // win a race by writing the soon-to-be-deleted remote row back here.
+        const tombstones = getSavedTraceTombstones(identity);
+        tombstones[traceId] = {
+            deletedAt,
+            ...(target.plannedRouteId ? { plannedRouteId: target.plannedRouteId } : {}),
+            ...(target.passageVoyageId ? { passageVoyageId: target.passageVoyageId } : {}),
+        };
+        writeSavedTraceTombstones(tombstones, identity);
+        writeSavedTraces(rebased.traces, identity);
+    } catch {
+        return false;
+    }
+    notifySavedRoutesChanged(identity);
+    // Tombstone the deleted row and immediately publish every promoted leg;
+    // one remote pull therefore observes a complete, contiguous chain.
+    void import('./savedRoutesSync')
+        .then(({ pushSavedRoute, pushSavedRouteDelete }) => {
+            for (const trace of rebased.changed) void pushSavedRoute(trace, identity);
+            return pushSavedRouteDelete(traceId, identity, deletedAt);
+        })
+        .catch(() => {});
+    // The chart trace, its planned Log mirror, and its Passage Planning row
+    // are a graph. The graph cleanup is deliberately async so the UI can
+    // remove the route instantly, but it uses immutable ids rather than a
+    // label/date heuristic and is retried after a late mirror save.
+    void import('./savedRouteGraph')
+        .then(({ deleteSavedRoutePassageGraph }) =>
+            deleteSavedRoutePassageGraph(
+                traceId,
+                {
+                    plannedRouteId: target.plannedRouteId,
+                    passageVoyageId: target.passageVoyageId,
+                },
+                identity,
+            ),
+        )
+        .catch(() => {});
+    return true;
 }
 
 /**
