@@ -5,11 +5,16 @@
  */
 
 import React, { useState } from 'react';
-import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryService';
+import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { AudioWidget } from './AudioWidget';
 import { DiaryPhoto } from './DiaryPhoto';
 import { UndoToast } from '../ui/UndoToast';
 import { toast } from '../Toast';
+import {
+    diaryPublishFailureMessage,
+    publishDiaryEntryToVoyageLog,
+    unpublishDiaryEntryFromVoyageLog,
+} from './diaryPublishing';
 
 // ── Helpers ─────────────────────────────────────────────────────
 const formatDate = (iso: string): string => {
@@ -79,12 +84,23 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
             if (publishBusy) return;
             const next = !isPublished;
             setPublishBusy(true);
-            const ok = await DiaryService.setEntryPublished(e.id, next);
-            setPublishBusy(false);
-            if (ok) {
+            try {
+                if (next) {
+                    const publish = await publishDiaryEntryToVoyageLog(e.id);
+                    if (!publish.ok) {
+                        toast.error(diaryPublishFailureMessage(publish.reason));
+                        return;
+                    }
+                } else {
+                    const unpublished = await unpublishDiaryEntryFromVoyageLog(e.id);
+                    if (!unpublished) {
+                        toast.error('This entry could not be unpublished. It is still on your Voyage Log.');
+                        return;
+                    }
+                }
                 onPublishedChange?.(e.id, next);
-            } else {
-                toast.error('Could not update — try again');
+            } finally {
+                setPublishBusy(false);
             }
         };
 
@@ -386,7 +402,9 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                 <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
                                     {isPublished
                                         ? 'This entry is live on your public voyage page.'
-                                        : 'Share this entry on your public voyage page.'}
+                                        : e.id.startsWith('offline-')
+                                          ? 'This entry is still syncing. It can be shared once Thalassa confirms it online.'
+                                          : 'Share this entry on your public voyage page.'}
                                 </p>
                             </div>
                             <button

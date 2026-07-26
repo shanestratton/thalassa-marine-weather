@@ -5,7 +5,7 @@
  * Each card is a <details> accordion with delegation badge + inner card.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { type CrewMember } from '../../services/CrewService';
 import { type VoyageRow } from '../CrewManagement';
 
@@ -278,6 +278,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
         showDelegation: passageStatus.isOwner,
     };
 
+    // Domestic passages do not need a customs clearance. Keep that fact out
+    // of the progress denominator rather than auto-ticking it: a new route
+    // must begin with an honest 0/N in every readiness group.
+    const isDomestic = !!(departPort && destPort && isSameCountry(departPort, destPort));
+
     // Group readiness counters — one X/Y chip per group header. Vessel
     // Profile moved out of Passage Intelligence into Vessel Readiness
     // (along with the other vessel-wide cards) per a 2026-05-15
@@ -289,29 +294,27 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // Pre-Departure Weather card removed 2026-05-17 — Weather Windows
     // (PI-1) now serves as the canonical weather-readiness gate via
     // window acceptance. briefReadyCount denominator dropped from 4
-    // to 3 (watchBriefed + customsCleared + navAcknowledged).
-    const briefReadyCount = [watchBriefed, customsCleared, navAcknowledged].filter(Boolean).length;
+    // to 3 (watchBriefed + customsCleared + navAcknowledged) for an
+    // international passage. Domestic passages have two real brief items:
+    // watch schedule + navigation acknowledgement.
+    const briefRequirements = isDomestic
+        ? [watchBriefed, navAcknowledged]
+        : [watchBriefed, customsCleared, navAcknowledged];
+    const briefReadyCount = briefRequirements.filter(Boolean).length;
+    const briefTotal = briefRequirements.length;
     const vesselReadyCount = [vesselProfileReady, reservesReady, vesselChecked, medicalReady, commsReady].filter(
         Boolean,
     ).length;
-
-    // Auto-clear customs for domestic routes
-    const isDomestic = !!(departPort && destPort && isSameCountry(departPort, destPort));
-    useEffect(() => {
-        if (canViewChecklist && isDomestic && !customsCleared) {
-            onCustomsChange(1, 1);
-        }
-    }, [canViewChecklist, isDomestic, customsCleared, onCustomsChange]);
 
     // Rollup behaviour: when no passage is selected, the three group
     // headers stay visible but their cards collapse out. Gives the
     // skipper a hint of what's coming once they pick a passage,
     // without filling the page with placeholders. Once a passage IS
     // selected, every card mounts and either re-hydrates per-voyage
-    // state from readiness_checks (PI + Departure Brief — fresh slate
-    // for a brand-new route, partial state for a half-ticked one) or
-    // stays as the vessel-wide state it already had (Vessel
-    // Readiness — same localStorage keys regardless of voyage).
+    // state from readiness_checks (fresh slate for a brand-new route,
+    // partial state for a half-ticked saved one). Vessel Readiness also
+    // uses passage-scoped confirmations, so a previous voyage never
+    // lends its green ticks to a new route.
     //
     // Controlled <details> state per group rather than just
     // `<details open={hasPassage}>` — React + native <details> doesn't
@@ -513,7 +516,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         <GroupHeader
                             label="Departure Brief"
                             ready={canViewChecklist ? briefReadyCount : 0}
-                            total={canViewChecklist ? 3 : 0}
+                            total={canViewChecklist ? briefTotal : 0}
                         />
                     </summary>
 
@@ -582,18 +585,19 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                     if (isDomestic) {
                                         return (
                                             <CardAccordion
-                                                isReady={true}
+                                                isReady={false}
+                                                isAmber
                                                 emoji="🛂"
                                                 title="Customs & Immigration"
-                                                subtitle={`${departPort} → ${destPort}`}
-                                                readySubtitle="✅ Domestic route — no clearance required"
+                                                subtitle="Domestic route — no clearance required"
+                                                readySubtitle="No customs clearance required"
                                                 cardKey="customs_clearance"
                                                 {...delegationProps}
                                                 {...cardAccordionProps('brief', 'customs_clearance')}
                                             >
                                                 <div className="p-4 text-center">
                                                     <p className="text-2xl mb-2">🏠</p>
-                                                    <p className="text-sm font-bold text-emerald-400 mb-1">
+                                                    <p className="text-sm font-bold text-amber-300 mb-1">
                                                         No Customs Required
                                                     </p>
                                                     <p className="text-xs text-gray-400 leading-relaxed max-w-xs mx-auto">
@@ -657,7 +661,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                         // window acceptance (PI-1) now gates
                                         // weather-readiness — use that as the
                                         // pre-condition for nav acknowledgment.
-                                        customsCleared &&
+                                        (isDomestic || customsCleared) &&
                                         (weatherWindowReady ?? false) &&
                                         reservesReady &&
                                         watchBriefed &&
@@ -690,8 +694,9 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         <GroupHeader label="Vessel Readiness" ready={vesselReadyCount} total={5} />
                     </summary>
 
-                    {/* VR-1: VESSEL PROFILE — read-only summary, canonical
-                source is settings.vessel from onboarding. */}
+                    {/* VR-1: VESSEL PROFILE — canonical vessel data comes
+                from Settings, while the explicit confirmation below is
+                scoped to this passage. */}
                     <CardAccordion
                         isReady={vesselProfileReady}
                         emoji="⚓"
@@ -702,7 +707,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         {...delegationProps}
                         {...cardAccordionProps('vessel', 'vessel_profile')}
                     >
-                        <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
+                        <VesselProfileSummary voyageId={selectedPassageId} onReviewedChange={onVesselProfileChange} />
                     </CardAccordion>
 
                     {/* VR-2: ESSENTIAL RESERVES */}

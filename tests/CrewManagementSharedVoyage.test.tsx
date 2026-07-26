@@ -246,6 +246,7 @@ interface MockReadinessProps {
     onCommsChange: (value: boolean) => void;
     onCustomsChange: (total: number, checked: number) => void;
     onNavChange: (value: boolean) => void;
+    onVesselProfileChange: (value: boolean) => void;
     onWeatherWindowChange: (value: boolean) => void;
     onAssignCard: (cardKey: string, email: string) => void;
 }
@@ -268,6 +269,7 @@ vi.mock('../components/crew/ReadinessCardStack', () => ({
                 <button
                     type="button"
                     onClick={() => {
+                        props.onVesselProfileChange(true);
                         props.onReservesChange(true);
                         props.onVesselCheckChange(true);
                         props.onMedicalChange(true);
@@ -505,6 +507,34 @@ describe('CrewManagement shared passage ownership', () => {
 
         expect(screen.queryByRole('combobox', { name: 'Saved Routes' })).not.toBeInTheDocument();
         expect(await screen.findByText('No saved routes yet')).toBeInTheDocument();
+    });
+
+    it('keeps a confirmed empty saved-routes card stable during a background refresh', async () => {
+        renderPage();
+
+        // The first indexed query settles the empty library. It deliberately
+        // happens before the slower legacy reconciliation, so this is the
+        // point at which the empty card should remain painted.
+        expect(await screen.findByText('No saved routes yet')).toBeInTheDocument();
+
+        let resolveRefresh!: (voyages: Voyage[]) => void;
+        const pendingRefresh = new Promise<Voyage[]>((resolve) => {
+            resolveRefresh = resolve;
+        });
+        mocks.getDraftVoyages.mockClear();
+        mocks.getDraftVoyages.mockImplementation(() => pendingRefresh);
+
+        act(() => {
+            window.dispatchEvent(new Event('thalassa:passage-plan-saved'));
+        });
+
+        await waitFor(() => expect(mocks.getDraftVoyages).toHaveBeenCalled());
+        expect(screen.getByText('No saved routes yet')).toBeInTheDocument();
+        expect(screen.queryByText('Loading saved routes…')).not.toBeInTheDocument();
+
+        await act(async () => {
+            resolveRefresh([]);
+        });
     });
 
     it('keeps an exact unlinked canonical passage visible when logbook routes are unavailable', async () => {

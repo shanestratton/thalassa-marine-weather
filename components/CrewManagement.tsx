@@ -46,6 +46,7 @@ import {
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import { linkTraceToPassage, loadSavedTraces, saveTrace, stripLegBadge } from '../services/routeTracer';
 import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
+import { isSameCountry } from '../data/customsDb';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -258,6 +259,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             (draft) => !isCanonicalSavedRouteDraft(draft, canonicalIds, exactPassageVoyageIds),
         );
     });
+    // Once an account's route library has answered at least once, leave its
+    // deliberate empty state on screen while background refreshes run. The
+    // old flow reset this to `true` whenever an empty cache was re-read,
+    // swapping the empty-state icon for the loading card on every route
+    // event and making it visibly flash.
+    const savedRoutesSettledGeneration = useRef<number | null>(null);
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
     const selectedPassageRef = useRef(selectedPassageId);
     selectedPassageRef.current = selectedPassageId;
@@ -366,19 +373,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         [authedUser?.id, passageStatus.isOwner, passageStatus.ownerUserId, passageStatus.voyageId, selectedPassageId],
     );
 
-    // All readiness cards green → Cast Off unlocked.
-    // weatherReviewed removed 2026-05-17; weatherWindowReady (window
-    // acceptance from PI-1) is the canonical weather gate now.
-    const allCardsReady =
-        customsCleared &&
-        weatherWindowReady &&
-        reservesReady &&
-        navAcknowledged &&
-        watchBriefed &&
-        commsReady &&
-        vesselChecked &&
-        medicalReady;
-
     // Disband group
     const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
     const [disbandConfirmText, setDisbandConfirmText] = useState('');
@@ -411,6 +405,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setMemberships([]);
             setMembershipsLoaded(false);
             setDraftVoyages([]);
+            // A different identity needs its own first, honest loading pass;
+            // an empty result for the previous skipper must not suppress it.
+            savedRoutesSettledGeneration.current = null;
             setSavedRoutesLoading(Boolean(next.userId));
             setSelectedPassageId(nextPassageId);
             setPassageStatus(NO_PASSAGE_ACCESS);
@@ -647,7 +644,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 ).values(),
             ]);
             setSavedRoutesLoading(false);
-        } else {
+        } else if (savedRoutesSettledGeneration.current !== scope.generation) {
+            // Show the initial load only. Once this identity has confirmed an
+            // empty library, a background refresh should update silently so
+            // the empty-state card does not blink in and out.
             setSavedRoutesLoading(true);
         }
         try {
@@ -679,6 +679,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 ),
             ).values(),
         ]);
+        savedRoutesSettledGeneration.current = scope.generation;
         setSavedRoutesLoading(false);
 
         // Do not force a refresh here. A cache or in-flight request is already
@@ -1506,6 +1507,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const isSelectedPassageOwner =
         Boolean(selectedPassageId) && verifiedPassageStatus.visible && verifiedPassageStatus.isOwner;
     const selectedVoyage = draftVoyages.find((voyage) => voyage.id === selectedPassageId);
+    const selectedPassageIsDomestic = Boolean(
+        selectedVoyage?.departure_port &&
+        selectedVoyage.destination_port &&
+        isSameCountry(selectedVoyage.departure_port, selectedVoyage.destination_port),
+    );
+    // All readiness cards green → Cast Off unlocked. Domestic passages have
+    // no customs task, but that exemption must not masquerade as a completed
+    // Departure Brief item. It removes the requirement here only.
+    const allCardsReady =
+        (selectedPassageIsDomestic || customsCleared) &&
+        weatherWindowReady &&
+        vesselProfileReady &&
+        reservesReady &&
+        navAcknowledged &&
+        watchBriefed &&
+        commsReady &&
+        vesselChecked &&
+        medicalReady;
     const selectedPassageCrew = isSelectedPassageOwner
         ? visibleCrew.filter((member) => member.voyage_id === null || member.voyage_id === selectedPassageId)
         : [];
