@@ -21,6 +21,8 @@ const LIKES_TABLE = 'sailor_likes';
 const CHAT_PROFILES_TABLE = 'chat_profiles';
 const BLOCKS_TABLE = 'sailor_blocks';
 const REPORTS_TABLE = 'sailor_reports';
+const CREW_INTRO_REQUESTS_TABLE = 'crew_intro_requests';
+const CREW_LIST_BLOCKS_TABLE = 'dm_blocks';
 
 /** Raw Supabase row — typed loosely since we normalize immediately */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,6 +33,13 @@ type SupabaseRow = Record<string, any>;
 // ═══════════════════════════════════════════════════
 
 export type ListingType = 'seeking_crew' | 'seeking_berth';
+export const CREW_LIST_INTENTS = ['find_crew', 'find_skipper'] as const;
+export type CrewListIntent = (typeof CREW_LIST_INTENTS)[number];
+export type CrewListVisibility = 'private' | 'visible';
+export type CrewApprovalStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'suspended';
+export type CrewVerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
+export type CrewIntroRequestStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn';
+export type CrewIntroResponse = Extract<CrewIntroRequestStatus, 'accepted' | 'declined'>;
 
 export interface CrewProfile {
     user_id: string;
@@ -59,8 +68,66 @@ export interface CrewProfile {
     location_country: string | null;
     photo_url: string | null;
     photos: string[];
+    /** Explicit beta opt-in. Existing Crew Finder rows remain private by default. */
+    community_enabled: boolean;
+    crew_intents: CrewListIntent[];
+    crew_list_visibility: CrewListVisibility;
+    approval_status: CrewApprovalStatus;
+    verification_status: CrewVerificationStatus;
+    review_requested_at: string | null;
+    reviewed_at: string | null;
+    reviewed_by: string | null;
     created_at: string;
     updated_at: string;
+}
+
+/** The ordinary profile editor can never set review or publishing state. */
+export type CrewProfileUpdate = Partial<
+    Omit<
+        CrewProfile,
+        | 'user_id'
+        | 'created_at'
+        | 'updated_at'
+        | 'is_verified'
+        | 'community_enabled'
+        | 'crew_intents'
+        | 'crew_list_visibility'
+        | 'approval_status'
+        | 'verification_status'
+        | 'review_requested_at'
+        | 'reviewed_at'
+        | 'reviewed_by'
+    >
+>;
+
+export interface CrewListState {
+    community_enabled: boolean;
+    crew_intents: CrewListIntent[];
+    crew_list_visibility: CrewListVisibility;
+    approval_status: CrewApprovalStatus;
+    verification_status: CrewVerificationStatus;
+    review_requested_at: string | null;
+    reviewed_at: string | null;
+}
+
+export interface CrewListStateUpdate {
+    community_enabled?: boolean;
+    crew_intents?: CrewListIntent[];
+    crew_list_visibility?: CrewListVisibility;
+}
+
+type CrewProfileOwnerUpdate = CrewProfileUpdate &
+    Partial<Pick<CrewProfile, 'community_enabled' | 'crew_intents' | 'crew_list_visibility'>>;
+
+export interface CrewIntroRequest {
+    id: string;
+    sender_id: string;
+    recipient_id: string;
+    message: string;
+    status: CrewIntroRequestStatus;
+    created_at: string;
+    responded_at: string | null;
+    withdrawn_at: string | null;
 }
 
 export interface CrewCard {
@@ -72,6 +139,7 @@ export interface CrewCard {
     home_port: string | null;
     // From crew profile
     listing_type: ListingType | null;
+    crew_intents: CrewListIntent[];
     first_name: string | null;
     photo_url: string | null;
     gender: string | null;
@@ -329,6 +397,84 @@ class LonelyHeartsServiceClass {
         return normalized && normalized.length <= 128 ? normalized : null;
     }
 
+    private normalizeCrewIntents(value: unknown): CrewListIntent[] | null {
+        if (!Array.isArray(value)) return null;
+        const intents: CrewListIntent[] = [];
+        for (const intent of value) {
+            if (typeof intent !== 'string' || !CREW_LIST_INTENTS.includes(intent as CrewListIntent)) return null;
+            if (!intents.includes(intent as CrewListIntent)) intents.push(intent as CrewListIntent);
+        }
+        return intents;
+    }
+
+    private normalizeCrewApprovalStatus(value: unknown): CrewApprovalStatus {
+        return ['draft', 'pending', 'approved', 'rejected', 'suspended'].includes(value as string)
+            ? (value as CrewApprovalStatus)
+            : 'draft';
+    }
+
+    private normalizeCrewVerificationStatus(value: unknown): CrewVerificationStatus {
+        return ['unverified', 'pending', 'verified', 'rejected'].includes(value as string)
+            ? (value as CrewVerificationStatus)
+            : 'unverified';
+    }
+
+    private normalizeCrewIntroStatus(value: unknown): CrewIntroRequestStatus | null {
+        return ['pending', 'accepted', 'declined', 'withdrawn'].includes(value as string)
+            ? (value as CrewIntroRequestStatus)
+            : null;
+    }
+
+    private crewListStateFromProfile(profile: CrewProfile): CrewListState {
+        return {
+            community_enabled: profile.community_enabled,
+            crew_intents: [...profile.crew_intents],
+            crew_list_visibility: profile.crew_list_visibility,
+            approval_status: profile.approval_status,
+            verification_status: profile.verification_status,
+            review_requested_at: profile.review_requested_at,
+            reviewed_at: profile.reviewed_at,
+        };
+    }
+
+    private sanitizeCrewProfileUpdates(updates: CrewProfileUpdate): CrewProfileUpdate {
+        const blockedKeys = new Set([
+            'user_id',
+            'created_at',
+            'updated_at',
+            'is_verified',
+            'community_enabled',
+            'crew_intents',
+            'crew_list_visibility',
+            'approval_status',
+            'verification_status',
+            'review_requested_at',
+            'reviewed_at',
+            'reviewed_by',
+        ]);
+        return Object.fromEntries(
+            Object.entries(this.cloneUpdates(updates)).filter(([key]) => !blockedKeys.has(key)),
+        ) as CrewProfileUpdate;
+    }
+
+    private normalizeCrewIntroMessage(message: unknown): string | null {
+        if (message === undefined || message === null) return '';
+        if (typeof message !== 'string') return null;
+        const normalized = message.trim();
+        const hasControlCharacter = ['\n', '\r', '\t', String.fromCharCode(0), String.fromCharCode(127)].some(
+            (character) => normalized.includes(character),
+        );
+        if (normalized.length > 500 || hasControlCharacter) return null;
+
+        const containsEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(normalized);
+        const containsUrl =
+            /(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(?:com|net|org|edu|gov|io|co|app|dev|me|au|nz|uk|us|ca)\b/i.test(
+                normalized,
+            );
+        const containsPhone = /(?:\+?\d[\d\s().-]*){7,}/.test(normalized);
+        return containsEmail || containsUrl || containsPhone ? null : normalized;
+    }
+
     async init(): Promise<void> {
         if (!supabase) return;
         const scope = getAuthIdentityScope();
@@ -351,6 +497,12 @@ class LonelyHeartsServiceClass {
         const targetId = explicitTarget || ownerId;
         if (!targetId) return null;
 
+        return this.getCrewProfileForScope(scope, targetId);
+    }
+
+    private async getCrewProfileForScope(scope: AuthIdentityScope, targetId: string): Promise<CrewProfile | null> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
+
         const { data } = await supabase.from(CREW_PROFILES_TABLE).select('*').eq('user_id', targetId).single();
 
         if (!isAuthIdentityScopeCurrent(scope) || data?.user_id !== targetId) return null;
@@ -359,6 +511,9 @@ class LonelyHeartsServiceClass {
     }
 
     private normalizeCrewProfile(data: SupabaseRow): CrewProfile {
+        const crewIntents = this.normalizeCrewIntents(data.crew_intents) || [];
+        const approvalStatus = this.normalizeCrewApprovalStatus(data.approval_status);
+        const verificationStatus = this.normalizeCrewVerificationStatus(data.verification_status);
         return {
             user_id: data.user_id,
             listing_type: data.listing_type || null,
@@ -380,32 +535,49 @@ class LonelyHeartsServiceClass {
             pets: data.pets || null,
             interests: [...(data.interests || [])],
             last_active: data.last_active || null,
-            is_verified: data.is_verified || false,
+            // The legacy flag is retained for old UI data only. New Crew List
+            // cards trust the server-controlled verification lifecycle.
+            is_verified: verificationStatus === 'verified',
             location_city: data.location_city || null,
             location_state: data.location_state || null,
             location_country: data.location_country || null,
             photo_url: data.photo_url || null,
             photos: [...(data.photos || [])],
+            community_enabled: data.community_enabled === true,
+            crew_intents: crewIntents,
+            crew_list_visibility: data.crew_list_visibility === 'visible' ? 'visible' : 'private',
+            approval_status: approvalStatus,
+            verification_status: verificationStatus,
+            review_requested_at: data.review_requested_at || null,
+            reviewed_at: data.reviewed_at || null,
+            reviewed_by: data.reviewed_by || null,
             created_at: data.created_at,
             updated_at: data.updated_at,
         };
     }
 
     /** Update crew profile (upsert) */
-    async updateCrewProfile(
-        updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>>,
-    ): Promise<boolean> {
+    async updateCrewProfile(updates: CrewProfileUpdate): Promise<boolean> {
         const scope = getAuthIdentityScope();
-        const updatesSnapshot = this.cloneUpdates(updates);
+        const updatesSnapshot = this.sanitizeCrewProfileUpdates(updates);
         const ownerId = await this.getAuthenticatedOwner(scope);
         if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
-        return this.updateCrewProfileForScope(scope, ownerId, updatesSnapshot);
+        const intent =
+            updatesSnapshot.listing_type === 'seeking_crew'
+                ? 'find_crew'
+                : updatesSnapshot.listing_type === 'seeking_berth'
+                  ? 'find_skipper'
+                  : null;
+        return this.updateCrewProfileForScope(scope, ownerId, {
+            ...updatesSnapshot,
+            ...(intent ? { crew_intents: [intent] } : {}),
+        });
     }
 
     private async updateCrewProfileForScope(
         scope: AuthIdentityScope,
         ownerId: string,
-        updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>>,
+        updates: CrewProfileOwnerUpdate,
     ): Promise<boolean> {
         if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
         const { error } = await supabase.from(CREW_PROFILES_TABLE).upsert(
@@ -418,6 +590,174 @@ class LonelyHeartsServiceClass {
         );
 
         return !error && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** Read the signed-in sailor's Crew List opt-in and review state. */
+    async getCrewListState(): Promise<CrewListState | null> {
+        const profile = await this.getCrewProfile();
+        return profile ? this.crewListStateFromProfile(profile) : null;
+    }
+
+    /**
+     * Update the owner-controlled Crew List switches. Review and verification
+     * state intentionally have their own submit/review methods below.
+     */
+    async updateCrewListState(update: CrewListStateUpdate): Promise<boolean> {
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+
+        if (update.community_enabled !== undefined && typeof update.community_enabled !== 'boolean') return false;
+        if (
+            update.crew_list_visibility !== undefined &&
+            update.crew_list_visibility !== 'private' &&
+            update.crew_list_visibility !== 'visible'
+        ) {
+            return false;
+        }
+        let crewIntents: CrewListIntent[] | undefined;
+        if (update.crew_intents !== undefined) {
+            if (!Array.isArray(update.crew_intents)) return false;
+            crewIntents = this.normalizeCrewIntents([...update.crew_intents]);
+        }
+        if (update.crew_intents !== undefined && !crewIntents) return false;
+
+        const updates: CrewProfileOwnerUpdate = {
+            ...(update.community_enabled === undefined ? {} : { community_enabled: update.community_enabled }),
+            ...(crewIntents === undefined ? {} : { crew_intents: crewIntents }),
+            ...(update.crew_list_visibility === undefined ? {} : { crew_list_visibility: update.crew_list_visibility }),
+        };
+        if (update.community_enabled === false) updates.crew_list_visibility = 'private';
+        if (Object.keys(updates).length === 0) return false;
+
+        return this.updateCrewProfileForScope(scope, ownerId, updates);
+    }
+
+    /** Submit a complete, private profile for administrator verification. */
+    async submitCrewProfileForReview(): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+
+        const profile = await this.getCrewProfileForScope(scope, ownerId);
+        if (
+            !profile ||
+            !profile.community_enabled ||
+            profile.crew_intents.length === 0 ||
+            !profile.photo_url?.trim() ||
+            !isAuthIdentityScopeCurrent(scope)
+        ) {
+            return false;
+        }
+
+        const { error } = await supabase
+            .from(CREW_PROFILES_TABLE)
+            .update({
+                approval_status: 'pending',
+                verification_status: 'pending',
+                crew_list_visibility: 'private',
+                review_requested_at: new Date().toISOString(),
+                reviewed_at: null,
+                reviewed_by: null,
+            })
+            .eq('user_id', ownerId);
+
+        return !error && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** Admin-only queue. RLS returns no profiles to non-administrators. */
+    async getPendingCrewProfileReviews(limit = 100): Promise<CrewProfile[]> {
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 100;
+        const { data } = await supabase
+            .from(CREW_PROFILES_TABLE)
+            .select('*')
+            .eq('community_enabled', true)
+            .eq('approval_status', 'pending')
+            .eq('verification_status', 'pending')
+            .limit(safeLimit);
+
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return (data || []).map((profile: SupabaseRow) => this.normalizeCrewProfile(profile));
+    }
+
+    /** Admin-only review RPC; users cannot self-approve through profile updates. */
+    async reviewCrewProfile(
+        targetId: string,
+        decision: Extract<CrewApprovalStatus, 'approved' | 'rejected'>,
+    ): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (
+            !ownerId ||
+            !target ||
+            target === ownerId ||
+            (decision !== 'approved' && decision !== 'rejected') ||
+            !isAuthIdentityScopeCurrent(scope)
+        ) {
+            return false;
+        }
+
+        const { data, error } = await supabase.rpc('review_crew_profile', {
+            p_profile_user_id: target,
+            p_decision: decision,
+        });
+        return !error && data === true && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** Block a Crew List profile using the canonical direct-message block table. */
+    async blockCrewListUser(targetId: string): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        const { error } = await supabase
+            .from(CREW_LIST_BLOCKS_TABLE)
+            .upsert({ blocker_id: ownerId, blocked_id: target }, { onConflict: 'blocker_id,blocked_id' });
+        return !error && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** Remove a Crew List block without affecting legacy Crew Finder blocks. */
+    async unblockCrewListUser(targetId: string): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        const { error } = await supabase
+            .from(CREW_LIST_BLOCKS_TABLE)
+            .delete()
+            .eq('blocker_id', ownerId)
+            .eq('blocked_id', target);
+        return !error && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** Read the signed-in sailor's canonical Crew List block set. */
+    async getCrewListBlockedUserIds(): Promise<string[]> {
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        return this.getCrewListBlockedUserIdsForScope(scope, ownerId);
+    }
+
+    private async getCrewListBlockedUserIdsForScope(scope: AuthIdentityScope, ownerId: string): Promise<string[]> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return [];
+        const { data } = await supabase.from(CREW_LIST_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', ownerId);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return [
+            ...new Set(
+                (data || [])
+                    .map((row: Record<string, unknown>) => row.blocked_id)
+                    .filter((blockedId: unknown): blockedId is string => typeof blockedId === 'string'),
+            ),
+        ];
     }
 
     /** Upload a crew photo (single) */
@@ -640,7 +980,7 @@ class LonelyHeartsServiceClass {
 
     /**
      * Get crew listings (Find Crew) with optional filters.
-     * Joins chat_profiles with crew profiles.
+     * Discovery is driven solely by the safety-gated Crew List profile.
      */
     async getCrewListings(filters: CrewSearchFilters = {}, limit = 30): Promise<CrewCard[]> {
         if (!supabase) return [];
@@ -653,27 +993,21 @@ class LonelyHeartsServiceClass {
         const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 30;
         const ownerId = await this.getAuthenticatedOwner(scope);
         if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
-        const blockedIds = new Set(await this.getBlockedUserIdsForScope(scope, ownerId));
+        const blockedIds = new Set(await this.getCrewListBlockedUserIdsForScope(scope, ownerId));
         if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-        // 1. Get opted-in profiles (looking_for_love = true)
-        const { data: rawChatProfiles } = await supabase
-            .from(CHAT_PROFILES_TABLE)
-            .select('user_id, display_name, avatar_url, vessel_name, home_port')
-            .eq('looking_for_love', true)
+        // Keep the client filter aligned with RLS. The repeated predicates are
+        // deliberate: they make the safe discovery contract obvious even in a
+        // mocked or service-role environment where RLS is not applied.
+        let query = supabase
+            .from(CREW_PROFILES_TABLE)
+            .select('*')
+            .eq('community_enabled', true)
+            .eq('crew_list_visibility', 'visible')
+            .eq('approval_status', 'approved')
+            .eq('verification_status', 'verified')
             .neq('user_id', ownerId)
             .limit(100);
-
-        if (!isAuthIdentityScopeCurrent(scope)) return [];
-        const chatProfiles = (rawChatProfiles || []).filter(
-            (profile: SupabaseRow) =>
-                typeof profile.user_id === 'string' && profile.user_id !== ownerId && !blockedIds.has(profile.user_id),
-        );
-        if (!chatProfiles || chatProfiles.length === 0) return [];
-
-        // 2. Fetch crew profiles for these users
-        const userIds = chatProfiles.map((p: Record<string, string>) => p.user_id);
-        let query = supabase.from(CREW_PROFILES_TABLE).select('*').in('user_id', userIds);
 
         if (filterSnapshot.listing_type) {
             query = query.eq('listing_type', filterSnapshot.listing_type);
@@ -682,115 +1016,57 @@ class LonelyHeartsServiceClass {
         const { data: crewProfiles } = await query;
         if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-        const crewMap = new Map<string, SupabaseRow>();
-        const requestedIds = new Set(userIds);
-        if (crewProfiles) {
-            for (const cp of crewProfiles) {
-                if (requestedIds.has(cp.user_id) && cp.user_id !== ownerId && !blockedIds.has(cp.user_id)) {
-                    crewMap.set(cp.user_id, cp);
-                }
-            }
-        }
-
-        // 3. Build cards with filters
-        const chatMap = new Map<string, SupabaseRow>();
-        for (const cp of chatProfiles) {
-            chatMap.set(cp.user_id, cp);
-        }
-
         const cards: CrewCard[] = [];
-        for (const [userId, crew] of crewMap) {
-            const chat = chatMap.get(userId);
-            if (!chat) continue;
-
-            const card = this.buildCrewCard(chat, crew);
-
-            // Client-side filters
-            if (filterSnapshot.skills && filterSnapshot.skills.length > 0) {
-                const hasMatch = filterSnapshot.skills.some((s) => (card.skills || []).includes(s));
-                if (!hasMatch) continue;
+        for (const crew of crewProfiles || []) {
+            if (
+                typeof crew.user_id !== 'string' ||
+                crew.user_id === ownerId ||
+                blockedIds.has(crew.user_id) ||
+                crew.community_enabled !== true ||
+                crew.crew_list_visibility !== 'visible' ||
+                crew.approval_status !== 'approved' ||
+                crew.verification_status !== 'verified'
+            ) {
+                continue;
             }
-            if (filterSnapshot.experience && card.sailing_experience !== filterSnapshot.experience) continue;
-            if (
-                filterSnapshot.region &&
-                card.sailing_region &&
-                !card.sailing_region.toLowerCase().includes(filterSnapshot.region.toLowerCase())
-            )
-                continue;
-            if (filterSnapshot.gender && card.gender !== filterSnapshot.gender) continue;
-            if (
-                filterSnapshot.age_ranges &&
-                filterSnapshot.age_ranges.length > 0 &&
-                !filterSnapshot.age_ranges.includes(card.age_range || '')
-            )
-                continue;
-            if (
-                filterSnapshot.location_country &&
-                (!card.location_country ||
-                    !card.location_country.toLowerCase().includes(filterSnapshot.location_country.toLowerCase()))
-            )
-                continue;
-            if (
-                filterSnapshot.location_state &&
-                (!card.location_state ||
-                    !card.location_state.toLowerCase().includes(filterSnapshot.location_state.toLowerCase()))
-            )
-                continue;
-            if (
-                filterSnapshot.location_city &&
-                (!card.location_city ||
-                    !card.location_city.toLowerCase().includes(filterSnapshot.location_city.toLowerCase()))
-            )
-                continue;
-
-            cards.push(card);
-        }
-
-        // Include chat profiles without crew profiles (legacy)
-        if (!filterSnapshot.listing_type && !filterSnapshot.skills?.length && !filterSnapshot.experience) {
-            for (const cp of chatProfiles) {
-                if (!crewMap.has(cp.user_id)) {
-                    cards.push(this.buildCrewCard(cp, null));
-                }
-            }
-        }
-
-        // Include crew-only profiles (e.g. seed profiles without chat_profiles)
-        const chatUserIds = new Set(chatProfiles.map((p: Record<string, string>) => p.user_id));
-        let crewOnlyQuery = supabase.from(CREW_PROFILES_TABLE).select('*').neq('user_id', ownerId).limit(100);
-
-        if (filterSnapshot.listing_type) {
-            crewOnlyQuery = crewOnlyQuery.eq('listing_type', filterSnapshot.listing_type);
-        }
-
-        const { data: crewOnlyProfiles } = await crewOnlyQuery;
-        if (!isAuthIdentityScopeCurrent(scope)) return [];
-        if (crewOnlyProfiles) {
-            for (const cp of crewOnlyProfiles) {
-                if (
-                    typeof cp.user_id !== 'string' ||
-                    cp.user_id === ownerId ||
-                    blockedIds.has(cp.user_id) ||
-                    chatUserIds.has(cp.user_id)
-                )
-                    continue;
-                const card = this.buildCrewCard(null, cp);
-                if (filterSnapshot.skills && filterSnapshot.skills.length > 0) {
-                    if (!filterSnapshot.skills.some((s) => (card.skills || []).includes(s))) continue;
-                }
-                if (filterSnapshot.experience && card.sailing_experience !== filterSnapshot.experience) continue;
-                if (filterSnapshot.gender && card.gender !== filterSnapshot.gender) continue;
-                if (
-                    filterSnapshot.age_ranges &&
-                    filterSnapshot.age_ranges.length > 0 &&
-                    !filterSnapshot.age_ranges.includes(card.age_range || '')
-                )
-                    continue;
-                cards.push(card);
-            }
+            const card = this.buildCrewCard(null, crew);
+            if (this.matchesCrewFilters(card, filterSnapshot)) cards.push(card);
         }
 
         return isAuthIdentityScopeCurrent(scope) ? cards.slice(0, safeLimit) : [];
+    }
+
+    private matchesCrewFilters(card: CrewCard, filters: CrewSearchFilters): boolean {
+        if (filters.skills?.length && !filters.skills.some((skill) => card.skills.includes(skill))) return false;
+        if (filters.experience && card.sailing_experience !== filters.experience) return false;
+        if (
+            filters.region &&
+            (!card.sailing_region || !card.sailing_region.toLowerCase().includes(filters.region.toLowerCase()))
+        ) {
+            return false;
+        }
+        if (filters.gender && card.gender !== filters.gender) return false;
+        if (filters.age_ranges?.length && !filters.age_ranges.includes(card.age_range || '')) return false;
+        if (
+            filters.location_country &&
+            (!card.location_country ||
+                !card.location_country.toLowerCase().includes(filters.location_country.toLowerCase()))
+        ) {
+            return false;
+        }
+        if (
+            filters.location_state &&
+            (!card.location_state || !card.location_state.toLowerCase().includes(filters.location_state.toLowerCase()))
+        ) {
+            return false;
+        }
+        if (
+            filters.location_city &&
+            (!card.location_city || !card.location_city.toLowerCase().includes(filters.location_city.toLowerCase()))
+        ) {
+            return false;
+        }
+        return true;
     }
 
     /** Legacy browse method */
@@ -809,6 +1085,7 @@ class LonelyHeartsServiceClass {
             home_port:
                 chat.home_port || (cp.location_city ? `${cp.location_city}, ${cp.location_country || ''}` : null),
             listing_type: cp.listing_type || null,
+            crew_intents: this.normalizeCrewIntents(cp.crew_intents) || [],
             first_name: cp.first_name || null,
             photo_url: cp.photo_url || null,
             gender: cp.gender || null,
@@ -828,12 +1105,125 @@ class LonelyHeartsServiceClass {
             pets: cp.pets || null,
             interests: [...(cp.interests || [])],
             last_active: cp.last_active || null,
-            is_verified: cp.is_verified || false,
+            is_verified: cp.verification_status === 'verified',
             location_city: cp.location_city || null,
             location_state: cp.location_state || null,
             location_country: cp.location_country || null,
             photos: [...(cp.photos || cp.dating_photos || [])],
         };
+    }
+
+    // ─── CREW LIST INTRODUCTIONS ──────────────────────
+
+    private normalizeCrewIntroRequest(data: SupabaseRow): CrewIntroRequest | null {
+        const status = this.normalizeCrewIntroStatus(data.status);
+        if (
+            !status ||
+            typeof data.id !== 'string' ||
+            typeof data.sender_id !== 'string' ||
+            typeof data.recipient_id !== 'string' ||
+            typeof data.message !== 'string' ||
+            typeof data.created_at !== 'string'
+        ) {
+            return null;
+        }
+        return {
+            id: data.id,
+            sender_id: data.sender_id,
+            recipient_id: data.recipient_id,
+            message: data.message,
+            status,
+            created_at: data.created_at,
+            responded_at: typeof data.responded_at === 'string' ? data.responded_at : null,
+            withdrawn_at: typeof data.withdrawn_at === 'string' ? data.withdrawn_at : null,
+        };
+    }
+
+    /** Send one short, in-app-only introduction to a discoverable Crew List profile. */
+    async sendCrewIntroRequest(recipientId: string, message?: string): Promise<CrewIntroRequest | null> {
+        if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const recipient = this.normalizeTargetId(recipientId);
+        const note = this.normalizeCrewIntroMessage(message);
+        if (!ownerId || !recipient || recipient === ownerId || note === null || !isAuthIdentityScopeCurrent(scope)) {
+            return null;
+        }
+
+        const { data, error } = await supabase
+            .from(CREW_INTRO_REQUESTS_TABLE)
+            .insert({ sender_id: ownerId, recipient_id: recipient, message: note })
+            .select('*')
+            .single();
+        if (error || !isAuthIdentityScopeCurrent(scope)) return null;
+        const request = data ? this.normalizeCrewIntroRequest(data) : null;
+        return request?.sender_id === ownerId && request.recipient_id === recipient ? request : null;
+    }
+
+    /** Return only introductions where the current sailor is the sender or recipient. */
+    async getCrewIntroRequests(limit = 100): Promise<CrewIntroRequest[]> {
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 100;
+        const { data } = await supabase
+            .from(CREW_INTRO_REQUESTS_TABLE)
+            .select('*')
+            .or(`sender_id.eq.${ownerId},recipient_id.eq.${ownerId}`)
+            .limit(safeLimit);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+
+        return (data || [])
+            .map((request: SupabaseRow) => this.normalizeCrewIntroRequest(request))
+            .filter(
+                (request: CrewIntroRequest | null): request is CrewIntroRequest =>
+                    !!request && (request.sender_id === ownerId || request.recipient_id === ownerId),
+            )
+            .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+    }
+
+    /** A recipient may accept or decline a pending introduction. */
+    async respondToCrewIntroRequest(requestId: string, response: CrewIntroResponse): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const request = this.normalizeTargetId(requestId);
+        if (
+            !ownerId ||
+            !request ||
+            (response !== 'accepted' && response !== 'declined') ||
+            !isAuthIdentityScopeCurrent(scope)
+        ) {
+            return false;
+        }
+
+        const { data, error } = await supabase
+            .from(CREW_INTRO_REQUESTS_TABLE)
+            .update({ status: response })
+            .eq('id', request)
+            .eq('recipient_id', ownerId)
+            .select('id')
+            .single();
+        return !error && data?.id === request && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** A sender may withdraw their own pending introduction; it remains auditable. */
+    async withdrawCrewIntroRequest(requestId: string): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const request = this.normalizeTargetId(requestId);
+        if (!ownerId || !request || !isAuthIdentityScopeCurrent(scope)) return false;
+
+        const { data, error } = await supabase
+            .from(CREW_INTRO_REQUESTS_TABLE)
+            .update({ status: 'withdrawn' })
+            .eq('id', request)
+            .eq('sender_id', ownerId)
+            .select('id')
+            .single();
+        return !error && data?.id === request && isAuthIdentityScopeCurrent(scope);
     }
 
     // ─── BROWSE DATING PROFILES ──────────────────────
