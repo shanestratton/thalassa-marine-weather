@@ -124,4 +124,43 @@ post_install do |installer|
   # the alwaysOutOfDate flag through the next build.
   silence_cp_phases.call(installer.pods_project)
   installer.pods_project.save
+
+  # FIX: Xcode 27 makes a double-quoted include inside a framework umbrella
+  # header a hard ERROR, where every Xcode before it emitted a warning:
+  #
+  #   CocoaAsyncSocket-umbrella.h:13:9 double-quoted include
+  #   "GCDAsyncSocket.h" in framework header, expected angle-bracketed instead
+  #
+  # CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = 'NO' (set above, and
+  # verified resolving to NO on the failing target) NO LONGER SUPPRESSES IT —
+  # clang raises it while building the framework's MODULE, which is past the
+  # point that build setting reaches. So the generated header itself has to
+  # change.
+  #
+  # CocoaPods writes these umbrella headers with `#import "Foo.h"`. Inside a
+  # framework the same header must be reached as `#import <Module/Foo.h>`.
+  # Eleven pods ship this shape here — AppAuth, GoogleSignIn, CocoaLumberjack,
+  # CocoaAsyncSocket and the Capacitor socket plugins among them — so fixing
+  # them one build-error at a time is a long afternoon.
+  #
+  # The module name comes from each pod's own .modulemap rather than the
+  # directory name: they agree today, but the modulemap is what clang actually
+  # honours, so it cannot silently drift. Only bare `"Foo.h"` forms are
+  # rewritten ([^"/] excludes any that already carry a path), and the file is
+  # only written when it really changed — so this is a no-op on a tree that is
+  # already patched.
+  #
+  # Lives in post_install because Pods/ is generated and gitignored: without
+  # this, the next `pod install` silently re-breaks the build.
+  Dir.glob(File.join(installer.sandbox.root, 'Target Support Files', '*', '*-umbrella.h')).each do |header|
+    modulemap = Dir.glob(File.join(File.dirname(header), '*.modulemap')).first
+    next unless modulemap
+
+    mod = File.read(modulemap)[/framework\s+module\s+(\w+)/, 1]
+    next unless mod
+
+    src = File.read(header)
+    fixed = src.gsub(/#import\s+"([^"\/]+\.h)"/) { "#import <#{mod}/#{Regexp.last_match(1)}>" }
+    File.write(header, fixed) unless fixed == src
+  end
 end
