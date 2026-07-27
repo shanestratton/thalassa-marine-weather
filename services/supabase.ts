@@ -277,14 +277,27 @@ export interface Waypoint {
 }
 
 /**
- * Fetch a user's profile from the `profiles` table.
+ * Fetch the signed-in user's community-facing profile. Chat profiles are the
+ * canonical deployed identity surface; the old generic `profiles` relation
+ * was never part of the production schema.
  */
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
     const scope = getAuthIdentityScope();
     if (!supabase || userId !== scope.userId || (await getCurrentUserId(scope)) !== userId) return null;
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (error || !isAuthIdentityScopeCurrent(scope) || data?.id !== userId) return null;
-    return { ...(data as UserProfile) };
+    const { data, error } = await supabase
+        .from('chat_profiles')
+        .select('user_id, display_name, avatar_url, vessel_name, created_at, updated_at')
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (error || !isAuthIdentityScopeCurrent(scope) || data?.user_id !== userId) return null;
+    return {
+        id: data.user_id,
+        display_name: data.display_name ?? undefined,
+        avatar_url: data.avatar_url ?? undefined,
+        vessel_name: data.vessel_name ?? undefined,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+    };
 }
 
 /**
@@ -301,9 +314,8 @@ export async function updateUserProfile(userId: string, updates: Partial<UserPro
     if (typeof updates.vessel_name === 'string') snapshot.vessel_name = updates.vessel_name;
     if (Object.keys(snapshot).length === 0) return false;
     const { error } = await supabase
-        .from('profiles')
-        .update({ ...snapshot, updated_at: new Date().toISOString() })
-        .eq('id', userId);
+        .from('chat_profiles')
+        .upsert({ user_id: userId, ...snapshot, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
     return !error && isAuthIdentityScopeCurrent(scope);
 }
 
