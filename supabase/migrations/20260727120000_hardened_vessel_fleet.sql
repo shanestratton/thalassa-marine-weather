@@ -5,7 +5,8 @@
 -- profile per boat and a cloud-synchronised active-vessel choice per user.
 --
 -- Important compatibility boundary:
---   * `profiles.settings.vessel` is legacy account settings, not fleet truth.
+--   * Legacy `profiles.settings.vessel`, where that retired table exists, is
+--     compatibility input only — it is not fleet truth.
 --   * `vessel_identity` remains a one-row compatibility projection only for
 --     the selected owned boat while older clients are still in the field.
 --   * No new code may infer a boat from `owner_id` at recording time. New
@@ -273,10 +274,57 @@ SELECT DISTINCT ON (boat.owner_id)
           boat.id
 ON CONFLICT (user_id) DO NOTHING;
 
--- Backfill each boat profile. The prior model had exactly one full
--- `profiles.settings.vessel` object per account, so it is copied only to the
--- selected legacy boat. Additional legacy boats get their own honest summary
--- shell rather than an unsafe duplicate of another yacht's draft/polars.
+-- Backfill each boat profile. Some historical deployments had exactly one
+-- full `profiles.settings.vessel` object per account; others never created
+-- that retired table. Resolve it dynamically so the fleet migration remains
+-- safe for both schemas, then copy it only to the selected legacy boat.
+-- Additional legacy boats get their own honest summary shell rather than an
+-- unsafe duplicate of another yacht's draft/polars.
+CREATE OR REPLACE FUNCTION public._fleet_legacy_settings_20260727120000(p_owner_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    legacy_settings JSONB;
+BEGIN
+    IF p_owner_id IS NULL THEN
+        RETURN '{}'::JSONB;
+    END IF;
+
+    -- Do not bind `public.profiles` at migration-parse time: it was a
+    -- retired, optional legacy table and is absent from the linked project.
+    -- The dynamic query preserves its settings only where its compatible
+    -- `id UUID` and `settings JSON/JSONB` shape genuinely exists.
+    IF to_regclass('public.profiles') IS NOT NULL
+       AND EXISTS (
+           SELECT 1
+             FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'profiles'
+              AND column_name = 'id'
+              AND udt_name = 'uuid'
+       )
+       AND EXISTS (
+           SELECT 1
+             FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'profiles'
+              AND column_name = 'settings'
+              AND udt_name IN ('json', 'jsonb')
+       ) THEN
+        EXECUTE 'SELECT settings::jsonb FROM public.profiles WHERE id = $1'
+           INTO legacy_settings
+          USING p_owner_id;
+    END IF;
+
+    RETURN COALESCE(legacy_settings, '{}'::JSONB);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public._fleet_legacy_settings_20260727120000(UUID)
+    FROM PUBLIC, anon, authenticated;
+
 INSERT INTO public.boat_profiles (
     boat_id,
     profile,
@@ -381,9 +429,29 @@ SELECT
             THEN account.settings -> 'vesselUnits'
         ELSE '{}'::JSONB
     END,
-    CASE WHEN active.boat_id = boat.id THEN account.settings -> 'polarData' END,
-    CASE WHEN active.boat_id = boat.id THEN NULLIF(account.settings ->> 'polarBoatModel', '') END,
-    CASE WHEN active.boat_id = boat.id THEN NULLIF(account.settings ->> 'polarSource_type', '') END,
+    CASE
+        WHEN active.boat_id = boat.id THEN COALESCE(
+            NULLIF(account.settings -> 'polarData', 'null'::JSONB),
+            polars.polar_data
+        )
+    END,
+    CASE
+        WHEN active.boat_id = boat.id THEN COALESCE(
+            NULLIF(account.settings ->> 'polarBoatModel', ''),
+            NULLIF(polars.boat_model, '')
+        )
+    END,
+    CASE
+        WHEN active.boat_id = boat.id THEN COALESCE(
+            CASE
+                WHEN account.settings ->> 'polarSource_type' IN ('database', 'file_import', 'manual')
+                    THEN account.settings ->> 'polarSource_type'
+            END,
+            CASE
+                WHEN polars.source IN ('database', 'file_import', 'manual') THEN polars.source
+            END
+        )
+    END,
     CASE
         WHEN active.boat_id = boat.id AND jsonb_typeof(account.settings -> 'comfortParams') = 'object'
             THEN account.settings -> 'comfortParams'
@@ -392,11 +460,19 @@ SELECT
   FROM public.boats AS boat
   LEFT JOIN public.user_active_vessels AS active
     ON active.user_id = boat.owner_id
-  LEFT JOIN public.profiles AS account
-    ON account.id = boat.owner_id
+ CROSS JOIN LATERAL (
+    SELECT public._fleet_legacy_settings_20260727120000(boat.owner_id) AS settings
+ ) AS account
   LEFT JOIN public.vessel_identity AS identity
     ON identity.owner_id = boat.owner_id
+  -- `vessel_polars` is the real legacy cloud source for sailing performance.
+  -- Its one-per-user record belongs only to the selected boat; never clone it
+  -- onto a second delivery yacht merely because both share an owner.
+  LEFT JOIN public.vessel_polars AS polars
+    ON polars.user_id = boat.owner_id
 ON CONFLICT (boat_id) DO NOTHING;
+
+DROP FUNCTION public._fleet_legacy_settings_20260727120000(UUID);
 
 -- A few legacy boat rows used free-form type labels. Normalise only invalid
 -- values now so a later sparse patch is never rejected because of data the
