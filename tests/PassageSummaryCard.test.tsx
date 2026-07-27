@@ -1,9 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import type { PassageRouteState } from '../stores/PassageStore';
 
 const passageState = vi.hoisted(() => ({
     value: {
         hasRoute: false,
+        routeName: null,
+        departPort: null,
+        destPort: null,
         departLat: null,
         departLon: null,
         arriveLat: null,
@@ -19,7 +23,7 @@ const passageState = vi.hoisted(() => ({
         routeCoordinates: [] as [number, number][],
         turnWaypoints: [],
         legs: [],
-    },
+    } as PassageRouteState,
 }));
 
 const weatherMocks = vi.hoisted(() => ({
