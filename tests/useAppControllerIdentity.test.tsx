@@ -69,6 +69,7 @@ vi.mock('../services/supabase', () => ({
                     ownerId = value;
                     return builder;
                 },
+                limit: () => builder,
                 maybeSingle: () => h.getBoat(ownerId),
             };
             return builder;

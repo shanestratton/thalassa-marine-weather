@@ -60,6 +60,7 @@ import {
     stopLiveTrickle,
     noteLiveTrickleHeartbeat,
     purgeLiveTrack,
+    retireLiveTrackVoyage,
     markLiveTrickleFreshStart,
 } from '../services/shiplog/LiveTrickle';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
@@ -180,6 +181,7 @@ describe('LiveTrickle', () => {
             latitude: -27.2,
             speed_kts: 6.2,
             course_deg: 180,
+            is_on_water: null,
             source: 'device',
         });
         expect(calls[0].opts).toMatchObject({ onConflict: 'user_id,timestamp', ignoreDuplicates: true });
@@ -196,6 +198,24 @@ describe('LiveTrickle', () => {
         noteLiveTrickleHeartbeat(); // < 2 min since last attempt → no-op
         await new Promise((r) => setTimeout(r, 30));
         expect(calls).toHaveLength(1);
+    });
+
+    it('does not let an empty Voyage Start pulse delay the first vetted fix', async () => {
+        const { calls } = installSupabase();
+        // Voyage Start is deliberately a lifecycle pin, not a polyline point.
+        // It is the first entry save on a new track, so it must not consume the
+        // live-tail throttle before the first genuine GPS vertex arrives.
+        mockState.queue = [point(0, { entryType: 'waypoint', waypointName: 'Voyage Start' })];
+        startLiveTrickle('voyage-1');
+        await flush();
+        expect(calls).toHaveLength(0);
+
+        mockState.queue.push(point(3));
+        noteLiveTrickleHeartbeat();
+        await flush(() => calls.length >= 1);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].rows.map((row) => row.timestamp)).toEqual([iso(3)]);
     });
 
     it('only sends points newer than the mark on the next flush', async () => {
@@ -267,6 +287,49 @@ describe('LiveTrickle', () => {
         const ok = await purgeLiveTrack();
         expect(ok).toBe(true);
         expect(deletes).toContain('purge:live_track');
+    });
+
+    it('copies capture-time water verification into live-track rows', async () => {
+        const { calls } = installSupabase();
+        mockState.queue = [point(0, { isOnWater: false })];
+        startLiveTrickle('voyage-1');
+        await flush(() => calls.length >= 1);
+
+        expect(calls[0].rows[0]).toMatchObject({ is_on_water: false });
+    });
+
+    it('retires one voyage with a no-revival fence and a targeted live-tail purge', async () => {
+        const retirements: Record<string, unknown>[] = [];
+        const filters: string[] = [];
+        mockState.impl = {
+            from: (table: string) => {
+                if (table === 'live_track_retirements') {
+                    return {
+                        upsert: async (row: Record<string, unknown>) => {
+                            retirements.push(row);
+                            return { error: null };
+                        },
+                    };
+                }
+                const deletion = {
+                    eq: (column: string, value: string) => {
+                        filters.push(`${column}=${value}`);
+                        return deletion;
+                    },
+                    then: (
+                        onFulfilled: (value: { error: null }) => unknown,
+                        onRejected?: (reason: unknown) => unknown,
+                    ) => Promise.resolve({ error: null as null }).then(onFulfilled, onRejected),
+                };
+                return { delete: () => deletion };
+            },
+        };
+
+        await expect(retireLiveTrackVoyage('voyage-1', 'discarded')).resolves.toBe(true);
+        expect(retirements).toEqual([
+            expect.objectContaining({ user_id: 'user-1', voyage_id: 'voyage-1', reason: 'discarded' }),
+        ]);
+        expect(filters).toEqual(['user_id=user-1', 'voyage_id=voyage-1']);
     });
 
     it('markLiveTrickleFreshStart makes sharing forward-only (no pre-consent backlog)', async () => {

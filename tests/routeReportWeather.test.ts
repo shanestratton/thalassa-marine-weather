@@ -9,7 +9,8 @@ vi.mock('../services/weather/openMeteoProxy', () => ({
     fetchOpenMeteoPoints: vi.fn().mockRejectedValue(new Error('offline')),
 }));
 
-import { fetchRouteWaypointWeather, windCompass } from '../services/routeReportWeather';
+import { fetchRouteMaxConditions, fetchRouteWaypointWeather, windCompass } from '../services/routeReportWeather';
+import { fetchOpenMeteoPoints } from '../services/weather/openMeteoProxy';
 
 describe('routeReportWeather', () => {
     it('computes cumulative ETAs; no key → ETAs stand, weather null', async () => {
@@ -50,5 +51,50 @@ describe('routeReportWeather', () => {
         expect(windCompass(225)).toBe('SW');
         expect(windCompass(360)).toBe('N');
         expect(windCompass(-90)).toBe('W');
+    });
+
+    it('samples wind and waves at each route ETA rather than reusing departure weather', async () => {
+        vi.mocked(fetchOpenMeteoPoints)
+            .mockResolvedValueOnce([
+                {
+                    hourly: {
+                        time: [0, 3_600],
+                        wind_speed_10m: [8, 24],
+                    },
+                },
+                {
+                    hourly: {
+                        time: [0, 3_600],
+                        wind_speed_10m: [8, 24],
+                    },
+                },
+            ] as never)
+            .mockResolvedValueOnce([
+                {
+                    hourly: {
+                        time: [0, 3_600],
+                        wave_height: [0.8, 2.7],
+                    },
+                },
+                {
+                    hourly: {
+                        time: [0, 3_600],
+                        wave_height: [0.8, 2.7],
+                    },
+                },
+            ] as never);
+
+        const conditions = await fetchRouteMaxConditions(
+            [
+                { lat: -27, lon: 153 },
+                { lat: -27.1, lon: 153 },
+            ],
+            0,
+            6,
+        );
+
+        expect(conditions.maxWindKts).toBe(24);
+        expect(conditions.maxWaveM).toBe(2.7);
+        expect(conditions.forecastPoints).toBe(2);
     });
 });

@@ -62,6 +62,9 @@ function writeGalleyCrewCount(voyageId: string, count: number, scope?: AuthIdent
 
 interface GalleyCardProps {
     onOpenCookingMode?: (meal: MealPlan) => void;
+    /** Lets Passage Planning include voyage provisioning in its Departure
+     *  Brief tally while Galley remains the single owner of its local state. */
+    onProvisionedChange?: (provisioned: boolean) => void;
     /** Passage permissions — omission fails closed until the caller verifies access. */
     passageStatus?: PassageStatus;
     /** Outer wrapper className override */
@@ -78,6 +81,7 @@ interface GalleyCardProps {
 
 export const GalleyCard: React.FC<GalleyCardProps> = ({
     onOpenCookingMode,
+    onProvisionedChange,
     passageStatus,
     className,
     registeredCrewCount,
@@ -144,6 +148,12 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
         setProvisioned(readProvisioned(perms.voyageId));
         setVoyageCrewCount(readGalleyCrewCount(perms.voyageId));
     }, [hasMealAccess, identityKey, perms.voyageId]);
+
+    // Galley owns provisioning state, but the Departure Brief header needs a
+    // truthful roll-up of this visible card alongside the other brief tasks.
+    useEffect(() => {
+        onProvisionedChange?.(provisioned);
+    }, [onProvisionedChange, provisioned]);
 
     const handleVoyageCrewCountChange = useCallback(
         (count: number) => {

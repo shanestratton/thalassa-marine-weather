@@ -41,6 +41,7 @@ interface WatchScheduleCardProps {
 const ALARM_LEAD_KEY = 'thalassa_watch_alarm_lead_min';
 const DEFAULT_ALARM_MIN = 15;
 const ALARM_LEAD_OPTIONS = [5, 10, 15, 30] as const;
+const WATCH_SYSTEM_CLEAR_TIMEOUT_MS = 4_000;
 
 const STORAGE_KEY = 'thalassa_watch_schedule';
 const WATCH_SYSTEM_STORAGE_KEY = 'thalassa_watch_system';
@@ -631,7 +632,16 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             clearChecks();
             triggerHaptic('medium');
             try {
-                if (voyageId) await WatchAssignmentService.clearAll(voyageId);
+                if (voyageId) {
+                    // A network stall must not leave the native iOS picker
+                    // disabled forever. The schedule has already switched
+                    // locally and stale assignments are already cleared from
+                    // this card, so bound only the remote cleanup wait.
+                    await Promise.race([
+                        WatchAssignmentService.clearAll(voyageId),
+                        new Promise<void>((resolve) => setTimeout(resolve, WATCH_SYSTEM_CLEAR_TIMEOUT_MS)),
+                    ]);
+                }
             } finally {
                 if (isOperationCurrent()) setSystemChanging(false);
             }
@@ -742,11 +752,15 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         Watch system
                     </span>
                     <select
-                        value={requestedSystem}
+                        // Stored selections can outlive a crew change. Never
+                        // bind a native picker to a disabled option: iOS may
+                        // then refuse to open it at all. Show the compatible
+                        // automatic system until the skipper picks another.
+                        value={activeWatchSystem}
                         onChange={(event) => void handleWatchSystemChange(event.target.value)}
                         disabled={systemChanging}
                         aria-label="Watch system"
-                        className="min-w-0 flex-1 appearance-none bg-transparent text-right text-xs font-bold text-indigo-200 outline-none disabled:opacity-50"
+                        className="min-w-0 flex-1 cursor-pointer touch-manipulation rounded-md border border-indigo-400/20 bg-slate-900/60 px-2.5 py-2 text-right text-xs font-bold text-indigo-200 outline-none transition-colors focus:border-indigo-300/60 disabled:cursor-wait disabled:opacity-50 [color-scheme:dark]"
                     >
                         {WATCH_SYSTEM_OPTIONS.map((option) => {
                             const unavailable = effectiveCrewCount < option.minCrew;

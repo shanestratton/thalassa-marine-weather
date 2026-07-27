@@ -5,6 +5,8 @@ import type { DiaryEntry } from '../services/DiaryService';
 
 const mocks = vi.hoisted(() => ({
     ensureEnabled: vi.fn(),
+    markEnableRequested: vi.fn(),
+    clearEnableRequest: vi.fn(),
     setEntryPublished: vi.fn(),
     toastError: vi.fn(),
 }));
@@ -25,6 +27,9 @@ vi.mock('../services/DiaryService', () => ({
 vi.mock('../services/VoyageLogService', () => ({
     VoyageLogService: {
         ensureEnabled: mocks.ensureEnabled,
+        ensurePendingEnabled: mocks.ensureEnabled,
+        markEnableRequested: mocks.markEnableRequested,
+        clearEnableRequest: mocks.clearEnableRequest,
     },
 }));
 
@@ -83,7 +88,13 @@ beforeEach(() => {
 });
 
 describe('DiaryEntryView Voyage Log publishing', () => {
-    it('enables the Voyage Log before it asks the server to publish the entry', async () => {
+    it("records the skipper's publish intent before waiting for Voyage Log setup", async () => {
+        let resolvePublished: ((value: boolean) => void) | undefined;
+        mocks.setEntryPublished.mockReturnValue(
+            new Promise((resolve) => {
+                resolvePublished = resolve;
+            }),
+        );
         let resolveConfig: ((value: { handle: string; api_key: string; enabled: boolean }) => void) | undefined;
         mocks.ensureEnabled.mockReturnValue(
             new Promise((resolve) => {
@@ -94,14 +105,19 @@ describe('DiaryEntryView Voyage Log publishing', () => {
 
         fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
 
-        expect(mocks.ensureEnabled).toHaveBeenCalledOnce();
-        expect(mocks.setEntryPublished).not.toHaveBeenCalled();
+        await waitFor(() => expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true));
+        expect(mocks.ensureEnabled).not.toHaveBeenCalled();
+
+        await act(async () => {
+            resolvePublished?.(true);
+        });
+
+        await waitFor(() => expect(mocks.ensureEnabled).toHaveBeenCalledOnce());
 
         await act(async () => {
             resolveConfig?.({ handle: 'captain', api_key: 'public-key', enabled: true });
         });
 
-        await waitFor(() => expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true));
         await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true));
         expect(mocks.toastError).not.toHaveBeenCalled();
     });
@@ -126,7 +142,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         );
     });
 
-    it('does not mark the entry public when Voyage Log setup fails', async () => {
+    it('keeps the view private when Voyage Log setup fails after saving publish intent', async () => {
         mocks.ensureEnabled.mockResolvedValueOnce(null);
         const { onPublishedChange } = renderEntry();
 
@@ -135,8 +151,12 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         await waitFor(() =>
             expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("couldn't prepare your Voyage Log")),
         );
-        expect(mocks.setEntryPublished).not.toHaveBeenCalled();
+        expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         expect(onPublishedChange).not.toHaveBeenCalled();
+        expect(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' })).toHaveAttribute(
+            'aria-checked',
+            'false',
+        );
     });
 
     it('confirms an unpublish directly without provisioning a new Voyage Log', async () => {

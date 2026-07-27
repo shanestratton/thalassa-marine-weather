@@ -109,6 +109,11 @@ export interface TrackingState {
      * adaptive flush interval) — Precision changes the SAMPLE rate.
      */
     isPrecisionMode?: boolean;
+    /**
+     * `boats.id` selected at cast-off. It must survive app reloads and must
+     * never be re-resolved from a later active-vessel choice mid-voyage.
+     */
+    boatId?: string;
     currentVoyageId?: string;
     voyageStartTime?: string;
     voyageEndTime?: string;
@@ -127,6 +132,28 @@ export interface TrackingState {
      * sets this — only the live "engine on/off" control does.
      */
     engineRunning?: boolean;
+}
+
+/**
+ * Return the recording voyage only when persisted state still describes an
+ * active (not merely resumable/paused) track. Keeping this pure lets callers
+ * safely recover an association during a cold JS launch without waking or
+ * altering the GPS engine.
+ */
+export function activeVoyageIdFromTrackingState(state: TrackingState | null | undefined): string | undefined {
+    const voyageId = typeof state?.currentVoyageId === 'string' ? state.currentVoyageId.trim() : '';
+    return state?.isTracking === true && state.isPaused !== true && voyageId ? voyageId : undefined;
+}
+
+/**
+ * The boat selected when a voyage started is immutable for that voyage.
+ * Diary entries use this alongside the active voyage resolver so a skipper
+ * cannot accidentally move a mid-passage note onto a vessel selected later
+ * for a different delivery.
+ */
+export function activeBoatIdFromTrackingState(state: TrackingState | null | undefined): string | undefined {
+    const boatId = typeof state?.boatId === 'string' ? state.boatId.trim() : '';
+    return state?.isTracking === true && state.isPaused !== true && boatId ? boatId : undefined;
 }
 
 export interface StoredPosition {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import TopNav from './components/TopNav';
 import MapContainer from './components/MapContainer';
@@ -11,13 +11,14 @@ import {
     VoyageLogError,
     type VoyageLogData,
     type VoyageLogEntry,
+    type PublicVoyageTrip,
 } from './voyageLogApi';
 
-// Re-fetch so followers-at-home see the live track crawl along without
-// reloading. Matched to the device's ~2-minute live-trickle cadence so a
-// moving boat updates about as fast as points are produced. The API caches
-// for 60s, so the in-between polls are cheap cache hits.
-const REFRESH_MS = 2 * 60 * 1000;
+// The latest view should notice a newly trickled track on the next cache
+// turn. A deliberately selected historical trip has no live motion to chase,
+// so it refreshes less often while retaining its stable selection.
+const LATEST_REFRESH_MS = 60 * 1000;
+const HISTORY_REFRESH_MS = 2 * 60 * 1000;
 
 type LoadState =
     | { status: 'loading' }
@@ -46,8 +47,20 @@ const entryLightbox = (entry: VoyageLogEntry, index: number): LightboxState => (
     },
 });
 
+const tripOptionLabel = (trip: PublicVoyageTrip): string => {
+    const distance = trip.distance_nm != null && trip.distance_nm > 0 ? ` · ${trip.distance_nm.toFixed(1)} nm` : '';
+    const route = trip.has_route ? ' · route' : '';
+    return `${trip.label}${distance}${route}`;
+};
+
 export default function ThalassaDashboard() {
     const [state, setState] = useState<LoadState>({ status: 'loading' });
+    // "latest" is intentionally a mode rather than the current trip id. It
+    // keeps following the skipper into a newly-started voyage, while picking
+    // an id below freezes that historical view through background refreshes.
+    const [requestedTrip, setRequestedTrip] = useState('latest');
+    const [isTripLoading, setIsTripLoading] = useState(false);
+    const requestSequence = useRef(0);
     // The entry currently in focus — drives the map fly-to AND the
     // sidebar's master/detail mode (null = show the full feed).
     const [selectedEntry, setSelectedEntry] = useState<VoyageLogEntry | null>(null);
@@ -60,31 +73,77 @@ export default function ThalassaDashboard() {
     // because that setState never remounts this component.
     const [diaryHidden, setDiaryHidden] = useState(false);
 
-    const load = useCallback(async (showSpinner: boolean) => {
+    const load = useCallback(async (showSpinner: boolean, trip: string) => {
+        // Polls and picker changes can overlap on a slow satellite link. Only
+        // the newest request is allowed to paint the page — otherwise an old
+        // "latest" result can overwrite a deliberate historical selection.
+        const requestId = ++requestSequence.current;
         const { handle } = parseVoyageLogParams();
         if (!handle) {
-            setState({
-                status: 'error',
-                message: 'This link is incomplete — it needs a vessel handle.',
-            });
+            if (requestId === requestSequence.current) {
+                setState({
+                    status: 'error',
+                    message: 'This link is incomplete — it needs a vessel handle.',
+                });
+                setIsTripLoading(false);
+            }
             return;
         }
-        if (showSpinner) setState({ status: 'loading' });
+        if (showSpinner) {
+            setIsTripLoading(true);
+            // Keep an already-rendered voyage visible while a picker change
+            // resolves. The compact spinner in the selector communicates the
+            // transition without making the map flash away.
+            setState((previous) => (previous.status === 'ready' ? previous : { status: 'loading' }));
+        }
         try {
-            const data = await fetchVoyageLog(handle);
+            const data = await fetchVoyageLog(handle, trip);
+            if (requestId !== requestSequence.current) return;
             setState({ status: 'ready', data });
         } catch (e) {
+            if (requestId !== requestSequence.current) return;
+            if (e instanceof VoyageLogError && e.status === 404 && trip !== 'latest') {
+                // A specifically selected trip may be deleted while the page
+                // is open. Return gracefully to the auto-following newest
+                // trip instead of leaving a stranded public link in error.
+                setRequestedTrip('latest');
+                return;
+            }
             const message = e instanceof VoyageLogError ? e.message : 'Something went wrong loading this voyage log.';
             // Don't blow away good data on a failed background refresh.
             setState((prev) => (prev.status === 'ready' && !showSpinner ? prev : { status: 'error', message }));
+        } finally {
+            if (requestId === requestSequence.current) setIsTripLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        void load(true);
-        const id = setInterval(() => void load(false), REFRESH_MS);
+        void load(true, requestedTrip);
+        const refreshMs = requestedTrip === 'latest' ? LATEST_REFRESH_MS : HISTORY_REFRESH_MS;
+        const id = setInterval(() => void load(false, requestedTrip), refreshMs);
         return () => clearInterval(id);
-    }, [load]);
+    }, [load, requestedTrip]);
+
+    // Switching a voyage invalidates focused diary content: otherwise a card
+    // from a previous passage could remain open over the newly selected map.
+    useEffect(() => {
+        setSelectedEntry(null);
+        setLightbox(null);
+    }, [requestedTrip]);
+
+    // In auto-follow mode the server can advance from a completed trip to a
+    // newly started one without the selector value changing (it remains
+    // "latest"). Treat that as a real selection change too, so a story card
+    // from yesterday is never left floating over today's track.
+    const responseTripId = state.status === 'ready' ? state.data.selected_trip : null;
+    const previousResponseTripId = useRef<string | null>(null);
+    useEffect(() => {
+        if (previousResponseTripId.current && responseTripId && previousResponseTripId.current !== responseTripId) {
+            setSelectedEntry(null);
+            setLightbox(null);
+        }
+        previousResponseTripId.current = responseTripId;
+    }, [responseTripId]);
 
     // Selecting an entry flies the map there and opens its detail in the box.
     const handleSelect = useCallback((entry: VoyageLogEntry) => {
@@ -92,6 +151,10 @@ export default function ThalassaDashboard() {
     }, []);
 
     const handleClear = useCallback(() => setSelectedEntry(null), []);
+
+    const handleTripChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+        setRequestedTrip(event.target.value);
+    }, []);
 
     // A photo tap: focus the entry (so the box shows its story) + open fullscreen.
     const handlePhoto = useCallback((entry: VoyageLogEntry, index: number) => {
@@ -130,7 +193,40 @@ export default function ThalassaDashboard() {
         telemetry,
         nearby_vessels: nearbyVessels,
         passage,
+        trips = [],
+        selected_trip: selectedTripId,
     } = state.data;
+
+    const selectedTrip = trips.find((trip) => trip.id === selectedTripId) ?? null;
+    const latestTrip =
+        trips.find((trip) => trip.kind === 'track' && trip.active) ??
+        trips.find((trip) => trip.kind === 'track') ??
+        null;
+    const isAllDiaryView = selectedTrip?.kind === 'all-diary' || selectedTripId === 'all-diary';
+    // Historical tracks are a record, not a statement about where the boat is
+    // now. Keep the live dials, AIS and progress strip reserved for the active
+    // trip, and hide all of them in the all-diary catch-all.
+    const isActiveTrackView =
+        !isAllDiaryView &&
+        (selectedTrip ? selectedTrip.kind === 'track' && selectedTrip.active : requestedTrip === 'latest');
+    const scopedTelemetry = isActiveTrackView ? telemetry : null;
+    const selectedTripLabel = selectedTrip?.label ?? null;
+    const diaryTitle = isAllDiaryView ? 'All diary entries' : (selectedTripLabel ?? 'Voyage Log');
+    const diaryContext = isAllDiaryView
+        ? 'Every public diary entry, including notes not assigned to a voyage.'
+        : selectedTripLabel
+          ? `${selectedTrip?.active ? 'Live' : 'Historic'} trip diary`
+          : undefined;
+    const diaryEmptyMessage = isAllDiaryView
+        ? 'No public diary entries yet.'
+        : selectedTripLabel
+          ? 'No public diary entries were recorded for this trip.'
+          : 'No log entries published yet.';
+    // The server-resolved id only changes when the applied selection changes.
+    // It deliberately does not include live point updates, so a two-minute
+    // refresh never wrests the camera away from a viewer who is panning.
+    const mapFocusKey = selectedTripId ?? requestedTrip;
+    const latestOptionLabel = latestTrip ? `Latest trip · ${latestTrip.label}` : 'Latest trip · No trip started yet';
 
     return (
         // Desktop (md+): locked app-shell — full-height map + internally-
@@ -147,8 +243,103 @@ export default function ThalassaDashboard() {
                 diaryHidden ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'
             } md:h-screen md:overflow-hidden bg-slate-900 text-slate-100 font-sans`}
         >
-            <TopNav vessel={vessel} telemetry={telemetry} entryCount={entries.length} />
-            <VoyageProgressBar track={track} destination={destination} />
+            <TopNav
+                vessel={vessel}
+                telemetry={scopedTelemetry}
+                entryCount={entries.length}
+                viewStatus={
+                    isAllDiaryView
+                        ? 'All diary entries'
+                        : selectedTrip && !selectedTrip.active
+                          ? 'Historic trip'
+                          : undefined
+                }
+            />
+
+            {/* A public log is a voyage shelf, not a single rolling feed. The
+                special latest option remains an auto-following mode; choosing
+                a concrete track id below freezes that voyage during polling. */}
+            <section
+                aria-label="Voyage selection"
+                className="shrink-0 border-b border-slate-700/80 bg-slate-900/95 px-4 py-2.5 shadow-sm backdrop-blur-md sm:px-6"
+            >
+                <div className="mx-auto flex max-w-screen-2xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-sky-400/25 bg-sky-400/10 text-sm text-sky-300">
+                            ⛵
+                        </span>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                Voyage explorer
+                            </p>
+                            <p className="truncate text-xs font-medium text-slate-300">
+                                {isAllDiaryView
+                                    ? 'A complete public diary, across every trip.'
+                                    : selectedTrip?.active
+                                      ? 'Live track and its linked passage route.'
+                                      : selectedTripLabel
+                                        ? 'A saved record of this completed passage.'
+                                        : 'Choose a trip, or follow the newest one.'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <label className="group flex min-w-0 items-center gap-2 sm:w-[25rem]" aria-busy={isTripLoading}>
+                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                            Viewing
+                        </span>
+                        <span className="relative min-w-0 flex-1">
+                            <select
+                                value={requestedTrip}
+                                onChange={handleTripChange}
+                                disabled={isTripLoading}
+                                aria-label="Choose a voyage to view"
+                                className="h-9 w-full appearance-none rounded-lg border border-slate-600/90 bg-slate-800 px-3 pr-9 text-left text-xs font-semibold text-slate-100 outline-none transition-colors hover:border-sky-400/60 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 disabled:cursor-wait disabled:opacity-80"
+                            >
+                                <option value="latest">{latestOptionLabel}</option>
+                                {trips.some((trip) => trip.kind === 'track') && (
+                                    <optgroup label="Started trips">
+                                        {trips
+                                            .filter((trip) => trip.kind === 'track')
+                                            .map((trip) => (
+                                                <option key={trip.id} value={trip.id}>
+                                                    {tripOptionLabel(trip)}
+                                                    {trip.id === latestTrip?.id ? ' · current latest' : ''}
+                                                </option>
+                                            ))}
+                                    </optgroup>
+                                )}
+                                {trips.some((trip) => trip.kind === 'all-diary') && (
+                                    <optgroup label="Diary">
+                                        {trips
+                                            .filter((trip) => trip.kind === 'all-diary')
+                                            .map((trip) => (
+                                                <option key={trip.id} value={trip.id}>
+                                                    {trip.label}
+                                                </option>
+                                            ))}
+                                    </optgroup>
+                                )}
+                            </select>
+                            <svg
+                                aria-hidden="true"
+                                className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m7 10 5 5 5-5" />
+                            </svg>
+                            {isTripLoading && (
+                                <span className="pointer-events-none absolute right-8 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-sky-300 border-t-transparent animate-spin" />
+                            )}
+                        </span>
+                    </label>
+                </div>
+            </section>
+
+            {isActiveTrackView && <VoyageProgressBar track={track} destination={destination} />}
 
             <div
                 className={`relative flex flex-col md:flex-row md:flex-1 md:overflow-hidden ${
@@ -161,14 +352,15 @@ export default function ThalassaDashboard() {
                     } md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative`}
                 >
                     <MapContainer
-                        telemetry={telemetry}
+                        telemetry={scopedTelemetry}
                         track={track}
                         entries={entries}
                         passageLine={passage?.plan_line ?? null}
                         waypoints={waypoints ?? []}
-                        nearbyVessels={nearbyVessels ?? []}
+                        nearbyVessels={isActiveTrackView ? (nearbyVessels ?? []) : []}
                         onEntryClick={handleSelect}
                         selectedEntryId={selectedEntry?.id}
+                        focusKey={mapFocusKey}
                         // Fold/unfold changes the map's box — kick an
                         // explicit canvas resize so it fills the void.
                         resizeSignal={diaryHidden ? 1 : 0}
@@ -209,7 +401,11 @@ export default function ThalassaDashboard() {
                         <div className="w-full md:w-96 flex flex-col min-h-0 md:h-full">
                             <DiarySidebar
                                 entries={entries}
-                                telemetry={telemetry}
+                                telemetry={scopedTelemetry}
+                                showTelemetry={isActiveTrackView}
+                                title={diaryTitle}
+                                context={diaryContext}
+                                emptyMessage={diaryEmptyMessage}
                                 selectedEntry={selectedEntry}
                                 onSelectEntry={handleSelect}
                                 onClearSelection={handleClear}

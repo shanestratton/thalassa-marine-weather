@@ -151,6 +151,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
     const mapping: Record<string, string> = {
         id: 'id',
         userId: 'user_id',
+        boatId: 'boat_id',
         voyageId: 'voyage_id',
         timestamp: 'timestamp',
         latitude: 'latitude',
@@ -205,6 +206,7 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
     return {
         id: row.id,
         userId: row.user_id,
+        boatId: row.boat_id ?? undefined,
         voyageId: row.voyage_id,
         timestamp: row.timestamp,
         latitude: row.latitude,

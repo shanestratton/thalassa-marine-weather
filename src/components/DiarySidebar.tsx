@@ -5,6 +5,13 @@ import { TelemetryPanel } from './TelemetryPanel';
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
     telemetry: VoyageLogTelemetry | null;
+    /** Historical/all-diary views deliberately omit present-tense instruments. */
+    showTelemetry?: boolean;
+    /** The selected trip's public-facing name. */
+    title?: string;
+    /** A short context line below the title. */
+    context?: string;
+    emptyMessage?: string;
     /** When set, the box shows just this entry instead of the full feed. */
     selectedEntry: VoyageLogEntry | null;
     onSelectEntry: (entry: VoyageLogEntry) => void;
@@ -124,12 +131,21 @@ const EntryDetail: React.FC<{
 const EntryList: React.FC<{
     entries: VoyageLogEntry[];
     onSelectEntry: (entry: VoyageLogEntry) => void;
-}> = ({ entries, onSelectEntry }) => {
+    title?: string;
+    context?: string;
+    emptyMessage?: string;
+}> = ({ entries, onSelectEntry, title = 'Voyage Log', context, emptyMessage = 'No log entries published yet.' }) => {
     return (
         <>
             <div className="shrink-0 px-4 py-3 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
-                <h2 className="text-base font-bold text-white">Voyage Log</h2>
+                <h2 className="text-base font-bold text-white truncate">{title}</h2>
                 <p className="text-[11px] text-slate-400 uppercase tracking-widest">
+                    {context ? (
+                        <>
+                            <span className="normal-case tracking-normal">{context}</span>
+                            <span className="text-slate-500"> · </span>
+                        </>
+                    ) : null}
                     {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
                 </p>
             </div>
@@ -137,8 +153,12 @@ const EntryList: React.FC<{
             {entries.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-2">
                     <span className="text-3xl">🧭</span>
-                    <p className="text-sm text-slate-400">No log entries published yet.</p>
-                    <p className="text-xs text-slate-500">Check back once the passage is underway.</p>
+                    <p className="text-sm text-slate-400">{emptyMessage}</p>
+                    <p className="text-xs text-slate-500">
+                        {context
+                            ? 'Choose another voyage to explore its published record.'
+                            : 'Check back once the passage is underway.'}
+                    </p>
                 </div>
             ) : (
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -203,6 +223,10 @@ const EntryList: React.FC<{
 export default function DiarySidebar({
     entries,
     telemetry,
+    showTelemetry = true,
+    title,
+    context,
+    emptyMessage,
     selectedEntry,
     onSelectEntry,
     onClearSelection,
@@ -210,13 +234,20 @@ export default function DiarySidebar({
 }: DiarySidebarProps) {
     return (
         <div className="flex flex-col h-full bg-slate-800">
-            {/* Always rendered — the panel itself decides dials vs the
-                champagne-and-good-times card when the feed's gone quiet. */}
-            <TelemetryPanel telemetry={telemetry} />
+            {/* Present-tense instruments only belong beside an active trip.
+                A historical passage and the catch-all diary view must not
+                imply that those readings describe the selected record. */}
+            {showTelemetry && <TelemetryPanel telemetry={telemetry} />}
             {selectedEntry ? (
                 <EntryDetail entry={selectedEntry} onBack={onClearSelection} onPhotoClick={onPhotoClick} />
             ) : (
-                <EntryList entries={entries} onSelectEntry={onSelectEntry} />
+                <EntryList
+                    entries={entries}
+                    onSelectEntry={onSelectEntry}
+                    title={title}
+                    context={context}
+                    emptyMessage={emptyMessage}
+                />
             )}
         </div>
     );

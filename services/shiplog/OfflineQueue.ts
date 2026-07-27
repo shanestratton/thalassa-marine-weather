@@ -27,6 +27,8 @@ const OFFLINE_QUEUE_QUARANTINE_KEY = `${OFFLINE_QUEUE_KEY}_quarantine_v2`;
 const OFFLINE_QUEUE_DEAD_LETTER_KEY = `${OFFLINE_QUEUE_KEY}_dead_letters`;
 const ENTRY_TOMBSTONE_KEY = 'ship_log_deleted_entries';
 const VOYAGE_ARCHIVE_INTENT_KEY = 'ship_log_voyage_archive_intents';
+const LIVE_TRACK_TABLE = 'live_track';
+const LIVE_TRACK_RETIREMENTS_TABLE = 'live_track_retirements';
 const OFFLINE_QUEUE_FORMAT_VERSION = 3;
 const OFFLINE_QUEUE_SEGMENT_SIZE = 500;
 // Reassert a confirmed command briefly because aborting fetch does not prove
@@ -72,6 +74,8 @@ interface VoyageTombstone {
      * delete is still owed and must be retried on every queue sync.
      */
     cloud_deleted_at?: number;
+    /** Confirmation that the matching public live tail has a no-revival fence. */
+    live_track_retired_at?: number;
     /** Durable outbox metadata for planned-route voyage-table cleanup. */
     planned_route_name?: string;
     planned_route_day?: string;
@@ -1253,6 +1257,11 @@ async function loadTombstones(state: QueueState = getQueueState()): Promise<Voya
                         typeof (raw as Record<string, unknown>).cloud_deleted_at === 'number'
                             ? ((raw as Record<string, unknown>).cloud_deleted_at as number)
                             : undefined,
+                    live_track_retired_at:
+                        typeof (raw as Record<string, unknown>).live_track_retired_at === 'number' &&
+                        Number.isFinite((raw as Record<string, unknown>).live_track_retired_at)
+                            ? ((raw as Record<string, unknown>).live_track_retired_at as number)
+                            : undefined,
                     planned_route_name:
                         typeof (raw as Record<string, unknown>).planned_route_name === 'string'
                             ? ((raw as Record<string, unknown>).planned_route_name as string)
@@ -1772,6 +1781,49 @@ async function deleteVoyageFromCloud(
     });
 }
 
+/**
+ * Permanently suppress a deleted voyage's ephemeral public tail. Unlike
+ * ship_logs, live_track can exist before the local-first queue has ever
+ * uploaded a durable row, so a ship-log DELETE trigger alone cannot cover
+ * this case. The deletion ledger calls this until the server-side fence is
+ * acknowledged.
+ */
+async function retireLiveTrackForDeletedVoyage(scope: AuthenticatedQueueScope, voyageId: string): Promise<boolean> {
+    // `default_voyage` is a legacy bucket rather than an immutable recording
+    // id; live-trickle never publishes it, so it must not block future rows.
+    if (voyageId === 'default_voyage') return true;
+    const normalizedVoyageId = voyageId.trim();
+    if (!supabase || !normalizedVoyageId || normalizedVoyageId.length > 256 || !isAuthIdentityScopeCurrent(scope)) {
+        return false;
+    }
+
+    return boundedCloudDelete(async (signal) => {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
+
+        const { error: retirementError } = await supabase
+            .from(LIVE_TRACK_RETIREMENTS_TABLE)
+            .upsert(
+                {
+                    user_id: scope.userId,
+                    voyage_id: normalizedVoyageId,
+                    reason: 'deleted',
+                    retired_at: new Date().toISOString(),
+                },
+                { onConflict: 'user_id,voyage_id' },
+            )
+            .abortSignal(signal);
+        if (!isAuthIdentityScopeCurrent(scope) || retirementError) return false;
+
+        const { error: purgeError } = await supabase
+            .from(LIVE_TRACK_TABLE)
+            .delete()
+            .eq('user_id', scope.userId)
+            .eq('voyage_id', normalizedVoyageId)
+            .abortSignal(signal);
+        return !purgeError && isAuthIdentityScopeCurrent(scope);
+    });
+}
+
 async function deleteEntryFromCloud(scope: AuthenticatedQueueScope, operationId: string): Promise<boolean> {
     return boundedCloudDelete(async (signal) => {
         if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
@@ -1931,6 +1983,25 @@ async function updateVoyageCloudOutcome(
     });
 }
 
+/** Persist whether the separate live-tail retirement fence has converged. */
+async function updateLiveTrackRetirementOutcome(state: QueueState, voyageId: string, retired: boolean): Promise<void> {
+    await withVoyageTombstoneLock(state, async () => {
+        const stones = await loadTombstones(state);
+        const stone = stones[voyageId];
+        if (!stone) return;
+        const previous = stone.live_track_retired_at;
+        if (retired) stone.live_track_retired_at ??= Date.now();
+        else stone.live_track_retired_at = undefined;
+        if (stone.live_track_retired_at === previous) return;
+        try {
+            await Preferences.set({ key: state.tombstoneKey, value: JSON.stringify(stones) });
+        } catch (error) {
+            stone.live_track_retired_at = previous;
+            throw asError(error, 'Live-track retirement acknowledgement could not be persisted');
+        }
+    });
+}
+
 async function attemptVoyageCloudDeletionLocked(
     state: QueueState,
     scope: AuthenticatedQueueScope,
@@ -1941,6 +2012,19 @@ async function attemptVoyageCloudDeletionLocked(
         return stones[voyageId] ?? null;
     });
     if (!stone || !isAuthIdentityScopeCurrent(scope)) return false;
+
+    let liveTailRetired = stone.live_track_retired_at !== undefined;
+    if (!liveTailRetired) {
+        try {
+            liveTailRetired = await withCloudMutationLock(state, () =>
+                retireLiveTrackForDeletedVoyage(scope, voyageId),
+            );
+        } catch (error) {
+            log.warn(`Voyage ${voyageId} live-track retirement remains pending`, error);
+        }
+        await updateLiveTrackRetirementOutcome(state, voyageId, liveTailRetired);
+    }
+    if (!liveTailRetired) log.warn(`Voyage ${voyageId} live-track retirement remains pending`);
 
     const deleted = await withCloudMutationLock(state, () => deleteVoyageFromCloud(scope, voyageId, stone.deleted_at));
     await updateVoyageCloudOutcome(state, scope, voyageId, deleted);
@@ -2319,6 +2403,7 @@ async function retryPendingVoyageDeletions(state: QueueState, scope: Authenticat
                     (state.activeVoyageRecreations.get(voyageId) ?? 0) === 0 &&
                     (stone.cloud_deleted_at === undefined ||
                         stone.cloud_deleted_at >= cutoff ||
+                        stone.live_track_retired_at === undefined ||
                         (Boolean(stone.planned_voyage_id) &&
                             (stone.draft_cascade_completed_at === undefined ||
                                 stone.active_cascade_completed_at === undefined))),
@@ -2858,6 +2943,7 @@ export async function deleteVoyageFromOfflineQueue(
                     // later archive command and re-opens cloud convergence.
                     previous.deleted_at = Math.max(previous.deleted_at, deletedAt);
                     previous.cloud_deleted_at = undefined;
+                    previous.live_track_retired_at = undefined;
                 } else {
                     stones[voyageId] = { owner_user_id: state.scope.userId, deleted_at: deletedAt };
                 }

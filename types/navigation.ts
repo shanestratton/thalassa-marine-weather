@@ -13,6 +13,8 @@ export interface VoyageHazard {
 export interface ShipLogEntry {
     id: string;
     userId: string;
+    /** Immutable vessel identity captured when this voyage began. */
+    boatId?: string;
     voyageId: string;
     timestamp: string;
     latitude: number;

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
     },
     getUser: vi.fn(),
     vesselResult: {
-        data: null as { user_id: string } | null,
+        data: null as { owner_id: string } | null,
         error: null as Error | null,
     },
     crewResult: {
@@ -96,7 +96,7 @@ describe('usePermissions', () => {
     });
 
     it('recognises the signed-in vessel owner and stores only an account-scoped grant', async () => {
-        mocks.vesselResult.data = { user_id: 'account-a' };
+        mocks.vesselResult.data = { owner_id: 'account-a' };
 
         const { result } = renderHook(() => usePermissions());
 

@@ -4,6 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    activeBoatIdFromTrackingState,
+    activeVoyageIdFromTrackingState,
     loadTrackingState,
     saveTrackingState,
     getLastPosition,
@@ -60,6 +62,49 @@ describe('TrackingStateStore', () => {
         it('returns null and does not throw on corrupt JSON', async () => {
             store.set(authScopedStorageKey('ship_log_tracking_state'), 'not json{{{');
             await expect(loadTrackingState()).resolves.toBeNull();
+        });
+    });
+
+    describe('activeVoyageIdFromTrackingState', () => {
+        it('returns a trimmed voyage id only while the persisted voyage is actively recording', () => {
+            expect(
+                activeVoyageIdFromTrackingState({
+                    isTracking: true,
+                    isPaused: false,
+                    isRapidMode: false,
+                    currentVoyageId: '  voyage-active  ',
+                }),
+            ).toBe('voyage-active');
+        });
+
+        it('does not associate diary entries with a paused, stopped, or malformed tracking state', () => {
+            const base: TrackingState = {
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false,
+                currentVoyageId: 'voyage-active',
+            };
+
+            expect(activeVoyageIdFromTrackingState({ ...base, isPaused: true })).toBeUndefined();
+            expect(activeVoyageIdFromTrackingState({ ...base, isTracking: false })).toBeUndefined();
+            expect(activeVoyageIdFromTrackingState({ ...base, currentVoyageId: '   ' })).toBeUndefined();
+            expect(activeVoyageIdFromTrackingState(null)).toBeUndefined();
+        });
+    });
+
+    describe('activeBoatIdFromTrackingState', () => {
+        it('returns the cast-off boat only while that voyage is actively recording', () => {
+            const state: TrackingState = {
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false,
+                boatId: '  2e39983f-5d86-4dcb-b6f9-34df05c08d90  ',
+            };
+
+            expect(activeBoatIdFromTrackingState(state)).toBe('2e39983f-5d86-4dcb-b6f9-34df05c08d90');
+            expect(activeBoatIdFromTrackingState({ ...state, isPaused: true })).toBeUndefined();
+            expect(activeBoatIdFromTrackingState({ ...state, isTracking: false })).toBeUndefined();
+            expect(activeBoatIdFromTrackingState({ ...state, boatId: '  ' })).toBeUndefined();
         });
     });
 

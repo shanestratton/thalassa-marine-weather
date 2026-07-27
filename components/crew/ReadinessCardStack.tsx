@@ -5,7 +5,7 @@
  * Each card is a <details> accordion with delegation badge + inner card.
  */
 
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { type CrewMember } from '../../services/CrewService';
 import { type VoyageRow } from '../CrewManagement';
 
@@ -69,6 +69,8 @@ interface ReadinessCardStackProps {
     onComfortProfileChange?: (v: boolean) => void;
     onWeatherWindowChange?: (v: boolean) => void;
     onCurrentsChange?: (v: boolean) => void;
+    /** Persist the full ISO departure and its route-derived ETA. */
+    onDepartureTimeChange?: (voyageId: string, departureTime: string, eta: string | null) => void;
 }
 
 /* ── Chevron icon reused by all cards ── */
@@ -198,7 +200,12 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
  * inside ChevronDown — see line 71. Headers are designed to live
  * inside a `<summary>` so tapping anywhere on them toggles their group.
  */
-const GroupHeader: React.FC<{ label: string; ready: number; total: number }> = ({ label, ready, total }) => {
+const GroupHeader: React.FC<{ label: string; ready: number; total: number; notApplicable?: number }> = ({
+    label,
+    ready,
+    total,
+    notApplicable = 0,
+}) => {
     const complete = total > 0 && ready === total;
     return (
         <div className="flex items-center gap-2 mb-3 mt-1">
@@ -217,6 +224,7 @@ const GroupHeader: React.FC<{ label: string; ready: number; total: number }> = (
                     }`}
                 >
                     {ready}/{total}
+                    {notApplicable > 0 && ` required · ${notApplicable} N/A`}
                 </span>
             )}
             <ChevronDown />
@@ -259,6 +267,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     onVesselProfileChange,
     onWeatherWindowChange,
     onCurrentsChange,
+    onDepartureTimeChange,
 }) => {
     const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
     const departPort = activeVoyage?.departure_port;
@@ -274,6 +283,19 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     const canViewRoute = hasVerifiedPassageAccess && passageStatus.canViewRoute;
     const canViewMeals = hasVerifiedPassageAccess && passageStatus.canViewMeals;
     const canViewChecklist = hasVerifiedPassageAccess && passageStatus.canViewChecklist;
+    const [provisioningStatus, setProvisioningStatus] = useState<{ voyageId: string; ready: boolean } | null>(null);
+    const provisioningReady =
+        canCountReadiness && provisioningStatus?.voyageId === selectedPassageId && provisioningStatus.ready;
+    const handleProvisionedChange = useCallback(
+        (ready: boolean) => setProvisioningStatus({ voyageId: selectedPassageId, ready }),
+        [selectedPassageId],
+    );
+    const handleActiveDepartureTimeChange = useCallback(
+        (departureTime: string, eta: string | null = null) => {
+            if (activeVoyage) onDepartureTimeChange?.(activeVoyage.id, departureTime, eta);
+        },
+        [activeVoyage, onDepartureTimeChange],
+    );
 
     const delegationProps = {
         delegations: cardDelegations,
@@ -298,16 +320,20 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // vessel-wide checks sit at the bottom in their own group.
     const piReadyCount = canCountReadiness ? [weatherWindowReady, currentsBriefed].filter(Boolean).length : 0;
     // Pre-Departure Weather card removed 2026-05-17 — Weather Windows
-    // (PI-1) now serves as the canonical weather-readiness gate via
-    // window acceptance. briefReadyCount denominator dropped from 4
-    // to 3 (watchBriefed + customsCleared + navAcknowledged) for an
-    // international passage. Domestic passages have two real brief items:
-    // watch schedule + navigation acknowledgement.
-    const briefRequirements = isDomestic
-        ? [watchBriefed, navAcknowledged]
-        : [watchBriefed, customsCleared, navAcknowledged];
+    // (PI-1) now serves as the canonical weather-readiness gate via window
+    // acceptance. The remaining visible brief cards are provisioning, watch,
+    // customs (when international), and navigation. Domestic Customs remains
+    // visible as an explicit N/A advisory rather than becoming a fictional
+    // green task, so its status sits beside—not inside—the required total.
+    const briefRequirements = [
+        ...(canViewMeals ? [provisioningReady] : []),
+        ...(canViewChecklist ? [watchBriefed] : []),
+        ...(!isDomestic && canViewChecklist ? [customsCleared] : []),
+        ...(canViewChecklist ? [navAcknowledged] : []),
+    ];
     const briefReadyCount = canCountReadiness ? briefRequirements.filter(Boolean).length : 0;
     const briefTotal = briefRequirements.length;
+    const briefNotApplicableCount = isDomestic && canViewChecklist ? 1 : 0;
     const vesselReadyCount = canCountReadiness
         ? [vesselProfileReady, reservesReady, vesselChecked, medicalReady, commsReady].filter(Boolean).length
         : 0;
@@ -393,46 +419,33 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 </div>
             )}
 
-            {/* 1. PASSAGE SUMMARY */}
+            {/* A single full summary. This used to be nested beneath a second
+                "Passage Summary" accordion card, so the same route appeared
+                twice in succession after the saved-route selector. */}
             {canViewRoute && activeVoyage && (
                 <div className="mb-4">
-                    <details className="group">
-                        <summary className="w-full flex items-center gap-3 p-3 rounded-2xl border bg-gradient-to-r from-sky-500/[0.06] to-indigo-500/[0.03] border-sky-500/15 hover:from-sky-500/[0.1] hover:to-indigo-500/[0.06] transition-all cursor-pointer list-none">
-                            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/10 border border-sky-500/20 flex items-center justify-center text-xl flex-shrink-0">
-                                🧭
-                            </div>
-                            <div className="flex-1 text-left">
-                                <p className="text-lg font-semibold text-white">Passage Summary</p>
-                                <p className="text-sm text-sky-400/70">
-                                    {activeVoyage.departure_port || '—'} → {activeVoyage.destination_port || '—'}
-                                </p>
-                            </div>
-                            <ChevronDown />
-                        </summary>
-                        <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
-                            <PassageSummaryCard
-                                voyageId={activeVoyage.id}
-                                voyageName={activeVoyage.voyage_name || undefined}
-                                departPort={activeVoyage.departure_port || undefined}
-                                destPort={activeVoyage.destination_port || undefined}
-                                departureTime={activeVoyage.departure_time}
-                                eta={activeVoyage.eta}
-                                /* Coords from the active voyage's first/last
-                                   logbook points — single source of truth for
-                                   the map. Without these the card had to fall
-                                   back to PassageStore localStorage which can
-                                   carry stale data from previous sessions and
-                                   cause the map to render as a globe view
-                                   with a (0,0) marker. */
-                                departLat={activeVoyage.departureCoords?.lat}
-                                departLon={activeVoyage.departureCoords?.lon}
-                                arriveLat={activeVoyage.arrivalCoords?.lat}
-                                arriveLon={activeVoyage.arrivalCoords?.lon}
-                                routeCoordinates={activeVoyage.routeCoordinates}
-                                plannedRouteId={activeVoyage.plannedRouteId}
-                            />
-                        </div>
-                    </details>
+                    <PassageSummaryCard
+                        voyageId={activeVoyage.id}
+                        voyageName={activeVoyage.voyage_name || undefined}
+                        departPort={activeVoyage.departure_port || undefined}
+                        destPort={activeVoyage.destination_port || undefined}
+                        departureTime={activeVoyage.departure_time}
+                        /* Coords from the active voyage's first/last
+                           logbook points — single source of truth for
+                           the map. Without these the card had to fall
+                           back to PassageStore localStorage which can
+                           carry stale data from previous sessions and
+                           cause the map to render as a globe view
+                           with a (0,0) marker. */
+                        departLat={activeVoyage.departureCoords?.lat}
+                        departLon={activeVoyage.departureCoords?.lon}
+                        arriveLat={activeVoyage.arrivalCoords?.lat}
+                        arriveLon={activeVoyage.arrivalCoords?.lon}
+                        routeCoordinates={activeVoyage.routeCoordinates}
+                        plannedRouteId={activeVoyage.plannedRouteId}
+                        distanceNm={activeVoyage.distanceNm}
+                        onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
+                    />
                 </div>
             )}
 
@@ -479,6 +492,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             departure={activeVoyage?.departureCoords}
                             destination={activeVoyage?.arrivalCoords}
                             departureTime={activeVoyage?.departure_time}
+                            onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
                             onReviewedChange={onWeatherWindowChange}
                         />
                     </CardAccordion>
@@ -523,6 +537,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             label="Departure Brief"
                             ready={canViewChecklist ? briefReadyCount : 0}
                             total={canViewChecklist ? briefTotal : 0}
+                            notApplicable={canViewChecklist ? briefNotApplicableCount : 0}
                         />
                     </summary>
 
@@ -540,6 +555,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 passageStatus={passageStatus}
                                 className=""
                                 registeredCrewCount={visibleCrew.length}
+                                onProvisionedChange={handleProvisionedChange}
                                 {...(passageStatus.isOwner
                                     ? {
                                           cardDelegations,

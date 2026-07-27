@@ -10,7 +10,22 @@ vi.mock('../data/customsDb', () => ({
 }));
 
 vi.mock('../components/passage/PassageSummaryCard', () => ({
-    PassageSummaryCard: () => <div data-testid="passage-summary-card">Passage summary</div>,
+    PassageSummaryCard: ({
+        onDepartureTimeChange,
+    }: {
+        onDepartureTimeChange?: (departureTime: string, eta: string | null) => void;
+    }) => (
+        <div data-testid="passage-summary-card">
+            Passage summary
+            <button
+                type="button"
+                data-testid="change-summary-departure"
+                onClick={() => onDepartureTimeChange?.('2026-08-01T05:00:00.000Z', '2026-08-03T05:00:00.000Z')}
+            >
+                Change departure
+            </button>
+        </div>
+    ),
 }));
 vi.mock('../components/passage/WeatherWindowCard', () => ({
     WeatherWindowCard: () => <div data-testid="weather-window-card">Weather window</div>,
@@ -51,13 +66,22 @@ vi.mock('../components/passage/CommsPlanCard', () => ({
     CommsPlanCard: () => <div data-testid="comms-card">Comms</div>,
 }));
 vi.mock('../components/chat/GalleyCard', () => ({
-    GalleyCard: ({ passageStatus }: { passageStatus: PassageStatus }) => (
+    GalleyCard: ({
+        passageStatus,
+        onProvisionedChange,
+    }: {
+        passageStatus: PassageStatus;
+        onProvisionedChange?: (provisioned: boolean) => void;
+    }) => (
         <div
             data-testid="galley-card"
             data-owner={String(passageStatus.isOwner)}
             data-can-view-meals={String(passageStatus.canViewMeals)}
         >
             Galley
+            <button type="button" data-testid="mark-provisioned" onClick={() => onProvisionedChange?.(true)}>
+                Mark provisioned
+            </button>
         </div>
     ),
 }));
@@ -196,8 +220,21 @@ describe('passage permission integration', () => {
         renderStack(ownerStatus);
 
         expect(screen.getByText('Passage Intelligence').closest('summary')).toHaveTextContent('0/2');
-        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/3');
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/4');
         expect(screen.getByText('Vessel Readiness').closest('summary')).toHaveTextContent('0/5');
+    });
+
+    it('forwards a Summary departure edit with the active voyage identity', () => {
+        const onDepartureTimeChange = vi.fn();
+        renderStack(ownerStatus, [], { onDepartureTimeChange });
+
+        fireEvent.click(screen.getByTestId('change-summary-departure'));
+
+        expect(onDepartureTimeChange).toHaveBeenCalledWith(
+            voyage.id,
+            '2026-08-01T05:00:00.000Z',
+            '2026-08-03T05:00:00.000Z',
+        );
     });
 
     it('does not lend old readiness ticks to an unresolved saved-route selection', () => {
@@ -220,7 +257,7 @@ describe('passage permission integration', () => {
         });
 
         expect(screen.getByText('Passage Intelligence').closest('summary')).toHaveTextContent('0/2');
-        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/3');
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/4');
         expect(screen.getByText('Vessel Readiness').closest('summary')).toHaveTextContent('0/5');
     });
 
@@ -230,7 +267,28 @@ describe('passage permission integration', () => {
             customsCleared: true,
         });
 
-        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('2/3');
+        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('2/4');
+    });
+
+    it('counts provisioning alongside the other three international departure-brief cards', () => {
+        renderStack(ownerStatus, [], {
+            watchBriefed: true,
+            customsCleared: true,
+            navAcknowledged: true,
+        });
+
+        const departureBrief = screen.getByText('Departure Brief').closest('summary');
+        expect(departureBrief).toHaveTextContent('3/4');
+
+        fireEvent.click(screen.getByTestId('mark-provisioned'));
+
+        expect(departureBrief).toHaveTextContent('4/4');
+    });
+
+    it('does not nest the full summary beneath a second accordion card', () => {
+        renderStack(ownerStatus);
+
+        expect(screen.getByTestId('passage-summary-card').closest('details')).toBeNull();
     });
 
     it('keeps domestic customs informational instead of auto-ticking a new brief', () => {
@@ -239,9 +297,23 @@ describe('passage permission integration', () => {
         renderStack(ownerStatus, [], { onCustomsChange });
 
         expect(onCustomsChange).not.toHaveBeenCalled();
-        expect(screen.getByText('Departure Brief').closest('summary')).toHaveTextContent('0/2');
+        const departureBrief = screen.getByText('Departure Brief').closest('summary');
+        expect(departureBrief).toHaveTextContent(/0\/3\s*required/i);
+        expect(departureBrief).toHaveTextContent(/1\s*N\/A/i);
         expect(screen.getByText('No Customs Required')).toBeInTheDocument();
         expect(screen.getByText('Customs & Immigration').closest('summary')).not.toHaveTextContent('✅');
+    });
+
+    it('retains the domestic customs exemption while showing the completed required cards', () => {
+        vi.mocked(isSameCountry).mockReturnValue(true);
+        renderStack(ownerStatus, [], {
+            watchBriefed: true,
+            navAcknowledged: true,
+        });
+
+        const departureBrief = screen.getByText('Departure Brief').closest('summary');
+        expect(departureBrief).toHaveTextContent(/2\/3\s*required/i);
+        expect(departureBrief).toHaveTextContent(/1\s*N\/A/i);
     });
 
     it('lets domestic passages progress to the navigation gate without a fictional customs check', () => {

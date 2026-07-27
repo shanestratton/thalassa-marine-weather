@@ -37,6 +37,8 @@ import {
     saveTrackingState as _saveTrackingState,
     clearVoyageState as _clearVoyageState,
     decideInitTrackingAction,
+    activeBoatIdFromTrackingState,
+    activeVoyageIdFromTrackingState,
     suspendTrackingStateForIdentityChange,
     type TrackingState,
 } from './shiplog/TrackingStateStore';
@@ -62,7 +64,7 @@ import { setCaptureLocalOnly } from './shiplog/EntrySave';
 import {
     startLiveTrickle,
     stopLiveTrickle,
-    purgeLiveTrack,
+    retireLiveTrackVoyage,
     disarmLiveTrickleForIdentityChange,
 } from './shiplog/LiveTrickle';
 import {
@@ -863,6 +865,46 @@ class ShipLogServiceClass {
         // removal was meant to kill).
         const isNewVoyage = !continueVoyageId && !(resume && this.trackingState.currentVoyageId);
 
+        // Bind the selected vessel ONCE at cast-off. Do not look this up
+        // again from the currently selected fleet profile after a track has
+        // started: a delivery skipper can switch the default for tomorrow
+        // without moving today's live track to another yacht.
+        const isResumingRecordedVoyage =
+            (resume || Boolean(continueVoyageId)) && this.trackingState.currentVoyageId === voyageId;
+        let boatId = isResumingRecordedVoyage ? this.trackingState.boatId : undefined;
+        if (!boatId && !isResumingRecordedVoyage) {
+            try {
+                const { useSettingsStore } = await import('../stores/settingsStore');
+                const fleetState = useSettingsStore.getState();
+                boatId =
+                    fleetState.activeVesselId ??
+                    (fleetState.vesselFleet.length === 1 ? fleetState.vesselFleet[0]?.id : undefined);
+
+                // A brand-new device can reach Cast Off before the settings
+                // provider finishes its initial fleet pull. Take one bounded
+                // direct look at the cloud selection so this voyage is still
+                // permanently bound at cast-off rather than being assigned by
+                // whichever yacht is active when its offline queue uploads.
+                if (!boatId && scope.userId) {
+                    const { loadOwnedVesselFleet } = await import('./VesselFleetService');
+                    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+                    const fleet = await Promise.race([
+                        loadOwnedVesselFleet(scope).catch(() => null),
+                        new Promise<null>((resolve) => {
+                            timeoutId = setTimeout(() => resolve(null), 1_200);
+                        }),
+                    ]);
+                    if (timeoutId) clearTimeout(timeoutId);
+                    boatId = fleet?.activeBoatId ?? (fleet?.vessels.length === 1 ? fleet.vessels[0]?.id : undefined);
+                }
+            } catch (error) {
+                // A first-ever offline voyage may pre-date the fleet pull.
+                // The entry remains locally durable; the database's legacy
+                // fallback assigns its active boat when it later syncs.
+                log.warn('could not resolve vessel at cast-off:', error);
+            }
+        }
+
         this.trackingOwnerScope = scope;
         this.trackingState = {
             isTracking: true,
@@ -879,6 +921,7 @@ class ShipLogServiceClass {
             // shutoff also removed; tracking sessions stay at hi-fi
             // for the duration.
             isPrecisionMode: true,
+            boatId: boatId,
             currentVoyageId: voyageId,
             voyageStartTime: resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
             lastMovementTime: new Date().toISOString(),
@@ -915,7 +958,7 @@ class ShipLogServiceClass {
         // Live position sharing (public Voyage Log "live tail") — a
         // read-only shadow of the offline queue, gated on
         // settings.liveTrackShare. Never touches the capture path.
-        startLiveTrickle(sessionState.currentVoyageId ?? null, scope);
+        startLiveTrickle(sessionState.currentVoyageId ?? null, scope, sessionState.boatId);
 
         this.notifyTrackingChanged();
 
@@ -1295,9 +1338,10 @@ class ShipLogServiceClass {
                     if (!stopIsCurrent(activeState)) return;
                     // A discarded voyage never uploads to ship_logs, so any
                     // dock points it trickled to live_track would linger as a
-                    // stale public "live" tail that nothing supersedes — pull
-                    // them too. (Fire-and-forget; prune is the backstop.)
-                    void purgeLiveTrack(scope).catch(() => {
+                    // stale public "live" tail that nothing supersedes. Retire
+                    // this exact voyage (rather than every live row for the
+                    // account) so an immediately-started next voyage is safe.
+                    void retireLiveTrackVoyage(previousVoyageId, 'discarded', scope).catch(() => {
                         /* best effort */
                     });
                     log.warn(`[ShipLog] empty voyage discarded at stop (${maxCumNM.toFixed(3)} NM) — not uploaded`);
@@ -1690,6 +1734,56 @@ class ShipLogServiceClass {
         return this.trackingState.isTracking ? this.trackingState.currentVoyageId : undefined;
     }
 
+    /**
+     * Resolve the active recording voyage across both a warm app session and
+     * a cold WebView launch. Diary creation can happen before the Log page
+     * hydrates this service; in that case the persisted tracking state is the
+     * authoritative local signal. This deliberately performs no GPS/native
+     * side effects — it only reads the account-scoped tracking record.
+     */
+    async resolveActiveVoyageId(): Promise<string | undefined> {
+        const scope = getAuthIdentityScope();
+        if (this.ownerIsCurrent(scope)) {
+            return activeVoyageIdFromTrackingState(this.trackingState);
+        }
+
+        const persisted = await loadTrackingState(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return undefined;
+        return activeVoyageIdFromTrackingState(persisted);
+    }
+
+    /**
+     * Resolve the vessel that was bound at cast-off. A selected fleet vessel
+     * is only a fallback when no track is active; an old tracking record
+     * without a boat id must remain unassigned rather than being silently
+     * moved onto a vessel selected after the voyage began.
+     */
+    async resolveActiveBoatId(): Promise<string | undefined> {
+        const scope = getAuthIdentityScope();
+        const state = this.ownerIsCurrent(scope) ? this.trackingState : await loadTrackingState(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return undefined;
+
+        const trackingBoatId = activeBoatIdFromTrackingState(state);
+        if (trackingBoatId) return trackingBoatId;
+
+        // An active legacy track has no immutable boat binding. Never use the
+        // current fleet choice for it: the skipper may have switched vessels
+        // since casting off. The database migration's legacy fallback can
+        // handle those historic rows safely.
+        if (state?.isTracking === true && state.isPaused !== true) return undefined;
+
+        try {
+            const { useSettingsStore } = await import('../stores/settingsStore');
+            const activeVesselId = useSettingsStore.getState().activeVesselId;
+            return typeof activeVesselId === 'string' && activeVesselId.trim() ? activeVesselId.trim() : undefined;
+        } catch (error) {
+            // A diary entry is still locally durable if fleet hydration has
+            // not completed on a cold launch. It can remain legacy/unbound.
+            log.warn('could not resolve active vessel for diary association:', error);
+            return undefined;
+        }
+    }
+
     /** Whether GPS trip-logging is currently active. Mirrors
      *  trackingState.isTracking — exposed publicly so the Nav Station
      *  hero band can distinguish "voyage marked active in DB" from
@@ -1775,7 +1869,17 @@ class ShipLogServiceClass {
     }
 
     async archiveVoyage(voyageId: string): Promise<boolean> {
-        return _archiveVoyage(voyageId);
+        const archived = await _archiveVoyage(voyageId);
+        if (archived) {
+            // The durable DB trigger is the offline fallback. This eager
+            // client retirement makes the public map disappear immediately
+            // when signal is available, and synchronously disarms a matching
+            // in-memory live session before its next flush.
+            void retireLiveTrackVoyage(voyageId, 'archived').catch(() => {
+                /* the archive outbox/DB trigger retries the server fence */
+            });
+        }
+        return archived;
     }
 
     async unarchiveVoyage(voyageId: string): Promise<boolean> {

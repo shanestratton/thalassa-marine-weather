@@ -24,6 +24,8 @@ export interface Voyage {
     id: string;
     user_id: string;
     vessel_id: string | null;
+    /** Stable `boats.id` captured when this passage was planned. */
+    boat_id?: string | null;
     voyage_name: string;
     departure_port: string | null;
     destination_port: string | null;
@@ -75,6 +77,7 @@ function isVoyage(value: unknown): value is Voyage {
         typeof voyage.user_id === 'string' &&
         voyage.user_id.length > 0 &&
         isNullableString(voyage.vessel_id) &&
+        (voyage.boat_id === undefined || isNullableString(voyage.boat_id)) &&
         typeof voyage.voyage_name === 'string' &&
         isNullableString(voyage.departure_port) &&
         isNullableString(voyage.destination_port) &&
@@ -317,6 +320,8 @@ async function validateVisibleVoyage(
 export async function createVoyage(
     data: Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port' | 'crew_count'> & {
         vessel_id?: string;
+        /** Exact fleet boat captured by the caller before any network await. */
+        boat_id?: string | null;
         departure_time?: string | null;
         eta?: string | null;
         saved_route_id?: string | null;
@@ -339,6 +344,7 @@ export async function createVoyage(
         destination_port: data.destination_port,
         crew_count: data.crew_count,
         ...(data.vessel_id !== undefined ? { vessel_id: data.vessel_id } : {}),
+        ...(data.boat_id !== undefined ? { boat_id: data.boat_id } : {}),
         ...(data.departure_time !== undefined ? { departure_time: data.departure_time } : {}),
         ...(data.eta !== undefined ? { eta: data.eta } : {}),
         ...(data.saved_route_id !== undefined ? { saved_route_id: data.saved_route_id } : {}),

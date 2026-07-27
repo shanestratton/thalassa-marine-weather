@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const mocks = vi.hoisted(() => ({
     authUserId: 'account-a',
@@ -67,6 +67,7 @@ vi.mock('../services/supabase', () => {
             query.filters.push({ column, value });
             return builder;
         });
+        builder.limit = vi.fn(() => builder);
         builder.in = vi.fn((column: string, value: unknown) => {
             query.filters.push({ column, value });
             return builder;
@@ -114,6 +115,7 @@ function hasFilter(query: (typeof mocks.queries)[number], column: string, value:
 
 describe('VoyageLogService identity fencing', () => {
     beforeEach(() => {
+        localStorage.clear();
         setAuthIdentityScope(null);
         setAuthIdentityScope('account-a');
         mocks.authUserId = 'account-a';
@@ -262,6 +264,15 @@ describe('VoyageLogService identity fencing', () => {
         expect(hasFilter(update, 'owner_id', 'account-a')).toBe(true);
         expect(hasFilter(update, 'boat_id', 'boat-a')).toBe(true);
         expect(hasFilter(update, 'scope', 'combined')).toBe(true);
+    });
+
+    it('persists a first-public-entry config request until the Voyage Log is enabled', async () => {
+        VoyageLogService.markEnableRequested('offline-public-entry');
+        const key = authScopedStorageKey('thalassa_voyage_log_enable_pending_v1', getAuthIdentityScope());
+        expect(JSON.parse(localStorage.getItem(key) ?? '[]')).toEqual(['offline-public-entry']);
+
+        await expect(VoyageLogService.ensurePendingEnabled()).resolves.toMatchObject({ enabled: true });
+        expect(localStorage.getItem(key)).toBeNull();
     });
 
     it('scopes unlink deletes by immutable user and voyage ids', async () => {

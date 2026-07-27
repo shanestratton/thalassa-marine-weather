@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     createVoyage: vi.fn(),
     deleteVoyage: vi.fn(),
     setActivePassage: vi.fn(),
+    resolveActiveBoatId: vi.fn(),
 }));
 
 vi.mock('../services/supabase', () => ({
@@ -52,6 +53,11 @@ vi.mock('../services/VoyageService', () => ({
 vi.mock('../services/PassagePlanService', () => ({
     setActivePassage: (...args: unknown[]) => mocks.setActivePassage(...args),
 }));
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        resolveActiveBoatId: (...args: unknown[]) => mocks.resolveActiveBoatId(...args),
+    },
+}));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { savePassagePlanToLogbook, savePassagePlanToLogbookWithLinks } from '../services/shiplog/PassagePlanSave';
@@ -87,6 +93,7 @@ beforeEach(() => {
     mocks.tombstone.mockResolvedValue(undefined);
     mocks.createVoyage.mockResolvedValue({ voyage: { id: 'draft-a' } });
     mocks.deleteVoyage.mockResolvedValue(true);
+    mocks.resolveActiveBoatId.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -149,6 +156,18 @@ describe('PassagePlanSave persistence and identity ownership', () => {
         const rows = mocks.upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
         expect(rows).toHaveLength(2);
         expect(rows.every((row) => row.saved_route_id === 'trace-abc')).toBe(true);
+    });
+
+    it('captures one active vessel for both the draft passage and every planned-log row', async () => {
+        mocks.resolveActiveBoatId.mockResolvedValue('boat-a');
+
+        await expect(savePassagePlanToLogbook(plan)).resolves.toMatch(/^planned_/);
+
+        expect(mocks.resolveActiveBoatId).toHaveBeenCalledTimes(1);
+        expect(mocks.createVoyage).toHaveBeenCalledWith(expect.objectContaining({ boat_id: 'boat-a' }));
+        const rows = mocks.upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => row.boat_id === 'boat-a')).toBe(true);
     });
 
     it('writes a clean draft title for a generated saved-trace endpoint pair', async () => {

@@ -163,6 +163,7 @@ export async function captureImmediate(
     const weatherSnapshot = getWeatherSnapshot();
 
     const entry: Partial<ShipLogEntry> = {
+        boatId: ctx.trackingState.boatId,
         voyageId: effectiveVoyageId,
         timestamp,
         latitude: 0,
@@ -577,6 +578,7 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
                 : undefined);
 
         const entry: Partial<ShipLogEntry> = {
+            boatId: ctx.trackingState.boatId,
             voyageId: entryVoyageId,
             timestamp,
             latitude,
@@ -683,6 +685,7 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
     const weatherSnapshot = getWeatherSnapshot();
 
     const entry: Partial<ShipLogEntry> = {
+        boatId: ctx.trackingState.boatId,
         voyageId: effectiveVoyageId,
         timestamp,
         latitude: 0,

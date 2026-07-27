@@ -9,9 +9,17 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase, supabaseUrl } from './supabase';
-import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from './authIdentityScope';
+import { createOwnedVesselProfile, defaultVesselProfile, loadOwnedVesselFleet } from './VesselFleetService';
 
 const log = createLogger('VoyageLog');
+const ENABLE_PENDING_KEY = 'thalassa_voyage_log_enable_pending_v1';
+const MAX_PENDING_ENABLE_ENTRY_IDS = 200;
 
 export interface VoyageLogConfig {
     id: string;
@@ -61,6 +69,89 @@ class VoyageLogServiceClass {
      * in account B, or reappear after an A → B → A transition.
      */
     private readonly errorsByIdentity = new Map<string, { generation: number; error: string | null }>();
+
+    /**
+     * Persist a public-page setup request separately from the Diary row.
+     * A diary relay can legitimately reach Supabase before this phone has an
+     * authenticated route to create the Voyage Log config. Without this
+     * small, identity-scoped queue, the public `is_public` row could remain
+     * invisible forever on a skipper's first published entry.
+     */
+    markEnableRequested(entryId: string): void {
+        const scope = getAuthIdentityScope();
+        const id = entryId.trim();
+        if (!scope.userId || !id || id.length > 200) return;
+        const pending = this.pendingEnableEntryIds(scope);
+        if (pending.includes(id)) return;
+        try {
+            localStorage.setItem(
+                authScopedStorageKey(ENABLE_PENDING_KEY, scope),
+                JSON.stringify([...pending, id].slice(-MAX_PENDING_ENABLE_ENTRY_IDS)),
+            );
+        } catch (error) {
+            log.warn('Could not persist pending Voyage Log enablement:', error);
+        }
+    }
+
+    /** Remove a no-longer-public entry from the durable config-enable queue. */
+    clearEnableRequest(entryId: string): void {
+        const scope = getAuthIdentityScope();
+        const id = entryId.trim();
+        if (!scope.userId || !id) return;
+        const pending = this.pendingEnableEntryIds(scope);
+        if (!pending.includes(id)) return;
+        this.savePendingEnableEntryIds(
+            pending.filter((candidate) => candidate !== id),
+            scope,
+        );
+    }
+
+    /**
+     * Try the durable public-page setup intent. A failure stays queued for
+     * DiaryService's ordinary connectivity/foreground retry rather than
+     * losing the skipper's request after the entry itself reaches the cloud.
+     */
+    async ensurePendingEnabled(): Promise<VoyageLogConfig | null> {
+        const scope = getAuthIdentityScope();
+        if (!scope.userId || this.pendingEnableEntryIds(scope).length === 0) return null;
+        const config = await this.ensureEnabled();
+        if (config && isAuthIdentityScopeCurrent(scope)) this.savePendingEnableEntryIds([], scope);
+        return config;
+    }
+
+    private pendingEnableEntryIds(scope: AuthIdentityScope): string[] {
+        if (!scope.userId) return [];
+        try {
+            const raw = localStorage.getItem(authScopedStorageKey(ENABLE_PENDING_KEY, scope));
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(parsed)) return [];
+            return [
+                ...new Set(
+                    parsed.filter(
+                        (value): value is string =>
+                            typeof value === 'string' && value.length > 0 && value.length <= 200,
+                    ),
+                ),
+            ].slice(-MAX_PENDING_ENABLE_ENTRY_IDS);
+        } catch (error) {
+            log.warn('Could not read pending Voyage Log enablement:', error);
+            return [];
+        }
+    }
+
+    private savePendingEnableEntryIds(entryIds: string[], scope: AuthIdentityScope): void {
+        if (!scope.userId) return;
+        try {
+            const key = authScopedStorageKey(ENABLE_PENDING_KEY, scope);
+            if (entryIds.length === 0) {
+                localStorage.removeItem(key);
+            } else {
+                localStorage.setItem(key, JSON.stringify(entryIds.slice(-MAX_PENDING_ENABLE_ENTRY_IDS)));
+            }
+        } catch (error) {
+            log.warn('Could not update pending Voyage Log enablement:', error);
+        }
+    }
 
     /** Preserve the existing property API while making it identity-safe. */
     get lastError(): string | null {
@@ -138,10 +229,26 @@ class VoyageLogServiceClass {
         if (!supabase) return null;
         if (!isAuthIdentityScopeCurrent(operation.scope)) return null;
 
+        // Fleet selection is the explicit public-log context. The old
+        // `.maybeSingle()` owner lookup failed as soon as a delivery skipper
+        // owned two boats, and worse, made it impossible to know which public
+        // page should receive a new voyage.
+        try {
+            const fleet = await loadOwnedVesselFleet(operation.scope);
+            const active = fleet.vessels.find((vessel) => vessel.id === fleet.activeBoatId);
+            if (active?.id) return active.id;
+        } catch (fleetError) {
+            // Staged rollout fallback below preserves existing public logs
+            // until the fleet migration has landed on every environment.
+            log.warn('fleet lookup for Voyage Log deferred:', fleetError);
+        }
+        if (!isAuthIdentityScopeCurrent(operation.scope)) return null;
+
         const { data, error } = await supabase
             .from('boats')
             .select('id, owner_id')
             .eq('owner_id', operation.userId)
+            .limit(1)
             .maybeSingle();
         if (!isAuthIdentityScopeCurrent(operation.scope)) return null;
         if (error) {
@@ -254,30 +361,27 @@ class VoyageLogServiceClass {
         } | null;
         const name = (vesselRow?.vessel_name ?? '').trim() || 'My Boat';
 
-        const { data: boat, error: boatErr } = await supabase
-            .from('boats')
-            .insert({
-                owner_id: operation.userId,
-                name,
-                vessel_type: vesselRow?.vessel_type ?? 'sail',
-                model: vesselRow?.model ?? null,
-            })
-            .select('id, owner_id')
-            .single();
-        if (!isAuthIdentityScopeCurrent(operation.scope)) return null;
-        if (boatErr || !boat?.id) {
-            log.warn('getOrCreateOwnedBoat failed:', boatErr?.message);
-            this.setError(operation.scope, `Couldn't create your boat row: ${boatErr?.message ?? 'no id returned'}`);
+        try {
+            const profile = {
+                ...defaultVesselProfile(name),
+                type:
+                    vesselRow?.vessel_type === 'power' || vesselRow?.vessel_type === 'observer'
+                        ? vesselRow.vessel_type
+                        : 'sail',
+                ...(vesselRow?.model ? { model: vesselRow.model } : {}),
+            };
+            const createdBoat = await createOwnedVesselProfile(profile, {}, operation.scope);
+            if (!isAuthIdentityScopeCurrent(operation.scope) || createdBoat.owner_id !== operation.userId) {
+                this.setError(operation.scope, "Couldn't verify the new boat's owner.");
+                return null;
+            }
+            await this.ensureOwnerMembership(operation, createdBoat.id);
+            return createdBoat.id;
+        } catch (fleetError) {
+            log.warn('getOrCreateOwnedBoat fleet creation failed:', fleetError);
+            this.setError(operation.scope, 'Could not create your vessel profile — check signal.');
             return null;
         }
-        const createdBoat = boat as { id: string; owner_id?: string };
-        if (createdBoat.owner_id !== operation.userId) {
-            this.setError(operation.scope, "Couldn't verify the new boat's owner.");
-            return null;
-        }
-
-        await this.ensureOwnerMembership(operation, createdBoat.id);
-        return isAuthIdentityScopeCurrent(operation.scope) ? createdBoat.id : null;
     }
 
     private async ensureOwnerMembership(operation: VoyageLogOperation, boatId: string): Promise<void> {

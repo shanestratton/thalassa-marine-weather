@@ -173,6 +173,7 @@ export const useAppController = () => {
                         .from('boats')
                         .select('id')
                         .eq('owner_id', actionScope.userId)
+                        .limit(1)
                         .maybeSingle();
                     if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
                     if (error) {

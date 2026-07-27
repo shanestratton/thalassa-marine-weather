@@ -1,10 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSupabase: { current: ReturnType<typeof createSupabaseMock> | null } = { current: null };
+const relay = vi.hoisted(() => ({
+    handoffDiaryToPi: vi.fn(),
+    hasReachableDiaryCloud: vi.fn(),
+    canAttemptDiaryCloudDelivery: vi.fn(),
+    submitDiaryDirect: vi.fn(),
+    cancelDiaryOnPi: vi.fn(),
+    cancelDiaryDirect: vi.fn(),
+    syncPiDiaryRelayInternetPolicy: vi.fn(),
+}));
+const shipLog = vi.hoisted(() => ({
+    resolveActiveVoyageId: vi.fn(),
+    resolveActiveBoatId: vi.fn(),
+}));
 
 vi.mock('../services/supabase', () => ({
     get supabase() {
         return mockSupabase.current;
+    },
+}));
+
+vi.mock('../services/DiaryRelayTransport', () => ({
+    handoffDiaryToPi: relay.handoffDiaryToPi,
+    hasReachableDiaryCloud: relay.hasReachableDiaryCloud,
+    canAttemptDiaryCloudDelivery: relay.canAttemptDiaryCloudDelivery,
+    submitDiaryDirect: relay.submitDiaryDirect,
+    cancelDiaryOnPi: relay.cancelDiaryOnPi,
+    cancelDiaryDirect: relay.cancelDiaryDirect,
+    syncPiDiaryRelayInternetPolicy: relay.syncPiDiaryRelayInternetPolicy,
+}));
+
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        resolveActiveVoyageId: shipLog.resolveActiveVoyageId,
+        resolveActiveBoatId: shipLog.resolveActiveBoatId,
     },
 }));
 
@@ -14,11 +44,43 @@ import { authScopedStorageKey, setAuthIdentityScope, type AuthIdentityScope } fr
 interface PublishControls {
     userId: string;
     inserts: Record<string, unknown>[];
+    writes?: Array<{
+        method: 'insert' | 'upsert';
+        payload: Record<string, unknown> | Record<string, unknown>[];
+        options?: Record<string, unknown>;
+    }>;
+    writeResults?: Array<{
+        data: Record<string, unknown> | null;
+        error: { message: string; code?: string; details?: string } | null;
+    }>;
     updates: Record<string, unknown>[];
     updateResult: { data: { id: string; is_public: boolean } | null; error: { message: string } | null };
 }
 
 function createSupabaseMock(controls: PublishControls) {
+    const write =
+        (method: 'insert' | 'upsert') =>
+        (payload: Record<string, unknown> | Record<string, unknown>[], options?: Record<string, unknown>) => {
+            if (method === 'insert' && !Array.isArray(payload)) controls.inserts.push(payload);
+            const writes = controls.writes ?? (controls.writes = []);
+            writes.push({ method, payload, options });
+            const nextResult = controls.writeResults?.shift();
+            const row = Array.isArray(payload) ? payload[0] : payload;
+            return {
+                select: () => ({
+                    single: async () =>
+                        nextResult ?? {
+                            data: {
+                                ...row,
+                                id: `server-${writes.length}`,
+                                updated_at: row?.created_at,
+                            },
+                            error: null,
+                        },
+                }),
+            };
+        };
+
     return {
         auth: {
             getUser: vi.fn(async () => ({ data: { user: { id: controls.userId } } })),
@@ -34,21 +96,8 @@ function createSupabaseMock(controls: PublishControls) {
                 maybeSingle: async () => ({ data: null, error: null }),
             };
             return {
-                insert: (payload: Record<string, unknown>) => {
-                    controls.inserts.push(payload);
-                    return {
-                        select: () => ({
-                            single: async () => ({
-                                data: {
-                                    ...payload,
-                                    id: `server-${controls.inserts.length}`,
-                                    updated_at: payload.created_at,
-                                },
-                                error: null,
-                            }),
-                        }),
-                    };
-                },
+                insert: write('insert'),
+                upsert: write('upsert'),
                 update: (payload: Record<string, unknown>) => {
                     controls.updates.push(payload);
                     const updateChain = {
@@ -109,6 +158,15 @@ beforeEach(() => {
     localStorage.clear();
     mockSupabase.current = null;
     Object.defineProperty(globalThis.navigator, 'onLine', { value: false, configurable: true });
+    relay.handoffDiaryToPi.mockReset().mockResolvedValue(null);
+    relay.hasReachableDiaryCloud.mockReset().mockResolvedValue(true);
+    relay.canAttemptDiaryCloudDelivery.mockReset().mockImplementation(() => navigator.onLine);
+    relay.submitDiaryDirect.mockReset().mockResolvedValue(null);
+    relay.cancelDiaryOnPi.mockReset().mockResolvedValue(false);
+    relay.cancelDiaryDirect.mockReset().mockResolvedValue(false);
+    relay.syncPiDiaryRelayInternetPolicy.mockReset().mockResolvedValue(false);
+    shipLog.resolveActiveVoyageId.mockReset().mockResolvedValue(undefined);
+    shipLog.resolveActiveBoatId.mockReset().mockResolvedValue(undefined);
     vi.stubGlobal(
         'fetch',
         vi.fn(async () => new Response(null, { status: 200 })),
@@ -117,20 +175,73 @@ beforeEach(() => {
 });
 
 describe('DiaryService.setEntryPublished server confirmation', () => {
-    it('keeps an offline entry private when publication cannot be confirmed', async () => {
+    it('inherits the active track for an omitted voyage id but preserves an explicit unassigned diary entry', async () => {
+        const userId = `voyage-association-${serial}`;
+        setAuthIdentityScope(userId);
+        shipLog.resolveActiveVoyageId.mockResolvedValue('voyage-active');
+
+        const attached = await DiaryService.createEntry({
+            title: 'Underway note',
+            body: 'A reef came in before the squall.',
+            mood: 'good',
+        });
+        const deliberatelyUnassigned = await DiaryService.createEntry({
+            title: 'Harbour note',
+            body: 'Written after the voyage ended.',
+            mood: 'neutral',
+            voyage_id: null,
+        });
+        const optionalUndefined = await DiaryService.createEntry({
+            title: 'Form passthrough note',
+            body: 'An optional prop must behave like an omitted one.',
+            mood: 'good',
+            voyage_id: undefined,
+        });
+
+        expect(attached.voyage_id).toBe('voyage-active');
+        expect(deliberatelyUnassigned.voyage_id).toBeNull();
+        expect(optionalUndefined.voyage_id).toBe('voyage-active');
+        expect(shipLog.resolveActiveVoyageId).toHaveBeenCalledTimes(2);
+    });
+
+    it('retains an offline publication request as a durable queued intent', async () => {
         const userId = `offline-publisher-${serial}`;
         setAuthIdentityScope(userId);
         const pendingKey = keyFor('thalassa_diary_pending_v2', userId);
         localStorage.setItem(pendingKey, JSON.stringify([entry('offline-publish', userId)]));
 
-        await expect(DiaryService.setEntryPublished('offline-publish', true)).resolves.toBe(false);
+        await DiaryService.setEntryPublished('offline-publish', true);
 
-        const pending = JSON.parse(localStorage.getItem(pendingKey) ?? '[]') as DiaryEntry[];
+        const pending = JSON.parse(localStorage.getItem(pendingKey) ?? '[]') as Array<
+            DiaryEntry & { publish_requested?: boolean }
+        >;
         expect(pending).toHaveLength(1);
-        expect(pending[0]).toMatchObject({ id: 'offline-publish', is_public: false });
+        expect(pending[0]).toMatchObject({ id: 'offline-publish', is_public: false, publish_requested: true });
     });
 
-    it('never renders an optimistic public flag on an unconfirmed offline draft as live', async () => {
+    it('rejects a new diary save when no durable pending-outbox write survives', async () => {
+        const userId = `persistence-failure-${serial}`;
+        setAuthIdentityScope(userId);
+        const originalSetItem = Storage.prototype.setItem;
+        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+            if (key.includes('thalassa_diary_pending_v2')) throw new Error('QuotaExceededError');
+            return originalSetItem.call(this, key, value);
+        });
+
+        await expect(
+            DiaryService.createEntry({
+                title: 'Never pretend this saved',
+                body: 'Keep the compose sheet open.',
+                mood: 'neutral',
+            }),
+        ).rejects.toThrow('durably persisted');
+
+        expect(setItem).toHaveBeenCalled();
+        expect(localStorage.getItem(keyFor('thalassa_diary_pending_v2', userId))).toBeNull();
+        setItem.mockRestore();
+    });
+
+    it('sanitizes legacy optimistic public flags until the server confirms publication', async () => {
         const userId = `legacy-pending-publisher-${serial}`;
         setAuthIdentityScope(userId);
         localStorage.setItem(
@@ -148,6 +259,186 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         });
     });
 
+    it('syncs a queued public entry with a stable client operation id across retries', async () => {
+        const userId = `durable-public-sync-${serial}`;
+        const controls: PublishControls = {
+            userId,
+            inserts: [],
+            updates: [],
+            updateResult: { data: { id: 'unused', is_public: false }, error: null },
+        };
+        mockSupabase.current = createSupabaseMock(controls);
+        relay.submitDiaryDirect
+            .mockResolvedValueOnce(null)
+            .mockImplementationOnce(async (payload: { client_operation_id: string; client_revision: number }) => ({
+                id: 'server-public',
+                user_id: userId,
+                is_public: true,
+                client_operation_id: payload.client_operation_id,
+                client_revision: payload.client_revision,
+            }));
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(userId);
+        const pendingKey = keyFor('thalassa_diary_pending_v2', userId);
+        localStorage.setItem(
+            pendingKey,
+            JSON.stringify([{ ...entry('offline-public-intent', userId), publish_requested: true }]),
+        );
+
+        await DiaryService.syncPending();
+
+        const pendingAfterFailedSync = JSON.parse(localStorage.getItem(pendingKey) ?? '[]') as Array<
+            DiaryEntry & { publish_requested?: boolean }
+        >;
+        expect(pendingAfterFailedSync).toMatchObject([
+            { id: 'offline-public-intent', is_public: false, publish_requested: true },
+        ]);
+        expect(relay.submitDiaryDirect).toHaveBeenCalledTimes(1);
+        const firstPayload = relay.submitDiaryDirect.mock.calls[0][0] as Record<string, unknown>;
+        expect(firstPayload).toMatchObject({ is_public: true, client_revision: 1 });
+        expect(firstPayload.client_operation_id).toEqual(expect.any(String));
+
+        await DiaryService.syncPending();
+
+        expect(relay.submitDiaryDirect).toHaveBeenCalledTimes(2);
+        const retryPayload = relay.submitDiaryDirect.mock.calls[1][0] as Record<string, unknown>;
+        expect(retryPayload).toMatchObject({ is_public: true, client_revision: 1 });
+        expect(retryPayload.client_operation_id).toBe(firstPayload.client_operation_id);
+        expect(JSON.parse(localStorage.getItem(pendingKey) ?? '[]')).toEqual([]);
+    });
+
+    it('keeps a newer local revision when a delayed Pi response is stale', async () => {
+        const userId = `revision-publisher-${serial}`;
+        const controls: PublishControls = {
+            userId,
+            inserts: [],
+            updates: [],
+            updateResult: { data: { id: 'unused', is_public: false }, error: null },
+        };
+        mockSupabase.current = createSupabaseMock(controls);
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(userId);
+        const pendingKey = keyFor('thalassa_diary_pending_v2', userId);
+        localStorage.setItem(
+            pendingKey,
+            JSON.stringify([
+                {
+                    ...entry('offline-revision', userId),
+                    client_operation_id: 'diary_revision_1',
+                    client_revision: 2,
+                    body: 'The corrected, newer text.',
+                },
+            ]),
+        );
+        const stale = {
+            id: 'server-revision',
+            user_id: userId,
+            client_operation_id: 'diary_revision_1',
+            client_revision: 1,
+            is_public: false,
+        };
+        relay.handoffDiaryToPi.mockResolvedValue({ accepted: true, status: 'synced', entry: stale });
+        relay.submitDiaryDirect.mockResolvedValue(stale);
+
+        await DiaryService.syncPending();
+
+        expect(JSON.parse(localStorage.getItem(pendingKey) ?? '[]')).toMatchObject([
+            { id: 'offline-revision', client_revision: 2, body: 'The corrected, newer text.' },
+        ]);
+    });
+
+    it('never lets an in-flight r1 completion erase an edit made as r2', async () => {
+        const userId = `racing-publisher-${serial}`;
+        const controls: PublishControls = {
+            userId,
+            inserts: [],
+            updates: [],
+            updateResult: { data: { id: 'unused', is_public: false }, error: null },
+        };
+        mockSupabase.current = createSupabaseMock(controls);
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(userId);
+        const pendingKey = keyFor('thalassa_diary_pending_v2', userId);
+        localStorage.setItem(
+            pendingKey,
+            JSON.stringify([
+                {
+                    ...entry('offline-race', userId),
+                    client_operation_id: 'diary_race_1',
+                    client_revision: 1,
+                },
+            ]),
+        );
+
+        let resolvePi: ((value: unknown) => void) | undefined;
+        relay.handoffDiaryToPi
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolvePi = resolve;
+                    }),
+            )
+            .mockResolvedValue(null);
+        relay.submitDiaryDirect.mockResolvedValue(null);
+
+        const syncing = DiaryService.syncPending();
+        await vi.waitFor(() => expect(relay.handoffDiaryToPi).toHaveBeenCalledTimes(1));
+        await expect(DiaryService.updateEntry('offline-race', { body: 'The r2 correction.' })).resolves.toMatchObject({
+            ok: true,
+        });
+        resolvePi?.({
+            accepted: true,
+            status: 'synced',
+            entry: {
+                id: 'server-race',
+                user_id: userId,
+                client_operation_id: 'diary_race_1',
+                client_revision: 1,
+            },
+        });
+        await syncing;
+
+        expect(JSON.parse(localStorage.getItem(pendingKey) ?? '[]')).toMatchObject([
+            { id: 'offline-race', client_operation_id: 'diary_race_1', client_revision: 2, body: 'The r2 correction.' },
+        ]);
+    });
+
+    it('rejects a canonical row for another operation instead of retiring this draft', async () => {
+        const userId = `wrong-operation-publisher-${serial}`;
+        const controls: PublishControls = {
+            userId,
+            inserts: [],
+            updates: [],
+            updateResult: { data: { id: 'unused', is_public: false }, error: null },
+        };
+        mockSupabase.current = createSupabaseMock(controls);
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(userId);
+        const pendingKey = keyFor('thalassa_diary_pending_v2', userId);
+        localStorage.setItem(
+            pendingKey,
+            JSON.stringify([
+                {
+                    ...entry('offline-wrong-operation', userId),
+                    client_operation_id: 'diary_expected_operation',
+                    client_revision: 1,
+                },
+            ]),
+        );
+        relay.submitDiaryDirect.mockResolvedValue({
+            id: 'server-wrong-operation',
+            user_id: userId,
+            client_operation_id: 'diary_some_other_operation',
+            client_revision: 1,
+        });
+
+        await DiaryService.syncPending();
+
+        expect(JSON.parse(localStorage.getItem(pendingKey) ?? '[]')).toMatchObject([
+            { id: 'offline-wrong-operation', client_operation_id: 'diary_expected_operation' },
+        ]);
+    });
+
     it('recovers an owned cache-only offline draft into the durable sync queue', async () => {
         const userId = `cache-recovery-publisher-${serial}`;
         const controls: PublishControls = {
@@ -157,6 +448,15 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
             updateResult: { data: { id: 'unused', is_public: false }, error: null },
         };
         mockSupabase.current = createSupabaseMock(controls);
+        relay.submitDiaryDirect.mockImplementation(
+            async (payload: { client_operation_id: string; client_revision: number }) => ({
+                id: 'server-1',
+                user_id: userId,
+                is_public: false,
+                client_operation_id: payload.client_operation_id,
+                client_revision: payload.client_revision,
+            }),
+        );
         Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
         setAuthIdentityScope(userId);
         localStorage.setItem(
@@ -170,9 +470,8 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         await DiaryService.getEntries();
         await DiaryService.syncPending();
 
-        expect(controls.inserts).toHaveLength(1);
-        expect(controls.inserts[0]).toMatchObject({
-            user_id: userId,
+        expect(relay.submitDiaryDirect).toHaveBeenCalledTimes(1);
+        expect(relay.submitDiaryDirect.mock.calls[0][0]).toMatchObject({
             title: 'A diary entry',
             is_public: false,
         });
@@ -180,7 +479,7 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         expect((await DiaryService.getEntries()).map((item) => item.id)).toContain('server-1');
     });
 
-    it('waits for a fresh offline entry to land, then confirms its public state remotely', async () => {
+    it('syncs a fresh public request directly instead of first landing it as private', async () => {
         const userId = `sync-publisher-${serial}`;
         const controls: PublishControls = {
             userId,
@@ -189,6 +488,15 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
             updateResult: { data: { id: 'server-1', is_public: true }, error: null },
         };
         mockSupabase.current = createSupabaseMock(controls);
+        relay.submitDiaryDirect.mockImplementation(
+            async (payload: { client_operation_id: string; client_revision: number }) => ({
+                id: 'server-1',
+                user_id: userId,
+                is_public: true,
+                client_operation_id: payload.client_operation_id,
+                client_revision: payload.client_revision,
+            }),
+        );
         Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
         setAuthIdentityScope(userId);
         localStorage.setItem(
@@ -198,10 +506,10 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
 
         await expect(DiaryService.setEntryPublished('offline-publish', true)).resolves.toBe(true);
 
-        expect(controls.inserts).toHaveLength(1);
-        expect(controls.inserts[0]).toMatchObject({ user_id: userId, is_public: false });
-        expect(controls.updates).toHaveLength(1);
-        expect(controls.updates[0]).toMatchObject({ is_public: true });
+        expect(relay.submitDiaryDirect).toHaveBeenCalledTimes(1);
+        expect(relay.submitDiaryDirect.mock.calls[0][0]).toMatchObject({ is_public: true, client_revision: 2 });
+        expect(relay.submitDiaryDirect.mock.calls[0][0]).toHaveProperty('client_operation_id');
+        expect(controls.updates).toHaveLength(0);
     });
 
     it('uses the durable offline-to-server mapping after the short-lived sync buffer has gone', async () => {

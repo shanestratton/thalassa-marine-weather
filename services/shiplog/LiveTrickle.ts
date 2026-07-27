@@ -23,6 +23,7 @@ import {
 const log = createLogger('LiveTrickle');
 
 const LIVE_TRACK_TABLE = 'live_track';
+const LIVE_TRACK_RETIREMENTS_TABLE = 'live_track_retirements';
 const MARK_KEY = 'live_trickle_mark_v2';
 const MARK_VERSION = 2;
 const TRICKLE_INTERVAL_MS = 2 * 60 * 1000;
@@ -41,6 +42,8 @@ interface TrickleSession {
     readonly scope: AuthIdentityScope;
     readonly ownerUserId: string;
     readonly voyageId: string;
+    /** Vessel captured at cast-off; live rows must not follow a later fleet switch. */
+    readonly boatId?: string;
     running: boolean;
     cancelled: boolean;
     lastAttemptMs: number;
@@ -48,6 +51,9 @@ interface TrickleSession {
     pruned: boolean;
     intervalHandle: ReturnType<typeof setInterval> | null;
 }
+
+/** Why a live tail was deliberately made permanently ineligible to publish. */
+export type LiveTrackRetirementReason = 'archived' | 'deleted' | 'discarded';
 
 let activeSession: TrickleSession | null = null;
 const markOperationTails = new Map<string, Promise<void>>();
@@ -170,31 +176,70 @@ function entryOwner(entry: Partial<ShipLogEntry>): string | null {
     return typeof owner === 'string' && owner.trim() ? owner.trim() : null;
 }
 
-async function doTick(session: TrickleSession): Promise<void> {
+function normalizedLiveVoyageId(voyageId: string): string | null {
+    const normalized = voyageId.trim();
+    // `default_voyage` is a display sentinel for old ungrouped log rows. It
+    // is never an immutable active-track id and must not become a permanent
+    // retirement fence for future ungrouped captures.
+    if (!normalized || normalized === 'default_voyage' || normalized.length > 256) return null;
+    return normalized;
+}
+
+/**
+ * Wait for the exact account's in-flight upsert before deleting its rows.
+ * This closes the otherwise subtle race where an opt-out/delete sends a
+ * DELETE, then a pre-existing upsert completes afterwards and resurrects the
+ * public tail.
+ */
+async function settleLiveTrickleTick(
+    scope: AuthIdentityScope,
+    voyageId?: string,
+    disarmMatchingVoyage = false,
+): Promise<void> {
+    const session = activeSession;
+    if (!session || !sameScope(session.scope, scope) || (voyageId && session.voyageId !== voyageId)) return;
+
+    if (disarmMatchingVoyage) cancelSession(session);
     try {
-        if (!supabase || !sessionIsCurrent(session) || !(await isEnabled(session))) return;
-        if (!sessionIsCurrent(session)) return;
+        await session.tickPromise;
+    } catch {
+        // The caller still needs to issue the delete/retirement fence. A
+        // failed trickle is not a reason to leave the stale tail public.
+    }
+}
+
+/**
+ * Return true only when this tick found a real eligible point or encountered
+ * a delivery failure. An empty start pulse must not consume the two-minute
+ * send window: the Voyage Start marker is intentionally not trackworthy, and
+ * the first vetted GPS point should be able to publish straight afterwards.
+ */
+async function doTick(session: TrickleSession): Promise<boolean> {
+    try {
+        if (!supabase || !sessionIsCurrent(session) || !(await isEnabled(session))) return false;
+        if (!sessionIsCurrent(session)) return false;
 
         const user = await getCurrentUser();
-        if (!sessionIsCurrent(session) || !user || user.id !== session.ownerUserId) return;
+        if (!sessionIsCurrent(session) || !user || user.id !== session.ownerUserId) return false;
 
         const [{ useSettingsStore: store }, { mayPublish }] = await Promise.all([
             import('../../stores/settingsStore'),
             import('../skipperDevice'),
         ]);
-        if (!sessionIsCurrent(session)) return;
+        if (!sessionIsCurrent(session)) return false;
         const claim = store.getState().settings.skipperDevice ?? null;
-        if (!mayPublish(claim)) return;
+        if (!mayPublish(claim)) return false;
 
         const mark = await readMark(session);
-        if (!sessionIsCurrent(session)) return;
+        if (!sessionIsCurrent(session)) return false;
         const queue = await getOfflineEntries();
-        if (!sessionIsCurrent(session)) return;
+        if (!sessionIsCurrent(session)) return false;
         const fresh = queue
             .filter(
                 (entry) =>
                     entryOwner(entry) === session.ownerUserId &&
                     entry.voyageId === session.voyageId &&
+                    (!session.boatId || entry.boatId === session.boatId) &&
                     typeof entry.timestamp === 'string' &&
                     entry.timestamp > mark &&
                     typeof entry.latitude === 'number' &&
@@ -202,7 +247,7 @@ async function doTick(session: TrickleSession): Promise<void> {
                     isTrackworthyEntry(entry),
             )
             .sort((left, right) => (left.timestamp < right.timestamp ? -1 : 1));
-        if (fresh.length === 0) return;
+        if (fresh.length === 0) return false;
 
         const decimated = decimate(fresh);
         const chunk = decimated.slice(0, MAX_BATCH);
@@ -210,33 +255,38 @@ async function doTick(session: TrickleSession): Promise<void> {
         const batch = chunk[chunk.length - 1] === newest ? chunk : [...chunk, newest];
         const rows = batch.map((entry) => ({
             user_id: session.ownerUserId,
+            boat_id: session.boatId ?? entry.boatId ?? null,
             voyage_id: session.voyageId,
             timestamp: entry.timestamp,
             latitude: entry.latitude,
             longitude: entry.longitude,
             speed_kts: entry.speedKts ?? null,
             course_deg: entry.courseDeg ?? null,
+            // Preserve capture-time water verification so public consumers
+            // can distinguish a vetted water fix from a land/uncertain fix
+            // without re-running geospatial checks in the Edge function.
+            is_on_water: entry.isOnWater ?? null,
             source: 'device',
         }));
 
-        if (!sessionIsCurrent(session)) return;
+        if (!sessionIsCurrent(session)) return false;
         const { error } = await supabase
             .from(LIVE_TRACK_TABLE)
             .upsert(rows, { onConflict: 'user_id,timestamp', ignoreDuplicates: true });
-        if (!sessionIsCurrent(session)) return;
+        if (!sessionIsCurrent(session)) return false;
         if (error) {
             log.info('trickle upsert failed (will retry):', error.message);
-            return;
+            return true;
         }
         await writeMark(session, chunk[chunk.length - 1].timestamp as string);
-        if (!sessionIsCurrent(session)) return;
+        if (!sessionIsCurrent(session)) return false;
         log.info(`trickled ${rows.length} live point(s)`);
 
         if (!session.pruned) {
             session.pruned = true;
             const cutoff = new Date(Date.now() - PRUNE_AFTER_MS).toISOString();
             try {
-                if (!sessionIsCurrent(session)) return;
+                if (!sessionIsCurrent(session)) return false;
                 await supabase
                     .from(LIVE_TRACK_TABLE)
                     .delete()
@@ -247,16 +297,24 @@ async function doTick(session: TrickleSession): Promise<void> {
                 log.info('live_track prune failed (retries next tick):', error);
             }
         }
+        return true;
     } catch (error) {
         log.warn('trickle tick failed:', error);
+        // A failed network/storage attempt deserves normal throttling; only
+        // the benign no-point case should immediately retry on the next fix.
+        return true;
     }
 }
 
 function tick(session: TrickleSession): Promise<void> {
     if (session.tickPromise) return session.tickPromise;
-    const promise = doTick(session).finally(() => {
-        if (session.tickPromise === promise) session.tickPromise = null;
-    });
+    const promise = doTick(session)
+        .then((attemptedDelivery) => {
+            if (attemptedDelivery && sessionIsCurrent(session)) session.lastAttemptMs = Date.now();
+        })
+        .finally(() => {
+            if (session.tickPromise === promise) session.tickPromise = null;
+        });
     session.tickPromise = promise;
     return promise;
 }
@@ -269,7 +327,6 @@ export function noteLiveTrickleHeartbeat(expectedScope: AuthIdentityScope = getA
     }
     const now = Date.now();
     if (now - session.lastAttemptMs < TRICKLE_INTERVAL_MS) return;
-    session.lastAttemptMs = now;
     void tick(session);
 }
 
@@ -277,6 +334,7 @@ export function noteLiveTrickleHeartbeat(expectedScope: AuthIdentityScope = getA
 export function startLiveTrickle(
     activeVoyageId: string | null,
     scope: AuthIdentityScope = getAuthIdentityScope(),
+    boatId?: string,
 ): void {
     const ownerUserId = scope.userId;
     if (!activeVoyageId || !ownerUserId || !isAuthIdentityScopeCurrent(scope)) return;
@@ -289,6 +347,7 @@ export function startLiveTrickle(
         scope,
         ownerUserId,
         voyageId: activeVoyageId,
+        boatId,
         running: true,
         cancelled: false,
         lastAttemptMs: 0,
@@ -298,6 +357,11 @@ export function startLiveTrickle(
     };
     session.intervalHandle = setInterval(() => noteLiveTrickleHeartbeat(session.scope), TRICKLE_INTERVAL_MS);
     activeSession = session;
+    // Publish an already-buffered first point immediately after (re)arming.
+    // If there is only the non-trackworthy Voyage Start marker, doTick leaves
+    // the throttle open so the first vetted GPS point can trigger its own
+    // immediate heartbeat below.
+    noteLiveTrickleHeartbeat(scope);
     log.info('live trickle armed');
 }
 
@@ -333,6 +397,12 @@ export async function stopLiveTrickle(
 export async function purgeLiveTrack(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<boolean> {
     if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
     try {
+        // Do not disarm here: this is the settings opt-out path, and the
+        // existing session should naturally resume if the skipper re-enables
+        // sharing during the same recording. Waiting is enough because the
+        // setting has already changed before this helper is called.
+        await settleLiveTrickleTick(scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
         const user = await getCurrentUser();
         if (!isAuthIdentityScopeCurrent(scope) || !user || user.id !== scope.userId) return false;
         const { error } = await supabase.from(LIVE_TRACK_TABLE).delete().eq('user_id', scope.userId);
@@ -348,6 +418,70 @@ export async function purgeLiveTrack(scope: AuthIdentityScope = getAuthIdentityS
     }
 }
 
+/**
+ * Retire one immutable voyage's public live tail.
+ *
+ * The short-lived live_track rows are deleted immediately, while the durable
+ * retirement row prevents a delayed/retried client upsert from recreating
+ * them. The latter is especially important for a voyage discarded before its
+ * local-first ship_log points ever reach Supabase.
+ */
+export async function retireLiveTrackVoyage(
+    voyageId: string,
+    reason: LiveTrackRetirementReason,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<boolean> {
+    const normalizedVoyageId = normalizedLiveVoyageId(voyageId);
+    if (!supabase || !normalizedVoyageId || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
+
+    // A retirement is terminal for this voyage. If it happens to be the live
+    // session currently armed on this device, stop that session first so its
+    // final flush cannot race the deletion below.
+    await settleLiveTrickleTick(scope, normalizedVoyageId, true);
+    if (!isAuthIdentityScopeCurrent(scope)) return false;
+
+    try {
+        const user = await getCurrentUser();
+        if (!isAuthIdentityScopeCurrent(scope) || !user || user.id !== scope.userId) return false;
+
+        // Establish the server-side no-revival fence first. If an older app
+        // has an in-flight upsert, the migration's BEFORE INSERT trigger
+        // silently suppresses it once this row exists.
+        const { error: retirementError } = await supabase.from(LIVE_TRACK_RETIREMENTS_TABLE).upsert(
+            {
+                user_id: scope.userId,
+                voyage_id: normalizedVoyageId,
+                reason,
+                retired_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,voyage_id' },
+        );
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        if (retirementError) {
+            // Still attempt the direct removal below. This keeps a migration
+            // rollout hiccup from turning a user action into a seven-day
+            // public-tail leak; the offline deletion ledger retries the fence.
+            log.warn('live_track retirement fence failed:', retirementError.message);
+        }
+
+        const { error: purgeError } = await supabase
+            .from(LIVE_TRACK_TABLE)
+            .delete()
+            .eq('user_id', scope.userId)
+            .eq('voyage_id', normalizedVoyageId);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        if (purgeError) {
+            log.warn('live_track voyage purge failed:', purgeError.message);
+            return false;
+        }
+        if (!retirementError) log.info(`live_track retired for voyage ${normalizedVoyageId}`);
+        return retirementError === null;
+    } catch (error) {
+        log.warn('live_track voyage retirement failed:', error);
+        return false;
+    }
+}
+
 /** Forward-only consent mark, namespaced to the exact account generation. */
 export async function markLiveTrickleFreshStart(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<void> {
     if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
@@ -355,6 +489,7 @@ export async function markLiveTrickleFreshStart(scope: AuthIdentityScope = getAu
         scope,
         ownerUserId: scope.userId,
         voyageId: '',
+        boatId: undefined,
         running: false,
         cancelled: false,
         lastAttemptMs: 0,

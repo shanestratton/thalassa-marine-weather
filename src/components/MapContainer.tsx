@@ -41,6 +41,10 @@ interface MapContainerProps {
      *  mood-coloured glow so viewers can spot where the story happened.
      *  No camera move (the whole track is already framed). */
     selectedEntryId?: string;
+    /** Changes only when the public voyage selector resolves to a different
+     *  trip. The map refits once for that selection, never on ordinary live
+     *  polling updates. */
+    focusKey?: string;
     /** Bump when the layout around the map changes size (diary fold /
      *  unfold): triggers an explicit map.resize() so the canvas fills
      *  the new box even where the container ResizeObserver misses the
@@ -126,6 +130,7 @@ export default function MapContainer({
     nearbyVessels,
     onEntryClick,
     selectedEntryId,
+    focusKey,
     resizeSignal,
 }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
@@ -239,6 +244,14 @@ export default function MapContainer({
         [trackCoords, passageLine, pinnedEntries],
     );
 
+    // The track's end, or — with no track — wherever the boat was last seen.
+    // Kept above the selector-focus effect so the latest rendered fallback is
+    // available through a ref without making that effect refire on every poll.
+    const telemetryFix: [number, number] | undefined =
+        telemetry && Number.isFinite(telemetry.lat) && Number.isFinite(telemetry.lon)
+            ? [telemetry.lon, telemetry.lat]
+            : undefined;
+
     // One LineString feature per voyage segment.
     const trackGeojson = useMemo<FeatureCollection<LineString>>(
         () => ({
@@ -293,14 +306,70 @@ export default function MapContainer({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // `initialViewState` only applies at mount. A historical trip selector
+    // needs one intentional refocus after its data arrives, but re-fitting on
+    // every background refresh would fight a viewer who is exploring the map.
+    // Store the ever-changing geometry in a ref and key the effect solely to
+    // the resolved trip id supplied by the dashboard.
+    const focusTargetRef = useRef({ allCoords, telemetryFix });
+    focusTargetRef.current = { allCoords, telemetryFix };
+    const lastFocusKey = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (!MAPBOX_TOKEN || focusKey === undefined || lastFocusKey.current === focusKey) return;
+
+        let cancelled = false;
+        let retriedForMapRef = false;
+        let retryTimer: ReturnType<typeof setTimeout> | undefined;
+        const applyFocus = (): void => {
+            if (cancelled) return;
+            const map = mapRef.current;
+            if (!map) {
+                // A selector can resolve on the same commit as map creation.
+                // One short retry is enough to let react-map-gl attach its ref.
+                if (!retriedForMapRef) {
+                    retriedForMapRef = true;
+                    retryTimer = setTimeout(applyFocus, 80);
+                }
+                return;
+            }
+            lastFocusKey.current = focusKey;
+            const { allCoords: coords, telemetryFix: fallback } = focusTargetRef.current;
+            if (coords.length === 1) {
+                map.flyTo({ center: coords[0], zoom: 10, duration: 700, essential: true });
+                return;
+            }
+            if (coords.length > 1) {
+                let minLon = Infinity;
+                let minLat = Infinity;
+                let maxLon = -Infinity;
+                let maxLat = -Infinity;
+                for (const [lon, lat] of coords) {
+                    minLon = Math.min(minLon, lon);
+                    minLat = Math.min(minLat, lat);
+                    maxLon = Math.max(maxLon, lon);
+                    maxLat = Math.max(maxLat, lat);
+                }
+                const bounds: [[number, number], [number, number]] = [
+                    [minLon, minLat],
+                    [maxLon, maxLat],
+                ];
+                map.fitBounds(bounds, { padding: 72, duration: 700, maxZoom: 12, essential: true });
+                return;
+            }
+            if (fallback) map.flyTo({ center: fallback, zoom: 12, duration: 700, essential: true });
+        };
+
+        const frame = requestAnimationFrame(applyFocus);
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(frame);
+            if (retryTimer !== undefined) clearTimeout(retryTimer);
+        };
+    }, [focusKey]);
+
     // Selecting an entry deliberately does NOT move the camera — the whole
     // track is already framed, and viewers want to keep the overview.
 
-    // The track's end, or — with no track — wherever the boat was last seen.
-    const telemetryFix: [number, number] | undefined =
-        telemetry && Number.isFinite(telemetry.lat) && Number.isFinite(telemetry.lon)
-            ? [telemetry.lon, telemetry.lat]
-            : undefined;
     const lastFix = trackCoords[trackCoords.length - 1] ?? telemetryFix;
     // Only label the marker when the position is the fallback: a live boat needs
     // no caption, a month-old berth fix very much does.
