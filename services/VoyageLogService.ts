@@ -16,6 +16,7 @@ import {
     type AuthIdentityScope,
 } from './authIdentityScope';
 import { createOwnedVesselProfile, defaultVesselProfile, loadOwnedVesselFleet } from './VesselFleetService';
+import type { VesselProfile } from '../types/vessel';
 
 const log = createLogger('VoyageLog');
 const ENABLE_PENDING_KEY = 'thalassa_voyage_log_enable_pending_v1';
@@ -362,12 +363,13 @@ class VoyageLogServiceClass {
         const name = (vesselRow?.vessel_name ?? '').trim() || 'My Boat';
 
         try {
-            const profile = {
+            const vesselType: VesselProfile['type'] =
+                vesselRow?.vessel_type === 'power' || vesselRow?.vessel_type === 'observer'
+                    ? vesselRow.vessel_type
+                    : 'sail';
+            const profile: VesselProfile = {
                 ...defaultVesselProfile(name),
-                type:
-                    vesselRow?.vessel_type === 'power' || vesselRow?.vessel_type === 'observer'
-                        ? vesselRow.vessel_type
-                        : 'sail',
+                type: vesselType,
                 ...(vesselRow?.model ? { model: vesselRow.model } : {}),
             };
             const createdBoat = await createOwnedVesselProfile(profile, {}, operation.scope);

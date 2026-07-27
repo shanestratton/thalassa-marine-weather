@@ -1265,7 +1265,10 @@ class DiaryServiceClass {
             longitude: entry.longitude,
             location_name: entry.location_name,
             weather_summary: entry.weather_summary,
-            weather_data: entry.weather_data ?? null,
+            // DiaryWeatherData is deliberately a narrow application type;
+            // the relay transports a JSON record. Spreading produces the
+            // serialisable wire shape without weakening either contract.
+            weather_data: entry.weather_data ? { ...entry.weather_data } : null,
             voyage_id: entry.voyage_id,
             boat_id: entry.boat_id ?? null,
             tags: entry.tags,

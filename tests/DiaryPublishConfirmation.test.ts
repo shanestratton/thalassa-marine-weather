@@ -223,7 +223,7 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         const userId = `persistence-failure-${serial}`;
         setAuthIdentityScope(userId);
         const originalSetItem = Storage.prototype.setItem;
-        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+        const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
             if (key.includes('thalassa_diary_pending_v2')) throw new Error('QuotaExceededError');
             return originalSetItem.call(this, key, value);
         });
