@@ -119,6 +119,16 @@ vi.mock('../services/shiplog/RoutesAndTracks', () => ({
 
 vi.mock('../utils/system', () => ({
     triggerHaptic: vi.fn(),
+    getSystemUnits: () => ({
+        speed: 'kts',
+        length: 'm',
+        waveHeight: 'm',
+        tideHeight: 'm',
+        temp: 'C',
+        distance: 'nm',
+        visibility: 'nm',
+        volume: 'l',
+    }),
 }));
 
 vi.mock('../utils/lazyRetry', () => ({

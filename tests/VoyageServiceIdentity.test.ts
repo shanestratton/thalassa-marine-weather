@@ -357,6 +357,24 @@ describe('VoyageService exact identity and account isolation', () => {
         );
     });
 
+    it('persists the caller-captured fleet boat id on a new passage', async () => {
+        const owned = { ...voyage('account-a', 'voyage-a', 'planning'), boat_id: 'boat-a' };
+        const createQuery = queryFor({ data: owned, error: null });
+        harness.from.mockReturnValue(createQuery);
+
+        await expect(
+            createVoyage({
+                voyage_name: 'Brisbane to Noumea',
+                departure_port: 'Brisbane',
+                destination_port: 'Noumea',
+                crew_count: 4,
+                boat_id: 'boat-a',
+            }),
+        ).resolves.toMatchObject({ voyage: expect.objectContaining({ id: 'voyage-a', boat_id: 'boat-a' }) });
+
+        expect(createQuery.insert).toHaveBeenCalledWith(expect.objectContaining({ boat_id: 'boat-a' }));
+    });
+
     it('drops an owner-list result that resolves after the identity generation changes', async () => {
         const listResult = deferred<{ data: Voyage[]; error: null }>();
         const listQuery = queryFor(listResult.promise);

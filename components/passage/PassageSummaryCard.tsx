@@ -10,15 +10,25 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { usePassageStore, type PassageLeg } from '../../stores/PassageStore';
+import { usePassageStore, type PassageLeg, type PassageTurnWaypoint } from '../../stores/PassageStore';
 import { PassageRouteMap } from './PassageRouteMap';
 import SharePassageButton from './SharePassageButton';
 import type { PassageBriefData } from '../../services/PassageBriefService';
 import { useSettings } from '../../context/SettingsContext';
 import type { ShipLogEntry } from '../../types';
 import { TrackMapViewer } from '../TrackMapViewer';
-import { useReadinessIdentityScope, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
+import { useReadinessIdentityScope } from '../../hooks/useReadinessSync';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { formatPlannedRouteLabel } from '../../services/shiplog/plannedRouteNaming';
+import {
+    departureAtLocalTime,
+    derivePassageSummarySchedule,
+    formatPassageDuration,
+    greatCircleDistanceNm,
+    localDepartureTimeMin,
+    localTimeValue,
+} from '../../services/passageSummarySchedule';
+import { fetchRouteMaxConditions, type RouteMaxConditions } from '../../services/routeReportWeather';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -35,11 +45,8 @@ interface PassageSummaryCardProps {
     departPort?: string;
     destPort?: string;
     departureTime?: string | null;
-    eta?: string | null;
     /** From route planner if available */
     distanceNm?: number;
-    maxWindKt?: number;
-    maxWaveM?: number;
     departLat?: number;
     departLon?: number;
     arriveLat?: number;
@@ -48,10 +55,9 @@ interface PassageSummaryCardProps {
     routeCoordinates?: Array<{ lat: number; lon: number }>;
     /** The planned-route logbook voyage that supplied routeCoordinates. */
     plannedRouteId?: string;
-    onDepartureTimeChange?: (time: string) => void;
+    /** Called with the full, now-safe ISO departure and its derived ETA. */
+    onDepartureTimeChange?: (departureTime: string, eta: string | null) => void;
 }
-
-const STORAGE_KEY = 'thalassa_passage_departure_time';
 
 /**
  * Module-scope stable empty-array reference. Used as the
@@ -89,18 +95,6 @@ const formatCoord = (lat: number, lon: number): string => {
     const lonDeg = Math.abs(lon);
     const lonMin = (lonDeg % 1) * 60;
     return `${Math.floor(latDeg)}°${latMin.toFixed(1)}'${latDir} ${Math.floor(lonDeg)}°${lonMin.toFixed(1)}'${lonDir}`;
-};
-
-const formatDuration = (departureTime: string, eta: string): string => {
-    const dept = new Date(departureTime);
-    const arr = new Date(eta);
-    const diffMs = arr.getTime() - dept.getTime();
-    if (diffMs <= 0) return '--';
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const days = Math.floor(hours / 24);
-    const remainingHours = hours % 24;
-    if (days > 0) return `${days}d ${remainingHours}h`;
-    return `${hours}h`;
 };
 
 const formatHours = (h: number): string => {
@@ -234,10 +228,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     departPort,
     destPort,
     departureTime,
-    eta,
     distanceNm,
-    maxWindKt,
-    maxWaveM,
     departLat,
     departLon,
     arriveLat,
@@ -248,31 +239,65 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
 }) => {
     const identityScope = useReadinessIdentityScope();
     const passage = usePassageStore();
+    // Trace compatibility rows expose their title as generated `start` / `end`
+    // endpoints. Keep those raw values for the map and route lookup, but never
+    // make a skipper read them as the passage title.
+    const displayRouteName = departPort || destPort ? formatPlannedRouteLabel(departPort, destPort) : '-- → --';
     // settings.vessel.cruisingSpeed feeds the duration estimate when
     // there's no ETA on file. SettingsContext is reactive — change the
     // boat's cruising speed in Settings → Vessel Profile and this card
     // re-derives the displayed duration on the next render.
     const { settings } = useSettings();
 
-    const [localTime, setLocalTime] = useScopedReadinessStorageState<string>(STORAGE_KEY, voyageId, '');
+    // A full ISO override keeps the native time picker, ETA, weather samples,
+    // and persisted voyage in the same timezone-safe representation. The old
+    // HH:mm localStorage mirror lost the date and could never persist an ETA.
+    const [localDepartureOverride, setLocalDepartureOverride] = useState<string | null>(null);
+    const [clockMs, setClockMs] = useState(() => Date.now());
+    const conditionsRequestRef = useRef(0);
+    const [routeConditions, setRouteConditions] = useState<{
+        loading: boolean;
+        value: RouteMaxConditions | null;
+    } | null>(null);
 
-    // Listen for cross-component departure-time updates — fired by
-    // WeatherWindowCard when the user accepts a recommended departure
-    // window. Without this, the time we show stays stale until the
-    // user reloads the page or unmounts/remounts the card. Keeps the
-    // account/voyage-scoped local mirror + state both fresh.
+    // Update the lower bound while the screen remains open. A time that was
+    // valid at 09:15 must not quietly remain selectable at 09:30.
+    useEffect(() => {
+        const refreshClock = () => setClockMs(Date.now());
+        refreshClock();
+        const interval = window.setInterval(refreshClock, 30_000);
+        return () => window.clearInterval(interval);
+    }, []);
+
+    // Listen for a Weather Window acceptance / form edit from elsewhere.
+    // The detail includes the full ISO so we retain both local date and time.
     useEffect(() => {
         const operationScope = identityScope;
         const handler = (e: Event) => {
-            const detail = (e as CustomEvent).detail as { voyageId?: string; hhmm?: string } | undefined;
-            const hhmm = detail?.hhmm;
-            if (isAuthIdentityScopeCurrent(operationScope) && detail?.voyageId === voyageId && hhmm) {
-                setLocalTime(hhmm);
+            const detail = (e as CustomEvent).detail as { voyageId?: string; iso?: string } | undefined;
+            if (isAuthIdentityScopeCurrent(operationScope) && detail?.voyageId === voyageId && detail?.iso) {
+                setLocalDepartureOverride(detail.iso);
             }
         };
         window.addEventListener('thalassa:departure-time-updated', handler);
         return () => window.removeEventListener('thalassa:departure-time-updated', handler);
-    }, [identityScope, voyageId, setLocalTime]);
+    }, [identityScope, voyageId]);
+
+    useEffect(() => {
+        // A different selected voyage must never inherit the previous card's
+        // uncommitted picker edit.
+        setLocalDepartureOverride(null);
+        setRouteConditions(null);
+        conditionsRequestRef.current += 1;
+    }, [voyageId]);
+
+    useEffect(() => {
+        // Once the parent has round-tripped a persisted value, use it as the
+        // next canonical base rather than preserving a local stale override.
+        if (localDepartureOverride && departureTime === localDepartureOverride) {
+            setLocalDepartureOverride(null);
+        }
+    }, [departureTime, localDepartureOverride]);
 
     const [showLegs, setShowLegs] = useState(false);
 
@@ -451,66 +476,32 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         };
     }, [identityScope, showTrackViewer, voyageId]);
 
-    const effectiveTime = localTime || (departureTime ? departureTime.split('T')[1]?.slice(0, 5) : '');
+    // The active VoyageRow supplies canonical geometry. Do not invent
+    // endpoint coordinates from PassageStore: it is a shared chart-session
+    // cache and cannot prove it belongs to this saved passage.
+    const suppliedRouteEndpoints = useMemo(() => {
+        const valid = (routeCoordinates ?? []).filter((point) => isValidLatLon(point.lat, point.lon));
+        return valid.length >= 2 ? { departure: valid[0], arrival: valid[valid.length - 1] } : null;
+    }, [routeCoordinates]);
+    const propDeparture = isValidLatLon(departLat, departLon) ? { lat: departLat, lon: departLon } : null;
+    const propArrival = isValidLatLon(arriveLat, arriveLon) ? { lat: arriveLat, lon: arriveLon } : null;
+    const effectiveDepartLat = propDeparture?.lat ?? suppliedRouteEndpoints?.departure.lat ?? null;
+    const effectiveDepartLon = propDeparture?.lon ?? suppliedRouteEndpoints?.departure.lon ?? null;
+    const effectiveArriveLat = propArrival?.lat ?? suppliedRouteEndpoints?.arrival.lat ?? null;
+    const effectiveArriveLon = propArrival?.lon ?? suppliedRouteEndpoints?.arrival.lon ?? null;
 
-    const handleTimeChange = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            const val = e.target.value;
-            setLocalTime(val);
-            onDepartureTimeChange?.(val);
-            triggerHaptic('light');
-        },
-        [onDepartureTimeChange, setLocalTime],
+    const greatCircleNM = useMemo(
+        () =>
+            greatCircleDistanceNm(
+                effectiveDepartLat != null && effectiveDepartLon != null
+                    ? { lat: effectiveDepartLat, lon: effectiveDepartLon }
+                    : null,
+                effectiveArriveLat != null && effectiveArriveLon != null
+                    ? { lat: effectiveArriveLat, lon: effectiveArriveLon }
+                    : null,
+            ),
+        [effectiveDepartLat, effectiveDepartLon, effectiveArriveLat, effectiveArriveLon],
     );
-
-    // ── Merge strategy (2026-05-05): props (voyage) win over PassageStore ──
-    //
-    // PassageStore is a global localStorage-backed singleton populated
-    // by the inline-map passage planner. When the user calculates a
-    // route via the form-based RoutePlanner, PassageStore is NOT
-    // refreshed — but its previous-session data persists in
-    // localStorage. So a fresh voyage with valid coords gets shown on
-    // top of stale PassageStore data with bogus distance / coords / eta
-    // (the source of "74d 11h" durations and globe-view maps with
-    // (0,0) markers).
-    //
-    // Fix: prefer the voyage props (which are always derived from the
-    // CURRENT active voyage's actual logbook entries) over PassageStore
-    // data. Only fall back to PassageStore when the prop is missing.
-    // Also reject PassageStore values that look like (0,0) or
-    // unreasonably-large distances.
-    const effectiveDepartLat =
-        departLat ?? (isValidLatLon(passage.departLat, passage.departLon) ? passage.departLat : null);
-    const effectiveDepartLon =
-        departLon ?? (isValidLatLon(passage.departLat, passage.departLon) ? passage.departLon : null);
-    const effectiveArriveLat =
-        arriveLat ?? (isValidLatLon(passage.arriveLat, passage.arriveLon) ? passage.arriveLat : null);
-    const effectiveArriveLon =
-        arriveLon ?? (isValidLatLon(passage.arriveLat, passage.arriveLon) ? passage.arriveLon : null);
-
-    // Distance: compute the true great-circle from coords first, then
-    // sanity-check the stored value against it. If the stored value
-    // is missing OR more than 2× the great-circle (i.e. obviously
-    // junk from a previous broken save), fall back to the great-
-    // circle. Earlier check used a flat 12000 NM ceiling but
-    // 8584 NM stale-data slipped under that — comparing relative to
-    // the actual great-circle catches all magnitudes of staleness.
-    const greatCircleNM = useMemo(() => {
-        if (
-            effectiveDepartLat == null ||
-            effectiveDepartLon == null ||
-            effectiveArriveLat == null ||
-            effectiveArriveLon == null
-        )
-            return null;
-        const R = 3440.065;
-        const φ1 = (effectiveDepartLat * Math.PI) / 180;
-        const φ2 = (effectiveArriveLat * Math.PI) / 180;
-        const dφ = ((effectiveArriveLat - effectiveDepartLat) * Math.PI) / 180;
-        const dλ = ((effectiveArriveLon - effectiveDepartLon) * Math.PI) / 180;
-        const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }, [effectiveDepartLat, effectiveDepartLon, effectiveArriveLat, effectiveArriveLon]);
 
     // PassageStore can carry stale data from a *different* voyage's
     // planning session — same localStorage key, different
@@ -541,29 +532,6 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             { lat: passage.arriveLat, lon: passage.arriveLon },
             { lat: effectiveArriveLat, lon: effectiveArriveLon },
         );
-
-    let effectiveDistance = distanceNm ?? (passageMatchesVoyage ? passage.totalDistanceNM : undefined);
-    if (
-        greatCircleNM != null &&
-        (effectiveDistance == null ||
-            effectiveDistance <= 0 ||
-            // Stored value > 2× great-circle = stale junk. Real
-            // routes are usually 1.0-1.3× great-circle (small
-            // detours for waypoints + weather routing).
-            effectiveDistance > greatCircleNM * 2 ||
-            // Stored value < 0.7× great-circle is also suspicious.
-            // No real route is shorter than the straight line — if
-            // the stored value is well below it, we're reading data
-            // from a different (shorter) voyage's session that the
-            // coord-match check above should have caught but didn't
-            // (e.g. landed in a near-miss tolerance zone, or coords
-            // arrived after the distance was cached). Fall back to
-            // the great-circle so the card never reports a distance
-            // smaller than physically possible for the route.
-            effectiveDistance < greatCircleNM * 0.7)
-    ) {
-        effectiveDistance = greatCircleNM;
-    }
 
     // ── Map prop memoisation ──
     // PassageRouteMap's useEffect re-creates the entire Mapbox map
@@ -623,58 +591,113 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         return savedVoyageRouteCoords.length === 0 && passageMatchesVoyage ? passage.turnWaypoints : EMPTY_WAYPOINTS;
     }, [savedVoyageRouteCoords, passageMatchesVoyage, passage.turnWaypoints]);
 
-    const effectiveMaxWind = maxWindKt ?? (passage.hasRoute ? passage.maxWindKt : undefined);
-    const effectiveMaxWave = maxWaveM ?? (passage.hasRoute ? passage.maxWaveM : undefined);
-    const effectiveEta = eta ?? (passage.hasRoute ? passage.arrivalTime : undefined);
+    const savedRoutePoints = useMemo(
+        () => savedVoyageRouteCoords.map(([lon, lat]) => ({ lat, lon })),
+        [savedVoyageRouteCoords],
+    );
+    const fallbackDistanceNm = distanceNm ?? greatCircleNM;
+    const buildSchedule = useCallback(
+        (candidateDeparture: string | null | undefined, now: Date) =>
+            derivePassageSummarySchedule({
+                routeCoordinates: savedRoutePoints,
+                fallbackDistanceNm,
+                departureTime: candidateDeparture,
+                cruisingSpeedKt: settings.vessel?.cruisingSpeed,
+                now,
+            }),
+        [fallbackDistanceNm, savedRoutePoints, settings.vessel?.cruisingSpeed],
+    );
+    const now = useMemo(() => new Date(clockMs), [clockMs]);
+    const passageSchedule = useMemo(
+        () => buildSchedule(localDepartureOverride ?? departureTime, now),
+        [buildSchedule, departureTime, localDepartureOverride, now],
+    );
+    const effectiveTime = localTimeValue(passageSchedule.departureTime);
+    const effectiveTimeMin = localDepartureTimeMin(passageSchedule.departureTime, now);
+    const effectiveDistance = passageSchedule.distanceNm;
+    const effectiveEta = passageSchedule.eta;
+    const duration = formatPassageDuration(passageSchedule.durationHours);
 
-    // Duration: compute from departureTime + eta, but reject the
-    // result if it's obviously stale-data nonsense (>30 days ≈ longest
-    // realistic passage). Falls back to the great-circle estimate at
-    // 6 kn cruising speed when eta is bad/missing.
-    let duration: string | null = null;
-    if (departureTime && effectiveEta) {
-        const candidate = formatDuration(departureTime, effectiveEta);
-        const dept = new Date(departureTime).getTime();
-        const arr = new Date(effectiveEta).getTime();
-        const diffH = (arr - dept) / 3600000;
-        if (diffH > 0 && diffH < 30 * 24) {
-            duration = candidate;
+    // A pre-existing past departure must self-heal while the card is visible,
+    // rather than staying valid only until the page is reopened. Do not create
+    // a default voyage date from a blank field; only normalise one the skipper
+    // has already saved.
+    const automaticDepartureRef = useRef<string | null>(null);
+    useEffect(() => {
+        const storedDepartureMs = departureTime ? Date.parse(departureTime) : NaN;
+        if (!onDepartureTimeChange || !Number.isFinite(storedDepartureMs) || storedDepartureMs >= clockMs) {
+            automaticDepartureRef.current = null;
+            return;
         }
-    }
-    if (!duration && effectiveDistance != null && effectiveDistance > 0) {
-        // Use the vessel's configured cruising speed when computing a
-        // fallback duration. Hard-coded 6 kt was a sensible-default
-        // placeholder for monohulls but undersells fast power boats
-        // and overshoots small multihulls. Falls back to 6 kt only
-        // when no vessel is configured. Bounded to a sane range so
-        // fat-fingered settings (0.1 kt or 50 kt cruise) don't
-        // produce nonsense durations.
-        const cruisingKt =
-            settings.vessel?.cruisingSpeed && settings.vessel.cruisingSpeed > 0.5 && settings.vessel.cruisingSpeed < 30
-                ? settings.vessel.cruisingSpeed
-                : 6;
-        const hrs = effectiveDistance / cruisingKt;
-        if (hrs < 24) duration = `${Math.round(hrs)}h`;
-        else duration = `${Math.floor(hrs / 24)}d ${Math.round(hrs % 24)}h`;
-    }
+        if (automaticDepartureRef.current === passageSchedule.departureTime) return;
+        automaticDepartureRef.current = passageSchedule.departureTime;
+        setLocalDepartureOverride(passageSchedule.departureTime);
+        onDepartureTimeChange(passageSchedule.departureTime, passageSchedule.eta);
+    }, [clockMs, departureTime, onDepartureTimeChange, passageSchedule.departureTime, passageSchedule.eta]);
+
+    const handleTimeChange = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            const candidate = departureAtLocalTime(passageSchedule.departureTime, e.target.value, new Date(clockMs));
+            const nextSchedule = buildSchedule(candidate, new Date(clockMs));
+            setLocalDepartureOverride(nextSchedule.departureTime);
+            onDepartureTimeChange?.(nextSchedule.departureTime, nextSchedule.eta);
+            triggerHaptic('light');
+        },
+        [buildSchedule, clockMs, onDepartureTimeChange, passageSchedule.departureTime],
+    );
+
+    // Conditions intentionally come from an ETA-aware sampling of this exact
+    // saved curve. Old global PassageStore weather can describe a different
+    // chart route, so it is never used as a fallback here.
+    useEffect(() => {
+        const request = ++conditionsRequestRef.current;
+        let disposed = false;
+        if (savedRoutePoints.length < 2 || !effectiveEta) {
+            setRouteConditions({ loading: false, value: null });
+            return () => {
+                disposed = true;
+            };
+        }
+        setRouteConditions({ loading: true, value: null });
+        void fetchRouteMaxConditions(
+            savedRoutePoints,
+            Date.parse(passageSchedule.departureTime),
+            passageSchedule.cruisingSpeedKt,
+        )
+            .then((value) => {
+                if (disposed || conditionsRequestRef.current !== request) return;
+                setRouteConditions({ loading: false, value });
+            })
+            .catch(() => {
+                if (disposed || conditionsRequestRef.current !== request) return;
+                setRouteConditions({ loading: false, value: null });
+            });
+        return () => {
+            disposed = true;
+        };
+    }, [effectiveEta, passageSchedule.cruisingSpeedKt, passageSchedule.departureTime, savedRoutePoints]);
+
+    const effectiveMaxWind = routeConditions?.value?.maxWindKts ?? null;
+    const effectiveMaxWave = routeConditions?.value?.maxWaveM ?? null;
 
     // Build brief data for sharing
+    const shareTurnWaypoints: PassageTurnWaypoint[] = passageMatchesVoyage ? passage.turnWaypoints : [];
     const briefData: PassageBriefData | null =
-        passage.hasRoute &&
+        effectiveDistance != null &&
         effectiveDepartLat != null &&
         effectiveDepartLon != null &&
         effectiveArriveLat != null &&
         effectiveArriveLon != null
             ? {
-                  routeName: `${departPort || 'Departure'} → ${destPort || 'Arrival'}`,
+                  routeName: displayRouteName,
                   origin: { name: departPort || 'Departure', lat: effectiveDepartLat, lon: effectiveDepartLon },
                   destination: { name: destPort || 'Arrival', lat: effectiveArriveLat, lon: effectiveArriveLon },
-                  departureTime: departureTime || passage.departureTime || new Date().toISOString(),
-                  totalDistanceNM: passage.totalDistanceNM,
-                  estimatedDuration: passage.totalDurationHours,
-                  speed: passage.avgSpeedKts ?? 6,
-                  vesselName: passage.vesselName ?? undefined,
-                  turnWaypoints: passage.turnWaypoints.map((wp) => ({
+                  departureTime: passageSchedule.departureTime,
+                  totalDistanceNM: effectiveDistance,
+                  estimatedDuration: passageSchedule.durationHours ?? 0,
+                  speed: passageSchedule.cruisingSpeedKt,
+                  vesselName: passageMatchesVoyage ? (passage.vesselName ?? undefined) : settings.vessel?.name,
+                  turnWaypoints: shareTurnWaypoints.map((wp) => ({
                       name: wp.name,
                       lat: wp.lat,
                       lon: wp.lon,
@@ -686,7 +709,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
 
     // Difficulty summary
     const difficultySummary =
-        passage.hasRoute && passage.legs.length > 0
+        passageMatchesVoyage && passage.legs.length > 0
             ? (() => {
                   const counts = { easy: 0, moderate: 0, tough: 0, challenging: 0 };
                   passage.legs.forEach((l) => counts[l.difficulty]++);
@@ -700,12 +723,10 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-sky-500/[0.06] to-indigo-500/[0.03] border border-sky-500/15">
                 <div className="text-2xl">&#x1F9ED;</div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate">
-                        {departPort || '--'} → {destPort || '--'}
-                    </p>
-                    {departureTime && (
+                    <p className="text-sm font-bold text-white truncate">{displayRouteName}</p>
+                    {passageSchedule.departureTime && (
                         <p className="text-[11px] text-sky-400/70 mt-0.5">
-                            {new Date(departureTime).toLocaleDateString('en-AU', {
+                            {new Date(passageSchedule.departureTime).toLocaleDateString('en-AU', {
                                 weekday: 'short',
                                 day: 'numeric',
                                 month: 'short',
@@ -774,7 +795,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         <input
                             type="time"
                             value={effectiveTime}
+                            min={effectiveTimeMin}
                             onChange={handleTimeChange}
+                            aria-label="Departure Time"
                             className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all max-w-full"
                             style={{ colorScheme: 'dark', boxSizing: 'border-box' }}
                         />
@@ -786,7 +809,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1.5 flex items-center gap-1">
                         Duration
                     </div>
-                    <div className="text-lg font-bold text-white font-mono text-center py-2">{duration || '--'}</div>
+                    <div className="text-lg font-bold text-white font-mono text-center py-2">{duration}</div>
                 </div>
 
                 {/* Distance */}
@@ -806,36 +829,47 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     </div>
                     <div className="text-center py-2">
                         {effectiveMaxWind != null || effectiveMaxWave != null ? (
-                            <div className="flex items-center justify-center gap-2">
-                                {effectiveMaxWind != null && (
-                                    <span
-                                        className={`text-sm font-bold font-mono ${
-                                            effectiveMaxWind > 30
-                                                ? 'text-red-400'
-                                                : effectiveMaxWind > 20
-                                                  ? 'text-amber-400'
-                                                  : 'text-emerald-400'
-                                        }`}
-                                    >
-                                        {effectiveMaxWind}kt
-                                    </span>
-                                )}
-                                {effectiveMaxWave != null && (
-                                    <span
-                                        className={`text-sm font-bold font-mono ${
-                                            effectiveMaxWave > 3
-                                                ? 'text-red-400'
-                                                : effectiveMaxWave > 2
-                                                  ? 'text-amber-400'
-                                                  : 'text-sky-400'
-                                        }`}
-                                    >
-                                        {effectiveMaxWave.toFixed(1)}m
-                                    </span>
+                            <div>
+                                <div className="flex items-center justify-center gap-2">
+                                    {effectiveMaxWind != null && (
+                                        <span
+                                            className={`text-sm font-bold font-mono ${
+                                                effectiveMaxWind > 30
+                                                    ? 'text-red-400'
+                                                    : effectiveMaxWind > 20
+                                                      ? 'text-amber-400'
+                                                      : 'text-emerald-400'
+                                            }`}
+                                        >
+                                            {effectiveMaxWind}kt
+                                        </span>
+                                    )}
+                                    {effectiveMaxWave != null && (
+                                        <span
+                                            className={`text-sm font-bold font-mono ${
+                                                effectiveMaxWave > 3
+                                                    ? 'text-red-400'
+                                                    : effectiveMaxWave > 2
+                                                      ? 'text-amber-400'
+                                                      : 'text-sky-400'
+                                            }`}
+                                        >
+                                            {effectiveMaxWave.toFixed(1)}m
+                                        </span>
+                                    )}
+                                </div>
+                                {routeConditions?.value?.beyondForecast && (
+                                    <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-amber-300/70">
+                                        Forecast partial
+                                    </p>
                                 )}
                             </div>
+                        ) : routeConditions?.loading ? (
+                            <span className="text-xs font-bold text-sky-300/80">Forecasting…</span>
+                        ) : routeConditions?.value?.beyondForecast ? (
+                            <span className="text-[11px] font-bold text-amber-300/80">Partial forecast</span>
                         ) : (
-                            <span className="text-lg font-bold text-white font-mono">--</span>
+                            <span className="text-xs font-bold text-gray-500">Forecast unavailable</span>
                         )}
                     </div>
                 </div>
@@ -881,7 +915,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             )}
 
             {/* ── Leg-by-Leg Breakdown ── */}
-            {passage.hasRoute && passage.legs.length > 0 && (
+            {passageMatchesVoyage && passage.legs.length > 0 && (
                 <div>
                     <button
                         onClick={() => {
@@ -970,7 +1004,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             {/* AND no route in the store. If they've already picked a draft */}
             {/* (departPort + destPort populated) they don't need a CTA */}
             {/* telling them to plan a route, that's exactly what they did. */}
-            {!passage.hasRoute && !departPort && !destPort && (
+            {mapRouteCoords.length < 2 && !departPort && !destPort && (
                 <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center">
                     <p className="text-xs text-gray-500">
                         Plan a route on the Charts page to see the full passage breakdown here.

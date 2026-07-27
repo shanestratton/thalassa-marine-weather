@@ -52,6 +52,9 @@ const mockUpsert = vi.fn(async (rows: Record<string, unknown>[], options?: Recor
 });
 const cloudDeleteCalls: string[][] = [];
 let failCloudDelete = false;
+const liveTrackRetirementCalls: Record<string, unknown>[] = [];
+const liveTrackPurgeCalls: string[][] = [];
+let failLiveTrackRetirement = false;
 let cloudVerificationRows: Record<string, unknown>[] = [];
 let failCloudVerification = false;
 let voyageSelectResults: Record<string, unknown>[][] = [];
@@ -90,6 +93,41 @@ function deleteQuery(table: string) {
             onRejected?: (reason: unknown) => unknown,
         ) => {
             cloudDeleteCalls.push(filters.slice());
+            return Promise.resolve(result()).then(onFulfilled, onRejected);
+        },
+    };
+    return query;
+}
+
+function liveTrackDeleteQuery() {
+    const filters: string[] = ['table=live_track'];
+    const result = () => ({ error: failLiveTrackRetirement ? { message: 'live-tail delete failed' } : null });
+    const query = {
+        eq: vi.fn((column: string, value: string) => {
+            filters.push(`${column}=${value}`);
+            return query;
+        }),
+        abortSignal: vi.fn(() => query),
+        then: (
+            onFulfilled: (value: { error: { message: string } | null }) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+        ) => {
+            liveTrackPurgeCalls.push(filters.slice());
+            return Promise.resolve(result()).then(onFulfilled, onRejected);
+        },
+    };
+    return query;
+}
+
+function liveTrackRetirementUpsert(row: Record<string, unknown>) {
+    const result = () => ({ error: failLiveTrackRetirement ? { message: 'live-tail retirement failed' } : null });
+    const query = {
+        abortSignal: vi.fn(() => query),
+        then: (
+            onFulfilled: (value: { error: { message: string } | null }) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+        ) => {
+            liveTrackRetirementCalls.push(row);
             return Promise.resolve(result()).then(onFulfilled, onRejected);
         },
     };
@@ -148,28 +186,36 @@ let mockUser: { id: string } | null = { id: 'user-1' };
 
 vi.mock('../services/supabase', () => ({
     supabase: {
-        from: (table: string) => ({
-            upsert: (rows: Record<string, unknown>[], options?: Record<string, unknown>) => {
-                const result = mockUpsert(rows, options);
-                const query = {
-                    abortSignal: vi.fn((signal: AbortSignal) => {
-                        signal.addEventListener('abort', () => {
-                            uploadAbortCount++;
-                        });
-                        return query;
-                    }),
-                    then: (
-                        onFulfilled: (value: { error: { message: string } | null }) => unknown,
-                        onRejected?: (reason: unknown) => unknown,
-                    ) => result.then(onFulfilled, onRejected),
-                };
-                return query;
-            },
-            delete: () => deleteQuery(table),
-            update: (values: Record<string, unknown>, options?: Record<string, unknown>) =>
-                archiveUpdateQuery(table, values, options),
-            select: () => selectQuery(table),
-        }),
+        from: (table: string) => {
+            if (table === 'live_track_retirements') {
+                return { upsert: (row: Record<string, unknown>) => liveTrackRetirementUpsert(row) };
+            }
+            if (table === 'live_track') {
+                return { delete: () => liveTrackDeleteQuery() };
+            }
+            return {
+                upsert: (rows: Record<string, unknown>[], options?: Record<string, unknown>) => {
+                    const result = mockUpsert(rows, options);
+                    const query = {
+                        abortSignal: vi.fn((signal: AbortSignal) => {
+                            signal.addEventListener('abort', () => {
+                                uploadAbortCount++;
+                            });
+                            return query;
+                        }),
+                        then: (
+                            onFulfilled: (value: { error: { message: string } | null }) => unknown,
+                            onRejected?: (reason: unknown) => unknown,
+                        ) => result.then(onFulfilled, onRejected),
+                    };
+                    return query;
+                },
+                delete: () => deleteQuery(table),
+                update: (values: Record<string, unknown>, options?: Record<string, unknown>) =>
+                    archiveUpdateQuery(table, values, options),
+                select: () => selectQuery(table),
+            };
+        },
     },
     getCurrentUser: vi.fn(async () => mockUser),
     getCurrentUserId: vi.fn(async () => mockUser?.id ?? null),
@@ -231,6 +277,8 @@ beforeEach(() => {
     insertCalls.length = 0;
     upsertOptions.length = 0;
     cloudDeleteCalls.length = 0;
+    liveTrackRetirementCalls.length = 0;
+    liveTrackPurgeCalls.length = 0;
     archiveUpdateCalls.length = 0;
     failOnInsertCall = -1;
     pendingUpsertResult = null;
@@ -239,6 +287,7 @@ beforeEach(() => {
     permanentPoisonHttpStatus = undefined;
     uploadAbortCount = 0;
     failCloudDelete = false;
+    failLiveTrackRetirement = false;
     cloudVerificationRows = [];
     failCloudVerification = false;
     failArchiveUpdate = false;
@@ -603,6 +652,11 @@ describe('syncOfflineQueue (rewritten)', () => {
         expect(await syncOfflineQueue()).toBe(0);
         expect(cloudDeleteCalls).toHaveLength(1);
         expect(JSON.parse(store[tombstoneKey])['delete-me'].cloud_deleted_at).toBeUndefined();
+        expect(JSON.parse(store[tombstoneKey])['delete-me'].live_track_retired_at).toEqual(expect.any(Number));
+        expect(liveTrackRetirementCalls).toEqual([
+            expect.objectContaining({ user_id: 'user-1', voyage_id: 'delete-me', reason: 'deleted' }),
+        ]);
+        expect(liveTrackPurgeCalls).toEqual([expect.arrayContaining(['user_id=user-1', 'voyage_id=delete-me'])]);
 
         failCloudDelete = false;
         expect(await syncOfflineQueue()).toBe(0);
@@ -614,6 +668,23 @@ describe('syncOfflineQueue (rewritten)', () => {
         // reinsertion cannot leave the voyage resurrected.
         expect(await syncOfflineQueue()).toBe(0);
         expect(cloudDeleteCalls).toHaveLength(3);
+        // The public-tail fence is immutable and already confirmed, so cloud
+        // delete retries do not churn a second live_track retirement write.
+        expect(liveTrackRetirementCalls).toHaveLength(1);
+    });
+
+    it('keeps a deleted-voyage retirement fence pending until both its upsert and targeted purge converge', async () => {
+        await addVoyageTombstone('live-tail-pending');
+        const tombstoneKey = authScopedStorageKey('ship_log_deleted_voyages', getAuthIdentityScope());
+        failLiveTrackRetirement = true;
+
+        await expect(syncOfflineQueue()).resolves.toBe(0);
+        expect(JSON.parse(store[tombstoneKey])['live-tail-pending'].live_track_retired_at).toBeUndefined();
+
+        failLiveTrackRetirement = false;
+        await expect(syncOfflineQueue()).resolves.toBe(0);
+        expect(JSON.parse(store[tombstoneKey])['live-tail-pending'].live_track_retired_at).toEqual(expect.any(Number));
+        expect(liveTrackRetirementCalls).toHaveLength(2);
     });
 
     it('durably retries and verifies only an exactly linked planned voyage cascade', async () => {

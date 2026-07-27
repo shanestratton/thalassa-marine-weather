@@ -28,9 +28,11 @@ import { createMiscRoutes } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes } from './routes/enc.js';
 import { createOsmRoutes } from './routes/osm.js';
+import { createDiaryRelayRoutes } from './routes/diary.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
+import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError } from './diaryRelayOutbox.js';
 
 // ── Config (mutable — app can update via /api/configure) ──
 
@@ -66,6 +68,7 @@ delete process.env[LEGACY_PROVIDER_ENV];
 // ── Bootstrap ──
 
 const cache = new Cache(CACHE_DIR);
+const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR);
 const app = express();
 
 app.use(cors());
@@ -84,6 +87,7 @@ app.get('/health', (_req, res) => {
 
 app.get('/status', (_req, res) => {
     const stats = cache.getStats();
+    const diaryRelay = diaryRelayOutbox.getStats();
     res.json({
         status: 'ok',
         cache: stats,
@@ -94,19 +98,123 @@ app.get('/status', (_req, res) => {
             prefetchConfigured: !!(process.env.PREFETCH_LAT && process.env.PREFETCH_LON),
             prefetchLat: process.env.PREFETCH_LAT || null,
             prefetchLon: process.env.PREFETCH_LON || null,
+            // Kept in `config` for older/mobile Pi clients. relayId is a
+            // public Pi identity, not the secret bearer token.
+            diaryRelayId: diaryRelay.relay.relayId,
+            diaryRelayConfigured: diaryRelay.relay.configured,
+            // This is a non-secret account identifier. It lets a crew
+            // device decline to hand a private diary to a Pi paired by a
+            // different skipper, without exposing the relay token or URL.
+            diaryRelayOwnerId: diaryRelay.relay.ownerId,
+            diaryRelayAllowInternet: diaryRelay.relay.allowInternet,
         },
+        diaryRelay,
     });
 });
 
 // ── Configure (called by the Thalassa app on the phone) ──
 // The skipper never touches a terminal. The app pushes config here.
 
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function configurationBody(value: unknown): Record<string, unknown> {
+    if (isObject(value)) return value;
+    // Capacitor's native HTTP bridge has historically sent JSON strings on a
+    // few iOS versions even with application/json. Accept that exact shape so
+    // the Pi relay can still be paired, but never treat arbitrary text as a
+    // configuration object.
+    if (typeof value === 'string') {
+        try {
+            const parsed: unknown = JSON.parse(value);
+            return isObject(parsed) ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+    return {};
+}
+
+/**
+ * The diary relay's internet gate is intentionally accepted only here, never
+ * through the entry endpoint. This makes the Pi owner explicitly opt in once
+ * and preserves that policy across restart without placing credentials in .env.
+ */
+function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
+    const nested = body.diaryRelay;
+    const hasFlatPolicy = Object.prototype.hasOwnProperty.call(body, 'diaryRelayAllowInternet');
+    const flatNames = {
+        url: 'diaryRelayUrl',
+        relayId: 'diaryRelayId',
+        token: 'diaryRelayToken',
+        ownerId: 'diaryRelayOwnerId',
+    } as const;
+    const hasFlatRelay = Object.values(flatNames).some((name) => Object.prototype.hasOwnProperty.call(body, name));
+    if (nested === undefined && !hasFlatPolicy && !hasFlatRelay) return;
+    if (nested !== undefined && !isObject(nested)) {
+        throw new DiaryRelayValidationError('diaryRelay must be an object');
+    }
+
+    const values: Record<string, unknown> = nested ?? {};
+    const input: DiaryRelayConfigInput = {};
+    const textKeys: Array<keyof Pick<DiaryRelayConfigInput, 'url' | 'relayId' | 'token' | 'ownerId'>> = [
+        'url',
+        'relayId',
+        'token',
+        'ownerId',
+    ];
+    for (const key of textKeys) {
+        const nestedPresent = Object.prototype.hasOwnProperty.call(values, key);
+        const flatKey = flatNames[key];
+        const flatPresent = Object.prototype.hasOwnProperty.call(body, flatKey);
+        const nestedValue = values[key];
+        const flatValue = body[flatKey];
+        if (nestedPresent && flatPresent && nestedValue !== flatValue) {
+            throw new DiaryRelayValidationError(`Diary relay ${key} was provided twice with different values`);
+        }
+        const value = nestedPresent ? nestedValue : flatValue;
+        if (value !== undefined) {
+            if (typeof value !== 'string') throw new DiaryRelayValidationError(`diaryRelay.${key} must be a string`);
+            input[key] = value;
+        }
+    }
+
+    const nestedPolicy = values.allowInternet;
+    if (nestedPolicy !== undefined && typeof nestedPolicy !== 'boolean') {
+        throw new DiaryRelayValidationError('diaryRelay.allowInternet must be a boolean');
+    }
+    const flatPolicy = body.diaryRelayAllowInternet;
+    if (flatPolicy !== undefined && typeof flatPolicy !== 'boolean') {
+        throw new DiaryRelayValidationError('diaryRelayAllowInternet must be a boolean');
+    }
+    if (nestedPolicy !== undefined && flatPolicy !== undefined && nestedPolicy !== flatPolicy) {
+        throw new DiaryRelayValidationError('Diary relay policy was provided twice with different values');
+    }
+    if (typeof (flatPolicy ?? nestedPolicy) === 'boolean') {
+        input.allowInternet = (flatPolicy ?? nestedPolicy) as boolean;
+    }
+
+    diaryRelayOutbox.configure(input);
+}
+
 app.post('/api/configure', (req, res) => {
-    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius, userId } = req.body || {};
+    const requestBody = configurationBody(req.body);
+    try {
+        // Validate and persist Pi-private relay configuration before changing
+        // the rest of the server settings, so an invalid relay cannot leave a
+        // half-applied configuration request behind.
+        applyDiaryRelayConfiguration(requestBody);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid diary relay configuration';
+        return res.status(400).json({ status: 'error', error: message });
+    }
+
+    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius, userId } = requestBody;
 
     // Update in-memory values if provided (empty strings = keep existing)
-    if (supabaseUrl) SUPABASE_URL = supabaseUrl;
-    if (supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
+    if (typeof supabaseUrl === 'string' && supabaseUrl) SUPABASE_URL = supabaseUrl;
+    if (typeof supabaseAnonKey === 'string' && supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
     proxyConfig.supabaseUrl = SUPABASE_URL;
     proxyConfig.supabaseAnonKey = SUPABASE_ANON_KEY;
 
@@ -149,7 +257,7 @@ app.post('/api/configure', (req, res) => {
     console.log(
         `📱 Configuration updated by Thalassa app${prefetchLat !== undefined ? ` (location: ${prefetchLat}, ${prefetchLon})` : ''}`,
     );
-    res.json({ status: 'ok', message: 'Configuration updated' });
+    res.json({ status: 'ok', message: 'Configuration updated', diaryRelay: diaryRelayOutbox.getConfiguration() });
 });
 
 // Purge expired cache entries
@@ -209,6 +317,7 @@ app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
 app.use('/api/charts', createChartRoutes());
 app.use('/api/enc', createEncRoutes());
 app.use('/api/osm', createOsmRoutes());
+app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
 
 // ── Boat-LAN app hosting (Shane 2026-07-09: "if the Pi serves charts
 // to the device, how come it can't serve the computer?") ──
@@ -256,6 +365,7 @@ function shutdown() {
     stopScheduler();
     void stopEncWatcher();
     server.close(() => {
+        diaryRelayOutbox.close();
         cache.close();
         process.exit(0);
     });

@@ -1,10 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSupabase: { current: ReturnType<typeof createSupabaseMock> | null } = { current: null };
+const relay = vi.hoisted(() => ({
+    handoffDiaryToPi: vi.fn(),
+    submitDiaryDirect: vi.fn(),
+    cancelDiaryOnPi: vi.fn(),
+    cancelDiaryDirect: vi.fn(),
+    canAttemptDiaryCloudDelivery: vi.fn(),
+    syncPiDiaryRelayInternetPolicy: vi.fn(),
+}));
+const tracking = vi.hoisted(() => ({
+    resolveActiveVoyageId: vi.fn(),
+    resolveActiveBoatId: vi.fn(),
+}));
 
 vi.mock('../services/supabase', () => ({
     get supabase() {
         return mockSupabase.current;
+    },
+}));
+
+vi.mock('../services/DiaryRelayTransport', () => ({
+    handoffDiaryToPi: relay.handoffDiaryToPi,
+    submitDiaryDirect: relay.submitDiaryDirect,
+    cancelDiaryOnPi: relay.cancelDiaryOnPi,
+    cancelDiaryDirect: relay.cancelDiaryDirect,
+    canAttemptDiaryCloudDelivery: relay.canAttemptDiaryCloudDelivery,
+    syncPiDiaryRelayInternetPolicy: relay.syncPiDiaryRelayInternetPolicy,
+}));
+
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        resolveActiveVoyageId: tracking.resolveActiveVoyageId,
+        resolveActiveBoatId: tracking.resolveActiveBoatId,
     },
 }));
 
@@ -121,6 +149,21 @@ beforeEach(() => {
     localStorage.clear();
     mockSupabase.current = null;
     Object.defineProperty(globalThis.navigator, 'onLine', { value: false, configurable: true });
+    relay.handoffDiaryToPi.mockReset().mockResolvedValue(null);
+    relay.cancelDiaryOnPi.mockReset().mockResolvedValue(false);
+    relay.cancelDiaryDirect.mockReset().mockResolvedValue(false);
+    relay.canAttemptDiaryCloudDelivery.mockReset().mockImplementation(() => navigator.onLine);
+    relay.syncPiDiaryRelayInternetPolicy.mockReset().mockResolvedValue(false);
+    tracking.resolveActiveVoyageId.mockReset().mockResolvedValue(undefined);
+    tracking.resolveActiveBoatId.mockReset().mockResolvedValue(undefined);
+    relay.submitDiaryDirect
+        .mockReset()
+        .mockImplementation(async (payload: { client_operation_id: string; client_revision: number }) => ({
+            id: `server-${payload.client_operation_id}`,
+            user_id: getAuthIdentityScope().userId,
+            client_operation_id: payload.client_operation_id,
+            client_revision: payload.client_revision,
+        }));
     vi.stubGlobal(
         'fetch',
         vi.fn(async () => new Response(null, { status: 200 })),
@@ -129,6 +172,35 @@ beforeEach(() => {
 });
 
 describe('DiaryService auth identity isolation', () => {
+    it('binds a new diary entry to the cast-off vessel and preserves it through the direct relay envelope', async () => {
+        const account = `vessel-bound-${testNumber}`;
+        const boatId = '2e39983f-5d86-4dcb-b6f9-34df05c08d90';
+        tracking.resolveActiveVoyageId.mockResolvedValue('voyage-bound');
+        tracking.resolveActiveBoatId.mockResolvedValue(boatId);
+        setAuthIdentityScope(account);
+
+        const entry = await DiaryService.createEntry({
+            title: 'A note under way',
+            body: 'The breeze filled in after breakfast.',
+            mood: 'good',
+        });
+
+        expect(entry).toMatchObject({ voyage_id: 'voyage-bound', boat_id: boatId });
+        expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]')).toMatchObject([
+            { boat_id: boatId, voyage_id: 'voyage-bound' },
+        ]);
+
+        // createEntry starts a local-only background pass. Let that pass
+        // settle before enabling the direct cloud route for this assertion.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        mockSupabase.current = createSupabaseMock(controls);
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        await DiaryService.syncPending();
+
+        expect(relay.submitDiaryDirect).toHaveBeenCalledWith(expect.objectContaining({ boat_id: boatId }));
+    });
+
     it('keeps A’s offline draft and media invisible and inert for B, then resumes it for A', async () => {
         const accountA = `account-a-${testNumber}`;
         const accountB = `account-b-${testNumber}`;
@@ -154,7 +226,7 @@ describe('DiaryService auth identity isolation', () => {
         expect(await DiaryService.getEntry(draft.id)).toBeNull();
         expect(await DiaryService.resolvePhotoUrl(photo)).toBeNull();
         await DiaryService.syncPending();
-        expect(controlsB.inserts).toEqual([]);
+        expect(relay.submitDiaryDirect).not.toHaveBeenCalled();
 
         // Even if stale UI hands B A's offline id, it only creates a B-scoped
         // no-op tombstone. A's queue and bytes remain untouched.
@@ -169,12 +241,11 @@ describe('DiaryService auth identity isolation', () => {
         expect(await DiaryService.resolvePhotoUrl(photo)).toBe(photo);
         await DiaryService.syncPending();
 
-        expect(controlsA.inserts).toHaveLength(1);
-        expect(controlsA.inserts[0]).toMatchObject({
-            user_id: accountA,
+        expect(relay.submitDiaryDirect).toHaveBeenCalledTimes(1);
+        expect(relay.submitDiaryDirect.mock.calls[0][0]).toMatchObject({
             title: 'A private offline log',
         });
-        expect(controlsB.inserts).toEqual([]);
+        expect(relay.submitDiaryDirect.mock.calls[0][0]).toHaveProperty('client_operation_id');
         expect(JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', accountA)) ?? '[]')).toEqual([]);
     });
 
@@ -196,7 +267,7 @@ describe('DiaryService auth identity isolation', () => {
 
         expect(await DiaryService.getEntries()).toEqual([]);
         await DiaryService.syncPending();
-        expect(controls.inserts).toEqual([]);
+        expect(relay.submitDiaryDirect).not.toHaveBeenCalled();
         expect(localStorage.getItem('thalassa_diary_pending_v2')).toBeNull();
 
         const quarantine = localStorage.getItem('thalassa_diary_quarantine_v1') ?? '';
@@ -239,6 +310,7 @@ describe('DiaryService auth identity isolation', () => {
 
         const controlsA: SupabaseControls = { userId: accountA, inserts: [], deletes: [] };
         mockSupabase.current = createSupabaseMock(controlsA);
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
         setAuthIdentityScope(accountA);
         await DiaryService.drainDeletedTombstones();
         expect(controlsA.deletes).toEqual(['server-a']);

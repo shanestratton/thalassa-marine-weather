@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { t } from '../theme';
 import { useAuthStore } from '../stores/authStore';
+import { useSettings } from '../context/SettingsContext';
 import { ModalSheet } from './ui/ModalSheet';
 import { UndoToast } from './ui/UndoToast';
 
@@ -34,6 +35,7 @@ import {
     leaveVessel,
 } from '../services/CrewService';
 import { supabase } from '../services/supabase';
+import { loadOwnedVesselFleet } from '../services/VesselFleetService';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import {
@@ -73,6 +75,14 @@ import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
 import { PageHeader } from './ui/PageHeader';
+import {
+    departureOnLocalDate,
+    derivePassageSummarySchedule,
+    localDateValue,
+    localDateTimeValue,
+    nextDepartureSlot,
+    routeDistanceNm,
+} from '../services/passageSummarySchedule';
 
 const CastOffPanel = lazyRetry(
     () => import('./vessel/CastOffPanel').then((m) => ({ default: m.CastOffPanel })),
@@ -95,6 +105,8 @@ export type VoyageRow = Voyage & {
     routeCoordinates?: Array<{ lat: number; lon: number }>;
     /** Underlying planned-route log voyage. Distinct from this voyage-row ID. */
     plannedRouteId?: string;
+    /** Distance supplied by this exact planned-route record, in NM. */
+    distanceNm?: number;
     durationHours?: number;
     /** True when this voyage belongs to a captain who shared it with us. */
     isShared?: boolean;
@@ -106,6 +118,28 @@ const routeDayKey = (iso: string | null | undefined): string | null => {
     const ms = Date.parse(iso);
     return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
 };
+
+/** Crew edits belong to the vessel currently selected by the skipper, not an arbitrary owned boat. */
+async function activeOwnedBoatId(scope: AuthIdentityScope): Promise<string | null> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+    try {
+        const fleet = await loadOwnedVesselFleet(scope);
+        const active = fleet.vessels.find((vessel) => vessel.id === fleet.activeBoatId);
+        if (active) return active.id;
+    } catch {
+        // Staged rollout fallback for environments whose fleet migration is
+        // not yet applied; limiting avoids the old multi-row `maybeSingle`.
+    }
+    if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
+    const { data } = await supabase
+        .from('boats')
+        .select('id')
+        .eq('owner_id', scope.userId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    return typeof data?.id === 'string' ? data.id : null;
+}
 
 // These labels are generated exclusively by the Route Tracer's chained-leg
 // flow. A pre-link build could leave such a mirror behind after its canonical
@@ -211,6 +245,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const authChecked = useAuthStore((s) => s.authChecked);
     const authUserId = authedUser?.id ?? null;
     const isAuthed = !!authedUser;
+    const { settings } = useSettings();
     const [privateScopeKey, setPrivateScopeKey] = useState(() => getAuthIdentityScope().key);
 
     // Captain state
@@ -287,6 +322,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [passageStatusLoading, setPassageStatusLoading] = useState(true);
     const passageSelectionVersion = useRef(0);
     const dropdownReloadVersion = useRef(0);
+    const departureUpdateVersion = useRef(0);
     const dataLoadVersion = useRef(0);
     const editLoadVersion = useRef(0);
     const inviteOperationVersion = useRef(0);
@@ -858,6 +894,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
             const arrivalCoords = last ? { lat: last.lat, lon: last.lon } : undefined;
             const routeCoordinates = r.points.map((point) => ({ lat: point.lat, lon: point.lon }));
+            const distanceNm = r.distanceNm > 0 ? r.distanceNm : undefined;
             const durationHours = r.durationHours;
             // The route's first-entry timestamp is what the user typed
             // as plan.departureDate at save time (PassagePlanSave seeds
@@ -865,10 +902,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             // departure for stub rows AND as a fallback for matched
             // drafts that haven't had their date persisted yet.
             const inferredDeparture = new Date(r.timestamp).toISOString();
-            const inferredEta =
-                durationHours && durationHours > 0
-                    ? new Date(r.timestamp + durationHours * 3_600_000).toISOString()
-                    : null;
+            const inferredEta = derivePassageSummarySchedule({
+                routeCoordinates,
+                fallbackDistanceNm: distanceNm,
+                departureTime: inferredDeparture,
+                cruisingSpeedKt: settings.vessel?.cruisingSpeed,
+            }).eta;
             // New saves carry the immutable planning-record UUID on every
             // log row. That is the only authoritative link: route labels can
             // repeat (e.g. the same island run next season), so never let a
@@ -915,6 +954,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     arrivalCoords,
                     routeCoordinates,
                     plannedRouteId: r.id,
+                    distanceNm,
                     durationHours,
                 };
             }
@@ -944,9 +984,30 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 arrivalCoords,
                 routeCoordinates,
                 plannedRouteId: r.id,
+                distanceNm,
                 durationHours,
             };
         });
+
+        const attachCanonicalTraceGeometry = (draft: Voyage): VoyageRow => {
+            const trace = draft.saved_route_id
+                ? canonicalById.get(draft.saved_route_id)
+                : Array.from(canonicalById.values()).find((candidate) => candidate.passageVoyageId === draft.id);
+            const routeCoordinates = (trace?.points ?? []).filter(
+                (point) => Number.isFinite(point.lat) && Number.isFinite(point.lon),
+            );
+            if (routeCoordinates.length < 2) return draft;
+            const departureCoords = routeCoordinates[0];
+            const arrivalCoords = routeCoordinates[routeCoordinates.length - 1];
+            return {
+                ...draft,
+                departureCoords,
+                arrivalCoords,
+                routeCoordinates,
+                plannedRouteId: trace?.plannedRouteId,
+                distanceNm: routeDistanceNm(routeCoordinates) ?? undefined,
+            };
+        };
 
         // A canonical saved route is still valid when its historic logbook
         // mirror is delayed, archived, or absent. Deliberately do not append
@@ -955,7 +1016,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // failure. Exact legacy mirrors above remain visible because they
         // matched a planned-route row by immutable ID (or one unambiguous
         // historical name/date pair).
-        ownRows.push(...visibleDrafts.filter((draft) => !matchedDraftIds.has(draft.id)));
+        ownRows.push(
+            ...visibleDrafts.filter((draft) => !matchedDraftIds.has(draft.id)).map(attachCanonicalTraceGeometry),
+        );
 
         const activeId = getActivePassageId();
 
@@ -964,7 +1027,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // a missing polyline is not evidence that a voyage is unauthorized.
         const activeOwnDraft = activeId ? visibleDrafts.find((draft) => draft.id === activeId) : undefined;
         if (activeOwnDraft && !ownRows.some((row) => row.id === activeOwnDraft.id)) {
-            ownRows.push(activeOwnDraft);
+            ownRows.push(attachCanonicalTraceGeometry(activeOwnDraft));
         }
 
         const sharedRows: VoyageRow[] = sharedResult.voyages.map(({ voyage, ownerEmail }) => ({
@@ -989,7 +1052,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const activeIdInRows = activeId ? rows.some((row) => row.id === activeId) : false;
         if (activeId && activeIdInRows) {
             const vMatch = rows.find((row) => row.id === activeId);
-            if (vMatch?.departure_time) setPlanDeparture(vMatch.departure_time.slice(0, 16));
+            if (vMatch?.departure_time) setPlanDeparture(localDateTimeValue(vMatch.departure_time));
             if (vMatch) setActiveVoyageName(savedRouteDisplayName(vMatch));
         } else if (activeId && membershipsLoaded && sharedResult.complete) {
             // Only heal after accepted memberships and every shared ownership
@@ -1014,26 +1077,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             }
         }
 
-        // Backfill ETA on any voyage where departure_time is set but eta
-        // is missing AND we have a durationHours from the logbook route.
-        // This rescues voyages saved before the auto-ETA-on-pick fix
-        // (they have departure but no eta, which leaves the GalleyCard
-        // meal planner blocked). Runs once per row that needs it; the
-        // setDraftVoyages above already rendered the dropdown, so this
-        // is a quiet background cleanup that lights up downstream cards
-        // on the next render.
+        // Backfill/reconcile ETA from the actual saved curve and the vessel
+        // profile. A historic logbook timestamp is not a duration source:
+        // changing cruise speed or departure must move ETA deterministically.
         for (const row of rows) {
-            if (
-                row.id &&
-                !row.id.startsWith('logbook:') &&
-                !row.isShared &&
-                row.departure_time &&
-                !row.eta &&
-                row.durationHours &&
-                row.durationHours > 0
-            ) {
-                const etaIso = new Date(Date.parse(row.departure_time) + row.durationHours * 3_600_000).toISOString();
-                updateVoyage(row.id, { eta: etaIso }).then((result) => {
+            if (row.id && !row.id.startsWith('logbook:') && !row.isShared && row.departure_time) {
+                const schedule = derivePassageSummarySchedule({
+                    routeCoordinates: row.routeCoordinates,
+                    fallbackDistanceNm: row.distanceNm,
+                    departureTime: row.departure_time,
+                    cruisingSpeedKt: settings.vessel?.cruisingSpeed,
+                });
+                if (!schedule.eta || (row.eta === schedule.eta && row.departure_time === schedule.departureTime))
+                    continue;
+                const patch =
+                    row.departure_time === schedule.departureTime
+                        ? { eta: schedule.eta }
+                        : { departure_time: schedule.departureTime, eta: schedule.eta };
+                void updateVoyage(row.id, patch).then((result) => {
                     if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
                     if (result.voyage) {
                         setDraftVoyages((prev) =>
@@ -1045,6 +1106,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                           arrivalCoords: v.arrivalCoords,
                                           routeCoordinates: v.routeCoordinates,
                                           plannedRouteId: v.plannedRouteId,
+                                          distanceNm: v.distanceNm,
                                           durationHours: v.durationHours,
                                       }
                                     : v,
@@ -1054,7 +1116,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 });
             }
         }
-    }, [membershipsLoaded, resetReadinessState, scopeStillOwnsPage]);
+    }, [membershipsLoaded, resetReadinessState, scopeStillOwnsPage, settings.vessel?.cruisingSpeed]);
 
     useEffect(() => {
         // Wait for auth to land before the cloud refresh. The account-scoped
@@ -1075,7 +1137,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // this the active voyage's date stays stale in the dropdown
         // and the Passage Summary card until the user manually
         // remounts the page.
-        const onDepartureUpdate = () => {
+        const onDepartureUpdate = (event: Event) => {
+            const detail = (event as CustomEvent<{ source?: string }>).detail;
+            // Summary/date/Weather Window writes already update the active row
+            // optimistically. Refetching before Supabase confirms them can
+            // briefly repaint the old ETA.
+            if (detail?.source === 'crew-management') return;
             void reloadDropdown();
         };
         // Canonical trace deletion/rebase and its asynchronous Log/Voyage
@@ -1301,9 +1368,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             }
             const myId = scope.userId;
             if (myId) {
-                const { data: boat } = await supabase.from('boats').select('id').eq('owner_id', myId).maybeSingle();
+                const boatId = await activeOwnedBoatId(scope);
                 if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope)) return;
-                if (boat?.id) {
+                if (boatId) {
                     const { error } = await supabase
                         .from('boat_members')
                         .update({
@@ -1312,7 +1379,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             last_name: byline.lastName,
                             nickname: byline.nickname,
                         })
-                        .match({ boat_id: boat.id, user_id: target.crew_user_id });
+                        .match({ boat_id: boatId, user_id: target.crew_user_id });
                     if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope)) return;
                     if (error) {
                         bylineErr =
@@ -1356,13 +1423,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             return;
         }
 
-        const { data: boat } = await supabase.from('boats').select('id').eq('owner_id', scope.userId).maybeSingle();
-        if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope) || !boat?.id) return;
+        const boatId = await activeOwnedBoatId(scope);
+        if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope) || !boatId) return;
 
         const { data: boatMember } = await supabase
             .from('boat_members')
             .select('prefix, first_name, last_name, nickname')
-            .eq('boat_id', boat.id)
+            .eq('boat_id', boatId)
             .eq('user_id', member.crew_user_id)
             .maybeSingle();
         if (requestVersion !== editLoadVersion.current || !scopeStillOwnsPage(scope) || !boatMember) {
@@ -1385,6 +1452,91 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setEditBoatMemberLoaded(false);
     };
 
+    /**
+     * The one persistence path for every Passage Planning departure edit.
+     * Summary time changes, date-picker changes, and Weather Window acceptance
+     * all derive ETA from the same saved route + vessel cruise speed.
+     */
+    const handlePassageDepartureTimeChange = useCallback(
+        (passageId: string, requestedDeparture: string, _providedEta?: string | null) => {
+            const scope = getAuthIdentityScope();
+            if (
+                !scopeStillOwnsPage(scope) ||
+                !passageId ||
+                selectedPassageRef.current !== passageId ||
+                !passageStatus.isOwner ||
+                passageStatus.voyageId !== passageId ||
+                passageStatus.ownerUserId !== scope.userId
+            ) {
+                return;
+            }
+            const row = draftVoyages.find((voyage) => voyage.id === passageId);
+            if (!row || row.isShared || row.id.startsWith('logbook:')) return;
+
+            const schedule = derivePassageSummarySchedule({
+                routeCoordinates: row.routeCoordinates,
+                fallbackDistanceNm: row.distanceNm,
+                departureTime: requestedDeparture,
+                cruisingSpeedKt: settings.vessel?.cruisingSpeed,
+            });
+            const version = ++departureUpdateVersion.current;
+            const patch = { departure_time: schedule.departureTime, eta: schedule.eta };
+            setPlanDeparture(localDateTimeValue(schedule.departureTime));
+            setDraftVoyages((previous) =>
+                previous.map((voyage) => (voyage.id === passageId ? { ...voyage, ...patch } : voyage)),
+            );
+
+            // The event keeps Weather Windows and any mounted Summary card in
+            // lockstep without waiting for the network round-trip.
+            try {
+                const departureDate = new Date(schedule.departureTime);
+                window.dispatchEvent(
+                    new CustomEvent('thalassa:departure-time-updated', {
+                        detail: {
+                            voyageId: passageId,
+                            hhmm: `${String(departureDate.getHours()).padStart(2, '0')}:${String(
+                                departureDate.getMinutes(),
+                            ).padStart(2, '0')}`,
+                            iso: schedule.departureTime,
+                            source: 'crew-management',
+                            scopeKey: scope.key,
+                            generation: scope.generation,
+                        },
+                    }),
+                );
+            } catch {
+                /* SSR / legacy WebView safety */
+            }
+
+            void updateVoyage(passageId, patch).then((result) => {
+                if (
+                    version !== departureUpdateVersion.current ||
+                    !scopeStillOwnsPage(scope) ||
+                    selectedPassageRef.current !== passageId ||
+                    !result.voyage
+                ) {
+                    return;
+                }
+                setDraftVoyages((previous) =>
+                    previous.map((voyage) =>
+                        voyage.id === passageId
+                            ? {
+                                  ...result.voyage!,
+                                  departureCoords: voyage.departureCoords,
+                                  arrivalCoords: voyage.arrivalCoords,
+                                  routeCoordinates: voyage.routeCoordinates,
+                                  plannedRouteId: voyage.plannedRouteId,
+                                  distanceNm: voyage.distanceNm,
+                                  durationHours: voyage.durationHours,
+                              }
+                            : voyage,
+                    ),
+                );
+            });
+        },
+        [draftVoyages, passageStatus, scopeStillOwnsPage, settings.vessel?.cruisingSpeed],
+    );
+
     const handleDepartureDateChange = (value: string) => {
         const scope = getAuthIdentityScope();
         const passageId = selectedPassageId;
@@ -1397,37 +1549,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         ) {
             return;
         }
-
-        setPlanDeparture(value);
-        if (!value) return;
-        const departureIso = new Date(value).toISOString();
-        const row = draftVoyages.find((voyage) => voyage.id === passageId);
-        const update: Parameters<typeof updateVoyage>[1] = {
-            departure_time: departureIso,
-        };
-        if (row?.durationHours && row.durationHours > 0) {
-            update.eta = new Date(Date.parse(departureIso) + row.durationHours * 3_600_000).toISOString();
+        if (!value) {
+            setPlanDeparture('');
+            return;
         }
-
-        void updateVoyage(passageId, update).then((result) => {
-            if (!scopeStillOwnsPage(scope) || selectedPassageRef.current !== passageId || !result.voyage) {
-                return;
-            }
-            setDraftVoyages((previous) =>
-                previous.map((voyage) =>
-                    voyage.id === passageId
-                        ? {
-                              ...result.voyage!,
-                              departureCoords: voyage.departureCoords,
-                              arrivalCoords: voyage.arrivalCoords,
-                              routeCoordinates: voyage.routeCoordinates,
-                              plannedRouteId: voyage.plannedRouteId,
-                              durationHours: voyage.durationHours,
-                          }
-                        : voyage,
-                ),
-            );
-        });
+        const row = draftVoyages.find((voyage) => voyage.id === passageId);
+        const departureIso = departureOnLocalDate(value, row?.departure_time, new Date());
+        if (!departureIso) return;
+        handlePassageDepartureTimeChange(passageId, departureIso);
     };
 
     const toggleRegister = (
@@ -1488,6 +1617,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     arrivalCoords: row.arrivalCoords,
                     routeCoordinates: row.routeCoordinates,
                     plannedRouteId: row.plannedRouteId,
+                    distanceNm: row.distanceNm,
                     durationHours: row.durationHours,
                 };
                 row = promoted;
@@ -1507,7 +1637,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             selectedPassageRef.current = realId;
             setSelectedPassageId(realId);
             setActiveVoyageName(savedRouteDisplayName(row));
-            setPlanDeparture(row.departure_time ? row.departure_time.slice(0, 16) : '');
+            setPlanDeparture(row.departure_time ? localDateTimeValue(row.departure_time) : '');
             triggerHaptic('light');
         },
         [draftVoyages, resetReadinessState, scopeStillOwnsPage],
@@ -1742,6 +1872,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 type="date"
                                 aria-label="Departure Date"
                                 value={planDeparture ? planDeparture.slice(0, 10) : ''}
+                                min={localDateValue(nextDepartureSlot())}
                                 onChange={(event) => handleDepartureDateChange(event.target.value)}
                                 className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/30 transition-colors [color-scheme:dark]"
                             />
@@ -1872,6 +2003,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 setCurrentsBriefed(value);
                             }
                         }}
+                        onDepartureTimeChange={handlePassageDepartureTimeChange}
                     />
                 )}
             </div>

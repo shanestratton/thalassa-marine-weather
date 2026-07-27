@@ -19,7 +19,6 @@ import {
     useReadinessIdentityScope,
     useScopedReadinessStorageState,
     useSingleCheckSync,
-    writeReadinessStorage,
 } from '../../hooks/useReadinessSync';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
@@ -36,6 +35,8 @@ interface WeatherWindowCardProps {
      *
      *  Falls back to activeVoyage.departure_time if undefined. */
     departureTime?: string | null;
+    /** Parent-owned route scheduler; receives the accepted full ISO time. */
+    onDepartureTimeChange?: (departureTime: string, eta?: string | null) => void;
     onReviewedChange?: (ready: boolean) => void;
 }
 
@@ -71,6 +72,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     destination,
     activeVoyage: _activeVoyage,
     departureTime,
+    onDepartureTimeChange,
     onReviewedChange,
 }) => {
     const identityScope = useReadinessIdentityScope();
@@ -243,72 +245,29 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                 syncSingleCheck(true, { index, accepted_at: Date.now() });
             }
 
-            // ── Sync the accepted window's departure time into the
-            // canonical departure_time slot. These two pieces of state were
-            // once stored in unrelated global keys, so accepting a window
-            // visibly green-checked the readiness card but the Passage
-            // Summary still showed whatever time the user had typed in.
-            //
-            // Also write to the summary's account/voyage-scoped mirror
-            // (HH:MM, matching the time input) and update the live voyage row
-            // (full ISO) so the cross-screen ETA / departure cards
-            // refresh on next render. Dispatch a window event so any
-            // already-mounted PassageSummaryCard re-reads instantly
-            // without waiting for a remount.
+            // ── Sync the accepted window through the parent route scheduler.
+            // That one path uses the saved curve + vessel cruise speed for
+            // ETA; preserving a previously stored ETA duration is wrong after
+            // either the route or vessel profile has changed.
             const win = result?.windows?.[index];
             if (win?.time) {
                 const winDate = new Date(win.time);
                 if (!isNaN(winDate.getTime())) {
-                    // HH:MM in the device's local timezone — matches the
-                    // shape the <input type="time"> in PassageSummaryCard
-                    // produces, so the form's controlled value still
-                    // works after this write.
                     const hh = String(winDate.getHours()).padStart(2, '0');
                     const mm = String(winDate.getMinutes()).padStart(2, '0');
                     const hhmm = `${hh}:${mm}`;
-                    writeReadinessStorage('thalassa_passage_departure_time', voyageId, hhmm, operationScope);
+                    const newDepartureIso = winDate.toISOString();
+                    setEventDepartureIso(newDepartureIso);
+                    onDepartureTimeChange?.(newDepartureIso, null);
 
-                    // Update the active voyage's departure_time +
-                    // recompute ETA. Non-blocking — if the update fails
-                    // (offline, RLS issue), the localStorage write above
-                    // still gives the user something visible.
-                    if (voyageId) {
-                        import('../../services/VoyageService')
-                            .then(({ updateVoyage }) => {
-                                if (!isOperationCurrent()) return null;
-                                const newDepartureIso = winDate.toISOString();
-                                // Recompute ETA preserving the original
-                                // duration if we can derive it from the
-                                // active voyage's existing ETA window.
-                                const patch: { departure_time: string; eta?: string } = {
-                                    departure_time: newDepartureIso,
-                                };
-                                if (_activeVoyage?.departure_time && _activeVoyage?.eta) {
-                                    const oldDep = new Date(_activeVoyage.departure_time).getTime();
-                                    const oldEta = new Date(_activeVoyage.eta).getTime();
-                                    if (!isNaN(oldDep) && !isNaN(oldEta) && oldEta > oldDep) {
-                                        const durationMs = oldEta - oldDep;
-                                        patch.eta = new Date(winDate.getTime() + durationMs).toISOString();
-                                    }
-                                }
-                                return updateVoyage(voyageId, patch);
-                            })
-                            .catch((e) => {
-                                // Non-critical — UI still shows the
-                                // accepted window even if persistence
-                                // fails. Crew Management will reconcile
-                                // on next reload.
-                                console.warn('[WeatherWindowCard] voyage update failed:', e);
-                            });
-                    }
-
-                    // Notify any open PassageSummaryCard / banner / etc.
-                    // to re-read the new departure time.
+                    // Standalone use still broadcasts a live update; the
+                    // regular Passage Planning parent emits the same event
+                    // after it has derived and persisted the matching ETA.
                     try {
-                        if (isOperationCurrent()) {
+                        if (isOperationCurrent() && !onDepartureTimeChange) {
                             window.dispatchEvent(
                                 new CustomEvent('thalassa:departure-time-updated', {
-                                    detail: { voyageId, hhmm, iso: winDate.toISOString() },
+                                    detail: { voyageId, hhmm, iso: newDepartureIso },
                                 }),
                             );
                         }
@@ -318,7 +277,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                 }
             }
         },
-        [identityScope, voyageId, result, _activeVoyage, setAcceptedIndex, syncSingleCheck],
+        [identityScope, voyageId, result, onDepartureTimeChange, setAcceptedIndex, syncSingleCheck],
     );
 
     // Determine windows to show.

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 
 import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
-import { ShipLogService } from '../services/ShipLogService';
 import { triggerHaptic } from '../utils/system';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
@@ -1070,11 +1069,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         weather_summary: weatherSummary,
                         weather_data: state.weatherDataObj,
                         tags: [],
-                        // Stamp the recording voyage so entries can be grouped with
-                        // their passage on the public page. Publishing is still an
-                        // explicit, entry-level decision: hiding a track never hides
-                        // its published Diary entries.
-                        voyage_id: ShipLogService.getCurrentVoyageId(),
+                        // DiaryService resolves the active recording voyage at its
+                        // durable boundary. Omitting this field also covers a cold
+                        // launch where the Diary is open before Log hydrates.
                     });
                 } catch (error) {
                     if (operationIsCurrent()) {

@@ -39,6 +39,14 @@ export interface PiCacheStatus {
      * autoReconcileConfigIfNeeded().
      */
     supabaseConfigured?: boolean;
+    /** Stable, Pi-generated identity used to pair the durable diary relay. */
+    diaryRelayId?: string;
+    /** Whether this Pi currently has a scoped diary relay credential. */
+    diaryRelayConfigured?: boolean;
+    /** Account currently paired to the Pi diary relay; never a credential. */
+    diaryRelayOwnerId?: string;
+    /** Pi's currently persisted relay WAN gate, surfaced without secrets. */
+    diaryRelayAllowInternet?: boolean;
     cacheStats?: {
         kvEntries: number;
         tileEntries: number;
@@ -83,6 +91,9 @@ const DISCOVERY_HOSTS = [
 class PiCacheServiceImpl {
     private config: PiCacheConfig = { enabled: false, host: '', port: 3001 };
     private status: PiCacheStatus = { reachable: false, lastCheck: 0, latencyMs: 0 };
+    // Fail closed until the authenticated app has loaded the skipper's
+    // current policy and successfully reconciled it with a reachable Pi.
+    private diaryRelayAllowInternet = false;
     private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
     private retryBurstTimer: ReturnType<typeof setTimeout> | null = null;
     private discoveryListeners: Array<(status: PiCacheStatus) => void> = [];
@@ -315,6 +326,22 @@ class PiCacheServiceImpl {
         return this.config.enabled && this.status.reachable;
     }
 
+    /**
+     * Remember the skipper's desired Pi diary WAN policy even while the Pi is
+     * away. The next successful health check reconciles this value, closing
+     * the old hole where a satellite-mode change was silently lost until a
+     * later manual handoff.
+     */
+    async setDiaryRelayInternetPolicy(allowed: boolean): Promise<boolean> {
+        this.diaryRelayAllowInternet = allowed === true;
+        if (!this.isAvailable()) return false;
+        return this.pushConfig({
+            supabaseUrl: '',
+            supabaseAnonKey: '',
+            diaryRelayAllowInternet: this.diaryRelayAllowInternet,
+        });
+    }
+
     /** Base URL for the Pi Cache server. */
     get baseUrl(): string {
         return `http://${this.config.host}:${this.config.port}`;
@@ -501,7 +528,13 @@ class PiCacheServiceImpl {
             let data: {
                 status: string;
                 cache?: PiCacheStatus['cacheStats'];
-                config?: { supabaseConfigured?: boolean };
+                config?: {
+                    supabaseConfigured?: boolean;
+                    diaryRelayId?: string;
+                    diaryRelayConfigured?: boolean;
+                    diaryRelayOwnerId?: string;
+                    diaryRelayAllowInternet?: boolean;
+                };
             };
             try {
                 const res = await CapacitorHttp.get({
@@ -525,6 +558,10 @@ class PiCacheServiceImpl {
                 latencyMs: Date.now() - start,
                 cacheStats: data?.cache as PiCacheStatus['cacheStats'],
                 supabaseConfigured: data?.config?.supabaseConfigured,
+                diaryRelayId: data?.config?.diaryRelayId,
+                diaryRelayConfigured: data?.config?.diaryRelayConfigured,
+                diaryRelayOwnerId: data?.config?.diaryRelayOwnerId,
+                diaryRelayAllowInternet: data?.config?.diaryRelayAllowInternet,
             };
 
             // Notify if status changed
@@ -538,6 +575,9 @@ class PiCacheServiceImpl {
             // wind-grid / tide proxies work without a manual curl.
             this.autoReconcileConfigIfNeeded().catch(() => {
                 /* fire-and-forget — failures already logged inside */
+            });
+            this.reconcileDiaryRelayInternetPolicy().catch(() => {
+                /* Pi may disappear between status and policy push. */
             });
 
             this.resolveReady();
@@ -898,6 +938,17 @@ class PiCacheServiceImpl {
         }
     }
 
+    /** Reassert the in-memory policy only when the Pi reports a mismatch. */
+    private async reconcileDiaryRelayInternetPolicy(): Promise<void> {
+        if (!this.status.reachable || this.status.diaryRelayAllowInternet === this.diaryRelayAllowInternet) return;
+        const applied = await this.pushConfig({
+            supabaseUrl: '',
+            supabaseAnonKey: '',
+            diaryRelayAllowInternet: this.diaryRelayAllowInternet,
+        });
+        if (!applied) log.debug('Diary relay WAN policy reconciliation deferred');
+    }
+
     /**
      * Push Supabase credentials and pre-fetch location to the Pi.
      * Called once after discovery so the Pi can run pre-fetch jobs.
@@ -910,22 +961,41 @@ class PiCacheServiceImpl {
         prefetchLon?: number;
         prefetchRadius?: number;
         userId?: string;
+        /** Scoped, Pi-only credential for diary outbox forwarding. */
+        diaryRelayUrl?: string;
+        diaryRelayId?: string;
+        diaryRelayOwnerId?: string;
+        diaryRelayToken?: string;
+        /** False while the skipper has explicitly selected satellite mode. */
+        diaryRelayAllowInternet?: boolean;
     }): Promise<boolean> {
         if (!this.isAvailable()) return false;
 
         try {
             try {
-                await CapacitorHttp.post({
+                const response = await CapacitorHttp.post({
                     url: `${this.baseUrl}/api/configure`,
                     headers: { 'Content-Type': 'application/json' },
                     data: JSON.stringify(config),
                 });
+                // Capacitor resolves normal HTTP failures rather than always
+                // throwing them. Treat a rejected relay credential/policy as
+                // a real failure so the app does not falsely cache a Pi pair.
+                if (response.status < 200 || response.status >= 300) return false;
+                if (
+                    response.data &&
+                    typeof response.data === 'object' &&
+                    (response.data as { status?: unknown }).status === 'error'
+                ) {
+                    return false;
+                }
             } catch {
-                await fetch(`${this.baseUrl}/api/configure`, {
+                const response = await fetch(`${this.baseUrl}/api/configure`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config),
                 });
+                if (!response.ok) return false;
             }
             return true;
         } catch {

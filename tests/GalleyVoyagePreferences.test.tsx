@@ -145,6 +145,17 @@ describe('Galley voyage preferences', () => {
         await waitFor(() => expect(screen.getByText('✅ Provisioned')).toBeInTheDocument());
     });
 
+    it('reports provisioning changes to the Passage Planning roll-up', async () => {
+        const onProvisionedChange = vi.fn();
+        render(<GalleyCard passageStatus={passageStatus('voyage-1')} onProvisionedChange={onProvisionedChange} />);
+
+        await waitFor(() => expect(onProvisionedChange).toHaveBeenLastCalledWith(false));
+        fireEvent.click(screen.getByRole('button', { name: /Voyage Provisioning/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'All meals provisioned for this voyage' }));
+
+        await waitFor(() => expect(onProvisionedChange).toHaveBeenLastCalledWith(true));
+    });
+
     it('loads and persists crew planning independently for each voyage', async () => {
         const { rerender } = render(<GalleyCard passageStatus={passageStatus('voyage-1')} />);
         await openMealPlanner();

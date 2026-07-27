@@ -35,6 +35,7 @@ import {
     PASSAGE_ENHANCEMENT_START_EVENT,
     type PassageEnhancementToken,
 } from '../services/passageEnhancementEvents';
+import { departureOnLocalDate, derivePassageSummarySchedule } from '../services/passageSummarySchedule';
 
 /**
  * Voyage-plan session counter — MODULE-scoped on purpose.
@@ -307,8 +308,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
      *
      * Match strategy: trimCountrySuffix on the active plan's origin /
      * destination, look up the matching draft voyage by name, update
-     * its departure_time + recompute eta (preserving the original
-     * duration delta). Mirrors WeatherWindowCard.acceptWindow.
+     * its departure_time + recompute ETA from the saved route and vessel
+     * cruising speed. The old stored ETA cannot be used as a duration source:
+     * it may belong to a different route or an earlier vessel profile.
      *
      * Non-blocking — if the voyage update fails (no Supabase auth, no
      * matching voyage, network error), we still update the form
@@ -393,22 +395,24 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     return;
                 }
 
-                // Compute new departure_time as midnight UTC of the
-                // selected date. Preserve duration: if the existing
-                // voyage has a valid (departure_time, eta) pair, the
-                // new eta = new departure + (oldEta - oldDeparture).
-                const newDepartureIso = new Date(`${safeDate}T00:00:00Z`).toISOString();
-                const patch: { departure_time: string; eta?: string } = {
-                    departure_time: newDepartureIso,
-                };
-                if (match.departure_time && match.eta) {
-                    const oldDep = new Date(match.departure_time).getTime();
-                    const oldEta = new Date(match.eta).getTime();
-                    if (!isNaN(oldDep) && !isNaN(oldEta) && oldEta > oldDep) {
-                        const durationMs = oldEta - oldDep;
-                        patch.eta = new Date(new Date(newDepartureIso).getTime() + durationMs).toISOString();
-                    }
-                }
+                const newDepartureIso = departureOnLocalDate(safeDate, match.departure_time, new Date());
+                if (!newDepartureIso) return;
+                const savedCoordinates = voyagePlan?.routeGeoJSON?.geometry.coordinates ?? [];
+                const routeCoordinates = savedCoordinates
+                    .filter(
+                        (coordinate): coordinate is [number, number] =>
+                            Array.isArray(coordinate) &&
+                            coordinate.length >= 2 &&
+                            Number.isFinite(coordinate[0]) &&
+                            Number.isFinite(coordinate[1]),
+                    )
+                    .map(([lon, lat]) => ({ lat, lon }));
+                const schedule = derivePassageSummarySchedule({
+                    routeCoordinates,
+                    departureTime: newDepartureIso,
+                    cruisingSpeedKt: vessel.cruisingSpeed,
+                });
+                const patch = { departure_time: schedule.departureTime, eta: schedule.eta };
                 if (!operationIsCurrent()) return;
                 await updateVoyage(match.id, patch);
                 if (!operationIsCurrent()) return;
@@ -432,7 +436,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                             detail: {
                                 voyageId: match.id,
                                 hhmm: '00:00',
-                                iso: newDepartureIso,
+                                iso: schedule.departureTime,
                                 scopeKey: operationScope.key,
                                 generation: operationScope.generation,
                             },
@@ -449,7 +453,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 console.warn('[useVoyageForm] handleDateChange voyage sync failed:', e);
             }
         },
-        [voyagePlan, saveVoyagePlan, origin, destination, identityScope, setDepartureDate],
+        [voyagePlan, saveVoyagePlan, origin, destination, identityScope, setDepartureDate, vessel.cruisingSpeed],
     );
 
     // Loading Animation Loop

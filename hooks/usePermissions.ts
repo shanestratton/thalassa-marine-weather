@@ -237,13 +237,13 @@ export function usePermissions(): PermissionsState {
                 // previous account or another locally cached vessel.
                 const { data: vessel, error: vesselError } = await supabase
                     .from('vessel_identity')
-                    .select('user_id')
-                    .eq('user_id', currentUserId)
+                    .select('owner_id')
+                    .eq('owner_id', currentUserId)
                     .limit(1)
                     .maybeSingle();
                 if (vesselError || cancelled) return;
 
-                if ((vessel as { user_id?: string } | null)?.user_id === currentUserId) {
+                if ((vessel as { owner_id?: string } | null)?.owner_id === currentUserId) {
                     commit(SKIPPER_PERMISSIONS);
                     return;
                 }

@@ -301,15 +301,50 @@ describe('passage readiness identity and voyage isolation', () => {
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
     });
 
-    it('replaces stale assignments when the skipper changes the watch system', async () => {
+    it('keeps the watch selector usable when a saved multi-crew choice becomes incompatible', async () => {
+        const scope = getAuthIdentityScope();
+        localStorage.setItem(
+            readinessStorageKey('thalassa_watch_system', 'solo-voyage', scope),
+            JSON.stringify('swedish'),
+        );
+
+        render(<WatchScheduleCard voyageId="solo-voyage" crewCount={1} />);
+
+        const selector = screen.getByRole('combobox', { name: 'Watch system' });
+        // A disabled selected <option> can make the native iOS picker refuse
+        // to open. The current compatible value must always be selectable.
+        expect(selector).toHaveValue('auto');
+        expect(selector).toBeEnabled();
+
+        fireEvent.change(selector, { target: { value: 'single_handed' } });
+
+        await waitFor(() => expect(selector).toHaveValue('single_handed'));
+        expect(screen.getByText('Single-handed watch plan')).toBeInTheDocument();
+    });
+
+    it('lets the skipper select an eligible watch system and keeps the selector usable afterwards', async () => {
         render(<WatchScheduleCard voyageId="voyage-1" crewCount={2} />);
         await screen.findByText('Swedish two-watch system');
 
-        fireEvent.change(screen.getByRole('combobox', { name: 'Watch system' }), {
+        const selector = screen.getByRole('combobox', { name: 'Watch system' });
+        const fourOnFourOption = screen.getByRole('option', { name: 'Two-watch · 4 on / 4 off' });
+        expect(selector).toBeEnabled();
+        expect(fourOnFourOption).toBeEnabled();
+
+        fireEvent.change(selector, {
             target: { value: 'two_watch_4_4' },
         });
 
         await waitFor(() => expect(watchMocks.clearAll).toHaveBeenCalledWith('voyage-1'));
+        await waitFor(() => expect(selector).toHaveValue('two_watch_4_4'));
         expect(screen.getByText('Two-watch system')).toBeInTheDocument();
+        expect(selector).toBeEnabled();
+
+        // A successful change must not leave the control locked. This makes
+        // the native picker usable for more than one choice on iOS as well.
+        fireEvent.change(selector, { target: { value: 'swedish' } });
+        await waitFor(() => expect(selector).toHaveValue('swedish'));
+        expect(screen.getByText('Swedish two-watch system')).toBeInTheDocument();
+        expect(watchMocks.clearAll).toHaveBeenCalledTimes(2);
     });
 });

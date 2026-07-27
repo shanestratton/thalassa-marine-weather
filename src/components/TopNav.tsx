@@ -5,6 +5,9 @@ interface TopNavProps {
     vessel: VoyageLogData['vessel'];
     telemetry: VoyageLogTelemetry | null;
     entryCount: number;
+    /** Replaces the live-status chip while browsing historical material or
+     *  the unassigned all-diary view. */
+    viewStatus?: string;
 }
 
 const VESSEL_TYPE_LABEL: Record<string, string> = {
@@ -27,7 +30,7 @@ function agoLabel(iso: string): string {
     return `${Math.floor(hours / 24)} d ago`;
 }
 
-export default function TopNav({ vessel, telemetry, entryCount }: TopNavProps) {
+export default function TopNav({ vessel, telemetry, entryCount, viewStatus }: TopNavProps) {
     const specs = [VESSEL_TYPE_LABEL[vessel.type] ?? 'Vessel', vessel.model].filter(Boolean).join(' · ');
 
     return (
@@ -73,7 +76,12 @@ export default function TopNav({ vessel, telemetry, entryCount }: TopNavProps) {
                     worse than the blank it replaced: a viewer could plan around it.
                     Under way pulses and says how fresh; moored is grey, still, and
                     says when it was last seen. */}
-                {telemetry ? (
+                {viewStatus ? (
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                        {viewStatus}
+                    </span>
+                ) : telemetry ? (
                     telemetry.is_last_known ? (
                         <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                             <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />

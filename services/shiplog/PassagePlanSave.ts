@@ -173,6 +173,35 @@ function allocatePassageIdentifiers(
 }
 
 /**
+ * Freeze the boat choice before the plan performs any slow route lookup or
+ * remote write.  A planned passage is operational data, not just geometry:
+ * its weather limits, ETA and later track must remain attached to the yacht
+ * selected when Save was pressed, even if the skipper changes the fleet
+ * default before an offline batch eventually uploads.
+ */
+async function resolveBoundPlanningBoatId(scope: AuthIdentityScope): Promise<string | undefined> {
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return undefined;
+    try {
+        // Deliberately dynamic: ShipLogService imports this module for its
+        // legacy public save wrapper. At invocation time that module is fully
+        // initialised, and its resolver gives a live track's cast-off boat
+        // precedence over the mutable fleet selection.
+        const { ShipLogService } = await import('../ShipLogService');
+        if (!isAuthIdentityScopeCurrent(scope)) return undefined;
+        const boatId = await ShipLogService.resolveActiveBoatId();
+        return isAuthIdentityScopeCurrent(scope) && typeof boatId === 'string' && boatId.trim()
+            ? boatId.trim()
+            : undefined;
+    } catch (error) {
+        // Preserve the existing offline-first plan save for pre-fleet/cold
+        // launches. The database will retain NULL rather than inventing a
+        // foreign vessel; a hydrated fleet supplies the explicit binding.
+        log.warn('savePassagePlan: could not capture active vessel:', error);
+        return undefined;
+    }
+}
+
+/**
  * Queue a planned route as one logical batch. Individual appends are durable,
  * so a later failure is compensated with a voyage tombstone before failure is
  * reported. The tombstone is owner-scoped and prevents both partial replay and
@@ -230,6 +259,8 @@ export async function savePassagePlanToLogbookWithLinks(
             ? structuredClone(inputPlan)
             : (JSON.parse(JSON.stringify(inputPlan)) as import('../../types').VoyagePlan);
     try {
+        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+        const boundBoatId = await resolveBoundPlanningBoatId(operationScope);
         if (!isAuthIdentityScopeCurrent(operationScope)) return null;
         // Diagnostic: log exactly what origin/destination are at save
         // time. If the saved logbook entry comes out as "Queensland →
@@ -397,6 +428,7 @@ export async function savePassagePlanToLogbookWithLinks(
                 notes: firstNote,
                 isOnWater: true,
                 createdAt: now,
+                ...(boundBoatId ? { boatId: boundBoatId } : {}),
                 ...(savedRouteId ? { savedRouteId } : {}),
             });
         }
@@ -442,6 +474,7 @@ export async function savePassagePlanToLogbookWithLinks(
                             crew_count: 1,
                             departure_time: departureTimeIso,
                             eta: etaIso,
+                            ...(boundBoatId ? { boat_id: boundBoatId } : {}),
                             ...(savedRouteId ? { saved_route_id: savedRouteId } : {}),
                         });
                         if (!isAuthIdentityScopeCurrent(operationScope)) return null;

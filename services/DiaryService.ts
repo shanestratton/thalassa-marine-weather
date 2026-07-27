@@ -13,6 +13,8 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { Capacitor } from '@capacitor/core';
+import { BackgroundFetch } from '@transistorsoft/capacitor-background-fetch';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -22,6 +24,18 @@ import {
 } from './authIdentityScope';
 import { supabase } from './supabase';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
+import {
+    cancelDiaryDirect,
+    cancelDiaryOnPi,
+    canAttemptDiaryCloudDelivery,
+    handoffDiaryToPi,
+    submitDiaryDirect,
+    syncPiDiaryRelayInternetPolicy,
+    type DiaryRelayEnvelope,
+} from './DiaryRelayTransport';
+import { onConnectionChange } from './ConnectionPriorityService';
+import { VoyageLogService } from './VoyageLogService';
+import { ShipLogService } from './ShipLogService';
 import {
     savePhoto as idbSavePhoto,
     loadPhoto as idbLoadPhoto,
@@ -62,10 +76,28 @@ export interface DiaryEntry {
     weather_summary: string;
     weather_data?: DiaryWeatherData | null; // Structured weather at pin
     voyage_id: string | null;
+    /**
+     * Immutable `boats.id` selected when this note was created. It keeps a
+     * delivery skipper's journal on the right vessel even after switching
+     * their default fleet profile.
+     */
+    boat_id?: string | null;
     tags: string[];
     is_public: boolean; // Published to the public Voyage Log API
     created_at: string;
     updated_at: string;
+    /**
+     * Stable logical write id. It converges the direct-device and Pi-relay
+     * paths on one Supabase row, and is never displayed to a punter.
+     */
+    client_operation_id?: string | null;
+    /** Monotonic local revision used to reject late Pi snapshots. */
+    client_revision?: number | null;
+    /**
+     * Device-only public-publish intent for an entry that has not reached
+     * Supabase yet. `is_public` remains false in the UI until confirmation.
+     */
+    publish_requested?: boolean;
     /**
      * Immutable local queue/cache owner. Never sent to diary_entries; it
      * prevents one signed-in account from adopting another account's work.
@@ -107,15 +139,21 @@ const VOICE_AI_REQUEST_TIMEOUT_MS = 20_000;
 // not expose an AbortSignal for multipart uploads. A timed-out request may
 // still settle in the background, so _uploadAudioBlob cleans a late object.
 const AUDIO_UPLOAD_TIMEOUT_MS = 20_000;
-// Tombstones older than this are abandoned — long enough for any realistic
-// offline stretch, short enough that a failed server delete can't haunt the
-// store forever.
-const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// A delete is a safety fence, not a best-effort cache hint. It remains until
+// the authoritative cloud cancellation/delete succeeds; time-based expiry
+// would let a long-offshore Pi retry resurrect a diary the skipper removed.
 // After a tombstone drains, keep filtering its id from reads for a grace
 // window: a server refresh that was already in flight when the drain landed
 // carries a pre-delete payload, and the tombstone that would have filtered
 // it is gone by the time that payload is merged.
 const RECENT_DRAIN_GRACE_MS = 5 * 60 * 1000;
+
+function newDiaryOperationId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `diary_${crypto.randomUUID().replace(/-/g, '')}`;
+    }
+    return `diary_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+}
 
 const fetchVoiceAiWithDeadline = async (url: string, init: RequestInit): Promise<Response> => {
     const controller = new AbortController();
@@ -175,6 +213,8 @@ export const diaryAudioFileExtension = (mimeType?: string | null): string => {
  */
 interface DiaryTombstone {
     id: string;
+    /** Stable operation id, if this row may also exist in the Pi outbox. */
+    client_operation_id?: string | null;
     photos: string[];
     audio?: string | null;
     deletedAt: number;
@@ -220,6 +260,7 @@ class DiaryServiceClass {
     // Same cache for voice memos stored in IndexedDB while an entry waits to sync.
     private _idbAudioRefToBlobUrl = new Map<string, string>();
     private _signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+    private _backgroundRetryConfigured = false;
 
     constructor() {
         subscribeAuthIdentityScope(() => {
@@ -238,14 +279,25 @@ class DiaryServiceClass {
         });
         // Auto-sync when connectivity resumes
         if (typeof window !== 'undefined') {
+            // The Pi has its own retry worker, so propagate the phone's
+            // satellite policy as soon as the connection classifier changes
+            // rather than waiting for a new diary entry to be written. This
+            // is intentionally a policy update, not an assertion that the
+            // phone itself has a usable internet route.
+            onConnectionChange(() => {
+                void syncPiDiaryRelayInternetPolicy();
+                this._retryPendingVoyageLogEnablement();
+            });
             window.addEventListener('online', () => {
                 this.syncPending();
                 this.drainDeletedTombstones();
+                this._retryPendingVoyageLogEnablement();
             });
             // Attempt sync on init
             setTimeout(() => {
                 this.syncPending();
                 this.drainDeletedTombstones();
+                this._retryPendingVoyageLogEnablement();
             }, 5000);
             // Periodic retry every 30s — catches stuck pending entries and
             // undrained deletes (navigator.onLine is unreliable on iOS/Capacitor).
@@ -261,8 +313,56 @@ class DiaryServiceClass {
                     this.syncPending();
                 }
                 if (this._getTombstones().length > 0) this.drainDeletedTombstones();
+                this._retryPendingVoyageLogEnablement();
             }, 30_000);
         }
+        this._configureBackgroundRetry();
+    }
+
+    /**
+     * iOS suspends browser timers in the background, so the foreground 30s
+     * poll alone cannot meet the offline-outbox promise. The installed native
+     * fetch plugin gives the OS a bounded (best-effort) wake-up to drain diary
+     * creates, deletions, and public-log setup. iOS still controls cadence and
+     * will not relaunch a user-terminated app; the durable queues remain the
+     * source of truth for its next foreground launch.
+     */
+    private _configureBackgroundRetry(): void {
+        if (this._backgroundRetryConfigured || !Capacitor.isNativePlatform()) return;
+        this._backgroundRetryConfigured = true;
+        void BackgroundFetch.configure(
+            { minimumFetchInterval: 15 },
+            async (taskId) => {
+                try {
+                    await this.syncPending();
+                    await this.drainDeletedTombstones();
+                    this._retryPendingVoyageLogEnablement();
+                } catch (error) {
+                    log.warn('Background diary retry failed:', error);
+                } finally {
+                    void BackgroundFetch.finish(taskId);
+                }
+            },
+            async (taskId) => {
+                // The OS withdrew the background budget. Finish immediately;
+                // all work remains in the durable device/Pi outboxes.
+                void BackgroundFetch.finish(taskId);
+            },
+        ).catch((error) => {
+            this._backgroundRetryConfigured = false;
+            log.warn('Background diary retry is unavailable:', error);
+        });
+    }
+
+    /**
+     * A first public Diary entry may reach Supabase through the Pi before the
+     * phone can create its Voyage Log config. Retry that separate durable
+     * setup intent alongside the diary outbox so the public page eventually
+     * becomes reachable instead of leaving a correctly public row invisible.
+     */
+    private _retryPendingVoyageLogEnablement(): void {
+        if (!canAttemptDiaryCloudDelivery()) return;
+        void VoyageLogService.ensurePendingEnabled();
     }
 
     // ── Read ───────────────────────────────────────────────────
@@ -356,13 +456,39 @@ class DiaryServiceClass {
         weather_summary?: string;
         weather_data?: DiaryWeatherData | null;
         voyage_id?: string | null;
+        /** Internal/import compatibility: normal composer calls omit this and use the active vessel. */
+        boat_id?: string | null;
         tags?: string[];
         is_public?: boolean;
     }): Promise<DiaryEntry> {
         const scope = getAuthIdentityScope();
         const now = new Date().toISOString();
+        // A caller can deliberately supply `voyage_id: null` for an
+        // unassigned journal note. When it omits the field, inherit the
+        // active recording voyage here — at the durable service boundary —
+        // so every compose surface (including a cold launch before Log has
+        // hydrated) behaves consistently.
+        // `undefined` is the normal shape of an optional prop passed through a
+        // compose form; only an actual id or explicit null opts out of the
+        // automatic active-voyage association.
+        const voyageWasExplicitlySet =
+            Object.prototype.hasOwnProperty.call(entry, 'voyage_id') && entry.voyage_id !== undefined;
+        const activeVoyageId = voyageWasExplicitlySet ? undefined : await ShipLogService.resolveActiveVoyageId();
+        // Bind a diary note to the vessel at creation time. During a live
+        // track this is the immutable boat selected at cast-off; when no
+        // voyage is active it is the skipper's currently selected fleet
+        // vessel. An explicitly supplied null remains a legitimate legacy /
+        // unassigned note.
+        const boatWasExplicitlySet =
+            Object.prototype.hasOwnProperty.call(entry, 'boat_id') && entry.boat_id !== undefined;
+        const activeBoatId = boatWasExplicitlySet ? undefined : await ShipLogService.resolveActiveBoatId();
+        if (!isAuthIdentityScopeCurrent(scope)) {
+            throw new Error('Authentication changed while preparing the diary entry');
+        }
         const localEntry: DiaryEntry = {
             id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            client_operation_id: newDiaryOperationId(),
+            client_revision: 1,
             user_id: scope.userId ?? 'local',
             title: entry.title,
             body: entry.body,
@@ -374,9 +500,14 @@ class DiaryServiceClass {
             location_name: entry.location_name || '',
             weather_summary: entry.weather_summary || '',
             weather_data: entry.weather_data ?? null,
-            voyage_id: entry.voyage_id ?? null,
+            voyage_id: voyageWasExplicitlySet ? (entry.voyage_id ?? null) : (activeVoyageId ?? null),
+            boat_id: boatWasExplicitlySet ? (entry.boat_id ?? null) : (activeBoatId ?? null),
             tags: entry.tags || [],
-            is_public: entry.is_public ?? false,
+            // A local row must never look public before the server confirms
+            // it. Preserve an explicit caller request separately so it still
+            // survives an offline save and reaches the Pi/direct outbox.
+            is_public: false,
+            publish_requested: entry.is_public === true ? true : undefined,
             created_at: now,
             updated_at: now,
             owner_user_id: scope.userId,
@@ -393,11 +524,12 @@ class DiaryServiceClass {
         try {
             await this._addPending(localEntry, scope);
         } catch (e) {
-            if (!isAuthIdentityScopeCurrent(scope)) throw e;
             log.error('Failed to persist diary entry to pending queue:', e);
-            // Don't throw — the entry is still in React state for the user to
-            // see and retry. But flag it as offline so the UI shows a warning.
-            return { ...localEntry, _offline: true };
+            // A false success here is worse than an error: the compose sheet
+            // would close even though no recoverable copy exists after a
+            // restart. DiaryPage keeps the skipper's text in the editor when
+            // this rejects, so it can be retried or copied safely.
+            throw e;
         }
 
         // Fire sync in the background — don't block the UI on it.
@@ -440,9 +572,33 @@ class DiaryServiceClass {
             const pending = this._getPendingEntries(scope);
             const idx = pending.findIndex((e) => e.id === id);
             if (idx >= 0) {
-                Object.assign(pending[idx], updates, { updated_at: new Date().toISOString() });
-                this._savePending(pending, scope);
-                return { ok: true, audioUrl: updates.audio_url };
+                const current = pending[idx];
+                const currentRevision =
+                    typeof current.client_revision === 'number' &&
+                    Number.isSafeInteger(current.client_revision) &&
+                    current.client_revision >= 1
+                        ? current.client_revision
+                        : 1;
+                const requestedPublic =
+                    updates.is_public === undefined
+                        ? current.publish_requested
+                        : updates.is_public === true
+                          ? true
+                          : undefined;
+                pending[idx] = {
+                    ...current,
+                    ...updates,
+                    // Offline display never claims a public post before the
+                    // canonical server revision has confirmed it.
+                    is_public: false,
+                    publish_requested: requestedPublic,
+                    client_revision: currentRevision + 1,
+                    updated_at: new Date().toISOString(),
+                };
+                return {
+                    ok: this._savePending(pending, scope),
+                    audioUrl: updates.audio_url,
+                };
             }
             // Not in the pending queue — it likely synced already. Resolve the
             // offline id to the real server id so the Supabase update below hits.
@@ -504,20 +660,27 @@ class DiaryServiceClass {
     async setEntryPublished(id: string, isPublic: boolean): Promise<boolean> {
         const scope = getAuthIdentityScope();
         if (id.startsWith('offline-')) {
-            // Public visibility is server-confirmed only. Do not queue an
-            // optimistic `is_public: true`: a failed/offline publish must
-            // remain private rather than later becoming public without the
-            // skipper seeing a successful confirmation. We first sync the
-            // draft as private, then update its mapped server row below.
+            // Public visibility is still server-confirmed in the UI, but an
+            // explicit skipper choice must not disappear merely because the
+            // device is offshore. Persist the *intent* in the durable device
+            // outbox; the actual `is_public` flag remains false until the Pi
+            // or direct path returns a real Supabase row.
             const pending = this._getPendingEntries(scope);
             const idx = pending.findIndex((e) => e.id === id);
-            if (idx >= 0 && !isPublic) {
+            if (idx >= 0) {
                 pending[idx] = {
                     ...pending[idx],
                     is_public: false,
+                    publish_requested: isPublic ? true : undefined,
+                    client_revision:
+                        typeof pending[idx].client_revision === 'number' &&
+                        Number.isSafeInteger(pending[idx].client_revision) &&
+                        pending[idx].client_revision >= 1
+                            ? pending[idx].client_revision + 1
+                            : 2,
                     updated_at: new Date().toISOString(),
                 };
-                this._savePending(pending, scope);
+                if (!this._savePending(pending, scope)) return false;
             }
             // Push it to the server now — awaits any in-flight sync too.
             await this.syncPending();
@@ -529,11 +692,16 @@ class DiaryServiceClass {
             // expired, via the durable offline→server id mapping.
             const synced = this._recentlySynced.find((r) => r.offlineId === id && r.entry.user_id === scope.userId);
             const serverId = synced?.entry.id ?? this.resolveServerId(id);
+            // The new relay/direct upsert carries the explicit intent in its
+            // first write. Do not issue a redundant UPDATE (and do not create
+            // an avoidable offline race) when that returned row already
+            // proves the requested state.
+            if (synced?.entry.is_public === isPublic) return true;
             if (serverId) return this._setPublishedOnServer(serverId, isPublic, scope);
 
-            // Still pending/offline (or the remote insert could not be proven).
-            // It remains private; the skipper can retry publication once the
-            // entry has landed online.
+            // Still pending/offline. The public intent is now durable and the
+            // periodic device/Pi retry will honour it; keep the visual state
+            // private until a server row is proven.
             return false;
         }
         return this._setPublishedOnServer(id, isPublic, scope);
@@ -628,7 +796,8 @@ class DiaryServiceClass {
             // snapshotted the queue BEFORE the filter above, in which case it
             // will still insert this entry. The post-insert tombstone check in
             // syncPending catches that and deletes the fresh server row.
-            this._addTombstone(id, [], null, scope);
+            this._addTombstone(id, [], null, scope, entry?.client_operation_id);
+            if (entry?.client_operation_id) void cancelDiaryOnPi(entry.client_operation_id);
 
             // Already synced? Then the pending filter was a no-op and the entry
             // lives on the server under a real id — commit a delete for that too.
@@ -640,6 +809,7 @@ class DiaryServiceClass {
                     synced.entry.photos ?? [],
                     synced.entry.audio_url,
                     scope,
+                    synced.entry.client_operation_id,
                 );
             }
             // Synced longer ago (the 120s buffer purged, or the app relaunched):
@@ -647,7 +817,13 @@ class DiaryServiceClass {
             const mappedId = this.resolveServerId(id);
             if (mappedId) {
                 const twin = this._getCachedEntries(scope).find((e) => e.id === mappedId) ?? null;
-                return this._commitLocalDelete(mappedId, twin?.photos ?? [], twin?.audio_url, scope);
+                return this._commitLocalDelete(
+                    mappedId,
+                    twin?.photos ?? [],
+                    twin?.audio_url,
+                    scope,
+                    twin?.client_operation_id,
+                );
             }
             return true;
         }
@@ -658,7 +834,7 @@ class DiaryServiceClass {
             this._getCachedEntries(scope).find((e) => e.id === id) ??
             this._recentlySynced.find((r) => r.entry.id === id)?.entry ??
             null;
-        return this._commitLocalDelete(id, local?.photos ?? [], local?.audio_url, scope);
+        return this._commitLocalDelete(id, local?.photos ?? [], local?.audio_url, scope, local?.client_operation_id);
     }
 
     /** Tombstone + scrub local caches, then push to the server best-effort. */
@@ -667,8 +843,10 @@ class DiaryServiceClass {
         photos: string[],
         audio: string | null | undefined,
         scope: AuthIdentityScope,
+        clientOperationId?: string | null,
     ): boolean {
-        this._addTombstone(id, photos, audio, scope);
+        this._addTombstone(id, photos, audio, scope, clientOperationId);
+        if (clientOperationId) void cancelDiaryOnPi(clientOperationId);
         this._saveCachedEntries(
             this._getCachedEntries(scope).filter((e) => e.id !== id),
             scope,
@@ -697,6 +875,14 @@ class DiaryServiceClass {
 
     private async _runDrainDeletedTombstones(scope: AuthIdentityScope): Promise<void> {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+        // Never spend satellite data on a deferred diary delete. The Pi has
+        // its own durable cancellation queue; direct cleanup resumes only on
+        // a verified ordinary Supabase path.
+        // A REST HEAD probe can be blocked by Capacitor/iOS even while the
+        // authenticated Edge Function is reachable. Use the strict
+        // non-satellite policy as the gate and let the actual cancellation
+        // response decide whether this drain should retry.
+        if (!canAttemptDiaryCloudDelivery() || !isAuthIdentityScopeCurrent(scope)) return;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return;
         const tombs = this._getTombstones(scope);
@@ -704,11 +890,17 @@ class DiaryServiceClass {
         let drained = 0;
         for (const tombstone of tombs) {
             if (!isAuthIdentityScopeCurrent(scope) || tombstone.owner_user_id !== scope.userId) return;
-            // offline- tombstones never reached the server under that id;
-            // their only job is the mid-flight check in syncPending. They
-            // expire via TTL.
-            if (tombstone.id.startsWith('offline-')) continue;
-            const ok = await this._deleteOnServer(tombstone.id, tombstone.photos, tombstone.audio, scope);
+            // Legacy offline drafts have no stable operation id and therefore
+            // could never have reached a Pi relay. Retain their local fence
+            // rather than guessing at a cloud row to delete.
+            if (tombstone.id.startsWith('offline-') && !tombstone.client_operation_id) continue;
+            const ok = await this._deleteOnServer(
+                tombstone.id,
+                tombstone.photos,
+                tombstone.audio,
+                tombstone.client_operation_id,
+                scope,
+            );
             if (!isAuthIdentityScopeCurrent(scope)) return;
             if (ok) {
                 this._removeTombstone(tombstone.id, scope);
@@ -726,24 +918,43 @@ class DiaryServiceClass {
         id: string,
         photos: string[],
         audio: string | null | undefined,
+        clientOperationId: string | null | undefined,
         scope: AuthIdentityScope,
     ): Promise<boolean> {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
         try {
+            let operationId = clientOperationId;
             let photoUrls = photos;
             let audioUrl = audio ?? null;
-            if (photoUrls.length === 0 && !audioUrl) {
-                // Delete committed without a local snapshot — ask the server
-                // BEFORE the row goes, so bucket objects don't orphan.
-                const { data } = await supabase.from(TABLE).select('photos, audio_url').eq('id', id).maybeSingle();
+            // A cold local cache can lack the operation id even though an old
+            // Pi still holds the corresponding create. Learn it from the
+            // authoritative row before deleting so this otherwise ordinary
+            // delete still lays down the anti-resurrection tombstone.
+            if (!operationId || (photoUrls.length === 0 && !audioUrl)) {
+                const { data } = await supabase
+                    .from(TABLE)
+                    .select('photos, audio_url, client_operation_id')
+                    .eq('id', id)
+                    .maybeSingle();
                 if (!isAuthIdentityScopeCurrent(scope)) return false;
-                photoUrls = (data?.photos as string[] | null) ?? [];
-                audioUrl = (data?.audio_url as string | null) ?? null;
+                photoUrls = photoUrls.length > 0 ? photoUrls : ((data?.photos as string[] | null) ?? []);
+                audioUrl = audioUrl ?? (data?.audio_url as string | null) ?? null;
+                const fetchedOperationId = data?.client_operation_id;
+                if (
+                    !operationId &&
+                    typeof fetchedOperationId === 'string' &&
+                    /^[A-Za-z0-9_-]{1,128}$/.test(fetchedOperationId)
+                ) {
+                    operationId = fetchedOperationId;
+                }
             }
+            // The cloud tombstone is the authoritative cancellation. It must
+            // land before a delayed Pi create can ever be allowed to arrive.
+            if (operationId && !(await cancelDiaryDirect(operationId))) return false;
+            if (!isAuthIdentityScopeCurrent(scope)) return false;
             // Row FIRST: if this fails, nothing has been destroyed and the
             // whole tombstone retries. (Storage-first + a persistently-failing
-            // row delete + TTL expiry would resurrect the entry with dead
-            // photo URLs.)
+            // row delete would resurrect the entry with dead photo URLs.)
             // .select('id') so an RLS-BLOCKED delete is detectable: Supabase
             // returns NO error and zero rows when the policy filters the row
             // out — counting that as success dropped the tombstone and the
@@ -797,7 +1008,7 @@ class DiaryServiceClass {
         if (!isAuthIdentityScopeCurrent(scope)) return null;
 
         // Try direct upload if connectivity looks viable.
-        if (supabase && navigator.onLine && scope.userId) {
+        if (supabase && canAttemptDiaryCloudDelivery() && scope.userId) {
             const url = await this._uploadPhotoToStorage(file, scope);
             if (url && isAuthIdentityScopeCurrent(scope)) {
                 this._registerMediaRef(url, scope);
@@ -913,7 +1124,8 @@ class DiaryServiceClass {
     }
 
     private async _uploadPhotoToStorage(file: File, scope: AuthIdentityScope): Promise<string | null> {
-        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
+            return null;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
@@ -948,7 +1160,8 @@ class DiaryServiceClass {
     }
 
     private async _uploadDataUri(dataUri: string, scope: AuthIdentityScope): Promise<string | null> {
-        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
+            return null;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
@@ -965,7 +1178,8 @@ class DiaryServiceClass {
     }
 
     private async _uploadBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
-        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
+            return null;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
@@ -1005,59 +1219,195 @@ class DiaryServiceClass {
         }
     }
 
+    /**
+     * Give pre-relay offline drafts a stable id without changing their UI id.
+     * Always merge into the *current* queue row: a background sync can hold a
+     * stale snapshot while the skipper is still editing the compose sheet.
+     */
+    private _ensureClientOperationId(entry: DiaryEntry, scope: AuthIdentityScope): DiaryEntry | null {
+        const pending = this._getPendingEntries(scope);
+        const index = pending.findIndex((candidate) => candidate.id === entry.id);
+        // A delete or a competing completion won while this sync awaited a
+        // network/Pi step. Never recreate its stale snapshot in the queue.
+        if (index < 0) return null;
+
+        const latest = pending[index];
+        const current = latest.client_operation_id;
+        const operationId =
+            typeof current === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(current) ? current : newDiaryOperationId();
+        const revision =
+            typeof latest.client_revision === 'number' &&
+            Number.isSafeInteger(latest.client_revision) &&
+            latest.client_revision >= 1
+                ? latest.client_revision
+                : 1;
+        if (operationId === current && revision === latest.client_revision) return latest;
+        const next = { ...latest, client_operation_id: operationId, client_revision: revision };
+        pending[index] = next;
+        return this._savePending(pending, scope) ? next : null;
+    }
+
+    private _relayEnvelope(entry: DiaryEntry, photos = entry.photos, audioUrl = entry.audio_url): DiaryRelayEnvelope {
+        return {
+            client_operation_id: entry.client_operation_id || newDiaryOperationId(),
+            client_revision:
+                typeof entry.client_revision === 'number' &&
+                Number.isSafeInteger(entry.client_revision) &&
+                entry.client_revision >= 1
+                    ? entry.client_revision
+                    : 1,
+            title: entry.title,
+            body: entry.body,
+            mood: entry.mood,
+            photos,
+            audio_url: audioUrl,
+            latitude: entry.latitude,
+            longitude: entry.longitude,
+            location_name: entry.location_name,
+            weather_summary: entry.weather_summary,
+            weather_data: entry.weather_data ?? null,
+            voyage_id: entry.voyage_id,
+            boat_id: entry.boat_id ?? null,
+            tags: entry.tags,
+            // `publish_requested` is a device-only intent. It becomes the
+            // real public flag only at the authenticated/relay boundary.
+            is_public: entry.publish_requested === true || entry.is_public === true,
+            created_at: entry.created_at,
+        };
+    }
+
+    /**
+     * The Pi relay stores JSON, not the phone's IndexedDB/blob bytes. Never
+     * let it acknowledge an early envelope that points at phone-only media:
+     * the device keeps that draft until it can upload the media, then hands
+     * the Pi the finished storage references as one safe envelope.
+     */
+    private _hasPhoneOnlyRelayMedia(entry: DiaryEntry): boolean {
+        const isPhoneOnly = (value: string | null | undefined) =>
+            Boolean(value) &&
+            (isIdbPhoto(value!) || isIdbAudio(value!) || value!.startsWith('blob:') || value!.startsWith('data:'));
+        return entry.photos.some((photo) => isPhoneOnly(photo)) || isPhoneOnly(entry.audio_url);
+    }
+
+    /**
+     * Atomically retire a device draft only after a verified Supabase row has
+     * been returned by either the direct client or the Pi relay.
+     */
+    private _completePendingWithServer(entry: DiaryEntry, value: unknown, scope: AuthIdentityScope): boolean {
+        if (!scope.userId || !value || typeof value !== 'object') return false;
+        const data = value as DiaryEntry;
+        if (typeof data.id !== 'string' || !data.id || data.user_id !== scope.userId) return false;
+        const pending = this._getPendingEntries(scope);
+        const latest = pending.find((candidate) => candidate.id === entry.id);
+        // The row can disappear while a Pi/direct request is in flight (for
+        // example after Delete). Its stale success response must not rebuild
+        // mappings or alter the tombstone that won locally.
+        if (!latest) return false;
+        const expectedOperationId = latest.client_operation_id;
+        if (
+            typeof expectedOperationId !== 'string' ||
+            !/^[A-Za-z0-9_-]{1,128}$/.test(expectedOperationId) ||
+            data.client_operation_id !== expectedOperationId
+        ) {
+            return false;
+        }
+        const localRevision =
+            typeof latest.client_revision === 'number' && Number.isSafeInteger(latest.client_revision)
+                ? latest.client_revision
+                : 1;
+        const canonicalRevision =
+            typeof data.client_revision === 'number' && Number.isSafeInteger(data.client_revision)
+                ? data.client_revision
+                : 1;
+        // A delayed Pi response is useful only if it is at least as new as
+        // the draft still held on this device. Keep the local revision queued
+        // otherwise; the Pi/Edge protocol will replace the stale snapshot.
+        if (canonicalRevision < localRevision) return false;
+
+        const remaining = pending.filter((candidate) => candidate.id !== entry.id);
+        if (!this._savePending(remaining, scope)) return false;
+        this._recordIdMapping(latest.id, data.id, scope);
+
+        // A delete can race a successful local/Pi write. Preserve the delete
+        // contract rather than allowing the newly-returned server row to
+        // resurrect in the timeline.
+        if (this._tombstonedIdSet(scope).has(latest.id)) {
+            const serverRow = { ...data, owner_user_id: scope.userId };
+            this._addTombstone(
+                serverRow.id,
+                serverRow.photos ?? [],
+                serverRow.audio_url,
+                scope,
+                latest.client_operation_id,
+            );
+            this._removeTombstone(latest.id, scope);
+            this._markRecentlyDrained(latest.id, scope);
+            void this.drainDeletedTombstones();
+            return true;
+        }
+
+        this._recentlySynced.push({
+            offlineId: latest.id,
+            entry: { ...data, owner_user_id: scope.userId },
+            syncedAt: Date.now(),
+        });
+        return true;
+    }
+
     private async _runSyncPending(scope: AuthIdentityScope): Promise<void> {
         if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
-        // On native (Capacitor), navigator.onLine can lie — probe the network instead
-        const isOnline = await this._checkConnectivity();
-        if (!isAuthIdentityScopeCurrent(scope) || !isOnline || !supabase) return;
-
         let pending = this._getPendingEntries(scope);
+        // Recover first: this is local-only and lets a Pi take a second durable
+        // copy even while the public internet is down.
+        pending = this._recoverCachedOfflineDrafts(scope, pending);
+        if (pending.length === 0 || !isAuthIdentityScopeCurrent(scope)) return;
 
-        log.info(`Syncing ${pending.length} pending entries…`);
+        // Do not make a REST HEAD probe a prerequisite for direct delivery:
+        // Capacitor/iOS can reject that probe while the authenticated Edge
+        // Function itself remains perfectly usable. The non-satellite policy
+        // is the hard gate; the actual direct write is the reachability test.
+        const database = canAttemptDiaryCloudDelivery() ? supabase : null;
 
-        // Try getUser first, fall back to getSession, then try refreshSession
-        // (Capacitor can have stale user cache / expired JWT)
+        log.info(
+            `Syncing ${pending.length} pending entries${database ? ' (Pi + direct cloud)' : ' (Pi/local relay only)'}…`,
+        );
+
+        // Resolve cloud auth only when a direct write is actually permitted.
+        // This avoids an expensive doomed auth refresh on satellite/offline
+        // links, while the local Pi outbox remains available.
         let userId: string | undefined;
-        const userResp = await supabase.auth.getUser();
-        userId = userResp.data.user?.id;
-        if (!isAuthIdentityScopeCurrent(scope)) return;
-        if (!userId) {
-            const sessionResp = await supabase.auth.getSession();
-            userId = sessionResp.data.session?.user?.id;
-        }
-        if (!userId) {
-            // Last resort: force a token refresh — handles expired JWT edge case
-            log.warn('Auth stale — attempting token refresh...');
-            try {
-                const refreshResp = await supabase.auth.refreshSession();
-                userId = refreshResp.data.session?.user?.id;
-                if (userId) {
-                    log.info('Token refresh succeeded — resuming sync');
+        if (database) {
+            const userResp = await database.auth.getUser();
+            userId = userResp.data.user?.id;
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            if (!userId) {
+                const sessionResp = await database.auth.getSession();
+                userId = sessionResp.data.session?.user?.id;
+            }
+            if (!userId) {
+                // Last resort: force a token refresh — handles expired JWT edge case
+                log.warn('Auth stale — attempting token refresh...');
+                try {
+                    const refreshResp = await database.auth.refreshSession();
+                    userId = refreshResp.data.session?.user?.id;
+                    if (userId) {
+                        log.info('Token refresh succeeded — resuming sync');
+                    }
+                } catch (refreshErr) {
+                    log.warn('Token refresh failed:', refreshErr);
                 }
-            } catch (refreshErr) {
-                log.warn('Token refresh failed:', refreshErr);
+            }
+            if (!userId) {
+                log.warn('No authenticated user after all attempts — direct diary sync deferred');
+            } else if (userId !== scope.userId) {
+                log.warn('Diary sync refused direct work owned by a different authenticated account');
+                userId = undefined;
             }
         }
-        if (!userId) {
-            log.warn('No authenticated user after all attempts — skipping sync (will retry in 30s)');
-            return;
-        }
-        if (!isAuthIdentityScopeCurrent(scope) || userId !== scope.userId) {
-            log.warn('Diary sync refused work owned by a different authenticated account');
-            return;
-        }
-
-        // Repair the narrow legacy state where an owner-scoped offline draft
-        // survived in the local cache but lost its pending-queue copy. These
-        // are safe to retry because both the cache namespace and immutable
-        // owner marker match the authenticated account; anonymous/quarantined
-        // bytes are intentionally never adopted here.
-        pending = this._recoverCachedOfflineDrafts(scope, pending);
-        if (pending.length === 0) return;
 
         let syncedCount = 0;
 
-        for (const entry of pending) {
+        for (let entry of pending) {
             if (!isAuthIdentityScopeCurrent(scope)) return;
             if (entry.owner_user_id !== scope.userId) {
                 log.error('Diary sync quarantined a pending entry with a mismatched owner');
@@ -1065,6 +1415,32 @@ class DiaryServiceClass {
                 continue;
             }
             try {
+                const currentEntry = this._ensureClientOperationId(entry, scope);
+                if (!currentEntry) continue;
+                entry = currentEntry;
+
+                // Device -> Pi is safe on the boat LAN even without WAN. The
+                // device keeps its own outbox until a returned server row
+                // proves that either Pi -> Supabase or device -> Supabase won.
+                if (!this._hasPhoneOnlyRelayMedia(entry)) {
+                    const initialPiResult = await handoffDiaryToPi(this._relayEnvelope(entry));
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                    if (
+                        initialPiResult?.status === 'synced' &&
+                        this._completePendingWithServer(entry, initialPiResult.entry, scope)
+                    ) {
+                        syncedCount++;
+                        log.info(`✅ Synced diary entry via Pi: ${entry.title || entry.id}`);
+                        continue;
+                    }
+                }
+
+                // The Pi has now retained the entry if it was present. If
+                // proper internet is unavailable, stop here: periodic retries
+                // will re-hand the same id to Pi until it or the device can
+                // obtain an ordinary (non-satellite) cloud path.
+                if (!database || !userId) continue;
+
                 // 1. Upload any pending photos. Three offline schemes can appear:
                 //    - idb:<key>     → Blob in IndexedDB (durable; preferred path)
                 //    - blob:<uuid>   → legacy in-memory Blob (pre-IDB entries)
@@ -1203,80 +1579,35 @@ class DiaryServiceClass {
                     continue;
                 }
 
-                // 3. Insert entry to Supabase. A local draft is always
-                // private at this boundary. Publishing is a separate,
-                // confirmed UPDATE performed by setEntryPublished once this
-                // insert has returned a real server id. This prevents an
-                // offline tap from silently becoming public on a later retry.
-                const { data, error } = await supabase
-                    .from(TABLE)
-                    .insert({
-                        user_id: scope.userId,
-                        title: entry.title,
-                        body: entry.body,
-                        mood: entry.mood,
-                        photos: uploadedPhotos,
-                        audio_url: audioUrl || null,
-                        latitude: entry.latitude,
-                        longitude: entry.longitude,
-                        location_name: entry.location_name,
-                        weather_summary: entry.weather_summary,
-                        weather_data: entry.weather_data ?? null,
-                        voyage_id: entry.voyage_id,
-                        tags: entry.tags,
-                        is_public: false,
-                        created_at: entry.created_at,
-                    })
-                    .select()
-                    .single();
+                // 3. Re-hand the media-complete envelope to Pi before the
+                // direct write. If the device loses WAN after storage upload,
+                // the Pi now has the final text + storage refs and can finish
+                // the database write when ordinary internet returns.
+                const finalPiResult = await handoffDiaryToPi(
+                    this._relayEnvelope(entry, uploadedPhotos, audioUrl || null),
+                );
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (
+                    finalPiResult?.status === 'synced' &&
+                    this._completePendingWithServer(entry, finalPiResult.entry, scope)
+                ) {
+                    syncedCount++;
+                    log.info(`✅ Synced diary entry via Pi: ${entry.title || entry.id}`);
+                    continue;
+                }
+
+                // 4. Direct device -> Supabase. This shares the relay Edge
+                // Function's revision/tombstone boundary, so a direct retry
+                // and a late Pi retry can never overwrite one another.
+                const data = await submitDiaryDirect(this._relayEnvelope(entry, uploadedPhotos, audioUrl || null));
 
                 if (!isAuthIdentityScopeCurrent(scope)) return;
 
-                if (!error && data) {
-                    // Remove this entry from pending immediately (crash-safe)
-                    const remaining = this._getPendingEntries(scope).filter((e) => e.id !== entry.id);
-                    this._savePending(remaining, scope);
-
-                    // Durable offline→server mapping: lets a much-later
-                    // delete aimed at the stale offline- id still find the
-                    // server row (the _recentlySynced buffer only lives 120s).
-                    this._recordIdMapping(entry.id, (data as DiaryEntry).id, scope);
-
-                    // Deleted while this sync was in flight? The user killed
-                    // it after we snapshotted the queue — honour the delete
-                    // instead of resurrecting it under its new server id.
-                    if (this._tombstonedIdSet(scope).has(entry.id)) {
-                        const serverRow = { ...(data as DiaryEntry), owner_user_id: scope.userId };
-                        this._addTombstone(serverRow.id, serverRow.photos ?? [], serverRow.audio_url, scope);
-                        this._removeTombstone(entry.id, scope);
-                        this._markRecentlyDrained(entry.id, scope);
-                        void this.drainDeletedTombstones();
-                        continue;
-                    }
-
-                    // Keep the server-returned entry in a short-lived buffer so it
-                    // survives the gap between pending removal and server cache refresh
-                    this._recentlySynced.push({
-                        offlineId: entry.id,
-                        entry: { ...(data as DiaryEntry), owner_user_id: scope.userId },
-                        syncedAt: Date.now(),
-                    });
+                if (data && this._completePendingWithServer(entry, data, scope)) {
                     syncedCount++;
                     log.info(`✅ Synced entry: ${entry.title || entry.id}`);
-                } else if (error) {
-                    log.error(
-                        `[Diary] ❌ Supabase error for "${entry.title}":`,
-                        error.message,
-                        error.code,
-                        error.details,
-                    );
-                    // If it's a duplicate (unique constraint), remove from pending — it's already synced
-                    if (error.code === '23505') {
-                        log.warn(`Duplicate detected — removing from pending queue`);
-                        const remaining = this._getPendingEntries(scope).filter((e) => e.id !== entry.id);
-                        this._savePending(remaining, scope);
-                        syncedCount++;
-                    }
+                } else if (!data) {
+                    log.warn(`[Diary] Direct delivery deferred for "${entry.title}"`);
                 }
             } catch (e) {
                 log.error('Sync failed for entry:', entry.id, e);
@@ -1291,28 +1622,6 @@ class DiaryServiceClass {
             // just-synced entry). The _recentlySynced buffer + natural 8s polling
             // in DiaryPage handles this safely.
             log.info(`Sync complete — ${syncedCount} entries synced`);
-        }
-    }
-
-    /** Reliable connectivity check — navigator.onLine is unreliable on iOS/Capacitor */
-    private async _checkConnectivity(): Promise<boolean> {
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-            // If browser says offline, trust it
-            return false;
-        }
-        // Probe Supabase with a lightweight request
-        try {
-            const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
-            if (!supabaseUrl) return navigator?.onLine ?? true;
-            const res = await fetch(`${supabaseUrl}/rest/v1/`, {
-                method: 'HEAD',
-                signal: AbortSignal.timeout(5000),
-            });
-            return res.ok || res.status === 401 || res.status === 403; // reachable
-        } catch (e) {
-            // HEAD can fail due to CORS on iOS/Capacitor — be optimistic and try anyway
-            log.warn('Connectivity probe failed (proceeding optimistically):', e);
-            return true;
         }
     }
 
@@ -1639,9 +1948,16 @@ class DiaryServiceClass {
             ...entry,
             user_id: scope.userId!,
             owner_user_id: scope.userId,
-            // The rehydrated row must begin private. Public publication is a
-            // separate server-confirmed action (see setEntryPublished).
+            // The rehydrated row must begin visually private. A separately
+            // stored publish_requested intent is preserved for later relay.
             is_public: false,
+            client_operation_id: entry.client_operation_id || newDiaryOperationId(),
+            client_revision:
+                typeof entry.client_revision === 'number' &&
+                Number.isSafeInteger(entry.client_revision) &&
+                entry.client_revision >= 1
+                    ? entry.client_revision
+                    : 1,
             _offline: true,
         }));
         const nextPending = [...pending, ...recovered];
@@ -1689,7 +2005,6 @@ class DiaryServiceClass {
 
     private _getTombstones(scope: AuthIdentityScope = getAuthIdentityScope()): DiaryTombstone[] {
         this._migrateLegacyStorage();
-        const now = Date.now();
         const persisted: DiaryTombstone[] = [];
         try {
             const raw = localStorage.getItem(this._storageKey(DELETED_KEY, scope));
@@ -1701,9 +2016,13 @@ class DiaryServiceClass {
                     if (typeof rec.id !== 'string') continue;
                     if (rec.owner_user_id !== scope.userId) continue;
                     const deletedAt = typeof rec.deletedAt === 'number' ? rec.deletedAt : 0;
-                    if (now - deletedAt >= TOMBSTONE_TTL_MS) continue;
                     persisted.push({
                         id: rec.id,
+                        client_operation_id:
+                            typeof rec.client_operation_id === 'string' &&
+                            /^[A-Za-z0-9_-]{1,128}$/.test(rec.client_operation_id)
+                                ? rec.client_operation_id
+                                : null,
                         photos: Array.isArray(rec.photos) ? rec.photos.filter((p) => typeof p === 'string') : [],
                         audio: typeof rec.audio === 'string' ? rec.audio : null,
                         deletedAt,
@@ -1716,9 +2035,7 @@ class DiaryServiceClass {
             log.warn('Tombstone read failed:', e);
         }
         // Merge quota-fallback tombstones that never made it to disk.
-        const memory = (this._memTombstones.get(scope.key) ?? []).filter(
-            (t) => t.owner_user_id === scope.userId && now - t.deletedAt < TOMBSTONE_TTL_MS,
-        );
+        const memory = (this._memTombstones.get(scope.key) ?? []).filter((t) => t.owner_user_id === scope.userId);
         this._memTombstones.set(scope.key, memory);
         if (memory.length === 0) return persisted;
         const persistedIds = new Set(persisted.map((t) => t.id));
@@ -1745,9 +2062,14 @@ class DiaryServiceClass {
         photos: string[],
         audio?: string | null,
         scope: AuthIdentityScope = getAuthIdentityScope(),
+        clientOperationId?: string | null,
     ): void {
         const tomb: DiaryTombstone = {
             id,
+            client_operation_id:
+                typeof clientOperationId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(clientOperationId)
+                    ? clientOperationId
+                    : null,
             photos,
             audio: audio ?? null,
             deletedAt: Date.now(),
@@ -1872,13 +2194,40 @@ class DiaryServiceClass {
         }
     }
 
-    private _savePending(entries: DiaryEntry[], scope: AuthIdentityScope = getAuthIdentityScope()): void {
+    /**
+     * Persist the device outbox and verify its durable round trip. A diary
+     * save is only successful once this returns true; otherwise the composer
+     * must remain open instead of promising a draft that will vanish at the
+     * next iOS process suspension.
+     */
+    private _savePending(entries: DiaryEntry[], scope: AuthIdentityScope = getAuthIdentityScope()): boolean {
         const owned = entries.filter((entry) => this._entryOwner(entry, false) === scope.userId);
         if (owned.length !== entries.length) {
             const rejected = entries.filter((entry) => this._entryOwner(entry, false) !== scope.userId);
             this._quarantine(PENDING_KEY, 'refused cross-owner pending write', rejected);
             log.error('Refusing to persist diary drafts under a different owner');
+            return false;
         }
+        const key = this._storageKey(PENDING_KEY, scope);
+        const persisted = (candidate: DiaryEntry[]): boolean => {
+            localStorage.setItem(key, JSON.stringify(candidate));
+            const raw = localStorage.getItem(key);
+            const parsed: unknown = raw ? JSON.parse(raw) : null;
+            if (!Array.isArray(parsed) || parsed.length !== candidate.length) return false;
+            const byId = new Map(
+                parsed
+                    .filter((value): value is DiaryEntry => Boolean(value) && typeof value === 'object')
+                    .map((value) => [value.id, value]),
+            );
+            return candidate.every((entry) => {
+                const roundTripped = byId.get(entry.id);
+                return (
+                    roundTripped?.owner_user_id === scope.userId &&
+                    roundTripped.client_operation_id === entry.client_operation_id &&
+                    roundTripped.client_revision === entry.client_revision
+                );
+            });
+        };
         try {
             // Strip blob: URLs — they're process-scoped and can't survive a
             // restart anyway. KEEP idb: refs (tiny strings pointing to Blobs
@@ -1888,7 +2237,8 @@ class DiaryServiceClass {
                 photos: e.photos.filter((p) => !p.startsWith('blob:')),
             }));
             for (const entry of cleaned) this._registerEntryMedia(entry, scope);
-            localStorage.setItem(this._storageKey(PENDING_KEY, scope), JSON.stringify(cleaned));
+            if (persisted(cleaned)) return true;
+            throw new Error('Pending diary read-back verification failed');
         } catch (e) {
             // localStorage full — most likely cause is a legacy entry with
             // data: URIs. Strip all non-URL and non-idb photos as a last
@@ -1902,9 +2252,11 @@ class DiaryServiceClass {
                     ),
                 }));
                 for (const entry of minimal) this._registerEntryMedia(entry, scope);
-                localStorage.setItem(this._storageKey(PENDING_KEY, scope), JSON.stringify(minimal));
+                if (persisted(minimal)) return true;
+                throw new Error('Minimal pending diary read-back verification failed');
             } catch (e2) {
                 log.error('Pending write CRITICALLY failed — entries may be lost:', e2);
+                return false;
             }
         }
     }
@@ -1959,7 +2311,9 @@ class DiaryServiceClass {
         const persistedEntry = { ...entry, photos: persistedPhotos, owner_user_id: scope.userId };
         const pending = this._getPendingEntries(scope);
         pending.unshift(persistedEntry);
-        this._savePending(pending, scope);
+        if (!this._savePending(pending, scope)) {
+            throw new Error('Diary entry could not be durably persisted on this device');
+        }
     }
 
     /** Compress a blob to a small base64 data URI (600px max) for localStorage persistence */
@@ -2178,7 +2532,7 @@ class DiaryServiceClass {
         },
     ): Promise<string | null> {
         const scope = getAuthIdentityScope();
-        if (!navigator.onLine) return null;
+        if (!canAttemptDiaryCloudDelivery()) return null;
 
         try {
             const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
@@ -2271,7 +2625,7 @@ class DiaryServiceClass {
         if (!isAuthIdentityScopeCurrent(scope)) return null;
 
         // Try upload if online
-        if (supabase && navigator.onLine && scope.userId) {
+        if (supabase && canAttemptDiaryCloudDelivery() && scope.userId) {
             const url = await this._uploadAudioBlob(blob, scope);
             if (url && isAuthIdentityScopeCurrent(scope)) {
                 this._registerMediaRef(url, scope);
@@ -2286,7 +2640,8 @@ class DiaryServiceClass {
     }
 
     private async _uploadAudioBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
-        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
+            return null;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
@@ -2347,7 +2702,8 @@ class DiaryServiceClass {
     }
 
     private async _uploadAudioDataUri(dataUri: string, scope: AuthIdentityScope): Promise<string | null> {
-        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
+            return null;
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
@@ -2364,7 +2720,7 @@ class DiaryServiceClass {
 
     async transcribeAudio(audioUrl: string, mimeType?: string): Promise<string | null> {
         const scope = getAuthIdentityScope();
-        if (!navigator.onLine) return null;
+        if (!canAttemptDiaryCloudDelivery()) return null;
 
         try {
             const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';

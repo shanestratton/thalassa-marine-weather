@@ -52,8 +52,27 @@ export interface VoyageLogEntry {
     weather_data: VoyageLogWeather | null;
     tags: string[];
     created_at: string;
+    /** The sailed voyage this entry belongs to. Null means it is an
+     *  intentionally unassigned diary note, visible in the public page's
+     *  "All diary entries" view. */
+    voyage_id: string | null;
     /** Byline. Present only on combined-scope logs; null on personal logs. */
     author: VoyageLogAuthor | null;
+}
+
+/** A public, already-started voyage available in the log page's picker.
+ *  Future plans deliberately do not appear here: a public voyage is what the
+ *  crew has actually sailed, optionally with its linked planned route. */
+export interface PublicVoyageTrip {
+    id: string;
+    kind: 'track' | 'all-diary';
+    label: string;
+    started_at: string | null;
+    ended_at: string | null;
+    active: boolean;
+    point_count: number;
+    distance_nm: number | null;
+    has_route: boolean;
 }
 
 export interface VoyageLogTrackPoint {
@@ -136,6 +155,11 @@ export interface VoyageLogData {
     /** 'personal' = one author, no bylines. 'combined' = boat-wide, entries carry author. */
     scope: 'personal' | 'combined';
     destination: VoyageLogDestination | null;
+    /** Started tracks plus the permanent catch-all diary view. */
+    trips: PublicVoyageTrip[];
+    /** The trip the server resolved for this response. null only for the
+     *  backward-compatible, unscoped API request. */
+    selected_trip: string | null;
     entries: VoyageLogEntry[];
     track: VoyageLogTrackPoint[];
     /** Named waypoints dropped under way — shown as labelled pins. */
@@ -147,7 +171,7 @@ export interface VoyageLogData {
      *  when no active passage. This is the one route the public map draws;
      *  every other saved/planned route is filtered out (Shane 2026-07-17:
      *  "show just the route we are currently following"). */
-    passage?: { plan_line: [number, number][] } | null;
+    passage?: { voyage_id?: string | null; plan_line: [number, number][] } | null;
     generated_at: string;
 }
 
@@ -167,12 +191,15 @@ export class VoyageLogError extends Error {
     }
 }
 
-/** Fetch a vessel's published voyage log. Throws VoyageLogError on failure. */
-export async function fetchVoyageLog(handle: string): Promise<VoyageLogData> {
+/** Fetch a vessel's published voyage log. `trip=latest` follows newly-started
+ * voyages; an explicit id holds a historical selection stable across polls. */
+export async function fetchVoyageLog(handle: string, trip?: string): Promise<VoyageLogData> {
     if (!SUPABASE_URL) {
         throw new VoyageLogError(0, 'Voyage Log API URL is not configured for this build.');
     }
-    const url = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/voyage-log` + `?handle=${encodeURIComponent(handle)}`;
+    const params = new URLSearchParams({ handle });
+    if (trip !== undefined) params.set('trip', trip);
+    const url = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/voyage-log?${params.toString()}`;
 
     let res: Response;
     try {

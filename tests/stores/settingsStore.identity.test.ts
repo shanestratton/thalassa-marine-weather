@@ -78,7 +78,7 @@ vi.mock('../../services/supabase', () => ({
 }));
 
 vi.mock('../../services/PiCacheService', () => ({
-    piCache: { boot: vi.fn() },
+    piCache: { boot: vi.fn(), setDiaryRelayInternetPolicy: vi.fn(async () => false) },
 }));
 
 vi.mock('../../services/SubscriptionService', () => ({
@@ -210,6 +210,56 @@ describe('settingsStore identity isolation', () => {
             },
         });
         await settings.awaitSettingsLoaded();
+    });
+
+    it('restores the complete cached fleet for an offline signed-in launch', async () => {
+        const { settings, identity } = await freshStore();
+        const predictedScope = {
+            key: 'user:account-a',
+            userId: 'account-a',
+            generation: identity.getAuthIdentityScope().generation + 1,
+        };
+        const cacheKey = identity.authScopedStorageKey('thalassa_owned_vessel_fleet_cache_v1', predictedScope);
+        harness.preferences[cacheKey] = JSON.stringify({
+            version: 1,
+            ownerUserId: 'account-a',
+            savedAt: '2026-07-27T12:00:00.000Z',
+            pendingActiveBoatId: 'delivery-boat',
+            fleet: {
+                activeBoatId: 'delivery-boat',
+                vessels: [
+                    {
+                        id: 'home-boat',
+                        owner_id: 'account-a',
+                        profile: vessel('Home Boat', 6),
+                        revision: 3,
+                        updated_at: '2026-07-27T10:00:00.000Z',
+                        is_active: false,
+                    },
+                    {
+                        id: 'delivery-boat',
+                        owner_id: 'account-a',
+                        profile: vessel('Delivery Boat', 8),
+                        revision: 4,
+                        updated_at: '2026-07-27T11:00:00.000Z',
+                        is_active: true,
+                    },
+                ],
+            },
+        });
+
+        identity.setAuthIdentityScope('account-a');
+        await settings.awaitSettingsLoaded();
+
+        expect(settings.useSettingsStore.getState()).toMatchObject({
+            activeVesselId: 'delivery-boat',
+            vesselFleetStatus: 'offline',
+            settings: { vessel: { name: 'Delivery Boat', draft: 8 } },
+        });
+        expect(settings.useSettingsStore.getState().vesselFleet.map((entry) => entry.id)).toEqual([
+            'delivery-boat',
+            'home-boat',
+        ]);
     });
 
     it('fences a stale A disk promise before it can replace B state', async () => {
@@ -347,9 +397,12 @@ describe('settingsStore identity isolation', () => {
         expect(settings.useSettingsStore.getState().settings.vessel?.name).toBe('Anonymous Boat');
         settings.useSettingsStore.getState()._setUserId('account-a');
         await vi.waitFor(() => expect(harness.upserts.some((payload) => payload.id === 'account-a')).toBe(true));
-        expect(harness.upserts.find((payload) => payload.id === 'account-a')).toMatchObject({
-            settings: { vessel: { name: 'Anonymous Boat' } },
-        });
+        // Vessel specifications travel through the fleet API, never the
+        // generic profile blob. A late whole-settings write used to let a
+        // second device overwrite the boat profile.
+        expect(
+            harness.upserts.find((payload) => payload.id === 'account-a')?.settings as Record<string, unknown>,
+        ).not.toHaveProperty('vessel');
 
         identity.setAuthIdentityScope(null);
         expect(settings.useSettingsStore.getState().settings.vessel).toBeUndefined();

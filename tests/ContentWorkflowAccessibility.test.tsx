@@ -17,6 +17,8 @@ const serviceMocks = vi.hoisted(() => ({
     setEntryPublished: vi.fn(),
     getConfig: vi.fn(),
     ensureEnabled: vi.fn(),
+    markEnableRequested: vi.fn(),
+    clearEnableRequest: vi.fn(),
     voyageLogPublicUrl: vi.fn(),
 }));
 
@@ -50,6 +52,9 @@ vi.mock('../services/VoyageLogService', () => ({
     VoyageLogService: {
         getConfig: serviceMocks.getConfig,
         ensureEnabled: serviceMocks.ensureEnabled,
+        ensurePendingEnabled: serviceMocks.ensureEnabled,
+        markEnableRequested: serviceMocks.markEnableRequested,
+        clearEnableRequest: serviceMocks.clearEnableRequest,
     },
     voyageLogPublicUrl: serviceMocks.voyageLogPublicUrl,
 }));
@@ -336,7 +341,10 @@ describe('content workflow dialog accessibility', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
         const workingDialog = screen.getByRole('dialog', { name: 'Share to your Voyage Log?' });
         expect(workingDialog).toHaveAttribute('aria-busy', 'true');
-        expect(serviceMocks.setEntryPublished).not.toHaveBeenCalled();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(serviceMocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         fireEvent.keyDown(workingDialog, { key: 'Escape' });
         expect(onClose).not.toHaveBeenCalled();
 
@@ -371,7 +379,7 @@ describe('content workflow dialog accessibility', () => {
         expect(screen.getByRole('button', { name: 'Keep this entry private' })).toHaveFocus();
     });
 
-    it('does not touch the diary row when Voyage Log setup is unavailable', async () => {
+    it('keeps the view private when Voyage Log setup is unavailable after saving publish intent', async () => {
         serviceMocks.ensureEnabled.mockResolvedValueOnce(null);
         const onPublishChange = vi.fn();
         render(<DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={onPublishChange} />);
@@ -379,7 +387,7 @@ describe('content workflow dialog accessibility', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
 
         expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't prepare your Voyage Log");
-        expect(serviceMocks.setEntryPublished).not.toHaveBeenCalled();
+        expect(serviceMocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         expect(onPublishChange).not.toHaveBeenCalled();
         expect(screen.queryByRole('heading', { name: 'Published to your Voyage Log' })).not.toBeInTheDocument();
     });

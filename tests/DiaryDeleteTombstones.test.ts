@@ -98,7 +98,7 @@ describe('deleteEntry — offline commit', () => {
 });
 
 describe('tombstone store hygiene', () => {
-    it('purges expired tombstones (7-day TTL) and stops filtering them', async () => {
+    it('keeps an old tombstone until the authoritative delete/cancellation is acknowledged', async () => {
         const expired = {
             id: 'srv-old',
             photos: [],
@@ -109,10 +109,11 @@ describe('tombstone store hygiene', () => {
         localStorage.setItem(CACHE_KEY, JSON.stringify([makeEntry('srv-old')]));
 
         const entries = await DiaryService.getEntries(50);
-        // Expired tombstone abandoned — entry surfaces again rather than
-        // being hidden forever by a delete that never drained.
-        expect(entries.find((e) => e.id === 'srv-old')).toBeDefined();
-        expect(readTombstones()).toHaveLength(0);
+        // An offshore Pi can hold a stale write for longer than a week. The
+        // delete fence stays in place until the cloud confirms it, otherwise
+        // that delayed Pi write could resurrect this entry.
+        expect(entries.find((e) => e.id === 'srv-old')).toBeUndefined();
+        expect(readTombstones()).toHaveLength(1);
     });
 
     it('survives corrupted tombstone JSON', async () => {
@@ -204,7 +205,7 @@ describe('drainDeletedTombstones', () => {
 
         await DiaryService.drainDeletedTombstones();
         expect(deletedIds).toHaveLength(0);
-        // Still there — expires via TTL, not via drain
+        // Still there — only an authoritative acknowledgement removes it.
         expect(readTombstones().map((t) => t.id)).toContain('offline-x');
     });
 });
