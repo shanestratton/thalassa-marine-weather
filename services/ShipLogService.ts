@@ -113,7 +113,22 @@ const log = createLogger('ShipLog');
 const TRACKING_INTERVAL_MS = 3 * 1000; // land / inshore safe fallback
 const RAPID_INTERVAL_MS = 3 * 1000; // manual marina override matches dense geographic profile
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
-const FAST_LOCK_MS = 30 * 1000; // cold-start fast-lock (distanceFilter:0) duration for a new voyage
+/**
+ * Cold-start fast-lock (distanceFilter:0) duration for a new voyage.
+ *
+ * MUST OUTLIVE GpsSubscriptionManager's COLD_START_FALLBACK_MS (60 s), which is
+ * when the opening-fix accuracy bar finally relaxes from 35 m to 100 m. At 30 s
+ * these were misordered: fast-lock switched off at t=30 s, so from t=30 s to
+ * t=60 s the engine was back on distanceFilter:1 and emitting almost nothing
+ * while stationary — and then the accuracy bar dropped at exactly the moment
+ * there were no fixes left flowing to take advantage of it. A poor-sky dock
+ * could sit there until the boat physically moved.
+ *
+ * 65 s costs nothing in the normal case: settleFastLock() reverts the instant a
+ * vetted fix opens the track, so this ceiling only ever applies while we are
+ * still starving — which is precisely when we want it.
+ */
+const FAST_LOCK_MS = 65 * 1000;
 const CAPTURE_HANDOFF_KEY = 'ship_log_capture_handoff';
 const CAPTURE_HANDOFF_VERSION = 1;
 
@@ -818,6 +833,15 @@ class ShipLogServiceClass {
         resume: boolean = false,
         continueVoyageId?: string,
         scope: AuthIdentityScope = getAuthIdentityScope(),
+        /**
+         * "This voyage was just created — treat it as a cold departure."
+         *
+         * EXPLICIT, because it cannot be inferred. The helm's Cast Off mints a
+         * voyage and then passes its id as `continueVoyageId` (CastOffPanel),
+         * which is indistinguishable from resuming a passage already under way.
+         * Callers that mint know; nobody downstream can.
+         */
+        freshDeparture: boolean = false,
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         if (this.trackingState.isTracking) {
@@ -863,7 +887,17 @@ class ShipLogServiceClass {
         // fast-lock 30+ min into a passage — that would re-spike sampling
         // mid-voyage (the disturbance the 60-min precision auto-shutoff
         // removal was meant to kill).
-        const isNewVoyage = !continueVoyageId && !(resume && this.trackingState.currentVoyageId);
+        //
+        // `freshDeparture` is the missing case, and it was the big one. The
+        // helm's Cast Off — the way a passage ACTUALLY begins — mints a voyage
+        // and passes its id as `continueVoyageId`, so this read false there and
+        // fast-lock never armed on the one path that needs it most. At the dock
+        // that matters enormously: distanceFilter stays at 1 m, a stationary
+        // boat never travels 1 m, so the GPS emits almost nothing and the
+        // first-fix consistency gate starves waiting for a corroborating second
+        // fix that cannot arrive. That is Shane's "takes a very long time"
+        // (2026-07-28) — not the satellite lock, which was fine all along.
+        const isNewVoyage = freshDeparture || (!continueVoyageId && !(resume && this.trackingState.currentVoyageId));
 
         // Bind the selected vessel ONCE at cast-off. Do not look this up
         // again from the currently selected fleet profile after a track has

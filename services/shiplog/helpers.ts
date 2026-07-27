@@ -443,6 +443,28 @@ export function isPlausibleTrackPoint(lat: number | null | undefined, lon: numbe
 }
 
 /**
+ * Has this voyage recorded a real position yet?
+ *
+ * The one definition of "the track is actually open", shared by everything that
+ * needs to answer it: the "Acquiring GPS fix…" overlay, and the poll cadence
+ * that decides how fast that overlay can notice. It lives here because it was
+ * about to be hand-copied into a second file, and hand-copied predicates in
+ * this repo have drifted before.
+ *
+ * Deliberately keyed on a PERSISTED entry rather than on GPS status: a fix can
+ * be reported while nothing trustworthy has been captured (an engine-start
+ * replay reads 'locked' immediately), and "Recording" must never be shown over
+ * an empty track.
+ */
+export function voyageHasRecordedFix(
+    entries: Array<Pick<ShipLogEntry, 'voyageId' | 'latitude' | 'longitude'>>,
+    voyageId: string | null | undefined,
+): boolean {
+    if (!voyageId) return false;
+    return entries.some((e) => e.voyageId === voyageId && isPlausibleTrackPoint(e.latitude, e.longitude));
+}
+
+/**
  * Whether an entry belongs on the track POLYLINE (as a vertex), as
  * opposed to being a pin/marker drawn beside the line.
  *
