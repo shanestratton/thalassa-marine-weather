@@ -933,9 +933,15 @@ class LonelyHeartsServiceClass {
         let crewIntents: CrewListIntent[] | undefined;
         if (update.crew_intents !== undefined) {
             if (!Array.isArray(update.crew_intents)) return false;
-            crewIntents = this.normalizeCrewIntents([...update.crew_intents]);
+            // normalizeCrewIntents signals "not a valid intent list" with null,
+            // so reject HERE rather than assigning it and testing afterwards —
+            // that assigned a `| null` into a `| undefined` variable, and the
+            // later `!crewIntents` guard could not narrow it back for the
+            // spread below.
+            const normalized = this.normalizeCrewIntents([...update.crew_intents]);
+            if (!normalized) return false;
+            crewIntents = normalized;
         }
-        if (update.crew_intents !== undefined && !crewIntents) return false;
 
         const updates: CrewProfileOwnerUpdate = {
             ...(update.community_enabled === undefined ? {} : { community_enabled: update.community_enabled }),
@@ -1074,8 +1080,13 @@ class LonelyHeartsServiceClass {
         const { data: bilateralRows, error: bilateralError } = await supabase.rpc('get_crew_list_blocked_user_ids');
         if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (!bilateralError) {
+            // Set<string>, stated explicitly. The `.filter` predicate does narrow
+            // each element to string, but the rpc's rows are untyped, so the Set
+            // was still inferred as Set<unknown> and the spread widened the whole
+            // return to unknown[]. The predicate below is what actually
+            // guarantees it; this just stops the inference losing that.
             return [
-                ...new Set(
+                ...new Set<string>(
                     (bilateralRows || [])
                         .map((row: Record<string, unknown>) => row.user_id)
                         .filter(

@@ -44,7 +44,13 @@ function profileFormState(profile: Record<string, unknown> = {}): CrewFinderStat
         showDeleteConfirm: false,
         deleting: false,
         profile,
-    } as CrewFinderState;
+        // `as unknown as` — deliberate, and the narrowness is the point (see the
+        // doc comment above). A direct cast stopped compiling once CrewFinderState
+        // grew the fields this fixture omits: TS refuses a cast between types that
+        // no longer sufficiently overlap. Widening through `unknown` keeps the
+        // fixture honest about being partial instead of forcing it to mirror every
+        // reducer field the form never reads.
+    } as unknown as CrewFinderState;
 }
 
 function renderProfileForm(profile: Record<string, unknown> = {}) {
