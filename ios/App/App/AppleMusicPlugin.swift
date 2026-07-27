@@ -1434,6 +1434,33 @@ public class AppleMusicPlugin: CAPPlugin {
                         ])
                     }
                 }
+            } catch {
+                // THE CALL MUST ALWAYS SETTLE. This outer `do` had no `catch`,
+                // so anything thrown before the add — in practice the playlist
+                // lookup, `try await MusicLibraryRequest<Playlist>.response()`,
+                // which fails on a lost auth token or no signal — escaped the
+                // Task entirely. Nothing resolved or rejected `call`, so the JS
+                // promise in appleMusic.ts never settled and the caller in
+                // MusicPage just waited: a spinner that never stops, with no
+                // error anywhere to explain it.
+                //
+                // Xcode 27 is what surfaced this ("unstructured throwing task
+                // ... may accidentally ignore errors"). It reads like a style
+                // nag and was a real hang.
+                //
+                // "error" over "not_supported": the latter means Apple refused
+                // the edit and makes the UI offer a manual add in Apple Music,
+                // which is the wrong advice when the truth is we never reached
+                // Apple. "error" is already in the plugin's TS status union and
+                // falls through to { success: false, error } in appleMusic.ts.
+                NSLog("[AppleMusic] addSongToPlaylist failed before the add: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                        "song_id": songId,
+                    ])
+                }
             }
         }
     }
