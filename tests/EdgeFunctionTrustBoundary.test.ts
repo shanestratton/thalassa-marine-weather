@@ -32,7 +32,10 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
     it('derives weather entitlement from the verified caller and never forwarded user input', () => {
         const edge = functionSource('get-weather');
         expect(edge).toContain("requireAuthenticatedOrPublicQuota(req, 'weather'");
-        expect(edge).toContain(".eq('id', caller.userId)");
+        expect(edge).toContain(".from('user_entitlements')");
+        expect(edge).toContain(".eq('user_id', caller.userId)");
+        expect(edge).toContain('trialStartedAt + 14 * 24 * 60 * 60 * 1000 > now');
+        expect(edge).not.toContain("from('profiles')");
         expect(edge).not.toMatch(/\b(?:body|rawBody)\.user_id\b/);
 
         const pi = source('pi-cache/src/routes/weather.ts');
@@ -42,6 +45,17 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
 
         const client = source('services/weather/api/unified.ts');
         expect(client).not.toMatch(/body:\s*JSON\.stringify\([^)]*user_id/s);
+    });
+
+    it('uses the deployed user-settings contract for weather-alert preferences', () => {
+        const edge = functionSource('check-weather-alerts');
+        expect(edge).toContain(".from('user_settings')");
+        expect(edge).toContain(".select('user_id, settings')");
+        expect(edge).toContain('defaultLocationCoords');
+        expect(edge).toContain('guardianLocationsForUsers(');
+        expect(edge).toContain("{ onConflict: 'user_id,alert_key', ignoreDuplicates: true }");
+        expect(edge).not.toContain("from('profiles')");
+        expect(edge).not.toContain(".eq('user_id', profile.id)");
     });
 
     it('uses bounded database identity lookup rather than Auth-admin enumeration', () => {
