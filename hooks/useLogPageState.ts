@@ -30,6 +30,7 @@ import {
     clearCachedVoyageTrack,
 } from '../services/shiplog/VoyageTrackCache';
 import { supabase } from '../services/supabase';
+import { voyageHasRecordedFix } from '../services/shiplog/helpers';
 import { BgGeoManager } from '../services/BgGeoManager';
 
 import { useToast } from '../components/Toast';
@@ -679,6 +680,11 @@ export function useLogPageState() {
     // call actually re-paginated the entire Supabase table every second,
     // which is what made starting a track freeze the page.
 
+    // STILL ACQUIRING? Drives the poll cadence below. Same predicate the
+    // "Acquiring GPS fix…" overlay uses, imported rather than re-written so the
+    // two cannot disagree about when the track is open.
+    const stillAcquiring = !voyageHasRecordedFix(state.entries, state.currentVoyageId);
+
     useEffect(() => {
         if (!state.isTracking) return;
 
@@ -691,19 +697,40 @@ export function useLogPageState() {
             if (!document.hidden) refreshActiveVoyage();
         }, BURST_POLL_MS);
 
-        // After burst period, switch to normal polling
+        // After burst period, switch to normal polling — UNLESS we are still
+        // waiting on the opening fix.
+        //
+        // The burst used to expire on a flat 10 s timer, but the first-fix gate
+        // cannot open before ~5 s of GPS warm-up plus a corroborating second
+        // fix, so the opening fix routinely lands AFTER the burst has already
+        // stepped down. The overlay then sat there for up to another 5 s over a
+        // position that was already on disk — pure display lag on top of a wait
+        // that already felt long. Holding the 1 s cadence until the fix lands
+        // costs one local queue read per second (no network: capture is
+        // local-first while tracking) and stops the moment it does.
         const burstTimeout = setTimeout(() => {
+            if (stillAcquiring) return; // keep the 1 s poll; effect re-runs when it lands
             clearInterval(currentId);
             currentId = setInterval(() => {
                 if (!document.hidden) refreshActiveVoyage();
             }, normalPollMs);
         }, BURST_DURATION_MS);
 
+        // Both polls skip while backgrounded, and nothing forced a refresh on
+        // return — so pocketing the phone during acquisition (exactly what the
+        // overlay exists to catch) meant the fix could land unseen and the
+        // overlay stayed up until the next tick after wake. Refresh on the spot.
+        const onVisible = () => {
+            if (!document.hidden) refreshActiveVoyage();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
         return () => {
             clearInterval(currentId);
             clearTimeout(burstTimeout);
+            document.removeEventListener('visibilitychange', onVisible);
         };
-    }, [state.isTracking, state.isRapidMode, refreshActiveVoyage]);
+    }, [state.isTracking, state.isRapidMode, refreshActiveVoyage, stillAcquiring]);
 
     // ── Tracking Handlers ───────────────────────────────────────────────────
 

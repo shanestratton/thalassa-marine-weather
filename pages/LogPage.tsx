@@ -45,6 +45,7 @@ import {
     matchPlannedRouteByCoords,
     type VoyageSummary,
 } from '../services/shiplog/VoyageSummary';
+import { voyageHasRecordedFix } from '../services/shiplog/helpers';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
@@ -443,16 +444,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // voyage has a real recorded position yet. gpsStatus alone can't be
     // trusted for this: an engine-start replay fix makes it read
     // 'locked' immediately while nothing trustworthy has been captured.
+    // Shared with the poll cadence in useLogPageState — one definition, so the
+    // overlay and the poll that lets it notice cannot disagree.
     const hasRecordedFix = React.useMemo(
-        () =>
-            !!state.currentVoyageId &&
-            state.entries.some(
-                (e) =>
-                    e.voyageId === state.currentVoyageId &&
-                    !!e.latitude &&
-                    !!e.longitude &&
-                    !(e.latitude === 0 && e.longitude === 0),
-            ),
+        () => voyageHasRecordedFix(state.entries, state.currentVoyageId),
         [state.entries, state.currentVoyageId],
     );
 

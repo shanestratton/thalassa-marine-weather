@@ -153,7 +153,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             try {
                 const { ShipLogService } = await import('../../services/ShipLogService');
                 if (!isAuthIdentityScopeCurrent(operationScope)) return;
-                await ShipLogService.startTracking(false, result.voyage.id, operationScope);
+                // freshDeparture=true — this voyage was minted a few lines up.
+                // Passing its id as continueVoyageId made cast-off look like a
+                // mid-passage resume, which skipped the cold-start fast-lock
+                // and left "Acquiring GPS fix…" starving at the dock.
+                await ShipLogService.startTracking(false, result.voyage.id, operationScope, true);
             } catch (e) {
                 if (!isAuthIdentityScopeCurrent(operationScope)) return;
                 console.warn('[CastOffPanel] auto-start tracking failed:', e);
