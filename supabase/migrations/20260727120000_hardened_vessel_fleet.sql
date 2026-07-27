@@ -742,7 +742,10 @@ BEGIN
                 WHERE boat_id IS NOT NULL';
         EXECUTE '
             WITH sole_owned_boats AS (
-                SELECT owner_id, MIN(id) AS boat_id
+                -- UUID has no built-in MIN aggregate. The HAVING clause
+                -- proves this group has exactly one row, so its first
+                -- aggregate element is the only safe deterministic choice.
+                SELECT owner_id, (array_agg(id))[1] AS boat_id
                   FROM public.boats
                  WHERE archived_at IS NULL
                  GROUP BY owner_id
@@ -762,7 +765,9 @@ BEGIN
                 WHERE boat_id IS NOT NULL';
         EXECUTE '
             WITH sole_owned_boats AS (
-                SELECT owner_id, MIN(id) AS boat_id
+                -- See the matching ship-log backfill above: this group is
+                -- constrained to one UUID, not ordered by a missing MIN().
+                SELECT owner_id, (array_agg(id))[1] AS boat_id
                   FROM public.boats
                  WHERE archived_at IS NULL
                  GROUP BY owner_id
@@ -783,7 +788,9 @@ BEGIN
         IF to_regclass('public.ship_logs') IS NOT NULL THEN
             EXECUTE '
                 WITH uniquely_mapped_voyages AS (
-                    SELECT user_id, voyage_id, MIN(boat_id) AS boat_id
+                    -- The distinct-count guard below proves every voyage
+                    -- maps to one UUID, so avoid unsupported MIN(UUID).
+                    SELECT user_id, voyage_id, (array_agg(DISTINCT boat_id))[1] AS boat_id
                       FROM public.ship_logs
                      WHERE boat_id IS NOT NULL
                        AND voyage_id IS NOT NULL
@@ -799,7 +806,9 @@ BEGIN
         END IF;
         EXECUTE '
             WITH sole_owned_boats AS (
-                SELECT owner_id, MIN(id) AS boat_id
+                -- The sole-owned predicate makes this the only UUID in the
+                -- group; use array aggregation rather than MIN(UUID).
+                SELECT owner_id, (array_agg(id))[1] AS boat_id
                   FROM public.boats
                  WHERE archived_at IS NULL
                  GROUP BY owner_id
@@ -819,7 +828,8 @@ BEGIN
                 WHERE boat_id IS NOT NULL';
         EXECUTE '
             WITH sole_owned_boats AS (
-                SELECT owner_id, MIN(id) AS boat_id
+                -- `voyages` receives the same one-boat-only backfill.
+                SELECT owner_id, (array_agg(id))[1] AS boat_id
                   FROM public.boats
                  WHERE archived_at IS NULL
                  GROUP BY owner_id

@@ -75,4 +75,15 @@ describe('vessel fleet concurrency contract', () => {
         expect(backfill).toMatch(/polars\.source/);
         expect(backfill).toMatch(/DROP FUNCTION public\._fleet_legacy_settings_20260727120000\(UUID\)/);
     });
+
+    it('uses a UUID-safe sole-boat aggregate in every legacy operational backfill', () => {
+        const soleBoatGroups = migrationSource.match(/\(array_agg\(id\)\)\[1\] AS boat_id/g) || [];
+
+        expect(migrationSource).not.toMatch(/MIN\(id\) AS boat_id/);
+        expect(migrationSource).not.toMatch(/MIN\(boat_id\) AS boat_id/);
+        expect(soleBoatGroups).toHaveLength(4);
+        expect(migrationSource).toMatch(/HAVING COUNT\(\*\) = 1/);
+        expect(migrationSource).toMatch(/\(array_agg\(DISTINCT boat_id\)\)\[1\] AS boat_id/);
+        expect(migrationSource).toMatch(/HAVING COUNT\(DISTINCT boat_id\) = 1/);
+    });
 });
