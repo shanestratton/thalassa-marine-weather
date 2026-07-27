@@ -12,21 +12,34 @@ function sourceBetween(startMarker: string, endMarker: string): string {
 }
 
 describe('Crew List service safety contract', () => {
-    it('queries only explicitly opted-in, visible, approved, verified profiles and has no legacy browse fallback', () => {
+    it('uses a narrow server-gated card feed with explicit local eligibility gates and no legacy browse fallback', () => {
         const browse = sourceBetween('async getCrewListings(', 'private matchesCrewFilters(');
 
-        expect(browse).toContain('.from(CREW_PROFILES_TABLE)');
-        expect(browse).toMatch(/\.eq\('community_enabled', true\)/);
-        expect(browse).toMatch(/\.eq\('crew_list_visibility', 'visible'\)/);
-        expect(browse).toMatch(/\.eq\('approval_status', 'approved'\)/);
-        expect(browse).toMatch(/\.eq\('verification_status', 'verified'\)/);
+        expect(browse).toMatch(/supabase\.rpc\('browse_crew_list_profiles'/);
+        expect(browse).toMatch(/p_target_id: null/);
+        expect(browse).toMatch(/p_limit: 100/);
+        expect(browse).not.toContain('.from(CREW_PROFILES_TABLE)');
         expect(browse).toMatch(/crew\.community_enabled !== true/);
         expect(browse).toMatch(/crew\.crew_list_visibility !== 'visible'/);
         expect(browse).toMatch(/crew\.approval_status !== 'approved'/);
         expect(browse).toMatch(/crew\.verification_status !== 'verified'/);
+        expect(browse).toMatch(/this\.getCrewPhotoSignedUrlMapForScope/);
+        expect(browse).toMatch(/this\.normalizeCrewPhotoPaths/);
         expect(browse).not.toContain('looking_for_love');
         expect(browse).not.toContain('CHAT_PROFILES_TABLE');
         expect(browse).not.toMatch(/crewOnly|chatProfiles|legacy fallback/i);
+    });
+
+    it('does not preserve a town or inherited chat port in the public Crew List card mapper', () => {
+        const browse = sourceBetween('async getCrewListings(', 'private matchesCrewFilters(');
+        const cardMapper = sourceBetween('private buildCrewCard(', '// ─── CREW LIST INTRODUCTIONS');
+
+        expect(browse).toMatch(/this\.buildCrewCard\(null, crew, signedUrlByPath\)/);
+        expect(cardMapper).toMatch(/location_city:\s*null/);
+        expect(cardMapper).toMatch(/location_state:\s*cp\.location_state/i);
+        expect(cardMapper).toMatch(/location_country:\s*cp\.location_country/i);
+        expect(cardMapper).not.toMatch(/cp\.location_city/i);
+        expect(cardMapper).not.toMatch(/chat\.home_port/i);
     });
 
     it('keeps owner-controlled opt-in state separate from review and verification controls', () => {
@@ -48,7 +61,7 @@ describe('Crew List service safety contract', () => {
         expect(reviewSubmit).toMatch(/crew_list_visibility: 'private'/);
         expect(reviewSubmit).toMatch(/!profile\.community_enabled/);
         expect(reviewSubmit).toMatch(/profile\.crew_intents\.length === 0/);
-        expect(reviewSubmit).toMatch(/!profile\.photo_url\?\.trim\(\)/);
+        expect(reviewSubmit).toMatch(/!profile\.crew_photo_path\?\.trim\(\)/);
     });
 
     it('rejects contact details before an introduction request can write anything', () => {
@@ -86,10 +99,17 @@ describe('Crew List service safety contract', () => {
         expect(withdraw).toMatch(/status: 'withdrawn'/);
     });
 
-    it('uses the canonical direct-message block list to suppress Crew List discovery', () => {
+    it('uses bilateral server block IDs to suppress discovery while retaining owner-controlled block writes', () => {
         const browse = sourceBetween('async getCrewListings(', 'private matchesCrewFilters(');
         const block = sourceBetween('async blockCrewListUser(', '/** Remove a Crew List block');
-        const unblock = sourceBetween('async unblockCrewListUser(', '/** Read the signed-in sailor');
+        const unblock = sourceBetween(
+            'async unblockCrewListUser(',
+            "/**\n     * Read the signed-in sailor's bilateral Crew List suppression set.",
+        );
+        const blockedIds = sourceBetween(
+            'private async getCrewListBlockedUserIdsForScope(',
+            '/**\n     * File a private Crew List safety report.',
+        );
 
         expect(browse).toContain('this.getCrewListBlockedUserIdsForScope(scope, ownerId)');
         expect(block).toContain('.from(CREW_LIST_BLOCKS_TABLE)');
@@ -97,5 +117,7 @@ describe('Crew List service safety contract', () => {
         expect(unblock).toContain('.from(CREW_LIST_BLOCKS_TABLE)');
         expect(unblock).toMatch(/\.eq\('blocker_id', ownerId\)/);
         expect(unblock).toMatch(/\.eq\('blocked_id', target\)/);
+        expect(blockedIds).toMatch(/supabase\.rpc\('get_crew_list_blocked_user_ids'\)/);
+        expect(blockedIds).toMatch(/bilateralRows/);
     });
 });

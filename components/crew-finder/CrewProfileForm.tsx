@@ -1,5 +1,5 @@
 /**
- * CrewProfileForm — My Profile / Listing form for the Crew Finder
+ * CrewProfileForm — private profile setup for The Crew List
  *
  * Extracted from LonelyHeartsPage (~590 lines → standalone component).
  * Receives state + dispatch from useCrewFinderState for clean prop interface.
@@ -10,10 +10,7 @@ import { type CrewFinderState, type CrewFinderAction } from '../../hooks/useCrew
 import { type ListingType } from '../../services/LonelyHeartsService';
 import {
     SKILL_OPTIONS,
-    GENDER_OPTIONS,
-    AGE_RANGES,
     EXPERIENCE_LEVELS,
-    LISTING_TYPES,
     VIBE_OPTIONS,
     LANGUAGE_OPTIONS,
     SMOKING_OPTIONS,
@@ -45,6 +42,37 @@ const isOpenEnded = (iso: string | null) => {
     return iso === '9999-12-31';
 };
 
+const CREW_LIST_INTENTS: Array<{
+    key: ListingType;
+    label: string;
+    detail: string;
+    icon: string;
+}> = [
+    {
+        key: 'seeking_crew',
+        label: 'Find crew',
+        detail: 'I have a vessel or passage and need crew.',
+        icon: '⚓',
+    },
+    {
+        key: 'seeking_berth',
+        label: 'Find a skipper',
+        detail: 'I am looking for a berth or sailing opportunity.',
+        icon: '🧭',
+    },
+];
+
+/**
+ * These fields are intentionally optional while older locally-cached profiles
+ * are upgraded. Discoverability is governed by the backend, not this view;
+ * the UI only describes an approved status when both review checks are known
+ * to have passed.
+ */
+interface CrewListReviewFields {
+    approval_status?: string | null;
+    verification_status?: string | null;
+}
+
 // ── Props ──
 
 interface CrewProfileFormProps {
@@ -52,6 +80,7 @@ interface CrewProfileFormProps {
     dispatch: React.Dispatch<CrewFinderAction>;
     // Handler callbacks
     onSaveProfile: () => void;
+    onPauseCrewList: () => void;
     onPhotoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onPhotoRemove: (idx: number) => void;
     onDeleteProfile: () => void;
@@ -64,6 +93,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
     state,
     dispatch,
     onSaveProfile,
+    onPauseCrewList,
     onPhotoUpload,
     onPhotoRemove,
     onDeleteProfile: _onDeleteProfile,
@@ -74,8 +104,6 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
     const {
         editListingType,
         editFirstName,
-        editGender,
-        editAge,
         editBio,
         editRegion,
         editExperience,
@@ -114,8 +142,6 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
 
     const setEditListingType = (v: ListingType | '') => set('SET_EDIT_LISTING_TYPE', v);
     const setEditFirstName = (v: string) => set('SET_EDIT_FIRST_NAME', v);
-    const setEditGender = (v: string) => set('SET_EDIT_GENDER', v);
-    const setEditAge = (v: string) => set('SET_EDIT_AGE', v);
     const setEditBio = (v: string) => set('SET_EDIT_BIO', v);
     const setEditRegion = (v: string) => set('SET_EDIT_REGION', v);
     const setEditExperience = (v: string) => set('SET_EDIT_EXPERIENCE', v);
@@ -157,6 +183,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 : [...editInterests, interest],
         });
 
+    const review = profile as Partial<CrewListReviewFields>;
+    const isApprovedForCrewList = review.approval_status === 'approved' && review.verification_status === 'verified';
+
     return (
         <div
             className="flex flex-col"
@@ -171,7 +200,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 space-y-5"
                 style={{
                     // Keyboard up → keyboard height (input clears keyboard).
-                    // Keyboard down → 5rem + safe area inset, so Save My Listing
+                    // Keyboard down → 5rem + safe area inset, so the Crew List save CTA
                     // CTA clears the fixed bottom nav bar (h-16 + safe area, ~98px)
                     // plus a touch of breathing room.
                     paddingBottom: kbHeight > 0 ? `${kbHeight}px` : 'calc(5rem + env(safe-area-inset-bottom))',
@@ -179,16 +208,53 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     WebkitOverflowScrolling: 'touch' as any,
                 }}
             >
-                <div className="text-center mb-2">
-                    <span className="text-3xl block mb-1">
+                <section
+                    aria-labelledby="crew-list-profile-title"
+                    className="rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-500/[0.10] via-slate-900 to-emerald-500/[0.08] p-4 shadow-lg shadow-sky-950/20"
+                >
+                    <div className="flex items-start gap-3">
+                        <span aria-hidden="true" className="mt-0.5 text-2xl">
+                            ⚓
+                        </span>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-200/70">
+                                Private beta
+                            </p>
+                            <h2 id="crew-list-profile-title" className="mt-0.5 text-lg font-black text-white">
+                                The Crew List
+                            </h2>
+                            <p className="mt-1 text-sm leading-relaxed text-white/60">
+                                A discreet, opt-in way to find a skipper or crew for a real passage — never a public
+                                live-location feed.
+                            </p>
+                        </div>
+                    </div>
+                    <div
+                        aria-live="polite"
+                        className={`mt-3 rounded-2xl border px-3 py-2.5 text-xs leading-relaxed ${isApprovedForCrewList ? 'border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-100/80' : 'border-amber-400/15 bg-amber-500/[0.08] text-amber-100/75'}`}
+                    >
+                        {isApprovedForCrewList
+                            ? '✓ Approved for Crew List. You can pause your profile whenever you need privacy.'
+                            : profile?.user_id
+                              ? '⏳ Profile review pending. Keep contact details and exact vessel locations out of your bio.'
+                              : 'Your profile begins private. Add a clear headshot, then submit it for verification and approval.'}
+                    </div>
+                    <ul className="mt-3 grid gap-1.5 text-[11px] text-white/45 sm:grid-cols-2">
+                        <li>• Your first photo must be a clear headshot.</li>
+                        <li>• Introductions are mutual before private chat.</li>
+                    </ul>
+                </section>
+
+                <div className="text-center mb-1">
+                    <span className="text-3xl block mb-1" aria-hidden="true">
                         {editListingType === 'seeking_crew' ? '⚓' : editListingType === 'seeking_berth' ? '🧭' : '🌊'}
                     </span>
                     <p className="text-xs text-white/40">
                         {editListingType === 'seeking_crew'
-                            ? 'Your Captain profile — tell crew about your vessel & plans'
+                            ? 'Tell potential crew about your vessel, plans and watch expectations.'
                             : editListingType === 'seeking_berth'
-                              ? 'Your Crew profile — tell captains what you bring aboard'
-                              : 'Your Crew Finder profile is separate from your chat profile'}
+                              ? 'Tell skippers what you bring aboard and where you hope to sail.'
+                              : 'Choose the kind of sailing introduction you want to make.'}
                     </p>
                 </div>
 
@@ -206,77 +272,31 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     />
                 </div>
 
-                {/* 2. I Am + Gender — same row */}
-                <div className="grid grid-cols-2 gap-4">
-                    {/* Listing Type */}
-                    <div>
-                        <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                            I am
-                        </label>
-                        <div className="flex gap-2">
-                            {LISTING_TYPES.map((lt) => (
-                                <button
-                                    aria-label="Edit item details"
-                                    key={lt.key}
-                                    onClick={() => setEditListingType(editListingType === lt.key ? '' : lt.key)}
-                                    className={`flex-1 py-3 px-3 rounded-2xl text-center text-sm font-semibold transition-all flex flex-col items-center gap-1 ${
-                                        editListingType === lt.key
-                                            ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
-                                            : 'bg-white/[0.02] text-white/60 border border-white/[0.05] hover:bg-white/[0.04]'
-                                    }`}
-                                >
-                                    <span className="text-lg">{lt.icon}</span>
-                                    <span className="text-xs">{lt.label}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Gender */}
-                    <div>
-                        <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                            Gender
-                        </label>
-                        <div className="flex gap-2">
-                            {GENDER_OPTIONS.map((g) => (
-                                <button
-                                    aria-label="Edit item details"
-                                    key={g}
-                                    onClick={() => setEditGender(editGender === g ? '' : g)}
-                                    className={`flex-1 py-3 px-3 rounded-2xl text-center text-sm font-semibold transition-all flex flex-col items-center gap-1 ${
-                                        editGender === g
-                                            ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
-                                            : 'bg-white/[0.02] text-white/60 border border-white/[0.05] hover:bg-white/[0.04]'
-                                    }`}
-                                >
-                                    <span className="text-lg">{g === 'Male' ? '♂️' : '♀️'}</span>
-                                    <span className="text-xs">{g}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* 3. Age Range */}
+                {/* 2. Crew List intent */}
                 <div>
                     <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                        Age Range
+                        I want to
                     </label>
-                    <div className="flex gap-2 flex-wrap">
-                        {AGE_RANGES.map((age) => (
+                    <div className="grid grid-cols-2 gap-3">
+                        {CREW_LIST_INTENTS.map((intent) => (
                             <button
-                                aria-label="Edit item details"
-                                key={age}
-                                onClick={() => {
-                                    setEditAge(editAge === age ? '' : age);
-                                }}
-                                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                                    editAge === age
-                                        ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
-                                        : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                aria-pressed={editListingType === intent.key}
+                                aria-label={`${intent.label}: ${intent.detail}`}
+                                key={intent.key}
+                                onClick={() => setEditListingType(editListingType === intent.key ? '' : intent.key)}
+                                className={`min-h-[7.25rem] rounded-2xl px-3 py-3 text-left transition-all ${
+                                    editListingType === intent.key
+                                        ? 'border border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 to-sky-500/20 text-emerald-100 shadow-lg shadow-emerald-950/20'
+                                        : 'border border-white/[0.06] bg-white/[0.025] text-white/60 hover:bg-white/[0.05]'
                                 }`}
                             >
-                                {age}
+                                <span aria-hidden="true" className="block text-xl">
+                                    {intent.icon}
+                                </span>
+                                <span className="mt-1 block text-sm font-bold">{intent.label}</span>
+                                <span className="mt-1 block text-[11px] leading-snug text-white/45">
+                                    {intent.detail}
+                                </span>
                             </button>
                         ))}
                     </div>
@@ -409,10 +429,10 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     </div>
                 </div>
 
-                {/* 10. Your Location */}
+                {/* 10. Broad area */}
                 <div>
                     <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
-                        📍 Your Location
+                        📍 Your Broad Area
                     </label>
                     <div className="space-y-2.5">
                         <select
@@ -465,20 +485,21 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         <input
                             value={editLocationCity}
                             onChange={(e) => setEditLocationCity(e.target.value)}
-                            placeholder="City / Town"
+                            placeholder="Harbour / town (optional)"
                             className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
                             maxLength={60}
                         />
                     </div>
                     <p className="text-[11px] text-white/40 mt-1.5 ml-1">
-                        Auto-detected from your GPS — edit if needed
+                        Your harbour or town stays private. The Crew List only shows your state / province and country,
+                        and never publishes a live position, vessel track or contact details.
                     </p>
                 </div>
 
-                {/* 11. Your Vibe */}
+                {/* 11. Sailing style */}
                 <div>
                     <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                        ⚡ Your Vibe
+                        ⚡ Sailing Style
                     </label>
                     <div className="flex gap-2 flex-wrap">
                         {VIBE_OPTIONS.map((v) => (
@@ -590,13 +611,13 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     </div>
                 </div>
 
-                {/* 14. Interests & Hobbies (match-only) */}
+                {/* 14. Interests & Hobbies (mutual-introduction only) */}
                 <div>
                     <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-1">
                         🎭 Interests & Hobbies
                     </label>
                     <p className="text-[11px] text-amber-400/50 mb-3">
-                        🔒 Only shared with your matches — not visible on your public listing
+                        🔒 Shared only after a mutual introduction — never on your public Crew List profile
                     </p>
                     <div className="flex gap-2 flex-wrap">
                         {INTEREST_OPTIONS.map((interest) => (
@@ -619,9 +640,12 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 {/* 15. Photos — up to 6 */}
                 <div>
                     <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                        📸 Your Photos ({editPhotos.length}/6)
+                        📸 Profile Photos ({editPhotos.length}/6)
                     </label>
-                    <p className="text-[11px] text-white/40 mb-3">Add up to 6 photos — moderated by AI for safety</p>
+                    <p className="text-[11px] leading-relaxed text-white/40 mb-3">
+                        Your first photo is required: use a clear headshot for profile review. The remaining five can
+                        show your sailing life. Every photo is reviewed for safety.
+                    </p>
                     <div className="grid grid-cols-3 gap-2">
                         {Array.from({ length: 6 }).map((_, idx) => {
                             const url = editPhotos[idx];
@@ -629,7 +653,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             return (
                                 <div
                                     key={idx}
-                                    className="aspect-square rounded-2xl border border-white/[0.06] overflow-hidden relative group"
+                                    className={`aspect-square rounded-2xl border overflow-hidden relative group ${
+                                        idx === 0 ? 'border-sky-400/35 bg-sky-500/[0.06]' : 'border-white/[0.06]'
+                                    }`}
                                 >
                                     {isUploading ? (
                                         <div className="w-full h-full bg-emerald-500/5 flex items-center justify-center">
@@ -640,11 +666,18 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                             <SafeImage
                                                 src={url}
                                                 loading="lazy"
-                                                alt=""
+                                                alt={idx === 0 ? 'Primary headshot' : `Crew List photo ${idx + 1}`}
                                                 className="w-full h-full object-cover"
                                             />
+                                            {idx === 0 && (
+                                                <span className="absolute left-1.5 top-1.5 rounded-full bg-slate-950/85 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-sky-200">
+                                                    Headshot
+                                                </span>
+                                            )}
                                             <button
-                                                aria-label="Remove this item"
+                                                aria-label={
+                                                    idx === 0 ? 'Remove primary headshot' : `Remove photo ${idx + 1}`
+                                                }
                                                 onClick={() => onPhotoRemove(idx)}
                                                 className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-400 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
                                             >
@@ -653,7 +686,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         </>
                                     ) : (
                                         <button
-                                            aria-label="Pending Photo Idx"
+                                            aria-label={
+                                                idx === 0 ? 'Add required primary headshot' : `Add photo ${idx + 1}`
+                                            }
                                             onClick={() => {
                                                 setPendingPhotoIdx(idx);
                                                 fileInputRef.current?.click();
@@ -661,6 +696,11 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                             className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                         >
                                             <span className="text-2xl text-white/40">➕</span>
+                                            {idx === 0 && (
+                                                <span className="mt-1 text-[10px] font-bold uppercase tracking-wider text-sky-200/80">
+                                                    Headshot
+                                                </span>
+                                            )}
                                         </button>
                                     )}
                                 </div>
@@ -678,18 +718,19 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     />
                 </div>
 
-                <p className="text-[11px] text-white/40 text-center">
-                    Your listing is visible to other Crew Talk members who have opted in
+                <p className="text-[11px] leading-relaxed text-white/40 text-center">
+                    Your profile is visible only to approved Crew List members when it is active. Keep phone numbers,
+                    email addresses and exact boat locations private until you choose to share them.
                 </p>
 
-                {/* Preview My Listing Button */}
+                {/* Preview profile button */}
                 {editFirstName && (
                     <button
-                        aria-label="Go to previous step"
+                        aria-label={showPreview ? 'Hide profile preview' : 'Preview Crew List profile'}
                         onClick={() => setShowPreview(!showPreview)}
                         className="w-full py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] bg-white/[0.04] border border-white/[0.06] text-white/60 hover:bg-white/[0.08]"
                     >
-                        {showPreview ? '✕ Hide Preview' : '👁 Preview My Listing'}
+                        {showPreview ? '✕ Hide Preview' : '👁 Preview Crew List Profile'}
                     </button>
                 )}
 
@@ -715,7 +756,6 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 )}
                             </div>
                             <h2 className="text-2xl font-black text-white/90 mb-0.5">{editFirstName || 'Your Name'}</h2>
-                            {editAge && <p className="text-sm text-white/35 mb-1">{editAge}</p>}
                             {editListingType && (
                                 <span
                                     className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${
@@ -724,7 +764,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                             : 'bg-amber-500/15 text-amber-300/80'
                                     }`}
                                 >
-                                    {editListingType === 'seeking_crew' ? '⚓ Captain' : '🧭 Crew'}
+                                    {editListingType === 'seeking_crew' ? '⚓ Seeking crew' : '🧭 Seeking a skipper'}
                                 </span>
                             )}
                         </div>
@@ -736,7 +776,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 {(editLocationCity || editLocationState || editLocationCountry) && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                                         <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
-                                            Home Port
+                                            Private location
                                         </p>
                                         <p className="text-sm text-white/70">
                                             🏠{' '}
@@ -760,22 +800,6 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                             Experience
                                         </p>
                                         <p className="text-sm text-white/70">🧭 {editExperience}</p>
-                                    </div>
-                                )}
-                                {editGender && (
-                                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
-                                            Gender
-                                        </p>
-                                        <p className="text-sm text-white/70">{editGender}</p>
-                                    </div>
-                                )}
-                                {editAge && (
-                                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
-                                            Age
-                                        </p>
-                                        <p className="text-sm text-white/70">{editAge}</p>
                                     </div>
                                 )}
                             </div>
@@ -828,9 +852,34 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         </div>
 
                         <p className="text-[11px] text-white/40 text-center pt-4 mt-4 border-t border-white/[0.04]">
-                            This is how your listing appears to others
+                            This is how your Crew List profile appears to other approved members
                         </p>
                     </div>
+                )}
+
+                {/* Discreet off switch — a pause is private immediately and
+                    keeps the draft, unlike deletion. */}
+                {profile?.user_id && profile.community_enabled === true && (
+                    <section className="mt-6 rounded-2xl border border-amber-400/15 bg-amber-500/[0.045] p-4">
+                        <p className="text-sm font-bold text-amber-100/90">Need to disappear for a while?</p>
+                        <p className="mt-1 text-xs leading-relaxed text-white/50">
+                            Pausing makes your Crew List profile private immediately. Your draft stays on this device,
+                            but returning needs a fresh manual review.
+                        </p>
+                        <button
+                            type="button"
+                            aria-label="Pause The Crew List"
+                            onClick={onPauseCrewList}
+                            disabled={saving}
+                            className="mt-3 min-h-[44px] w-full rounded-xl border border-amber-400/20 bg-amber-500/[0.10] px-3 py-2.5 text-sm font-bold text-amber-100 transition-colors hover:bg-amber-500/[0.16] disabled:cursor-not-allowed disabled:opacity-55 active:scale-[0.98]"
+                        >
+                            {saving
+                                ? 'Pausing…'
+                                : isApprovedForCrewList
+                                  ? 'Pause The Crew List'
+                                  : 'Withdraw profile from review'}
+                        </button>
+                    </section>
                 )}
 
                 {/* Delete Listing — only show if profile exists */}
@@ -840,7 +889,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         onClick={() => setShowDeleteConfirm(true)}
                         className="w-full mt-6 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-bold hover:bg-red-500/15 transition-all active:scale-[0.98]"
                     >
-                        🗑️ Delete My Listing
+                        🗑️ Delete Crew List Profile
                     </button>
                 )}
             </div>
@@ -848,16 +897,11 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
             <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] bg-slate-950">
                 {(() => {
                     const isComplete =
-                        !!editListingType &&
-                        !!editFirstName.trim() &&
-                        !!editGender &&
-                        !!editAge &&
-                        editBio.trim().length >= 20;
+                        !!editListingType && !!editFirstName.trim() && !!editPhotos[0] && editBio.trim().length >= 20;
                     const missing: string[] = [];
-                    if (!editListingType) missing.push('listing type');
+                    if (!editListingType) missing.push('Crew List intent');
                     if (!editFirstName.trim()) missing.push('first name');
-                    if (!editGender) missing.push('gender');
-                    if (!editAge) missing.push('age bracket');
+                    if (!editPhotos[0]) missing.push('clear primary headshot');
                     if (editBio.trim().length < 20) missing.push(`bio (${20 - editBio.trim().length} more chars)`);
                     return (
                         <>
@@ -876,7 +920,13 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         : 'bg-white/[0.06] text-white/40 cursor-not-allowed shadow-none'
                                 }`}
                             >
-                                {saved ? '✓ Listing Saved!' : saving ? 'Saving...' : '💾 Save My Listing'}
+                                {saved
+                                    ? '✓ Crew List profile saved'
+                                    : saving
+                                      ? 'Saving...'
+                                      : isApprovedForCrewList
+                                        ? '💾 Save approved profile'
+                                        : '🛟 Save profile for review'}
                             </button>
                         </>
                     );

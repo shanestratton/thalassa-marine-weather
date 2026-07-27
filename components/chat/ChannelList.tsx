@@ -8,10 +8,9 @@ import type { ChatChannel } from '../../services/ChatService';
 import { ChannelProposalModal } from './ChannelProposalModal';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 
-// Channels hidden from the directory. 'Lonely Hearts' is always hidden
-// (legacy alias of Crew Finder). Marketplace + Crew-Finder channels are
-// hidden behind launch-visibility flags — flipping the flag re-surfaces
-// them. See utils/featureVisibility.
+// Channels hidden from the directory. 'Lonely Hearts' is always hidden as a
+// legacy alias. Marketplace and The Crew List each have their own deliberate
+// launch-visibility flag; see utils/featureVisibility.
 const HIDDEN_CHANNEL_NAMES = new Set<string>([
     'Lonely Hearts',
     ...(FEATURE_VISIBILITY.marketplace ? [] : ['Chandlery', 'Marketplace']),
@@ -22,10 +21,10 @@ const HIDDEN_CHANNEL_NAMES = new Set<string>([
 const ICON_OVERRIDES: Record<string, string> = {
     SOLAS: '🛟',
     Safety: '🛟',
-    'Find Crew': '👥',
+    'Find Crew': '⚓',
 };
 const NAME_OVERRIDES: Record<string, string> = {
-    'Find Crew': 'Crew Finder',
+    'Find Crew': 'The Crew List',
 };
 const getChannelIcon = (ch: { name: string; icon: string }) => ICON_OVERRIDES[ch.name] ?? ch.icon;
 const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.name;
@@ -114,7 +113,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
     // Separate top-level and sub-channels
     // Exclude voyage crew channels (private + 👥 icon) — they're handled by the dedicated Crew Chat button
-    // Exclude launch-hidden features (Marketplace / Crew Finder) — see
+    // Exclude launch-hidden features (Marketplace / The Crew List) — see
     // utils/featureVisibility. Hiding the channel removes the only path
     // into the ChandleryPage / LonelyHeartsPage views (openChannel
     // routes on channel name), so the pages stay code-complete but

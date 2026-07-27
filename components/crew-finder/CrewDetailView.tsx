@@ -1,5 +1,5 @@
 /**
- * CrewDetailView — Full profile detail view for crew listings
+ * CrewDetailView — full Crew List profile with consent-first introductions
  *
  * Extracted from LonelyHeartsPage to reduce file size.
  */
@@ -9,21 +9,32 @@ import { CrewFinderState } from '../../hooks/useCrewFinderState';
 import { CrewCard } from '../../services/LonelyHeartsService';
 import { SafeImage } from '../ui/SafeImage';
 
+interface CrewListApprovalFields {
+    approval_status?: string | null;
+    verification_status?: string | null;
+}
+
 interface CrewDetailViewProps {
     selectedCard: CrewCard;
     state: CrewFinderState;
     onBack: () => void;
     onLike: (card: CrewCard) => void;
-    onOpenDM: (userId: string, name: string) => void;
+    onOpenIntroductions: () => void;
     matchedUserIds: Set<string>;
     formatDate: (iso: string | null) => string;
     isOpenEnded: (iso: string | null) => boolean;
-    trackMessagedUser: (userId: string) => void;
 }
 
 export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
-    ({ selectedCard, state, onBack, onLike, onOpenDM, matchedUserIds, formatDate, isOpenEnded, trackMessagedUser }) => {
-        const { likedUsers, messagedUsers } = state;
+    ({ selectedCard, state, onBack, onLike, onOpenIntroductions, matchedUserIds, formatDate, isOpenEnded }) => {
+        const { likedUsers } = state;
+        const review = selectedCard as CrewCard & CrewListApprovalFields;
+        const isApprovedForCrewList =
+            review.approval_status === 'approved' && review.verification_status === 'verified';
+        // Never render the inherited chat-profile `home_port` field in Crew
+        // List discovery. A public card is restricted to a broad state/country
+        // area even if an old cached card carried a more precise value.
+        const broadArea = [selectedCard.location_state, selectedCard.location_country].filter(Boolean).join(', ');
 
         return (
             <div className="px-4 py-5">
@@ -33,7 +44,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     onClick={onBack}
                     className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white/60 mb-4 transition-colors"
                 >
-                    ← Back to listings
+                    ← Back to Crew List
                 </button>
 
                 {/* Profile header */}
@@ -55,12 +66,16 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         )}
                     </div>
                     <h2 className="text-2xl font-black text-white/90 mb-0.5">{selectedCard.display_name}</h2>
-                    {selectedCard.age_range && <p className="text-sm text-white/35 mb-1">{selectedCard.age_range}</p>}
+                    {isApprovedForCrewList && (
+                        <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/[0.10] px-2.5 py-1 text-[11px] font-semibold text-sky-100/85">
+                            <span aria-hidden="true">✓</span> Approved for Crew List
+                        </p>
+                    )}
                     {selectedCard.listing_type && (
                         <span
                             className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${selectedCard.listing_type === 'seeking_crew' ? 'bg-emerald-500/15 text-emerald-300/80' : 'bg-amber-500/15 text-amber-300/80'}`}
                         >
-                            {selectedCard.listing_type === 'seeking_crew' ? '⚓ Captain' : '🧭 Crew'}
+                            {selectedCard.listing_type === 'seeking_crew' ? '⚓ Seeking crew' : '🧭 Seeking a skipper'}
                         </span>
                     )}
                 </div>
@@ -69,12 +84,12 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                 <div className="space-y-4">
                     {/* Quick facts */}
                     <div className="grid grid-cols-2 gap-2">
-                        {selectedCard.home_port && (
+                        {broadArea && (
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
-                                    Home Port
+                                    Broad Area
                                 </p>
-                                <p className="text-sm text-white/70">🏠 {selectedCard.home_port}</p>
+                                <p className="text-sm text-white/70">📍 {broadArea}</p>
                             </div>
                         )}
                         {selectedCard.sailing_region && (
@@ -93,26 +108,10 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                                 <p className="text-sm text-white/70">🧭 {selectedCard.sailing_experience}</p>
                             </div>
                         )}
-                        {selectedCard.gender && (
-                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
-                                    Gender
-                                </p>
-                                <p className="text-sm text-white/70">{selectedCard.gender}</p>
-                            </div>
-                        )}
-                        {selectedCard.age_range && (
-                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
-                                    Age
-                                </p>
-                                <p className="text-sm text-white/70">{selectedCard.age_range}</p>
-                            </div>
-                        )}
                         {selectedCard.vibe.length > 0 && (
                             <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/10">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-purple-300/40 mb-0.5">
-                                    Vibe
+                                    Sailing Style
                                 </p>
                                 <p className="text-sm text-purple-200/70">{selectedCard.vibe.join(' · ')}</p>
                             </div>
@@ -192,38 +191,41 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                             </p>
                         </div>
                     )}
+
+                    <aside className="rounded-2xl border border-sky-400/15 bg-sky-500/[0.06] p-3 text-xs leading-relaxed text-sky-100/70">
+                        <p className="font-bold text-sky-100/85">Privacy first</p>
+                        <p className="mt-1">
+                            Exact vessel location and contact details remain private. Send an introduction first;
+                            private chat appears only after both sailors choose to connect.
+                        </p>
+                    </aside>
                 </div>
 
-                {/* Action bar */}
-                <div className="flex gap-3 mt-6 sticky bottom-4">
+                {/* Private chat is deliberately unavailable until the introduction is mutual. */}
+                <div className="mt-6 sticky bottom-4">
                     {matchedUserIds.has(selectedCard.user_id) ? (
                         <button
-                            aria-label="Messaged User"
-                            onClick={() => {
-                                trackMessagedUser(selectedCard.user_id);
-                                onOpenDM(selectedCard.user_id, selectedCard.display_name);
-                            }}
-                            disabled={messagedUsers.has(selectedCard.user_id)}
-                            className={`flex-1 py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-xl ${messagedUsers.has(selectedCard.user_id) ? 'bg-white/[0.04] text-white/40 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
+                            aria-label={`View accepted introduction with ${selectedCard.display_name}`}
+                            onClick={onOpenIntroductions}
+                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 text-base font-bold text-white shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.97]"
                         >
-                            {messagedUsers.has(selectedCard.user_id) ? '✓ Message Sent' : '💬 Send Message'}
+                            ✓ Connected · View introduction
                         </button>
                     ) : (
-                        <div className="flex-1 py-4 rounded-2xl text-center bg-white/[0.03] border border-white/[0.06]">
-                            <span className="text-sm text-white/30 font-medium">
-                                {likedUsers.has(selectedCard.user_id)
-                                    ? '⏳ Waiting for them to star you back'
-                                    : '⭐ Star them to connect'}
-                            </span>
-                        </div>
+                        <button
+                            aria-label={
+                                likedUsers.has(selectedCard.user_id)
+                                    ? `Withdraw introduction request for ${selectedCard.display_name}`
+                                    : `Send introduction to ${selectedCard.display_name}`
+                            }
+                            onClick={() => onLike(selectedCard)}
+                            className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.97] ${likedUsers.has(selectedCard.user_id) ? 'border border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-100' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/20'}`}
+                        >
+                            {likedUsers.has(selectedCard.user_id)
+                                ? '✓ Introduction sent — awaiting their choice'
+                                : '✉️ Send introduction'}
+                        </button>
                     )}
-                    <button
-                        aria-label="Like this item"
-                        onClick={() => onLike(selectedCard)}
-                        className={`w-16 rounded-2xl flex items-center justify-center text-2xl transition-all active:scale-90 border ${likedUsers.has(selectedCard.user_id) ? 'bg-amber-500/20 border-amber-400/30' : 'bg-white/[0.03] border-white/[0.06]'}`}
-                    >
-                        ⭐
-                    </button>
                 </div>
             </div>
         );

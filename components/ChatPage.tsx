@@ -706,13 +706,7 @@ export const ChatPage: React.FC = React.memo(() => {
                     )}
 
                     {/* ══════ FIND CREW BOARD ══════ */}
-                    {view === 'find_crew' && !loading && (
-                        <LonelyHeartsPage
-                            onOpenDM={(userId, name) => {
-                                openDMThread(userId, name);
-                            }}
-                        />
-                    )}
+                    {view === 'find_crew' && !loading && <LonelyHeartsPage />}
                     {/* ══════ CHANDLERY (Store One curated storefront) ══════ */}
                     {/* Gated to Skipper+ — non-entitled users see an upsell card.
                         PaywallGate emits a window event ('thalassa:openUpgrade')
