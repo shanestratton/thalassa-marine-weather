@@ -1,24 +1,27 @@
 import type React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CrewCard, CrewProfile, SailorMatch } from '../services/LonelyHeartsService';
+import type { CrewCard, CrewIntroRequest, CrewProfile } from '../services/LonelyHeartsService';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const crewService = vi.hoisted(() => ({
     currentUserId: null as string | null,
     init: vi.fn(),
-    getMatches: vi.fn(),
+    getCrewIntroRequests: vi.fn(),
     getCrewProfile: vi.fn(),
-    getBlockedUserIds: vi.fn(),
-    hasSuperLikedToday: vi.fn(),
+    getCrewListBlockedUserIds: vi.fn(),
     updateLastActive: vi.fn(),
     getCrewListings: vi.fn(),
     updateCrewProfile: vi.fn(),
+    updateCrewListState: vi.fn(),
+    submitCrewProfileForReview: vi.fn(),
     uploadCrewPhoto: vi.fn(),
-    recordLike: vi.fn(),
-    blockUser: vi.fn(),
-    reportUser: vi.fn(),
-    recordSuperLike: vi.fn(),
+    removeCrewPhotoAtIndex: vi.fn(),
+    sendCrewIntroRequest: vi.fn(),
+    withdrawCrewIntroRequest: vi.fn(),
+    respondToCrewIntroRequest: vi.fn(),
+    blockCrewListUser: vi.fn(),
+    reportCrewListUser: vi.fn(),
     deleteCrewProfile: vi.fn(),
 }));
 
@@ -66,8 +69,22 @@ function profile(userId: string, firstName: string): CrewProfile {
     return { user_id: userId, first_name: firstName } as CrewProfile;
 }
 
-function match(userId: string): SailorMatch {
-    return { user_id: userId, display_name: userId } as SailorMatch;
+function intro(
+    id: string,
+    senderId: string,
+    recipientId: string,
+    status: CrewIntroRequest['status'] = 'pending',
+): CrewIntroRequest {
+    return {
+        id,
+        sender_id: senderId,
+        recipient_id: recipientId,
+        message: '',
+        status,
+        created_at: '2026-07-27T00:00:00.000Z',
+        responded_at: status === 'accepted' || status === 'declined' ? '2026-07-27T00:01:00.000Z' : null,
+        withdrawn_at: status === 'withdrawn' ? '2026-07-27T00:01:00.000Z' : null,
+    };
 }
 
 function useHarness() {
@@ -93,53 +110,74 @@ describe('Crew Finder async identity fencing', () => {
         crewService.init.mockImplementation(async () => {
             crewService.currentUserId = getAuthIdentityScope().userId;
         });
-        crewService.getMatches.mockResolvedValue([]);
+        crewService.getCrewIntroRequests.mockResolvedValue([]);
         crewService.getCrewProfile.mockResolvedValue(null);
-        crewService.getBlockedUserIds.mockResolvedValue([]);
-        crewService.hasSuperLikedToday.mockResolvedValue(false);
+        crewService.getCrewListBlockedUserIds.mockResolvedValue([]);
         crewService.updateLastActive.mockResolvedValue(undefined);
         crewService.getCrewListings.mockResolvedValue([]);
         crewService.updateCrewProfile.mockResolvedValue(true);
+        crewService.updateCrewListState.mockResolvedValue(true);
+        crewService.submitCrewProfileForReview.mockResolvedValue(true);
         crewService.uploadCrewPhoto.mockResolvedValue({ success: true, url: 'https://example.com/photo.jpg' });
-        crewService.recordLike.mockResolvedValue({ matched: false });
-        crewService.blockUser.mockResolvedValue(true);
-        crewService.reportUser.mockResolvedValue(true);
-        crewService.recordSuperLike.mockResolvedValue({ matched: false });
+        crewService.removeCrewPhotoAtIndex.mockResolvedValue(true);
+        crewService.sendCrewIntroRequest.mockResolvedValue(intro('intro-default', 'account-a', 'target'));
+        crewService.withdrawCrewIntroRequest.mockResolvedValue(true);
+        crewService.respondToCrewIntroRequest.mockResolvedValue(true);
+        crewService.blockCrewListUser.mockResolvedValue(true);
+        crewService.reportCrewListUser.mockResolvedValue(true);
         crewService.deleteCrewProfile.mockResolvedValue(true);
     });
 
     it('discards every private A initialization result and initializes B afterwards', async () => {
-        const matchesA = deferred<SailorMatch[]>();
+        const introsA = deferred<CrewIntroRequest[]>();
         const profileA = deferred<CrewProfile | null>();
         const blockedA = deferred<string[]>();
-        const superLikeA = deferred<boolean>();
 
-        crewService.getMatches.mockReturnValueOnce(matchesA.promise).mockResolvedValue([match('match-b')]);
+        crewService.getCrewIntroRequests.mockReturnValueOnce(introsA.promise).mockResolvedValue([]);
         crewService.getCrewProfile
             .mockReturnValueOnce(profileA.promise)
             .mockResolvedValue(profile('account-b', 'Profile B'));
-        crewService.getBlockedUserIds.mockReturnValueOnce(blockedA.promise).mockResolvedValue(['blocked-b']);
-        crewService.hasSuperLikedToday.mockReturnValueOnce(superLikeA.promise).mockResolvedValue(true);
+        crewService.getCrewListBlockedUserIds.mockReturnValueOnce(blockedA.promise).mockResolvedValue(['blocked-b']);
 
         const rendered = renderHook(() => useHarness());
-        await waitFor(() => expect(crewService.getMatches).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(crewService.getCrewIntroRequests).toHaveBeenCalledTimes(1));
 
         act(() => setAuthIdentityScope('account-b'));
         await waitFor(() => expect(rendered.result.current.state.loading).toBe(false));
-        expect(rendered.result.current.state.matches.map((item) => item.user_id)).toEqual(['match-b']);
+        expect(rendered.result.current.state.introductions).toEqual([]);
+        expect(rendered.result.current.state.matches).toEqual([]);
         expect(rendered.result.current.state.profile.first_name).toBe('Profile B');
         expect(rendered.result.current.state.blockedUserIds).toEqual(new Set(['blocked-b']));
-        expect(rendered.result.current.state.superLikeUsed).toBe(true);
+        expect(rendered.result.current.state.superLikeUsed).toBe(false);
 
-        matchesA.resolve([match('private-match-a')]);
+        introsA.resolve([intro('private-intro-a', 'account-a', 'private-target-a')]);
         profileA.resolve(profile('account-a', 'Private Profile A'));
         blockedA.resolve(['private-block-a']);
-        superLikeA.resolve(false);
-        await act(async () => Promise.all([matchesA.promise, profileA.promise, blockedA.promise, superLikeA.promise]));
-        expect(rendered.result.current.state.matches.map((item) => item.user_id)).toEqual(['match-b']);
+        await act(async () => Promise.all([introsA.promise, profileA.promise, blockedA.promise]));
+        expect(rendered.result.current.state.introductions).toEqual([]);
+        expect(rendered.result.current.state.matches).toEqual([]);
         expect(rendered.result.current.state.profile.first_name).toBe('Profile B');
         expect(rendered.result.current.state.blockedUserIds).toEqual(new Set(['blocked-b']));
-        expect(rendered.result.current.state.superLikeUsed).toBe(true);
+        expect(rendered.result.current.state.superLikeUsed).toBe(false);
+    });
+
+    it('does not project participant-readable pending or accepted introductions for blocked counterparts', async () => {
+        crewService.getCrewIntroRequests.mockResolvedValue([
+            intro('pending-blocked', 'account-a', 'blocked-pending'),
+            intro('accepted-blocked', 'blocked-accepted', 'account-a', 'accepted'),
+        ]);
+        crewService.getCrewListBlockedUserIds.mockResolvedValue(['blocked-pending', 'blocked-accepted']);
+        crewService.getCrewProfile.mockImplementation(async (userId: string) => profile(userId, `Sailor ${userId}`));
+
+        const rendered = await renderReady();
+
+        expect(rendered.result.current.state.introductions).toEqual([]);
+        expect(rendered.result.current.state.matches).toEqual([]);
+        expect(rendered.result.current.state.likedUsers).toEqual(new Set());
+        expect(rendered.result.current.state.blockedUserIds).toEqual(new Set(['blocked-pending', 'blocked-accepted']));
+        expect(crewService.getCrewProfile).toHaveBeenCalledWith('account-a');
+        expect(crewService.getCrewProfile).not.toHaveBeenCalledWith('blocked-pending');
+        expect(crewService.getCrewProfile).not.toHaveBeenCalledWith('blocked-accepted');
     });
 
     it('does not let a late A listing search populate B or complete A search UI', async () => {
@@ -182,6 +220,7 @@ describe('Crew Finder async identity fencing', () => {
             } as React.ChangeEvent<HTMLInputElement>);
         });
         await waitFor(() => expect(crewService.uploadCrewPhoto).toHaveBeenCalledTimes(1));
+        expect(crewService.uploadCrewPhoto).toHaveBeenCalledWith(input.files[0], { persistPrimary: true });
         expect(uploadIdentity).toBe('account-a');
 
         act(() => setAuthIdentityScope('account-b'));
@@ -193,20 +232,20 @@ describe('Crew Finder async identity fencing', () => {
         expect(rendered.result.current.state.uploadingPhotoIdx).toBeNull();
     });
 
-    it('drops a late A match result and never toasts it under B', async () => {
+    it('drops a late A introduction request and never toasts it under B', async () => {
         const rendered = await renderReady();
-        const likeA = deferred<{ matched: boolean }>();
-        crewService.recordLike.mockReturnValueOnce(likeA.promise);
+        const introductionA = deferred<CrewIntroRequest | null>();
+        crewService.sendCrewIntroRequest.mockReturnValueOnce(introductionA.promise);
         toastMocks.success.mockClear();
 
         let pending!: Promise<void>;
         act(() => {
             pending = rendered.result.current.actions.handleLike(card('target', 'Target Sailor'));
         });
-        await waitFor(() => expect(crewService.recordLike).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(crewService.sendCrewIntroRequest).toHaveBeenCalledTimes(1));
 
         act(() => setAuthIdentityScope('account-b'));
-        likeA.resolve({ matched: true });
+        introductionA.resolve(intro('intro-a', 'account-a', 'target'));
         await act(async () => pending);
 
         expect(rendered.result.current.state.likedUsers).toEqual(new Set());
@@ -214,17 +253,17 @@ describe('Crew Finder async identity fencing', () => {
         expect(toastMocks.success).not.toHaveBeenCalled();
     });
 
-    it('drops a direct late A block response before it can alter B', async () => {
+    it('drops a late A Crew List block response before it can alter B', async () => {
         const rendered = await renderReady();
         const blockA = deferred<boolean>();
-        crewService.blockUser.mockReturnValueOnce(blockA.promise);
+        crewService.blockCrewListUser.mockReturnValueOnce(blockA.promise);
         toastMocks.success.mockClear();
 
         let pending!: Promise<void>;
         act(() => {
             pending = rendered.result.current.actions.handleBlock('target-a', 'Target A');
         });
-        await waitFor(() => expect(crewService.blockUser).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(crewService.blockCrewListUser).toHaveBeenCalledTimes(1));
 
         act(() => setAuthIdentityScope('account-b'));
         blockA.resolve(true);
@@ -238,7 +277,7 @@ describe('Crew Finder async identity fencing', () => {
     it('drops late A block and report responses before mutating or toasting B', async () => {
         const rendered = await renderReady();
         const reportA = deferred<boolean>();
-        crewService.reportUser.mockReturnValueOnce(reportA.promise);
+        crewService.reportCrewListUser.mockReturnValueOnce(reportA.promise);
         toastMocks.success.mockClear();
 
         act(() => {
@@ -249,21 +288,21 @@ describe('Crew Finder async identity fencing', () => {
         act(() => {
             pending = rendered.result.current.actions.handleReport();
         });
-        await waitFor(() => expect(crewService.reportUser).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(crewService.reportCrewListUser).toHaveBeenCalledTimes(1));
 
         act(() => setAuthIdentityScope('account-b'));
         reportA.resolve(true);
         await act(async () => pending);
 
-        expect(crewService.blockUser).not.toHaveBeenCalled();
+        expect(crewService.blockCrewListUser).toHaveBeenCalledTimes(1);
         expect(rendered.result.current.state.blockedUserIds).toEqual(new Set());
         expect(toastMocks.success).not.toHaveBeenCalled();
     });
 
-    it('drops a late A super-like response and its success toast under B', async () => {
+    it('drops a late A noted introduction and its success toast under B', async () => {
         const rendered = await renderReady();
-        const superLikeA = deferred<{ matched: boolean }>();
-        crewService.recordSuperLike.mockReturnValueOnce(superLikeA.promise);
+        const introductionA = deferred<CrewIntroRequest | null>();
+        crewService.sendCrewIntroRequest.mockReturnValueOnce(introductionA.promise);
         toastMocks.success.mockClear();
 
         act(() => {
@@ -277,14 +316,54 @@ describe('Crew Finder async identity fencing', () => {
         act(() => {
             pending = rendered.result.current.actions.handleSuperLike();
         });
-        await waitFor(() => expect(crewService.recordSuperLike).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(crewService.sendCrewIntroRequest).toHaveBeenCalledTimes(1));
 
         act(() => setAuthIdentityScope('account-b'));
-        superLikeA.resolve({ matched: true });
+        introductionA.resolve(intro('intro-a', 'account-a', 'target-a'));
         await act(async () => pending);
 
         expect(rendered.result.current.state.superLikeUsed).toBe(false);
         expect(rendered.result.current.state.likedUsers).toEqual(new Set());
+        expect(toastMocks.success).not.toHaveBeenCalled();
+    });
+
+    it('drops late A response and withdrawal completions before they can expose private chat under B', async () => {
+        const rendered = await renderReady();
+        const responseA = deferred<boolean>();
+        crewService.respondToCrewIntroRequest.mockReturnValueOnce(responseA.promise);
+        toastMocks.success.mockClear();
+
+        let pendingResponse!: Promise<void>;
+        act(() => {
+            pendingResponse = rendered.result.current.actions.handleRespondToIntroduction('intro-a', 'accepted');
+        });
+        await waitFor(() => expect(crewService.respondToCrewIntroRequest).toHaveBeenCalledWith('intro-a', 'accepted'));
+
+        act(() => setAuthIdentityScope('account-b'));
+        responseA.resolve(true);
+        await act(async () => pendingResponse);
+
+        expect(rendered.result.current.state.matches).toEqual([]);
+        expect(rendered.result.current.state.introductions).toEqual([]);
+        expect(toastMocks.success).not.toHaveBeenCalled();
+
+        act(() => setAuthIdentityScope('account-a'));
+        await waitFor(() => expect(rendered.result.current.state.loading).toBe(false));
+        const withdrawalA = deferred<boolean>();
+        crewService.withdrawCrewIntroRequest.mockReturnValueOnce(withdrawalA.promise);
+
+        let pendingWithdrawal!: Promise<void>;
+        act(() => {
+            pendingWithdrawal = rendered.result.current.actions.handleWithdrawIntroduction('intro-a');
+        });
+        await waitFor(() => expect(crewService.withdrawCrewIntroRequest).toHaveBeenCalledWith('intro-a'));
+
+        act(() => setAuthIdentityScope('account-b'));
+        withdrawalA.resolve(true);
+        await act(async () => pendingWithdrawal);
+
+        expect(rendered.result.current.state.matches).toEqual([]);
+        expect(rendered.result.current.state.introductions).toEqual([]);
         expect(toastMocks.success).not.toHaveBeenCalled();
     });
 
@@ -294,6 +373,19 @@ describe('Crew Finder async identity fencing', () => {
         crewService.updateCrewProfile.mockReturnValueOnce(saveA.promise);
         toastMocks.success.mockClear();
         toastMocks.error.mockClear();
+
+        act(() => {
+            rendered.result.current.dispatch({ type: 'SET_EDIT_LISTING_TYPE', payload: 'seeking_crew' });
+            rendered.result.current.dispatch({ type: 'SET_EDIT_FIRST_NAME', payload: 'Sailor A' });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_PHOTOS',
+                payload: ['https://example.com/headshot.jpg'],
+            });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_BIO',
+                payload: 'An experienced sailor looking for a thoughtful coastal passage.',
+            });
+        });
 
         let pendingSave!: Promise<void>;
         act(() => {

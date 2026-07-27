@@ -1,143 +1,270 @@
 /**
- * CrewMatchesList — Connections/matches list with compatibility scoring
+ * CrewMatchesList — consent-first Crew List introduction inbox.
  *
- * Extracted from LonelyHeartsPage to reduce file size.
+ * Accepted conversations are opened by their Crew List introduction ID, never
+ * by an app-wide direct-message user ID. That distinction is deliberate: the
+ * database validates the acceptance and block state for every read and send.
  */
 
-import React from 'react';
-import { SailorMatch } from '../../services/LonelyHeartsService';
+import React, { useMemo } from 'react';
+import type { CrewListIntroduction } from '../../hooks/useCrewFinderState';
 import { EmptyState } from '../ui/EmptyState';
 import { SafeImage } from '../ui/SafeImage';
 
-interface CompatResult {
-    score: number;
-    label: string;
-    color: string;
+interface CrewMatchesListProps {
+    introductions: CrewListIntroduction[];
+    onOpenConversation: (introduction: CrewListIntroduction) => void;
+    onRespondIntroduction: (requestId: string, response: 'accepted' | 'declined') => void;
+    onWithdrawIntroduction: (requestId: string) => void;
 }
 
-interface CrewMatchesListProps {
-    matches: SailorMatch[];
-    onOpenDM: (userId: string, name: string) => void;
-    getCompatibility: (match: SailorMatch) => CompatResult;
-    getIcebreakers: (match: SailorMatch) => string[];
+function counterpartId(introduction: CrewListIntroduction): string {
+    return introduction.direction === 'sent' ? introduction.request.recipient_id : introduction.request.sender_id;
 }
 
 export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
-    ({ matches, onOpenDM, getCompatibility, getIcebreakers }) => {
+    ({ introductions, onOpenConversation, onRespondIntroduction, onWithdrawIntroduction }) => {
+        const incoming = introductions.filter(
+            (introduction) => introduction.direction === 'received' && introduction.request.status === 'pending',
+        );
+        const outgoing = introductions.filter(
+            (introduction) => introduction.direction === 'sent' && introduction.request.status === 'pending',
+        );
+
+        // A crossed pair of introductions can exist from the brief period
+        // before either sailor responds. They still resolve to one canonical
+        // private conversation, so present one calm entry rather than two.
+        const accepted = useMemo(() => {
+            const byCounterpart = new Map<string, CrewListIntroduction>();
+            for (const introduction of introductions) {
+                if (introduction.request.status !== 'accepted') continue;
+                const key = counterpartId(introduction);
+                const existing = byCounterpart.get(key);
+                if (!existing || introduction.request.created_at < existing.request.created_at) {
+                    byCounterpart.set(key, introduction);
+                }
+            }
+            return [...byCounterpart.values()];
+        }, [introductions]);
+
         return (
             <div className="px-4 py-5">
-                {matches.length === 0 ? (
+                <section
+                    aria-labelledby="crew-list-introductions-title"
+                    className="mb-4 rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-500/[0.08] to-emerald-500/[0.06] p-4"
+                >
+                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-200/65">The Crew List</p>
+                    <h2 id="crew-list-introductions-title" className="mt-1 text-base font-black text-white">
+                        Mutual introductions
+                    </h2>
+                    <p className="mt-1 text-xs leading-relaxed text-white/55">
+                        A private conversation appears here only after both sailors choose to connect. Take your time
+                        and keep early conversations in Thalassa.
+                    </p>
+                </section>
+
+                {incoming.length > 0 && (
+                    <section className="mb-5" aria-labelledby="incoming-introductions-title">
+                        <div className="mb-2 flex items-center justify-between px-1">
+                            <h3
+                                id="incoming-introductions-title"
+                                className="text-[11px] font-black uppercase tracking-[0.15em] text-amber-200/70"
+                            >
+                                Awaiting your choice ({incoming.length})
+                            </h3>
+                            <span className="text-[11px] text-white/35">No pressure — decline is private.</span>
+                        </div>
+                        <div className="space-y-3">
+                            {incoming.map((introduction) => {
+                                const sailor = introduction.counterpart;
+                                const name = sailor?.display_name || 'A Crew List sailor';
+                                return (
+                                    <article
+                                        key={introduction.request.id}
+                                        className="rounded-2xl border border-amber-400/15 bg-amber-500/[0.045] p-4 shadow-lg shadow-slate-950/20"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-amber-400/20 bg-slate-950/40">
+                                                {sailor?.avatar_url ? (
+                                                    <SafeImage
+                                                        src={sailor.avatar_url}
+                                                        loading="lazy"
+                                                        alt={`${name}'s profile photo`}
+                                                        className="h-full w-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <span aria-hidden="true">⛵</span>
+                                                )}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-bold text-white/90">{name}</p>
+                                                <p className="text-xs text-amber-100/55">
+                                                    would like to introduce themselves
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {introduction.request.message && (
+                                            <p className="mt-3 rounded-xl border border-white/[0.05] bg-slate-950/30 px-3 py-2.5 text-sm leading-relaxed text-white/65">
+                                                {introduction.request.message}
+                                            </p>
+                                        )}
+                                        <div className="mt-3 grid grid-cols-2 gap-2">
+                                            <button
+                                                aria-label={`Decline introduction from ${name}`}
+                                                onClick={() =>
+                                                    onRespondIntroduction(introduction.request.id, 'declined')
+                                                }
+                                                className="min-h-[44px] rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-white/55 transition-colors hover:bg-white/[0.06] active:scale-[0.98]"
+                                            >
+                                                Decline
+                                            </button>
+                                            <button
+                                                aria-label={`Accept introduction from ${name}`}
+                                                onClick={() =>
+                                                    onRespondIntroduction(introduction.request.id, 'accepted')
+                                                }
+                                                className="min-h-[44px] rounded-xl border border-emerald-400/20 bg-emerald-500/[0.16] px-3 py-2.5 text-sm font-bold text-emerald-100 transition-colors hover:bg-emerald-500/[0.23] active:scale-[0.98]"
+                                            >
+                                                Accept &amp; connect
+                                            </button>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                    </section>
+                )}
+
+                {outgoing.length > 0 && (
+                    <section className="mb-5" aria-labelledby="sent-introductions-title">
+                        <h3
+                            id="sent-introductions-title"
+                            className="mb-2 px-1 text-[11px] font-black uppercase tracking-[0.15em] text-sky-200/65"
+                        >
+                            Sent introductions ({outgoing.length})
+                        </h3>
+                        <div className="space-y-2">
+                            {outgoing.map((introduction) => {
+                                const name = introduction.counterpart?.display_name || 'Crew List sailor';
+                                return (
+                                    <div
+                                        key={introduction.request.id}
+                                        className="flex items-center gap-3 rounded-2xl border border-sky-400/10 bg-sky-500/[0.035] p-3"
+                                    >
+                                        <span aria-hidden="true" className="text-lg">
+                                            ✉️
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-bold text-white/80">{name}</p>
+                                            <p className="text-xs text-white/40">Awaiting their choice</p>
+                                        </div>
+                                        <button
+                                            aria-label={`Withdraw introduction to ${name}`}
+                                            onClick={() => onWithdrawIntroduction(introduction.request.id)}
+                                            className="min-h-[38px] rounded-xl px-2.5 text-xs font-bold text-sky-100/65 transition-colors hover:bg-white/[0.05]"
+                                        >
+                                            Withdraw
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </section>
+                )}
+
+                {accepted.length === 0 && incoming.length === 0 && outgoing.length === 0 ? (
                     <EmptyState
                         icon="🤝"
-                        title="No Connections Yet"
-                        description="When you ⭐ someone and they ⭐ you back, you'll both appear here. Start browsing!"
+                        title="No introductions accepted yet"
+                        description="Send a thoughtful introduction from The Crew List. If the other sailor accepts, you can both open a private conversation here."
                     />
                 ) : (
-                    <div className="space-y-2 stagger-in">
-                        {matches.map((match) => {
-                            const compat = getCompatibility(match);
-                            const colorClasses =
-                                compat.color === 'emerald'
-                                    ? 'text-emerald-300 border-emerald-400/30 bg-emerald-500/15'
-                                    : compat.color === 'sky'
-                                      ? 'text-sky-300 border-sky-400/30 bg-sky-500/15'
-                                      : compat.color === 'amber'
-                                        ? 'text-amber-300 border-amber-400/30 bg-amber-500/15'
-                                        : 'text-white/40 border-white/10 bg-white/5';
-                            const barColor =
-                                compat.color === 'emerald'
-                                    ? 'bg-emerald-400'
-                                    : compat.color === 'sky'
-                                      ? 'bg-sky-400'
-                                      : compat.color === 'amber'
-                                        ? 'bg-amber-400'
-                                        : 'bg-white/20';
-
-                            return (
-                                <button
-                                    aria-label="Open DM"
-                                    key={match.user_id}
-                                    onClick={() => onOpenDM(match.user_id, match.display_name)}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98] card-lift"
-                                >
-                                    <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
-                                        {match.avatar_url ? (
-                                            <SafeImage
-                                                src={match.avatar_url}
-                                                alt=""
-                                                className="w-full h-full object-cover"
-                                            />
-                                        ) : (
-                                            <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
-                                                <span className="text-xl">⛵</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex-1 text-left min-w-0">
-                                        <p className="text-base font-semibold text-white/80 truncate">
-                                            {match.display_name}
-                                        </p>
-                                        <p className="text-xs text-white/60 truncate">
-                                            {match.home_port ? `📍 ${match.home_port}` : ''}
-                                        </p>
-                                        {compat.score > 0 && (
-                                            <div className="mt-1.5">
-                                                <div className="flex items-center gap-2 mb-0.5">
-                                                    <span
-                                                        className={`text-[11px] font-bold ${compat.color === 'emerald' ? 'text-emerald-300' : compat.color === 'sky' ? 'text-sky-300' : compat.color === 'amber' ? 'text-amber-300' : 'text-white/30'}`}
-                                                    >
-                                                        {compat.score}% · {compat.label}
-                                                    </span>
-                                                </div>
-                                                <div className="w-full h-1 rounded-full bg-white/[0.05] overflow-hidden">
-                                                    <div
-                                                        className={`h-full rounded-full ${barColor} transition-all`}
-                                                        style={{ width: `${compat.score}%` }}
+                    accepted.length > 0 && (
+                        <section className="space-y-3 stagger-in" aria-labelledby="accepted-introductions-title">
+                            <h3
+                                id="accepted-introductions-title"
+                                className="px-1 text-[11px] font-black uppercase tracking-[0.15em] text-emerald-200/70"
+                            >
+                                Connected ({accepted.length})
+                            </h3>
+                            {accepted.map((introduction) => {
+                                const sailor = introduction.counterpart;
+                                const name = sailor?.display_name || 'Crew List connection';
+                                const broadArea = sailor
+                                    ? [sailor.location_state, sailor.location_country].filter(Boolean).join(', ')
+                                    : '';
+                                return (
+                                    <article
+                                        key={counterpartId(introduction)}
+                                        className="rounded-2xl border border-emerald-400/12 bg-white/[0.025] p-4 shadow-lg shadow-slate-950/20"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 to-sky-500/10">
+                                                {sailor?.avatar_url ? (
+                                                    <SafeImage
+                                                        src={sailor.avatar_url}
+                                                        loading="lazy"
+                                                        alt={`${name}'s profile photo`}
+                                                        className="h-full w-full object-cover"
                                                     />
-                                                </div>
-                                            </div>
-                                        )}
-                                        {match.interests.length > 0 && (
-                                            <div className="flex flex-wrap gap-1 mt-1.5">
-                                                {match.interests.slice(0, 4).map((i) => (
-                                                    <span
-                                                        key={i}
-                                                        className="px-2 py-0.5 rounded-full bg-amber-500/10 text-[11px] text-amber-200/60 border border-amber-500/10"
-                                                    >
-                                                        {i}
-                                                    </span>
-                                                ))}
-                                                {match.interests.length > 4 && (
-                                                    <span className="px-2 py-0.5 rounded-full bg-white/[0.03] text-[11px] text-white/40">
-                                                        +{match.interests.length - 4}
+                                                ) : (
+                                                    <span aria-hidden="true" className="text-xl">
+                                                        ⛵
                                                     </span>
                                                 )}
                                             </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="truncate text-base font-semibold text-white/90">{name}</p>
+                                                <p className="mt-0.5 text-xs text-emerald-200/65">
+                                                    ✓ Introduction accepted
+                                                </p>
+                                                {broadArea && (
+                                                    <p className="mt-0.5 truncate text-xs text-white/40">
+                                                        📍 {broadArea}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {sailor && (sailor.sailing_experience || sailor.interests.length > 0) && (
+                                            <div className="mt-3 border-t border-white/[0.05] pt-3">
+                                                {sailor.sailing_experience && (
+                                                    <p className="text-xs text-white/55">
+                                                        🧭 {sailor.sailing_experience}
+                                                    </p>
+                                                )}
+                                                {sailor.interests.length > 0 && (
+                                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                                        {sailor.interests.slice(0, 4).map((interest) => (
+                                                            <span
+                                                                key={interest}
+                                                                className="rounded-full border border-sky-400/10 bg-sky-500/[0.08] px-2.5 py-1 text-[11px] text-sky-100/70"
+                                                            >
+                                                                {interest}
+                                                            </span>
+                                                        ))}
+                                                        {sailor.interests.length > 4 && (
+                                                            <span className="rounded-full bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/40">
+                                                                +{sailor.interests.length - 4}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
-                                        {(() => {
-                                            const tips = getIcebreakers(match);
-                                            return tips.length > 0 ? (
-                                                <div className="mt-1">
-                                                    {tips.map((tip, i) => (
-                                                        <p key={i} className="text-[11px] text-violet-300/40 italic">
-                                                            💡 {tip}
-                                                        </p>
-                                                    ))}
-                                                </div>
-                                            ) : null;
-                                        })()}
-                                    </div>
-                                    <div
-                                        className={`w-11 h-11 rounded-xl border flex items-center justify-center flex-shrink-0 ${colorClasses}`}
-                                    >
-                                        <span className="text-xs font-bold">
-                                            {compat.score > 0 ? `${compat.score}%` : '💬'}
-                                        </span>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
+
+                                        <button
+                                            aria-label={`Open private conversation with ${name}`}
+                                            onClick={() => onOpenConversation(introduction)}
+                                            className="mt-3 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-950/25 transition-all active:scale-[0.98]"
+                                        >
+                                            💬 Open private conversation
+                                        </button>
+                                    </article>
+                                );
+                            })}
+                        </section>
+                    )
                 )}
             </div>
         );

@@ -7,7 +7,14 @@
  */
 
 import { useEffect, useReducer } from 'react';
-import { CrewCard, SailorMatch, CrewProfile, CrewSearchFilters, ListingType } from '../services/LonelyHeartsService';
+import {
+    CrewCard,
+    CrewIntroRequest,
+    SailorMatch,
+    CrewProfile,
+    CrewSearchFilters,
+    ListingType,
+} from '../services/LonelyHeartsService';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -25,6 +32,17 @@ function readInteractionIds(key: string, scope: AuthIdentityScope = getAuthIdent
 }
 
 // ── State shape ──────────────────────────────────────────────────
+
+/**
+ * A request plus the limited, public Crew List profile used to render it.
+ * A profile can legitimately be unavailable after a sailor pauses their
+ * listing, so callers must retain the request even when `counterpart` is null.
+ */
+export interface CrewListIntroduction {
+    request: CrewIntroRequest;
+    counterpart: CrewCard | null;
+    direction: 'sent' | 'received';
+}
 
 export interface CrewFinderState {
     // Navigation
@@ -48,8 +66,10 @@ export interface CrewFinderState {
     // Detail
     selectedCard: CrewCard | null;
 
-    // Matches
+    // Accepted introductions + the full introduction inbox. `matches` stays
+    // as a small compatibility projection for the existing accepted-chat UI.
     matches: SailorMatch[];
+    introductions: CrewListIntroduction[];
     hasSearched: boolean;
 
     // Block / Report
@@ -134,6 +154,7 @@ export type CrewFinderAction =
     | { type: 'SET_SHOW_FILTERS'; payload: boolean }
     | { type: 'SET_SELECTED_CARD'; payload: CrewCard | null }
     | { type: 'SET_MATCHES'; payload: SailorMatch[] }
+    | { type: 'SET_INTRODUCTIONS'; payload: CrewListIntroduction[] }
     | { type: 'SET_HAS_SEARCHED'; payload: boolean }
     | { type: 'SET_BLOCKED_USER_IDS'; payload: Set<string> }
     | { type: 'SET_SHOW_REPORT_MODAL'; payload: string | null }
@@ -210,6 +231,7 @@ const initialState: CrewFinderState = {
     showFilters: false,
     selectedCard: null,
     matches: [],
+    introductions: [],
     hasSearched: false,
     blockedUserIds: new Set(),
     showReportModal: null,
@@ -296,6 +318,8 @@ function crewFinderReducer(state: CrewFinderState, action: CrewFinderAction): Cr
             return { ...state, selectedCard: action.payload };
         case 'SET_MATCHES':
             return { ...state, matches: action.payload };
+        case 'SET_INTRODUCTIONS':
+            return { ...state, introductions: action.payload };
         case 'SET_HAS_SEARCHED':
             return { ...state, hasSearched: action.payload };
         case 'SET_BLOCKED_USER_IDS':

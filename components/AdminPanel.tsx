@@ -17,6 +17,7 @@ import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { toast } from './Toast';
 import { SafeImage } from './ui/SafeImage';
+import { LonelyHeartsService, type CrewListReport, type CrewProfile } from '../services/LonelyHeartsService';
 
 // ── Types ──
 
@@ -27,7 +28,7 @@ interface AdminPanelProps {
     onChannelApproved?: () => void;
 }
 
-type AdminTab = 'users' | 'channels' | 'audit';
+type AdminTab = 'users' | 'channels' | 'crew' | 'audit';
 
 const ROLE_STYLES: Record<ChatRole, { bg: string; text: string; label: string }> = {
     admin: { bg: 'bg-amber-500/20 border-amber-500/40', text: 'text-amber-400', label: '👑 Admin' },
@@ -48,6 +49,20 @@ const AUDIT_LABELS: Record<string, { icon: string; label: string; color: string 
     reject_join: { icon: '❌', label: 'Rejected Join', color: 'text-red-400' },
 };
 
+const CREW_INTENT_LABELS: Record<'find_crew' | 'find_skipper', string> = {
+    find_crew: 'Looking for crew',
+    find_skipper: 'Looking for a skipper',
+};
+
+const formatCrewReviewLocation = (profile: CrewProfile) =>
+    [profile.location_state, profile.location_country].filter(Boolean).join(', ') || 'Location not supplied';
+
+const formatCrewReportDate = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Recently';
+    return date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+};
+
 // ── Component ──
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChannelDeleted, onChannelApproved }) => {
@@ -64,6 +79,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
     // Channels tab
     const [pendingChannels, setPendingChannels] = useState<ChatChannel[]>([]);
     const [activeChannels, setActiveChannels] = useState<ChatChannel[]>([]);
+
+    // Crew List tab — only manual review details, never exact location or contact details.
+    const [pendingCrewProfiles, setPendingCrewProfiles] = useState<CrewProfile[]>([]);
+    const [reviewingCrewProfileId, setReviewingCrewProfileId] = useState<string | null>(null);
+    const [crewReports, setCrewReports] = useState<CrewListReport[]>([]);
+    const [reviewingCrewReportId, setReviewingCrewReportId] = useState<string | null>(null);
 
     // Audit tab
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,18 +113,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
 
     const loadData = useCallback(async () => {
         setLoading(true);
-        const [userData, requestData, pending, channels, audit] = await Promise.all([
+        const [userData, requestData, pending, channels, audit, crewProfiles, reports] = await Promise.all([
             ChatService.listAllUsersWithRoles(),
             ChatService.getJoinRequests(),
             ChatService.getPendingChannels(),
             ChatService.getChannels(),
             ChatService.getAuditLog(50),
+            // A partial Crew List rollout must not make the rest of the
+            // admin panel unusable. The empty queues make it clear that no
+            // Crew action can be taken until its server capability is live.
+            LonelyHeartsService.getPendingCrewProfileReviews().catch(() => []),
+            LonelyHeartsService.getCrewListReports().catch(() => []),
         ]);
         setUsers(userData);
         setJoinRequests(requestData);
         setPendingChannels(pending);
         setActiveChannels(channels);
         setAuditLog(audit);
+        setPendingCrewProfiles(crewProfiles);
+        setCrewReports(reports);
         setLoading(false);
     }, []);
 
@@ -120,7 +148,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
         ? users.filter(
               (u) =>
                   u.display_name.toLowerCase().includes(search.toLowerCase()) ||
-                  (u.vessel_name || '').toLowerCase().includes(search.toLowerCase()),
+                  (u.vessel_name || '').toLowerCase().includes(search.toLowerCase()) ||
+                  u.user_id.toLowerCase().includes(search.toLowerCase()),
           )
         : users;
 
@@ -299,10 +328,87 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
         );
     };
 
+    // ── Crew List Tab Handlers ──
+    const handleReviewCrewProfile = (profile: CrewProfile, decision: 'approved' | 'rejected') => {
+        const isApproval = decision === 'approved';
+        const name = profile.first_name || 'this applicant';
+
+        showConfirm(
+            isApproval ? 'Approve Crew List Profile' : 'Reject Crew List Profile',
+            isApproval
+                ? `Approve ${name}'s profile for The Crew List? Confirm that the primary image is a genuine headshot and the listing is suitable before it becomes discoverable.`
+                : `Reject ${name}'s Crew List profile? It will stay private until they update and resubmit it for review.`,
+            isApproval ? '✅ Approve & Publish' : '❌ Reject & Keep Private',
+            !isApproval,
+            async () => {
+                setReviewingCrewProfileId(profile.user_id);
+                triggerHaptic(isApproval ? 'medium' : 'light');
+
+                try {
+                    const ok = await LonelyHeartsService.reviewCrewProfile(profile.user_id, decision);
+                    if (ok) {
+                        setPendingCrewProfiles((previous) =>
+                            previous.filter((pendingProfile) => pendingProfile.user_id !== profile.user_id),
+                        );
+                        toast.success(
+                            isApproval
+                                ? `${name}'s Crew List profile is now discoverable`
+                                : `${name}'s Crew List profile remains private`,
+                        );
+                    } else {
+                        toast.error(`Could not ${isApproval ? 'approve' : 'reject'} this Crew List profile`);
+                    }
+                } finally {
+                    setReviewingCrewProfileId(null);
+                    setConfirmOpen(false);
+                }
+            },
+        );
+    };
+
+    const handleReviewCrewReport = (report: CrewListReport, decision: 'resolved' | 'dismissed') => {
+        const resolving = decision === 'resolved';
+        showConfirm(
+            resolving ? 'Resolve Crew List Report' : 'Dismiss Crew List Report',
+            resolving
+                ? "Mark this report as resolved after you have taken any necessary account action. This closes the report queue only; it does not change either sailor's account."
+                : "Dismiss this report as not requiring action. This closes the report queue and does not change either sailor's account.",
+            resolving ? '✓ Resolve Report' : 'Dismiss Report',
+            false,
+            async () => {
+                setReviewingCrewReportId(report.id);
+                triggerHaptic(resolving ? 'medium' : 'light');
+
+                try {
+                    const ok = await LonelyHeartsService.reviewCrewListReport(report.id, decision);
+                    if (ok) {
+                        setCrewReports((previous) =>
+                            previous.map((existing) =>
+                                existing.id === report.id ? { ...existing, status: decision } : existing,
+                            ),
+                        );
+                        toast.success(resolving ? 'Crew List report resolved' : 'Crew List report dismissed');
+                    } else {
+                        toast.error('Could not update this Crew List report');
+                    }
+                } finally {
+                    setReviewingCrewReportId(null);
+                    setConfirmOpen(false);
+                }
+            },
+        );
+    };
+
+    const handleReviewReportedAccount = (report: CrewListReport) => {
+        setSearch(report.reported_id);
+        setTab('users');
+    };
+
     // ── Stats ──
     const adminCount = users.filter((u) => u.role === 'admin').length;
     const modCount = users.filter((u) => u.role === 'moderator').length;
     const blockedCount = users.filter((u) => u.is_blocked).length;
+    const pendingCrewReports = crewReports.filter((report) => report.status === 'pending');
 
     return (
         <div className="flex flex-col h-full" role="region" aria-label="Admin Panel">
@@ -347,6 +453,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                         [
                             ['users', '👥 Users'],
                             ['channels', '📡 Channels'],
+                            ['crew', '⚓ Crew List'],
                             ['audit', '📋 Audit'],
                         ] as [AdminTab, string][]
                     ).map(([t, label]) => (
@@ -735,6 +842,202 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 </div>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* ════════ CREW LIST REVIEW TAB ════════ */}
+                {tab === 'crew' && (
+                    <div className="px-4 pt-4 space-y-3">
+                        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] px-3.5 py-3">
+                            <p className="text-xs font-bold text-amber-300">Manual safety review</p>
+                            <p className="mt-1 text-[11px] leading-relaxed text-amber-100/55">
+                                Check that the primary image is a real headshot and that the listing is suitable.
+                                Approving makes it discoverable in The Crew List; exact location and contact details are
+                                deliberately not shown here.
+                            </p>
+                        </div>
+
+                        <section aria-labelledby="crew-list-reports-title" className="space-y-2">
+                            <div className="flex items-center justify-between px-1">
+                                <p
+                                    id="crew-list-reports-title"
+                                    className="text-[11px] font-bold uppercase tracking-[0.15em] text-red-300/70"
+                                >
+                                    🚩 Safety reports ({pendingCrewReports.length})
+                                </p>
+                                {pendingCrewReports.length > 0 && (
+                                    <span className="text-[11px] text-white/35">Reporter stays confidential</span>
+                                )}
+                            </div>
+
+                            {loading ? (
+                                <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2.5">
+                                    <ShimmerBlock variant="text" rows={2} />
+                                </div>
+                            ) : pendingCrewReports.length > 0 ? (
+                                <div className="space-y-2">
+                                    {pendingCrewReports.map((report) => {
+                                        const isReviewing = reviewingCrewReportId === report.id;
+                                        return (
+                                            <article
+                                                key={report.id}
+                                                className="rounded-2xl border border-red-400/15 bg-red-400/[0.035] p-3.5"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-xs font-bold text-red-100/85">
+                                                            Crew List safety report
+                                                        </p>
+                                                        <p className="mt-0.5 text-[11px] text-white/40">
+                                                            Received {formatCrewReportDate(report.created_at)}
+                                                        </p>
+                                                    </div>
+                                                    <span className="rounded-full border border-red-400/20 bg-red-400/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-200/80">
+                                                        Open
+                                                    </span>
+                                                </div>
+
+                                                <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/35">
+                                                    Reported concern
+                                                </p>
+                                                <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-white/70">
+                                                    {report.reason}
+                                                </p>
+
+                                                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleReviewReportedAccount(report)}
+                                                        disabled={isReviewing}
+                                                        aria-label="Review reported account"
+                                                        className="min-h-[44px] rounded-xl border border-sky-400/20 bg-sky-400/[0.08] px-2 py-2 text-[10px] font-bold text-sky-200 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                                    >
+                                                        Review account
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleReviewCrewReport(report, 'dismissed')}
+                                                        disabled={isReviewing}
+                                                        aria-label="Dismiss Crew List report"
+                                                        className="min-h-[44px] rounded-xl border border-white/[0.08] bg-white/[0.035] px-2 py-2 text-[10px] font-bold text-white/60 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                                    >
+                                                        {isReviewing ? 'Updating…' : 'Dismiss'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleReviewCrewReport(report, 'resolved')}
+                                                        disabled={isReviewing}
+                                                        aria-label="Resolve Crew List report"
+                                                        className="min-h-[44px] rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-2 py-2 text-[10px] font-bold text-emerald-200 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                                    >
+                                                        {isReviewing ? 'Updating…' : 'Resolve'}
+                                                    </button>
+                                                </div>
+                                            </article>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2.5 text-[11px] text-white/40">
+                                    No open Crew List safety reports.
+                                </p>
+                            )}
+                        </section>
+
+                        <p className="px-1 text-[11px] font-bold uppercase tracking-[0.15em] text-sky-400/60">
+                            ⚓ Pending review ({pendingCrewProfiles.length})
+                        </p>
+
+                        {loading ? (
+                            <div className="py-8">
+                                <ShimmerBlock variant="list" rows={3} />
+                            </div>
+                        ) : pendingCrewProfiles.length === 0 ? (
+                            <EmptyState
+                                icon="⚓"
+                                title="No Crew List Profiles Waiting"
+                                description="New opt-in profiles will appear here for a manual headshot and suitability review."
+                            />
+                        ) : (
+                            <div className="space-y-3">
+                                {pendingCrewProfiles.map((profile) => {
+                                    const isReviewing = reviewingCrewProfileId === profile.user_id;
+                                    const intents = profile.crew_intents
+                                        .map((intent) => CREW_INTENT_LABELS[intent])
+                                        .filter(Boolean);
+
+                                    return (
+                                        <article
+                                            key={profile.user_id}
+                                            className="overflow-hidden rounded-2xl border border-sky-400/15 bg-white/[0.025]"
+                                        >
+                                            <div className="flex gap-3 p-3.5">
+                                                {profile.photo_url ? (
+                                                    <SafeImage
+                                                        src={profile.photo_url}
+                                                        alt={`${profile.first_name || 'Crew List applicant'} primary headshot`}
+                                                        className="h-20 w-20 shrink-0 rounded-xl border border-white/10 object-cover"
+                                                    />
+                                                ) : (
+                                                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-red-400/25 bg-red-400/10 text-center text-[11px] font-bold text-red-300">
+                                                        Missing
+                                                        <br />
+                                                        headshot
+                                                    </div>
+                                                )}
+
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <h3 className="truncate text-sm font-bold text-white/90">
+                                                            {profile.first_name || 'Unnamed applicant'}
+                                                        </h3>
+                                                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[11px] font-bold text-amber-300">
+                                                            REVIEW
+                                                        </span>
+                                                    </div>
+                                                    <p className="mt-1 text-[11px] font-semibold text-sky-300/75">
+                                                        {intents.join(' · ') || 'Crew List intent not supplied'}
+                                                    </p>
+                                                    <p className="mt-1 text-[11px] text-white/40">
+                                                        {formatCrewReviewLocation(profile)}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="border-t border-white/[0.05] px-3.5 py-3">
+                                                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/35">
+                                                    Listing note
+                                                </p>
+                                                <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-white/65">
+                                                    {profile.bio || 'No listing note supplied.'}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex gap-2 border-t border-white/[0.05] p-3.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleReviewCrewProfile(profile, 'rejected')}
+                                                    disabled={isReviewing}
+                                                    aria-label={`Reject ${profile.first_name || 'this'} Crew List profile`}
+                                                    className="min-h-[44px] flex-1 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2.5 text-[11px] font-bold text-red-300 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                                >
+                                                    {isReviewing ? 'Reviewing…' : '❌ Reject'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleReviewCrewProfile(profile, 'approved')}
+                                                    disabled={isReviewing || !profile.photo_url}
+                                                    aria-label={`Approve ${profile.first_name || 'this'} Crew List profile`}
+                                                    className="min-h-[44px] flex-1 rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2.5 text-[11px] font-bold text-emerald-300 transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    {isReviewing ? 'Reviewing…' : '✅ Approve'}
+                                                </button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 )}
 

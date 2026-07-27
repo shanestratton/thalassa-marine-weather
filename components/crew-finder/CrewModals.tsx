@@ -1,5 +1,5 @@
 /**
- * CrewModals — Report and Super Like modals for crew finder
+ * CrewModals — safety and introduction-note modals for The Crew List
  *
  * Extracted from LonelyHeartsPage to reduce file size.
  */
@@ -57,13 +57,13 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
 
         return (
             <>
-                {/* Delete listing confirmation */}
+                {/* Delete Crew List profile confirmation */}
                 <ConfirmDialog
                     isOpen={showDeleteConfirm}
-                    title="Delete Your Listing?"
-                    message="This will permanently remove your crew listing from the board. You can always create a new one later."
-                    confirmLabel={deleting ? 'Deleting...' : 'Delete Listing'}
-                    cancelLabel="Keep It"
+                    title="Delete Crew List Profile?"
+                    message="This removes your Crew List profile and pauses future introductions. You can create a new profile later."
+                    confirmLabel={deleting ? 'Deleting...' : 'Delete profile'}
+                    cancelLabel="Keep profile"
                     onConfirm={onDeleteProfile}
                     onCancel={() => setShowDeleteConfirm(false)}
                     destructive
@@ -85,10 +85,10 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             onClick={(e) => e.stopPropagation()}
                         >
                             <h3 id="report-user-title" className="text-lg font-bold text-white/80 mb-3">
-                                🚩 Report User
+                                🚩 Report profile
                             </h3>
                             <p className="text-xs text-white/40 mb-4">
-                                Help us keep the community safe. What's the issue?
+                                Help keep The Crew List safe. Tell us what is wrong with this profile.
                             </p>
                             <select
                                 aria-label="Reason for reporting this user"
@@ -125,7 +125,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                     </OverlayPortal>
                 )}
 
-                {/* Super Like Modal */}
+                {/* Introduction note modal — the service implementation stays behind onSuperLike. */}
                 {showSuperLikeModal && (
                     <OverlayPortal
                         className="flex items-center justify-center bg-black/70 backdrop-blur-sm"
@@ -136,25 +136,26 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             ref={superLikeDialogRef}
                             role="dialog"
                             aria-modal="true"
-                            aria-labelledby="super-like-title"
-                            className="bg-slate-900 border border-violet-500/20 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl"
+                            aria-labelledby="introduction-note-title"
+                            className="bg-slate-900 border border-sky-500/20 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <h3
-                                id="super-like-title"
-                                className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-300 to-pink-300 mb-1"
+                                id="introduction-note-title"
+                                className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-200 to-sky-200 mb-1"
                             >
-                                ⚡ Super Like
+                                ✉️ Send an introduction
                             </h3>
                             <p className="text-xs text-white/40 mb-4">
-                                Send {showSuperLikeModal.display_name} a message with your star! (1 per day)
+                                Add a short, passage-related note for {showSuperLikeModal.display_name}. They decide
+                                whether to connect; private chat stays closed until the introduction is mutual.
                             </p>
                             <textarea
-                                aria-label="Super Like message"
+                                aria-label="Introduction note"
                                 value={superLikeMessage}
                                 onChange={(e) => setSuperLikeMessage(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
-                                placeholder="Hey! I noticed we both love diving..."
+                                placeholder="Hi — I am planning a coastal passage in September and your experience looks like a good fit..."
                                 maxLength={200}
                                 className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-none focus:border-violet-400/30 resize-none h-24"
                             />
@@ -162,18 +163,18 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             <div className="flex gap-3">
                                 <button
                                     ref={superLikeCancelRef}
-                                    aria-label="Cancel Super Like"
+                                    aria-label="Cancel introduction"
                                     onClick={() => setShowSuperLikeModal(null)}
                                     className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    aria-label="Send Super Like"
+                                    aria-label={`Send introduction to ${showSuperLikeModal.display_name}`}
                                     onClick={onSuperLike}
-                                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-violet-500/30 to-pink-500/30 text-sm font-bold text-violet-200 border border-violet-400/20 transition-all active:scale-[0.97]"
+                                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500/30 to-sky-500/30 text-sm font-bold text-emerald-100 border border-emerald-400/20 transition-all active:scale-[0.97]"
                                 >
-                                    ⚡ Send Super Like
+                                    ✉️ Send introduction
                                 </button>
                             </div>
                         </div>

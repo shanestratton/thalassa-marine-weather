@@ -76,7 +76,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 {view === 'dm_thread' && `${dmPartnerName || 'DM'}`}
                                 {view === 'profile' && '⚓ Sailor Profile'}
 
-                                {view === 'find_crew' && 'Crew Finder'}
+                                {view === 'find_crew' && 'The Crew List'}
                                 {view === 'marketplace' && 'Chandlery'}
                             </h1>
                         )}

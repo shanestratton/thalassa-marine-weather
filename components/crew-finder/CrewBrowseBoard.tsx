@@ -1,5 +1,5 @@
 /**
- * CrewBrowseBoard — Browse/filter/swipe crew listings
+ * CrewBrowseBoard — discreet browse surface for Crew List introductions
  *
  * Extracted from LonelyHeartsPage to reduce file size.
  * Receives state + dispatch from parent with action callbacks.
@@ -7,11 +7,15 @@
 
 import React, { useCallback } from 'react';
 import { CrewFinderState, CrewFinderAction } from '../../hooks/useCrewFinderState';
-import { CrewCard, AGE_RANGES, ListingType } from '../../services/LonelyHeartsService';
-import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { CrewCard, ListingType } from '../../services/LonelyHeartsService';
 import { COUNTRIES, getStatesForCountry } from '../../data/locationData';
 import { EmptyState } from '../ui/EmptyState';
 import { SafeImage } from '../ui/SafeImage';
+
+interface CrewListApprovalFields {
+    approval_status?: string | null;
+    verification_status?: string | null;
+}
 
 interface CrewBrowseBoardProps {
     state: CrewFinderState;
@@ -22,7 +26,7 @@ interface CrewBrowseBoardProps {
     onBlock: (userId: string, displayName: string) => void;
     onReport: () => void;
     onSuperLike: () => void;
-    onOpenDM: (userId: string, name: string) => void;
+    onOpenIntroductions: () => void;
     goToNextCard: () => void;
     goToPrevCard: () => void;
     goToStart: () => void;
@@ -30,10 +34,8 @@ interface CrewBrowseBoardProps {
     handleCardTouchMove: (e: React.TouchEvent) => void;
     handleCardTouchEnd: () => void;
     matchedUserIds: Set<string>;
-    getLastActiveLabel: (lastActive: string | null) => { text: string; color: string } | null;
     formatDate: (iso: string | null) => string;
     isOpenEnded: (iso: string | null) => boolean;
-    trackMessagedUser: (userId: string) => void;
 }
 
 const selectStyle = {
@@ -51,7 +53,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
         onApplyFilters,
         onLike,
         onBlock,
-        onOpenDM,
+        onOpenIntroductions,
         goToNextCard,
         goToPrevCard,
         goToStart,
@@ -59,19 +61,14 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
         handleCardTouchMove,
         handleCardTouchEnd,
         matchedUserIds,
-        getLastActiveLabel,
         formatDate,
         isOpenEnded,
-        trackMessagedUser,
     }) => {
         const {
             listings,
             filterListingType,
-            filterGender,
-            filterAgeRanges,
             filterLocationCountry,
             filterLocationState,
-            filterLocationCity,
             hasSearched,
             showActionMenu,
             superLikeUsed,
@@ -80,7 +77,6 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
             swipeX,
             swipeDirection,
             likedUsers,
-            messagedUsers,
         } = state;
 
         // Helper setters via dispatch
@@ -88,25 +84,12 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
             (v: ListingType | '') => dispatch({ type: 'SET_FILTER_LISTING_TYPE', payload: v }),
             [dispatch],
         );
-        const setFilterGender = useCallback(
-            (v: string) => dispatch({ type: 'SET_FILTER_GENDER', payload: v }),
-            [dispatch],
-        );
-        const setFilterAgeRanges = useCallback(
-            (fn: (prev: string[]) => string[]) =>
-                dispatch({ type: 'SET_FILTER_AGE_RANGES', payload: fn(state.filterAgeRanges) }),
-            [dispatch, state.filterAgeRanges],
-        );
         const setFilterLocationCountry = useCallback(
             (v: string) => dispatch({ type: 'SET_FILTER_LOCATION_COUNTRY', payload: v }),
             [dispatch],
         );
         const setFilterLocationState = useCallback(
             (v: string) => dispatch({ type: 'SET_FILTER_LOCATION_STATE', payload: v }),
-            [dispatch],
-        );
-        const setFilterLocationCity = useCallback(
-            (v: string) => dispatch({ type: 'SET_FILTER_LOCATION_CITY', payload: v }),
             [dispatch],
         );
         const setCardPhotoIndex = useCallback(
@@ -145,83 +128,71 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                 {/* Filters — hidden after search */}
                 {!hasSearched && (
                     <>
-                        {/* Looking For label */}
-                        <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-2">Looking For</p>
+                        <section
+                            aria-labelledby="crew-list-browse-title"
+                            className="mb-4 rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-500/[0.08] to-emerald-500/[0.06] p-4"
+                        >
+                            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-200/65">
+                                The Crew List
+                            </p>
+                            <h2 id="crew-list-browse-title" className="mt-1 text-base font-black text-white">
+                                Who would you like to sail with?
+                            </h2>
+                            <p className="mt-1 text-xs leading-relaxed text-white/55">
+                                Choose an introduction path and, if useful, a broad area. Exact vessel locations and
+                                contact details stay private until both people choose to connect.
+                            </p>
+                        </section>
+                        <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-2">
+                            Introduction path
+                        </p>
                         <div className="grid grid-cols-2 gap-3 mb-4">
                             <button
-                                aria-label="Filter results"
+                                aria-pressed={filterListingType === 'seeking_crew'}
+                                aria-label="Find a skipper with an open berth"
                                 onClick={() =>
                                     setFilterListingType(filterListingType === 'seeking_crew' ? '' : 'seeking_crew')
                                 }
-                                className={`py-4 rounded-2xl text-center transition-all border ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06]'}`}
+                                className={`min-h-[8rem] rounded-2xl px-3 py-4 text-left transition-all border ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'}`}
                             >
-                                <span className="text-2xl block mb-1">⚓</span>
+                                <span aria-hidden="true" className="text-2xl block mb-1">
+                                    ⚓
+                                </span>
                                 <span
                                     className={`text-sm font-bold block ${filterListingType === 'seeking_crew' ? 'text-emerald-300' : 'text-white/70'}`}
                                 >
-                                    A Captain
+                                    Find a skipper
+                                </span>
+                                <span className="mt-1 block text-[11px] leading-snug text-white/40">
+                                    Browse skippers with an open berth or passage.
                                 </span>
                             </button>
                             <button
-                                aria-label="Filter results"
+                                aria-pressed={filterListingType === 'seeking_berth'}
+                                aria-label="Find crew for a vessel or passage"
                                 onClick={() =>
                                     setFilterListingType(filterListingType === 'seeking_berth' ? '' : 'seeking_berth')
                                 }
-                                className={`py-4 rounded-2xl text-center transition-all border ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06]'}`}
+                                className={`min-h-[8rem] rounded-2xl px-3 py-4 text-left transition-all border ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'}`}
                             >
-                                <span className="text-2xl block mb-1">🧭</span>
+                                <span aria-hidden="true" className="text-2xl block mb-1">
+                                    🧭
+                                </span>
                                 <span
                                     className={`text-sm font-bold block ${filterListingType === 'seeking_berth' ? 'text-emerald-300' : 'text-white/70'}`}
                                 >
-                                    Crew
+                                    Find crew
+                                </span>
+                                <span className="mt-1 block text-[11px] leading-snug text-white/40">
+                                    Browse sailors looking to join a vessel or passage.
                                 </span>
                             </button>
-                            {['Male', 'Female'].map((g) => (
-                                <button
-                                    aria-label="Filter results"
-                                    key={g}
-                                    onClick={() => setFilterGender(filterGender === g ? '' : g)}
-                                    className={`py-4 rounded-2xl text-center transition-all border ${filterGender === g ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06]'}`}
-                                >
-                                    <span className="text-2xl block mb-1">{g === 'Male' ? '♂️' : '♀️'}</span>
-                                    <span
-                                        className={`text-sm font-bold block ${filterGender === g ? 'text-emerald-300' : 'text-white/70'}`}
-                                    >
-                                        {g}
-                                    </span>
-                                </button>
-                            ))}
                         </div>
 
-                        {/* Age bracket filter */}
-                        {filterListingType && (
-                            <div className="mb-4 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] fade-slide-down">
-                                <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">
-                                    Age Bracket
-                                </p>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {AGE_RANGES.map((age) => (
-                                        <button
-                                            aria-label="Filter results"
-                                            key={age}
-                                            onClick={() =>
-                                                setFilterAgeRanges((prev) =>
-                                                    prev.includes(age) ? prev.filter((a) => a !== age) : [...prev, age],
-                                                )
-                                            }
-                                            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${filterAgeRanges.includes(age) ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30' : 'bg-white/[0.03] text-white/60 border border-white/[0.05]'}`}
-                                        >
-                                            {age}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Location Filters */}
+                        {/* Broad-area filters */}
                         <div className="px-6 mb-4">
                             <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-white/40 mb-3">
-                                📍 Location (optional)
+                                📍 Broad Area (optional)
                             </h3>
                             <div className="space-y-2">
                                 <select
@@ -259,13 +230,6 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         ))}
                                     </select>
                                 )}
-                                <input
-                                    value={filterLocationCity}
-                                    onChange={(e) => setFilterLocationCity(e.target.value)}
-                                    onFocus={scrollInputAboveKeyboard}
-                                    placeholder="City / Town (optional)"
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
-                                />
                             </div>
                         </div>
                     </>
@@ -277,7 +241,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                     style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <button
-                        aria-label="Search entries"
+                        aria-label={hasSearched ? 'Change Crew List search' : 'Show selected Crew List introductions'}
                         onClick={() => {
                             if (hasSearched) {
                                 setHasSearched(false);
@@ -288,10 +252,10 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                 onApplyFilters();
                             }
                         }}
-                        disabled={!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0)}
-                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0) ? 'bg-white/[0.06] text-white/40 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
+                        disabled={!hasSearched && !filterListingType}
+                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && !filterListingType ? 'bg-white/[0.06] text-white/40 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
                     >
-                        {hasSearched ? '🔍 New Search' : '🔍 Search'}
+                        {hasSearched ? '↻ Change search' : 'Show Crew List'}
                     </button>
                 </div>
 
@@ -301,14 +265,14 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                         {!filterListingType ? (
                             <EmptyState
                                 icon="🌊"
-                                title="Find Your Sea Mate"
-                                description="Choose Captain or Crew above to start browsing. Your next adventure is waiting."
+                                title="Choose an introduction path"
+                                description="Pick Find a skipper or Find crew to see approved sailors who have opted into The Crew List."
                             />
                         ) : (
                             <EmptyState
                                 icon="🔍"
-                                title="No Listings Yet"
-                                description="No crew match your filters yet. Try broadening your search."
+                                title="No Crew List profiles yet"
+                                description="No approved profiles match this introduction path or broad area yet. Try a wider area soon."
                             />
                         )}
                     </div>
@@ -316,15 +280,15 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                     <div className="text-center py-20">
                         <EmptyState
                             icon="⚓"
-                            title="You've seen all listings!"
-                            description={`That's all ${listings.length} ${listings.length === 1 ? 'listing' : 'listings'} for now. Check back later for new crew.`}
+                            title="You are up to date"
+                            description={`That is all ${listings.length} ${listings.length === 1 ? 'profile' : 'profiles'} for this Crew List search. Check back for new sailing opportunities.`}
                         />
                         <button
                             aria-label="To Start"
                             onClick={goToStart}
                             className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-sky-500/25 border border-emerald-400/20 text-emerald-300 font-bold text-sm transition-all active:scale-95 mt-4"
                         >
-                            ↩ Back to Beginning
+                            ↩ Review profiles
                         </button>
                     </div>
                 ) : (
@@ -347,8 +311,10 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                       : [];
                             const isLiked = likedUsers.has(card.user_id);
                             const isMatched = matchedUserIds.has(card.user_id);
-                            const isMessaged = messagedUsers.has(card.user_id);
-                            const lastActive = getLastActiveLabel(card.last_active);
+                            const broadArea = [card.location_state, card.location_country].filter(Boolean).join(', ');
+                            const review = card as CrewCard & CrewListApprovalFields;
+                            const isApprovedForCrewList =
+                                review.approval_status === 'approved' && review.verification_status === 'verified';
                             const cardRotation = swipeX * 0.03;
                             const cardOpacity = 1 - Math.abs(swipeX) / 400;
                             const exitTransform =
@@ -431,10 +397,11 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                         <h2 className="text-2xl font-black text-white mb-1">
                                                             {card.display_name}
                                                         </h2>
-                                                        {card.is_verified && (
+                                                        {isApprovedForCrewList && (
                                                             <span
                                                                 className="w-5 h-5 rounded-full bg-sky-500/30 border border-sky-400/40 flex items-center justify-center text-[11px] text-sky-200"
-                                                                title="Verified"
+                                                                aria-label="Approved Crew List profile"
+                                                                title="Approved for Crew List"
                                                             >
                                                                 ✓
                                                             </span>
@@ -446,39 +413,19 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider ${card.listing_type === 'seeking_crew' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/20' : 'bg-amber-500/25 text-amber-300 border border-amber-400/20'}`}
                                                             >
                                                                 {card.listing_type === 'seeking_crew'
-                                                                    ? '⚓ Captain'
-                                                                    : '🧭 Crew'}
-                                                            </span>
-                                                        )}
-                                                        {card.age_range && (
-                                                            <span className="text-sm text-white/50">
-                                                                {card.age_range}
-                                                            </span>
-                                                        )}
-                                                        {lastActive && (
-                                                            <span
-                                                                className={`text-[11px] font-medium ${lastActive.color}`}
-                                                            >
-                                                                ● {lastActive.text}
+                                                                    ? '⚓ Seeking crew'
+                                                                    : '🧭 Seeking a skipper'}
                                                             </span>
                                                         )}
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-1.5">
-                                                    {isLiked && (
+                                                    {isLiked && !isMatched && (
                                                         <span
-                                                            className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-sm"
-                                                            title="Interested"
+                                                            className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-sm"
+                                                            title="Introduction sent"
                                                         >
-                                                            ⭐
-                                                        </span>
-                                                    )}
-                                                    {isMessaged && (
-                                                        <span
-                                                            className="w-8 h-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sm"
-                                                            title="Messaged"
-                                                        >
-                                                            💬
+                                                            ✓
                                                         </span>
                                                     )}
                                                 </div>
@@ -489,12 +436,9 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     {/* Card body */}
                                     <div className="p-5 space-y-4">
                                         <div className="flex flex-wrap gap-2">
-                                            {(card.location_city || card.location_state || card.location_country) && (
+                                            {broadArea && (
                                                 <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
-                                                    📍{' '}
-                                                    {[card.location_city, card.location_state, card.location_country]
-                                                        .filter(Boolean)
-                                                        .join(', ')}
+                                                    📍 {broadArea}
                                                 </span>
                                             )}
                                             {card.sailing_region && (
@@ -505,11 +449,6 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                             {card.sailing_experience && (
                                                 <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
                                                     🧭 {card.sailing_experience}
-                                                </span>
-                                            )}
-                                            {card.gender && (
-                                                <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
-                                                    {card.gender}
                                                 </span>
                                             )}
                                             {card.vibe.length > 0 && (
@@ -564,52 +503,45 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         )}
                                     </div>
 
-                                    {/* Action buttons */}
+                                    {/* Introductions are mutual before private chat is offered. */}
                                     <div className="px-5 pb-5 flex gap-3">
                                         {isMatched ? (
                                             <button
-                                                aria-label="Messaged User"
-                                                onClick={() => {
-                                                    trackMessagedUser(card.user_id);
-                                                    onOpenDM(card.user_id, card.display_name);
-                                                }}
-                                                disabled={messagedUsers.has(card.user_id)}
-                                                className={`flex-1 py-3.5 rounded-2xl font-bold text-sm transition-all active:scale-[0.97] ${messagedUsers.has(card.user_id) ? 'bg-white/[0.04] text-white/40 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/15'}`}
+                                                aria-label={`View accepted introduction with ${card.display_name}`}
+                                                onClick={onOpenIntroductions}
+                                                className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 text-sm font-bold text-white shadow-xl shadow-emerald-500/15 transition-all active:scale-[0.97]"
                                             >
-                                                {messagedUsers.has(card.user_id) ? '✓ Message Sent' : '💬 Message'}
+                                                ✓ Connected · View introduction
                                             </button>
                                         ) : (
-                                            <div className="flex-1 py-3.5 rounded-2xl text-center bg-white/[0.03] border border-white/[0.06]">
-                                                <span className="text-xs text-white/30 font-medium">
-                                                    {isLiked
-                                                        ? '⏳ Waiting for them to star you back'
-                                                        : '⭐ Star to connect'}
-                                                </span>
-                                            </div>
-                                        )}
-                                        <button
-                                            aria-label="Like this item"
-                                            onClick={() => onLike(card)}
-                                            className={`w-14 rounded-2xl flex items-center justify-center text-xl transition-all active:scale-90 border ${isLiked ? 'bg-amber-500/20 border-amber-400/30 text-amber-300' : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:bg-amber-500/10'}`}
-                                        >
-                                            ⭐
-                                        </button>
-                                        {!isLiked && !superLikeUsed && (
                                             <button
-                                                aria-label="Like this item"
+                                                aria-label={
+                                                    isLiked
+                                                        ? `Withdraw introduction request for ${card.display_name}`
+                                                        : `Send introduction to ${card.display_name}`
+                                                }
+                                                onClick={() => onLike(card)}
+                                                className={`flex-1 py-3.5 rounded-2xl text-sm font-bold transition-all active:scale-[0.97] ${isLiked ? 'border border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-200' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/15'}`}
+                                            >
+                                                {isLiked ? '✓ Introduction sent' : '✉️ Send introduction'}
+                                            </button>
+                                        )}
+                                        {!isMatched && !isLiked && !superLikeUsed && (
+                                            <button
+                                                aria-label={`Add a note to an introduction for ${card.display_name}`}
                                                 onClick={() => {
                                                     setShowSuperLikeModal(card);
                                                     setSuperLikeMessage('');
                                                 }}
-                                                className="w-14 rounded-2xl flex items-center justify-center text-xl transition-all active:scale-90 bg-gradient-to-r from-violet-500/20 to-pink-500/20 border border-violet-400/20 text-violet-300 hover:from-violet-500/30 hover:to-pink-500/30"
-                                                title="Super Like — send with a message!"
+                                                className="w-14 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-sky-500/[0.10] border border-sky-400/20 text-sky-200 hover:bg-sky-500/[0.16]"
+                                                title="Send an introduction with a note"
                                             >
-                                                ⚡
+                                                ✎
                                             </button>
                                         )}
                                         <div className="relative">
                                             <button
-                                                aria-label="Open crew listing options menu"
+                                                aria-label={`Open options for ${card.display_name}`}
                                                 onClick={() =>
                                                     setShowActionMenu(
                                                         showActionMenu === card.user_id ? null : card.user_id,
@@ -622,21 +554,21 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                             {showActionMenu === card.user_id && (
                                                 <div className="absolute right-0 bottom-full mb-2 w-40 rounded-xl bg-slate-800 border border-white/10 shadow-2xl overflow-hidden z-50">
                                                     <button
-                                                        aria-label="Block user"
+                                                        aria-label={`Block ${card.display_name}`}
                                                         onClick={() => onBlock(card.user_id, card.display_name)}
                                                         className="w-full px-4 py-3 text-left text-sm text-white/60 hover:bg-white/5 transition-colors"
                                                     >
-                                                        🚫 Block
+                                                        🚫 Block sailor
                                                     </button>
                                                     <button
-                                                        aria-label="Report content"
+                                                        aria-label={`Report ${card.display_name}'s profile`}
                                                         onClick={() => {
                                                             setShowReportModal(card.user_id);
                                                             setShowActionMenu(null);
                                                         }}
                                                         className="w-full px-4 py-3 text-left text-sm text-red-400/60 hover:bg-red-500/10 transition-colors border-t border-white/[0.05]"
                                                     >
-                                                        🚩 Report
+                                                        🚩 Report profile
                                                     </button>
                                                 </div>
                                             )}

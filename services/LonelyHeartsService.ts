@@ -5,8 +5,8 @@
  * - sailor_crew_profiles: Find Crew listings (seeking crew / seeking berth)
  * - sailor_dating_profiles: Lonely Hearts dating profiles
  *
- * Both use the same likes/matches system (sailor_likes).
- * Uses existing DM infrastructure for matched conversations.
+ * Dating retains its historical likes/matches flow. The Crew List uses its
+ * own consent-gated introduction and private-conversation tables.
  */
 
 import { createLogger } from '../utils/createLogger';
@@ -22,7 +22,25 @@ const CHAT_PROFILES_TABLE = 'chat_profiles';
 const BLOCKS_TABLE = 'sailor_blocks';
 const REPORTS_TABLE = 'sailor_reports';
 const CREW_INTRO_REQUESTS_TABLE = 'crew_intro_requests';
+const CREW_INTRO_CONVERSATIONS_TABLE = 'crew_intro_conversations';
+const CREW_INTRO_MESSAGES_TABLE = 'crew_intro_messages';
 const CREW_LIST_BLOCKS_TABLE = 'dm_blocks';
+const CREW_LIST_REPORTS_TABLE = 'crew_list_reports';
+
+const CONTACT_EMAIL_PATTERN = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+const CONTACT_URL_PATTERN = /(?:https?:\/\/|www\.)\S+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b/i;
+const CONTACT_PHONE_PATTERN = /(?:\+?\d[\d\s().-]*){7,}/;
+const CARDINAL_COORDINATE_PAIR_PATTERN =
+    /(?:^|[^\d])[-+]?(?:[0-8]?\d|90)\.\d{3,}\s*[NS]\s*[,;/ ]+\s*[-+]?(?:\d{1,2}|1[0-7]\d|180)\.\d{3,}\s*[EW](?:$|[^\d])/i;
+const DECIMAL_COORDINATE_PAIR_PATTERN =
+    /(?:^|[^\d])[-+]?(?:[0-8]?\d|90)\.\d{3,}\s*[,;/]\s*[-+]?(?:\d{1,2}|1[0-7]\d|180)\.\d{3,}(?:$|[^\d])/;
+const DMS_COORDINATE_PAIR_PATTERN =
+    /\d{1,2}[°º]\s*\d{1,2}(?:\s*['’]\s*\d{1,2}(?:\.\d+)?["”]?)?\s*[NS].{0,24}\d{1,3}[°º]\s*\d{1,2}(?:\s*['’]\s*\d{1,2}(?:\.\d+)?["”]?)?\s*[EW]/i;
+const hasUnsafeMessageControlCharacter = (value: string): boolean =>
+    [...value].some((character) => {
+        const code = character.charCodeAt(0);
+        return (code >= 0 && code <= 8) || (code >= 11 && code <= 12) || (code >= 14 && code <= 31) || code === 127;
+    });
 
 /** Raw Supabase row — typed loosely since we normalize immediately */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,8 +56,9 @@ export type CrewListIntent = (typeof CREW_LIST_INTENTS)[number];
 export type CrewListVisibility = 'private' | 'visible';
 export type CrewApprovalStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'suspended';
 export type CrewVerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
-export type CrewIntroRequestStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn';
+export type CrewIntroRequestStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn' | 'superseded';
 export type CrewIntroResponse = Extract<CrewIntroRequestStatus, 'accepted' | 'declined'>;
+export type CrewListReportStatus = 'pending' | 'resolved' | 'dismissed';
 
 export interface CrewProfile {
     user_id: string;
@@ -66,7 +85,13 @@ export interface CrewProfile {
     location_city: string | null;
     location_state: string | null;
     location_country: string | null;
+    /** Private object path for the verified primary Crew List headshot. */
+    crew_photo_path: string | null;
+    /** Private object paths for the optional additional Crew List photos. */
+    crew_photo_paths: string[];
+    /** Short-lived display URL derived from `crew_photo_path`; never persisted. */
     photo_url: string | null;
+    /** Short-lived display URLs derived from `crew_photo_paths`; never persisted. */
     photos: string[];
     /** Explicit beta opt-in. Existing Crew Finder rows remain private by default. */
     community_enabled: boolean;
@@ -97,6 +122,10 @@ export type CrewProfileUpdate = Partial<
         | 'review_requested_at'
         | 'reviewed_at'
         | 'reviewed_by'
+        | 'crew_photo_path'
+        | 'crew_photo_paths'
+        | 'photo_url'
+        | 'photos'
     >
 >;
 
@@ -117,7 +146,12 @@ export interface CrewListStateUpdate {
 }
 
 type CrewProfileOwnerUpdate = CrewProfileUpdate &
-    Partial<Pick<CrewProfile, 'community_enabled' | 'crew_intents' | 'crew_list_visibility'>>;
+    Partial<
+        Pick<
+            CrewProfile,
+            'community_enabled' | 'crew_intents' | 'crew_list_visibility' | 'crew_photo_path' | 'crew_photo_paths'
+        >
+    >;
 
 export interface CrewIntroRequest {
     id: string;
@@ -128,6 +162,41 @@ export interface CrewIntroRequest {
     created_at: string;
     responded_at: string | null;
     withdrawn_at: string | null;
+}
+
+/** A private conversation created only after a Crew List introduction is accepted. */
+export interface CrewIntroConversation {
+    id: string;
+    intro_request_id: string;
+    participant_one_id: string;
+    participant_two_id: string;
+    created_at: string;
+}
+
+/** A message in the isolated Crew List conversation lane (never a generic DM). */
+export interface CrewIntroMessage {
+    id: string;
+    conversation_id: string;
+    sender_id: string;
+    message: string;
+    created_at: string;
+}
+
+/** Private moderation report; only its author and Crew List reviewers can read it. */
+export interface CrewListReport {
+    id: string;
+    reporter_id: string;
+    reported_id: string;
+    reason: string;
+    status: CrewListReportStatus;
+    created_at: string;
+    reviewed_at: string | null;
+    reviewed_by: string | null;
+}
+
+export interface CrewPhotoUploadOptions {
+    /** Only a primary/headshot upload may replace the verified primary photo. */
+    persistPrimary?: boolean;
 }
 
 export interface CrewCard {
@@ -160,6 +229,8 @@ export interface CrewCard {
     interests: string[];
     last_active: string | null;
     is_verified: boolean;
+    approval_status: CrewApprovalStatus;
+    verification_status: CrewVerificationStatus;
     location_city: string | null;
     location_state: string | null;
     location_country: string | null;
@@ -420,7 +491,7 @@ class LonelyHeartsServiceClass {
     }
 
     private normalizeCrewIntroStatus(value: unknown): CrewIntroRequestStatus | null {
-        return ['pending', 'accepted', 'declined', 'withdrawn'].includes(value as string)
+        return ['pending', 'accepted', 'declined', 'withdrawn', 'superseded'].includes(value as string)
             ? (value as CrewIntroRequestStatus)
             : null;
     }
@@ -451,6 +522,13 @@ class LonelyHeartsServiceClass {
             'review_requested_at',
             'reviewed_at',
             'reviewed_by',
+            // Signed display URLs and private object paths are controlled by
+            // the dedicated photo methods below. They must never be accepted
+            // from an ordinary profile form submission.
+            'photo_url',
+            'photos',
+            'crew_photo_path',
+            'crew_photo_paths',
         ]);
         return Object.fromEntries(
             Object.entries(this.cloneUpdates(updates)).filter(([key]) => !blockedKeys.has(key)),
@@ -466,13 +544,145 @@ class LonelyHeartsServiceClass {
         );
         if (normalized.length > 500 || hasControlCharacter) return null;
 
-        const containsEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(normalized);
-        const containsUrl =
-            /(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(?:com|net|org|edu|gov|io|co|app|dev|me|au|nz|uk|us|ca)\b/i.test(
-                normalized,
-            );
-        const containsPhone = /(?:\+?\d[\d\s().-]*){7,}/.test(normalized);
+        const containsEmail = CONTACT_EMAIL_PATTERN.test(normalized);
+        const containsUrl = CONTACT_URL_PATTERN.test(normalized);
+        const containsPhone = CONTACT_PHONE_PATTERN.test(normalized);
+        if (!this.isCrewListPublicTextSafe(normalized, 500, true)) return null;
         return containsEmail || containsUrl || containsPhone ? null : normalized;
+    }
+
+    private normalizeCrewIntroConversationMessage(message: unknown): string | null {
+        if (typeof message !== 'string') return null;
+        const normalized = message.trim();
+        if (!normalized || normalized.length > 2000 || hasUnsafeMessageControlCharacter(normalized)) return null;
+        return normalized;
+    }
+
+    private normalizeCrewListReportReason(reason: unknown): string | null {
+        if (typeof reason !== 'string') return null;
+        const normalized = reason.trim();
+        if (!normalized || normalized.length > 2000 || hasUnsafeMessageControlCharacter(normalized)) return null;
+        return normalized;
+    }
+
+    private normalizeCrewListReportStatus(value: unknown): CrewListReportStatus | null {
+        return ['pending', 'resolved', 'dismissed'].includes(value as string) ? (value as CrewListReportStatus) : null;
+    }
+
+    private normalizeCrewListReport(data: SupabaseRow): CrewListReport | null {
+        const status = this.normalizeCrewListReportStatus(data.status);
+        if (
+            !status ||
+            typeof data.id !== 'string' ||
+            typeof data.reporter_id !== 'string' ||
+            typeof data.reported_id !== 'string' ||
+            typeof data.reason !== 'string' ||
+            typeof data.created_at !== 'string'
+        ) {
+            return null;
+        }
+        return {
+            id: data.id,
+            reporter_id: data.reporter_id,
+            reported_id: data.reported_id,
+            reason: data.reason,
+            status,
+            created_at: data.created_at,
+            reviewed_at: typeof data.reviewed_at === 'string' ? data.reviewed_at : null,
+            reviewed_by: typeof data.reviewed_by === 'string' ? data.reviewed_by : null,
+        };
+    }
+
+    private isCrewListPublicTextSafe(value: unknown, maxLength: number, rejectExactCoordinates = false): boolean {
+        if (value === undefined || value === null) return true;
+        if (typeof value !== 'string' || value.length > maxLength) return false;
+        if (!value.trim()) return true;
+        if (CONTACT_EMAIL_PATTERN.test(value) || CONTACT_URL_PATTERN.test(value) || CONTACT_PHONE_PATTERN.test(value)) {
+            return false;
+        }
+        return (
+            !rejectExactCoordinates ||
+            (!CARDINAL_COORDINATE_PAIR_PATTERN.test(value) &&
+                !DECIMAL_COORDINATE_PAIR_PATTERN.test(value) &&
+                !DMS_COORDINATE_PAIR_PATTERN.test(value))
+        );
+    }
+
+    private isCrewListPublicTextArraySafe(
+        value: unknown,
+        maxItems: number,
+        maxItemLength: number,
+        rejectExactCoordinates = false,
+    ): boolean {
+        return (
+            value === undefined ||
+            value === null ||
+            (Array.isArray(value) &&
+                value.length <= maxItems &&
+                value.every(
+                    (item) =>
+                        typeof item === 'string' &&
+                        this.isCrewListPublicTextSafe(item, maxItemLength, rejectExactCoordinates),
+                ))
+        );
+    }
+
+    private hasSafeCrewListPublicProfileFields(updates: CrewProfileUpdate): boolean {
+        return (
+            this.isCrewListPublicTextSafe(updates.first_name, 80) &&
+            this.isCrewListPublicTextSafe(updates.bio, 2000, true) &&
+            this.isCrewListPublicTextSafe(updates.sailing_region, 160, true) &&
+            this.isCrewListPublicTextSafe(updates.sailing_experience, 160) &&
+            this.isCrewListPublicTextSafe(updates.partner_details, 500, true) &&
+            this.isCrewListPublicTextSafe(updates.smoking, 80) &&
+            this.isCrewListPublicTextSafe(updates.drinking, 80) &&
+            this.isCrewListPublicTextSafe(updates.pets, 80) &&
+            this.isCrewListPublicTextSafe(updates.location_city, 120, true) &&
+            this.isCrewListPublicTextSafe(updates.location_state, 120, true) &&
+            this.isCrewListPublicTextSafe(updates.location_country, 120, true) &&
+            this.isCrewListPublicTextArraySafe(updates.skills, 30, 80) &&
+            this.isCrewListPublicTextArraySafe(updates.vibe, 20, 80) &&
+            this.isCrewListPublicTextArraySafe(updates.languages, 20, 80) &&
+            this.isCrewListPublicTextArraySafe(updates.interests, 40, 80)
+        );
+    }
+
+    private isCrewListDiscoverableProfile(profile: CrewProfile | null): boolean {
+        return !!(
+            profile &&
+            profile.community_enabled &&
+            profile.crew_list_visibility === 'visible' &&
+            profile.approval_status === 'approved' &&
+            profile.verification_status === 'verified' &&
+            profile.crew_intents.length > 0 &&
+            profile.crew_photo_path?.trim()
+        );
+    }
+
+    /**
+     * A paused profile is no longer discoverable, but a sailor who already
+     * consented to an accepted introduction may still see the minimum profile
+     * details needed to recognise their private conversation. The database
+     * repeats this check in `browse_crew_list_profiles`.
+     */
+    private async hasAcceptedCrewIntroForScope(
+        scope: AuthIdentityScope,
+        ownerId: string,
+        targetId: string,
+    ): Promise<boolean> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
+        const { data } = await supabase
+            .from(CREW_INTRO_REQUESTS_TABLE)
+            .select('sender_id, recipient_id')
+            .eq('status', 'accepted')
+            .or(`sender_id.eq.${ownerId},recipient_id.eq.${ownerId}`)
+            .limit(100);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        return (data || []).some(
+            (request: SupabaseRow) =>
+                (request.sender_id === ownerId && request.recipient_id === targetId) ||
+                (request.sender_id === targetId && request.recipient_id === ownerId),
+        );
     }
 
     async init(): Promise<void> {
@@ -497,23 +707,123 @@ class LonelyHeartsServiceClass {
         const targetId = explicitTarget || ownerId;
         if (!targetId) return null;
 
+        // Mirror the database policy for direct detail lookups as well as
+        // board browsing. A client/mock that bypasses RLS must not turn a
+        // non-member into a Crew List profile reader.
+        if (targetId !== ownerId) {
+            if (!ownerId) return null;
+            const requesterProfile = await this.getCrewProfileForScope(scope, ownerId);
+            const canBrowse = this.isCrewListDiscoverableProfile(requesterProfile);
+            const hasAcceptedIntro = canBrowse
+                ? false
+                : await this.hasAcceptedCrewIntroForScope(scope, ownerId, targetId);
+            if ((!canBrowse && !hasAcceptedIntro) || !isAuthIdentityScopeCurrent(scope)) {
+                return null;
+            }
+            const suppressedIds = new Set(await this.getCrewListBlockedUserIdsForScope(scope, ownerId));
+            if (suppressedIds.has(targetId) || !isAuthIdentityScopeCurrent(scope)) return null;
+        }
+
         return this.getCrewProfileForScope(scope, targetId);
     }
 
     private async getCrewProfileForScope(scope: AuthIdentityScope, targetId: string): Promise<CrewProfile | null> {
         if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
 
+        if (targetId !== scope.userId) {
+            const { data, error } = await supabase.rpc('browse_crew_list_profiles', {
+                p_target_id: targetId,
+                p_limit: 1,
+            });
+            if (error || !isAuthIdentityScopeCurrent(scope) || !Array.isArray(data) || data.length !== 1) return null;
+            const profile = this.normalizeCrewProfile(data[0] as SupabaseRow);
+            return this.hydrateCrewProfilePhotoUrlsForScope(scope, profile);
+        }
+
         const { data } = await supabase.from(CREW_PROFILES_TABLE).select('*').eq('user_id', targetId).single();
 
         if (!isAuthIdentityScopeCurrent(scope) || data?.user_id !== targetId) return null;
-        if (data) return this.normalizeCrewProfile(data);
+        if (data) return this.hydrateCrewProfilePhotoUrlsForScope(scope, this.normalizeCrewProfile(data));
         return null;
+    }
+
+    /** Normalise private storage paths without trusting legacy public URLs. */
+    private normalizeCrewPhotoPaths(primaryPath: unknown, photoPaths: unknown): string[] {
+        const paths = Array.isArray(photoPaths)
+            ? photoPaths
+                  .filter((path): path is string => typeof path === 'string')
+                  .map((path) => path.trim())
+                  .filter((path) => path.length > 0 && path.length <= 220)
+            : [];
+        const primary = typeof primaryPath === 'string' ? primaryPath.trim() : '';
+        if (primary && !paths.includes(primary)) paths.unshift(primary);
+        return [...new Set(paths)].slice(0, 6);
+    }
+
+    /** Mint only short-lived display URLs for storage objects the current scope may read. */
+    private async getCrewPhotoSignedUrlMapForScope(
+        scope: AuthIdentityScope,
+        photoPaths: string[],
+    ): Promise<Map<string, string>> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return new Map();
+        const uniquePaths = [...new Set(photoPaths.filter((path) => typeof path === 'string' && path.length > 0))];
+        if (uniquePaths.length === 0) return new Map();
+
+        const { data, error } = await supabase.storage.from('crew-list-photos').createSignedUrls(uniquePaths, 60 * 60);
+        if (error || !isAuthIdentityScopeCurrent(scope) || !Array.isArray(data)) return new Map();
+
+        const signedUrlByPath = new Map<string, string>();
+        for (const row of data as Array<Record<string, unknown>>) {
+            if (typeof row.path === 'string' && typeof row.signedUrl === 'string' && row.signedUrl.length > 0) {
+                signedUrlByPath.set(row.path, row.signedUrl);
+            }
+        }
+        return signedUrlByPath;
+    }
+
+    private withCrewProfilePhotoUrls(profile: CrewProfile, signedUrlByPath: Map<string, string>): CrewProfile {
+        const photoPaths = this.normalizeCrewPhotoPaths(profile.crew_photo_path, profile.crew_photo_paths);
+        const signedPhotos = photoPaths
+            .map((path) => signedUrlByPath.get(path))
+            .filter((url): url is string => typeof url === 'string' && url.length > 0);
+        return {
+            ...profile,
+            crew_photo_paths: photoPaths,
+            photo_url: profile.crew_photo_path ? signedUrlByPath.get(profile.crew_photo_path) || null : null,
+            photos: signedPhotos,
+        };
+    }
+
+    private async hydrateCrewProfilePhotoUrlsForScope(
+        scope: AuthIdentityScope,
+        profile: CrewProfile,
+    ): Promise<CrewProfile> {
+        const paths = this.normalizeCrewPhotoPaths(profile.crew_photo_path, profile.crew_photo_paths);
+        const signedUrlByPath = await this.getCrewPhotoSignedUrlMapForScope(scope, paths);
+        return this.withCrewProfilePhotoUrls(profile, signedUrlByPath);
+    }
+
+    private async hydrateCrewProfilePhotoUrlBatchForScope(
+        scope: AuthIdentityScope,
+        profiles: CrewProfile[],
+    ): Promise<CrewProfile[]> {
+        const allPaths = profiles.flatMap((profile) =>
+            this.normalizeCrewPhotoPaths(profile.crew_photo_path, profile.crew_photo_paths),
+        );
+        const signedUrlByPath = await this.getCrewPhotoSignedUrlMapForScope(scope, allPaths);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return profiles.map((profile) => this.withCrewProfilePhotoUrls(profile, signedUrlByPath));
     }
 
     private normalizeCrewProfile(data: SupabaseRow): CrewProfile {
         const crewIntents = this.normalizeCrewIntents(data.crew_intents) || [];
         const approvalStatus = this.normalizeCrewApprovalStatus(data.approval_status);
         const verificationStatus = this.normalizeCrewVerificationStatus(data.verification_status);
+        const crewPhotoPaths = this.normalizeCrewPhotoPaths(data.crew_photo_path, data.crew_photo_paths);
+        const primaryPhotoPath =
+            typeof data.crew_photo_path === 'string' && crewPhotoPaths.includes(data.crew_photo_path.trim())
+                ? data.crew_photo_path.trim()
+                : null;
         return {
             user_id: data.user_id,
             listing_type: data.listing_type || null,
@@ -541,8 +851,12 @@ class LonelyHeartsServiceClass {
             location_city: data.location_city || null,
             location_state: data.location_state || null,
             location_country: data.location_country || null,
-            photo_url: data.photo_url || null,
-            photos: [...(data.photos || [])],
+            crew_photo_path: primaryPhotoPath,
+            crew_photo_paths: crewPhotoPaths,
+            // Legacy public values are deliberately ignored. The only display
+            // URLs we expose come from private Crew List storage above.
+            photo_url: null,
+            photos: [],
             community_enabled: data.community_enabled === true,
             crew_intents: crewIntents,
             crew_list_visibility: data.crew_list_visibility === 'visible' ? 'visible' : 'private',
@@ -560,6 +874,7 @@ class LonelyHeartsServiceClass {
     async updateCrewProfile(updates: CrewProfileUpdate): Promise<boolean> {
         const scope = getAuthIdentityScope();
         const updatesSnapshot = this.sanitizeCrewProfileUpdates(updates);
+        if (!this.hasSafeCrewListPublicProfileFields(updatesSnapshot)) return false;
         const ownerId = await this.getAuthenticatedOwner(scope);
         if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
         const intent =
@@ -645,7 +960,7 @@ class LonelyHeartsServiceClass {
             !profile ||
             !profile.community_enabled ||
             profile.crew_intents.length === 0 ||
-            !profile.photo_url?.trim() ||
+            !profile.crew_photo_path?.trim() ||
             !isAuthIdentityScopeCurrent(scope)
         ) {
             return false;
@@ -682,7 +997,10 @@ class LonelyHeartsServiceClass {
             .limit(safeLimit);
 
         if (!isAuthIdentityScopeCurrent(scope)) return [];
-        return (data || []).map((profile: SupabaseRow) => this.normalizeCrewProfile(profile));
+        return this.hydrateCrewProfilePhotoUrlBatchForScope(
+            scope,
+            (data || []).map((profile: SupabaseRow) => this.normalizeCrewProfile(profile)),
+        );
     }
 
     /** Admin-only review RPC; users cannot self-approve through profile updates. */
@@ -739,7 +1057,11 @@ class LonelyHeartsServiceClass {
         return !error && isAuthIdentityScopeCurrent(scope);
     }
 
-    /** Read the signed-in sailor's canonical Crew List block set. */
+    /**
+     * Read the signed-in sailor's bilateral Crew List suppression set. It
+     * includes people they blocked and people who blocked them, without
+     * exposing the underlying dm_blocks rows to the other party.
+     */
     async getCrewListBlockedUserIds(): Promise<string[]> {
         const scope = getAuthIdentityScope();
         const ownerId = await this.getAuthenticatedOwner(scope);
@@ -749,6 +1071,22 @@ class LonelyHeartsServiceClass {
 
     private async getCrewListBlockedUserIdsForScope(scope: AuthIdentityScope, ownerId: string): Promise<string[]> {
         if (!supabase || !isAuthIdentityScopeCurrent(scope)) return [];
+        const { data: bilateralRows, error: bilateralError } = await supabase.rpc('get_crew_list_blocked_user_ids');
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        if (!bilateralError) {
+            return [
+                ...new Set(
+                    (bilateralRows || [])
+                        .map((row: Record<string, unknown>) => row.user_id)
+                        .filter(
+                            (userId: unknown): userId is string => typeof userId === 'string' && userId !== ownerId,
+                        ),
+                ),
+            ];
+        }
+
+        // Compatibility fallback for an older backend during a rolling
+        // update. Production Crew List RLS remains the source of truth.
         const { data } = await supabase.from(CREW_LIST_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', ownerId);
         if (!isAuthIdentityScopeCurrent(scope)) return [];
         return [
@@ -760,8 +1098,79 @@ class LonelyHeartsServiceClass {
         ];
     }
 
-    /** Upload a crew photo (single) */
-    async uploadCrewPhoto(file: File): Promise<{ success: boolean; url?: string; error?: string }> {
+    /**
+     * File a private Crew List safety report. The database permits reports
+     * only for a discoverable listing or an already accepted introduction;
+     * the reported sailor never receives access to the report itself.
+     */
+    async reportCrewListUser(targetId: string, reason: string): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const target = this.normalizeTargetId(targetId);
+        const reasonSnapshot = this.normalizeCrewListReportReason(reason);
+        if (!ownerId || !target || target === ownerId || !reasonSnapshot || !isAuthIdentityScopeCurrent(scope)) {
+            return false;
+        }
+        const { error } = await supabase.from(CREW_LIST_REPORTS_TABLE).insert({
+            reporter_id: ownerId,
+            reported_id: target,
+            reason: reasonSnapshot,
+        });
+        return !error && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /** Read only reports the current sailor is entitled to see under RLS. */
+    async getCrewListReports(limit = 100): Promise<CrewListReport[]> {
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 100;
+        const { data } = await supabase
+            .from(CREW_LIST_REPORTS_TABLE)
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(safeLimit);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return (data || [])
+            .map((report: SupabaseRow) => this.normalizeCrewListReport(report))
+            .filter((report: CrewListReport | null): report is CrewListReport => !!report);
+    }
+
+    /** Reviewer-only decision path; the server verifies the admin role. */
+    async reviewCrewListReport(
+        reportId: string,
+        decision: Extract<CrewListReportStatus, 'resolved' | 'dismissed'>,
+    ): Promise<boolean> {
+        if (!supabase) return false;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const report = this.normalizeTargetId(reportId);
+        if (
+            !ownerId ||
+            !report ||
+            (decision !== 'resolved' && decision !== 'dismissed') ||
+            !isAuthIdentityScopeCurrent(scope)
+        ) {
+            return false;
+        }
+        const { data, error } = await supabase.rpc('review_crew_list_report', {
+            p_report_id: report,
+            p_decision: decision,
+        });
+        return !error && data === true && isAuthIdentityScopeCurrent(scope);
+    }
+
+    /**
+     * Upload a Crew List photo to the private verification bucket. Only the
+     * designated headshot becomes the primary review image; short-lived signed
+     * URLs are returned for UI display and are never written to the profile.
+     */
+    async uploadCrewPhoto(
+        file: File,
+        options: CrewPhotoUploadOptions = {},
+    ): Promise<{ success: boolean; url?: string; path?: string; error?: string }> {
         if (!supabase) return { success: false, error: 'Not authenticated' };
         const scope = getAuthIdentityScope();
         const ownerId = await this.getAuthenticatedOwner(scope);
@@ -769,6 +1178,7 @@ class LonelyHeartsServiceClass {
             return { success: false, error: 'Not authenticated' };
         }
         const fileSnapshot = file;
+        const persistPrimary = options.persistPrimary !== false;
 
         try {
             const { compressImage, moderatePhoto } = await import('./ProfilePhotoService');
@@ -782,46 +1192,120 @@ class LonelyHeartsServiceClass {
                 return { success: false, error: modResult.reason };
             }
 
-            const path = `crew/${ownerId}/${Date.now()}.jpg`;
+            const existingProfile = await this.getCrewProfileForScope(scope, ownerId);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
+            if (!persistPrimary && !existingProfile?.crew_photo_path) {
+                return { success: false, error: 'Add your primary headshot before additional Crew List photos' };
+            }
+            const existingPhotoPaths = this.normalizeCrewPhotoPaths(
+                existingProfile?.crew_photo_path,
+                existingProfile?.crew_photo_paths,
+            );
+            const retainedPaths = persistPrimary
+                ? existingPhotoPaths.filter((path) => path !== existingProfile?.crew_photo_path)
+                : existingPhotoPaths;
+            if (retainedPaths.length >= 6) {
+                return { success: false, error: 'Remove a Crew List photo before adding another' };
+            }
+
+            const suffix =
+                typeof globalThis.crypto?.randomUUID === 'function'
+                    ? globalThis.crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+            const path = `${ownerId}/${suffix}.jpg`;
             const { error: uploadError } = await supabase.storage
-                .from('chat-avatars')
-                .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+                .from('crew-list-photos')
+                .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
             if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             if (uploadError) return { success: false, error: uploadError.message };
 
-            const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
-            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
-
-            const url = urlData.publicUrl;
-            const updated = await this.updateCrewProfileForScope(scope, ownerId, { photo_url: url });
+            const photoPaths = persistPrimary ? [path, ...retainedPaths] : [...retainedPaths, path];
+            const updated = await this.updateCrewProfileForScope(scope, ownerId, {
+                crew_photo_path: persistPrimary ? path : existingProfile?.crew_photo_path || null,
+                crew_photo_paths: photoPaths,
+            });
             if (!updated || !isAuthIdentityScopeCurrent(scope)) {
+                if (isAuthIdentityScopeCurrent(scope)) {
+                    await supabase.storage.from('crew-list-photos').remove([path]);
+                }
                 return { success: false, error: 'Account changed' };
             }
-            return { success: true, url };
+
+            const signedUrlByPath = await this.getCrewPhotoSignedUrlMapForScope(scope, [path]);
+            const url = signedUrlByPath.get(path);
+            if (!url || !isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Photo saved but could not be displayed yet' };
+            }
+            return { success: true, url, path };
         } catch (err: unknown) {
             if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
         }
     }
 
-    /** Remove crew photo */
-    async removeCrewPhoto(): Promise<boolean> {
+    /** Remove a photo at a display position and retire its private object. */
+    async removeCrewPhotoAtIndex(position: number): Promise<boolean> {
+        if (!supabase) return false;
         const scope = getAuthIdentityScope();
         const ownerId = await this.getAuthenticatedOwner(scope);
-        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
-        return this.updateCrewProfileForScope(scope, ownerId, { photo_url: null });
+        const photoPosition = Math.trunc(position);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope) || photoPosition !== position || photoPosition < 0) {
+            return false;
+        }
+
+        const profile = await this.getCrewProfileForScope(scope, ownerId);
+        if (!profile || !isAuthIdentityScopeCurrent(scope)) return false;
+        const photoPaths = this.normalizeCrewPhotoPaths(profile.crew_photo_path, profile.crew_photo_paths);
+        const removedPath = photoPaths[photoPosition];
+        if (!removedPath) return false;
+
+        const remainingPaths = photoPaths.filter((path) => path !== removedPath);
+        const nextPrimaryPath =
+            profile.crew_photo_path === removedPath ? remainingPaths[0] || null : profile.crew_photo_path || null;
+        const updated = await this.updateCrewProfileForScope(scope, ownerId, {
+            crew_photo_path: nextPrimaryPath,
+            crew_photo_paths: remainingPaths,
+        });
+        if (!updated || !isAuthIdentityScopeCurrent(scope)) return false;
+
+        const { error } = await supabase.storage.from('crew-list-photos').remove([removedPath]);
+        if (error && isAuthIdentityScopeCurrent(scope)) {
+            // The profile no longer points to the object, so it is private and
+            // harmless if a transient storage failure needs later cleanup.
+            log.warn('Crew List photo object cleanup failed:', error);
+        }
+        return isAuthIdentityScopeCurrent(scope);
     }
 
-    /** Delete entire crew profile (remove listing from board) */
+    /** Backwards-compatible shorthand for removing the primary Crew List photo. */
+    async removeCrewPhoto(): Promise<boolean> {
+        return this.removeCrewPhotoAtIndex(0);
+    }
+
+    /** Delete the entire Crew List profile and retire all private photo objects. */
     async deleteCrewProfile(): Promise<boolean> {
         if (!supabase) return false;
         const scope = getAuthIdentityScope();
         const ownerId = await this.getAuthenticatedOwner(scope);
         if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
 
-        const { error } = await supabase.from(CREW_PROFILES_TABLE).delete().eq('user_id', ownerId);
+        const profile = await this.getCrewProfileForScope(scope, ownerId);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        const photoPaths = profile
+            ? this.normalizeCrewPhotoPaths(profile.crew_photo_path, profile.crew_photo_paths)
+            : [];
 
-        return !error && isAuthIdentityScopeCurrent(scope);
+        const { error } = await supabase.from(CREW_PROFILES_TABLE).delete().eq('user_id', ownerId);
+        if (error || !isAuthIdentityScopeCurrent(scope)) return false;
+
+        if (photoPaths.length > 0) {
+            const { error: storageError } = await supabase.storage.from('crew-list-photos').remove(photoPaths);
+            if (storageError && isAuthIdentityScopeCurrent(scope)) {
+                log.warn('Crew List photo cleanup after profile delete failed:', storageError);
+            }
+        }
+
+        return isAuthIdentityScopeCurrent(scope);
     }
 
     // ─── DATING PROFILES (Lonely Hearts) ────────────
@@ -993,31 +1477,22 @@ class LonelyHeartsServiceClass {
         const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 30;
         const ownerId = await this.getAuthenticatedOwner(scope);
         if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const requesterProfile = await this.getCrewProfileForScope(scope, ownerId);
+        if (!this.isCrewListDiscoverableProfile(requesterProfile) || !isAuthIdentityScopeCurrent(scope)) return [];
         const blockedIds = new Set(await this.getCrewListBlockedUserIdsForScope(scope, ownerId));
         if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-        // Keep the client filter aligned with RLS. The repeated predicates are
-        // deliberate: they make the safe discovery contract obvious even in a
-        // mocked or service-role environment where RLS is not applied.
-        let query = supabase
-            .from(CREW_PROFILES_TABLE)
-            .select('*')
-            .eq('community_enabled', true)
-            .eq('crew_list_visibility', 'visible')
-            .eq('approval_status', 'approved')
-            .eq('verification_status', 'verified')
-            .neq('user_id', ownerId)
-            .limit(100);
-
-        if (filterSnapshot.listing_type) {
-            query = query.eq('listing_type', filterSnapshot.listing_type);
-        }
-
-        const { data: crewProfiles } = await query;
+        // Browse through the narrow, server-gated public-card RPC rather than
+        // SELECT * on profile rows. That keeps review metadata and private
+        // storage details out of an otherwise discoverable listing.
+        const { data: crewProfiles, error: browseError } = await supabase.rpc('browse_crew_list_profiles', {
+            p_target_id: null,
+            p_limit: 100,
+        });
+        if (browseError) return [];
         if (!isAuthIdentityScopeCurrent(scope)) return [];
 
-        const cards: CrewCard[] = [];
-        for (const crew of crewProfiles || []) {
+        const eligibleProfiles = (crewProfiles || []).filter((crew: SupabaseRow) => {
             if (
                 typeof crew.user_id !== 'string' ||
                 crew.user_id === ownerId ||
@@ -1027,9 +1502,19 @@ class LonelyHeartsServiceClass {
                 crew.approval_status !== 'approved' ||
                 crew.verification_status !== 'verified'
             ) {
-                continue;
+                return false;
             }
-            const card = this.buildCrewCard(null, crew);
+            return true;
+        });
+        const photoPaths = eligibleProfiles.flatMap((crew: SupabaseRow) =>
+            this.normalizeCrewPhotoPaths(crew.crew_photo_path, crew.crew_photo_paths),
+        );
+        const signedUrlByPath = await this.getCrewPhotoSignedUrlMapForScope(scope, photoPaths);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+
+        const cards: CrewCard[] = [];
+        for (const crew of eligibleProfiles) {
+            const card = this.buildCrewCard(null, crew, signedUrlByPath);
             if (this.matchesCrewFilters(card, filterSnapshot)) cards.push(card);
         }
 
@@ -1074,20 +1559,36 @@ class LonelyHeartsServiceClass {
         return this.getCrewListings({}, limit);
     }
 
-    private buildCrewCard(chatProfile: SupabaseRow | null, crewProfile: SupabaseRow | null): CrewCard {
+    private buildCrewCard(
+        chatProfile: SupabaseRow | null,
+        crewProfile: SupabaseRow | null,
+        signedUrlByPath: Map<string, string> = new Map(),
+    ): CrewCard {
         const cp = crewProfile || {};
         const chat = chatProfile || {};
+        const photoPaths = this.normalizeCrewPhotoPaths(cp.crew_photo_path, cp.crew_photo_paths);
+        const primaryPhotoPath = typeof cp.crew_photo_path === 'string' ? cp.crew_photo_path.trim() : '';
+        const primaryPhotoUrl = primaryPhotoPath ? signedUrlByPath.get(primaryPhotoPath) || null : null;
+        const photos = photoPaths
+            .map((path) => signedUrlByPath.get(path))
+            .filter((url): url is string => typeof url === 'string' && url.length > 0);
+        const broadArea = [cp.location_state, cp.location_country]
+            .filter((location): location is string => typeof location === 'string' && location.trim().length > 0)
+            .join(', ');
         return {
             user_id: chat.user_id || cp.user_id,
             display_name: chat.display_name || cp.first_name || 'Anonymous Sailor',
-            avatar_url: chat.avatar_url || cp.photo_url || null,
+            // The verified Crew List headshot is intentionally distinct from a
+            // public chat avatar and is delivered only via a signed URL.
+            avatar_url: primaryPhotoUrl,
             vessel_name: chat.vessel_name || null,
-            home_port:
-                chat.home_port || (cp.location_city ? `${cp.location_city}, ${cp.location_country || ''}` : null),
+            // Do not surface an exact home port/city on a Crew List card. A
+            // broad state/country is enough to support a sensible search.
+            home_port: broadArea || null,
             listing_type: cp.listing_type || null,
             crew_intents: this.normalizeCrewIntents(cp.crew_intents) || [],
             first_name: cp.first_name || null,
-            photo_url: cp.photo_url || null,
+            photo_url: primaryPhotoUrl,
             gender: cp.gender || null,
             age_range: cp.age_range || null,
             has_partner: cp.has_partner || false,
@@ -1106,10 +1607,12 @@ class LonelyHeartsServiceClass {
             interests: [...(cp.interests || [])],
             last_active: cp.last_active || null,
             is_verified: cp.verification_status === 'verified',
-            location_city: cp.location_city || null,
+            approval_status: this.normalizeCrewApprovalStatus(cp.approval_status),
+            verification_status: this.normalizeCrewVerificationStatus(cp.verification_status),
+            location_city: null,
             location_state: cp.location_state || null,
             location_country: cp.location_country || null,
-            photos: [...(cp.photos || cp.dating_photos || [])],
+            photos,
         };
     }
 
@@ -1224,6 +1727,175 @@ class LonelyHeartsServiceClass {
             .select('id')
             .single();
         return !error && data?.id === request && isAuthIdentityScopeCurrent(scope);
+    }
+
+    // ─── CREW LIST PRIVATE CONVERSATIONS ─────────────
+
+    private normalizeCrewIntroConversation(data: SupabaseRow): CrewIntroConversation | null {
+        if (
+            typeof data.id !== 'string' ||
+            typeof data.intro_request_id !== 'string' ||
+            typeof data.participant_one_id !== 'string' ||
+            typeof data.participant_two_id !== 'string' ||
+            typeof data.created_at !== 'string'
+        ) {
+            return null;
+        }
+        return {
+            id: data.id,
+            intro_request_id: data.intro_request_id,
+            participant_one_id: data.participant_one_id,
+            participant_two_id: data.participant_two_id,
+            created_at: data.created_at,
+        };
+    }
+
+    private normalizeCrewIntroConversationMessageRow(data: SupabaseRow): CrewIntroMessage | null {
+        if (
+            typeof data.id !== 'string' ||
+            typeof data.conversation_id !== 'string' ||
+            typeof data.sender_id !== 'string' ||
+            typeof data.message !== 'string' ||
+            typeof data.created_at !== 'string'
+        ) {
+            return null;
+        }
+        return {
+            id: data.id,
+            conversation_id: data.conversation_id,
+            sender_id: data.sender_id,
+            message: data.message,
+            created_at: data.created_at,
+        };
+    }
+
+    /**
+     * Resolve an accepted intro to its private canonical conversation. A
+     * second, crossed introduction between the same two sailors intentionally
+     * resolves to the already-established thread rather than creating a
+     * duplicate chat lane.
+     */
+    private async getCrewIntroConversationForRequestForScope(
+        scope: AuthIdentityScope,
+        ownerId: string,
+        introRequestId: string,
+    ): Promise<CrewIntroConversation | null> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
+        const { data: request, error: requestError } = await supabase
+            .from(CREW_INTRO_REQUESTS_TABLE)
+            .select('id, sender_id, recipient_id, status')
+            .eq('id', introRequestId)
+            .or(`sender_id.eq.${ownerId},recipient_id.eq.${ownerId}`)
+            .maybeSingle();
+        if (
+            requestError ||
+            !isAuthIdentityScopeCurrent(scope) ||
+            request?.id !== introRequestId ||
+            request.status !== 'accepted' ||
+            (request.sender_id !== ownerId && request.recipient_id !== ownerId) ||
+            typeof request.sender_id !== 'string' ||
+            typeof request.recipient_id !== 'string'
+        ) {
+            return null;
+        }
+
+        const { data: conversation, error: conversationError } = await supabase
+            .from(CREW_INTRO_CONVERSATIONS_TABLE)
+            .select('*')
+            .or(
+                `and(participant_one_id.eq.${request.sender_id},participant_two_id.eq.${request.recipient_id}),` +
+                    `and(participant_one_id.eq.${request.recipient_id},participant_two_id.eq.${request.sender_id})`,
+            )
+            .maybeSingle();
+        if (conversationError || !isAuthIdentityScopeCurrent(scope)) return null;
+        const normalized = conversation ? this.normalizeCrewIntroConversation(conversation) : null;
+        return normalized && (normalized.participant_one_id === ownerId || normalized.participant_two_id === ownerId)
+            ? normalized
+            : null;
+    }
+
+    /** Return the server-created Crew List conversation for an accepted introduction. */
+    async getCrewIntroConversation(introRequestId: string): Promise<CrewIntroConversation | null> {
+        if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const request = this.normalizeTargetId(introRequestId);
+        if (!ownerId || !request || !isAuthIdentityScopeCurrent(scope)) return null;
+        return this.getCrewIntroConversationForRequestForScope(scope, ownerId, request);
+    }
+
+    /** List only the signed-in sailor's server-created Crew List conversations. */
+    async getCrewIntroConversations(limit = 100): Promise<CrewIntroConversation[]> {
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return [];
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 100;
+        const { data } = await supabase
+            .from(CREW_INTRO_CONVERSATIONS_TABLE)
+            .select('*')
+            .or(`participant_one_id.eq.${ownerId},participant_two_id.eq.${ownerId}`)
+            .order('created_at', { ascending: false })
+            .limit(safeLimit);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return (data || [])
+            .map((conversation: SupabaseRow) => this.normalizeCrewIntroConversation(conversation))
+            .filter(
+                (conversation: CrewIntroConversation | null): conversation is CrewIntroConversation =>
+                    !!conversation &&
+                    (conversation.participant_one_id === ownerId || conversation.participant_two_id === ownerId),
+            );
+    }
+
+    /** Read private Crew List messages only after the specific introduction was accepted. */
+    async getCrewIntroMessages(introRequestId: string, limit = 100): Promise<CrewIntroMessage[]> {
+        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const request = this.normalizeTargetId(introRequestId);
+        if (!ownerId || !request || !isAuthIdentityScopeCurrent(scope)) return [];
+        const conversation = await this.getCrewIntroConversationForRequestForScope(scope, ownerId, request);
+        if (!conversation || !isAuthIdentityScopeCurrent(scope)) return [];
+
+        const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.trunc(limit))) : 100;
+        const { data } = await supabase
+            .from(CREW_INTRO_MESSAGES_TABLE)
+            .select('*')
+            .eq('conversation_id', conversation.id)
+            .order('created_at', { ascending: true })
+            .limit(safeLimit);
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
+        return (data || [])
+            .map((message: SupabaseRow) => this.normalizeCrewIntroConversationMessageRow(message))
+            .filter(
+                (message: CrewIntroMessage | null): message is CrewIntroMessage =>
+                    !!message && message.conversation_id === conversation.id,
+            );
+    }
+
+    /**
+     * Send one private Crew List message. The database rechecks accepted-intro
+     * membership and both directions of dm_blocks; this method never falls
+     * back to the generic direct-message queue.
+     */
+    async sendCrewIntroMessage(introRequestId: string, message: string): Promise<CrewIntroMessage | null> {
+        if (!supabase) return null;
+        const scope = getAuthIdentityScope();
+        const ownerId = await this.getAuthenticatedOwner(scope);
+        const request = this.normalizeTargetId(introRequestId);
+        const text = this.normalizeCrewIntroConversationMessage(message);
+        if (!ownerId || !request || !text || !isAuthIdentityScopeCurrent(scope)) return null;
+        const conversation = await this.getCrewIntroConversationForRequestForScope(scope, ownerId, request);
+        if (!conversation || !isAuthIdentityScopeCurrent(scope)) return null;
+
+        const { data, error } = await supabase
+            .from(CREW_INTRO_MESSAGES_TABLE)
+            .insert({ conversation_id: conversation.id, sender_id: ownerId, message: text })
+            .select('*')
+            .single();
+        if (error || !isAuthIdentityScopeCurrent(scope)) return null;
+        const sent = data ? this.normalizeCrewIntroConversationMessageRow(data) : null;
+        return sent?.conversation_id === conversation.id && sent.sender_id === ownerId ? sent : null;
     }
 
     // ─── BROWSE DATING PROFILES ──────────────────────

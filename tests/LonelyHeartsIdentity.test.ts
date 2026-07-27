@@ -25,10 +25,25 @@ function deferred<T>() {
 function queryFor<T>(result: T | Promise<T>) {
     const promise = Promise.resolve(result);
     const query: Record<string, ReturnType<typeof vi.fn>> = {};
-    for (const method of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'neq', 'in', 'not', 'gte', 'limit']) {
+    for (const method of [
+        'select',
+        'insert',
+        'update',
+        'upsert',
+        'delete',
+        'eq',
+        'neq',
+        'in',
+        'not',
+        'gte',
+        'limit',
+        'or',
+        'order',
+    ]) {
         query[method] = vi.fn().mockReturnValue(query);
     }
     query.single = vi.fn().mockReturnValue(promise);
+    query.maybeSingle = vi.fn().mockReturnValue(promise);
     query.then = vi.fn((resolve, reject) => promise.then(resolve, reject));
     return query;
 }
@@ -333,5 +348,71 @@ describe('LonelyHeartsService identity isolation', () => {
 
         await expect(pending).resolves.toEqual({ success: false, error: 'Account changed' });
         expect(from).not.toHaveBeenCalled();
+    });
+
+    it('does not let a stale account-A accepted-introduction lookup reach its Crew List conversation', async () => {
+        const acceptedIntro = deferred<{ data: Record<string, unknown>; error: null }>();
+        const requestQuery = queryFor(acceptedIntro.promise);
+        from.mockImplementation((table: string) => {
+            if (table === 'crew_intro_requests') return requestQuery;
+            throw new Error(`A stale Crew List intro lookup reached ${table}`);
+        });
+
+        const pending = LonelyHeartsService.getCrewIntroMessages('intro-a');
+        await vi.waitFor(() => expect(requestQuery.maybeSingle).toHaveBeenCalledOnce());
+
+        setAuthIdentityScope('account-b');
+        acceptedIntro.resolve({
+            data: {
+                id: 'intro-a',
+                sender_id: 'account-a',
+                recipient_id: 'target-a',
+                status: 'accepted',
+            },
+            error: null,
+        });
+
+        await expect(pending).resolves.toEqual([]);
+        expect(from).toHaveBeenCalledTimes(1);
+        expect(from).toHaveBeenCalledWith('crew_intro_requests');
+    });
+
+    it('does not let a stale account-A conversation resolution write a Crew List message for B', async () => {
+        const conversationResult = deferred<{ data: Record<string, unknown>; error: null }>();
+        const requestQuery = queryFor({
+            data: {
+                id: 'intro-a',
+                sender_id: 'account-a',
+                recipient_id: 'target-a',
+                status: 'accepted',
+            },
+            error: null,
+        });
+        const conversationQuery = queryFor(conversationResult.promise);
+        from.mockImplementation((table: string) => {
+            if (table === 'crew_intro_requests') return requestQuery;
+            if (table === 'crew_intro_conversations') return conversationQuery;
+            throw new Error(`A stale Crew List message send reached ${table}`);
+        });
+
+        const pending = LonelyHeartsService.sendCrewIntroMessage('intro-a', 'A private hello');
+        await vi.waitFor(() => expect(conversationQuery.maybeSingle).toHaveBeenCalledOnce());
+
+        setAuthIdentityScope('account-b');
+        conversationResult.resolve({
+            data: {
+                id: 'conversation-a',
+                intro_request_id: 'intro-a',
+                participant_one_id: 'account-a',
+                participant_two_id: 'target-a',
+                created_at: '2026-07-27T00:00:00.000Z',
+            },
+            error: null,
+        });
+
+        await expect(pending).resolves.toBeNull();
+        expect(from).toHaveBeenCalledTimes(2);
+        expect(from).toHaveBeenCalledWith('crew_intro_requests');
+        expect(from).toHaveBeenCalledWith('crew_intro_conversations');
     });
 });
