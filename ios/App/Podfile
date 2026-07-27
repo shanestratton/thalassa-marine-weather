@@ -46,6 +46,31 @@ post_install do |installer|
       config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
+      # FIX: Xcode 27 runs the MODULE VERIFIER on pod targets, and it fails
+      # them wholesale (Shane 2026-07-28, first build on the 27 beta).
+      #
+      # The verifier compiles a synthetic `Test` framework against each pod's
+      # public headers to prove they are self-contained and modular. That is a
+      # bar third-party pods have never had to clear: GTMAppAuth,
+      # GTMSessionFetcher, GoogleSignIn, AppAuth and CocoaLumberjack all import
+      # their own public headers with double quotes, which the verifier treats
+      # as a hard ERROR. The tell is a build path containing `VerifyModule/`,
+      # and phantom `Test` / `Test.framework` entries in the issue navigator
+      # for a target no one wrote.
+      #
+      # It cannot be silenced from the outside: the verifier runs its own
+      # compilation with its own flags, so neither
+      # CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO above (verified
+      # resolving to NO on a failing target) nor
+      # OTHER_CFLAGS = -Wno-quoted-include-in-framework-header reaches it —
+      # both were tried against GTMAppAuth and both still failed.
+      #
+      # We are not the author of these headers and cannot fix them upstream, so
+      # verifying them buys nothing: it only asks whether Google's pods are
+      # modular, and answers no. OUR OWN code is untouched — this loop is pod
+      # targets only, so the App target keeps whatever verification it had.
+      config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
+
       # FIX: Xcode "Update to recommended settings" warnings
       # Bumped 17.0 2026-04-23: drops iPhone 8/8+/SE-2 (375x667 — too short
       # for the Dashboard's fixed-px layout), new floor is iPhone XS which
