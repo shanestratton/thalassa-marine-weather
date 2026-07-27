@@ -220,7 +220,10 @@ describe('Crew Finder async identity fencing', () => {
             } as React.ChangeEvent<HTMLInputElement>);
         });
         await waitFor(() => expect(crewService.uploadCrewPhoto).toHaveBeenCalledTimes(1));
-        expect(crewService.uploadCrewPhoto).toHaveBeenCalledWith(input.files[0], { persistPrimary: true });
+        // `!` — HTMLInputElement.files is typed FileList | null, and TS cannot see
+        // through the Object.defineProperty above that sets it. The test itself
+        // put the file there, so it is non-null by construction.
+        expect(crewService.uploadCrewPhoto).toHaveBeenCalledWith(input.files![0], { persistPrimary: true });
         expect(uploadIdentity).toBe('account-a');
 
         act(() => setAuthIdentityScope('account-b'));
