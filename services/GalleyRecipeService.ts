@@ -774,10 +774,15 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
         imageUrl = await uploadRecipePhoto(input.imageFile, recipeId);
     }
 
-    // Get display name for community author attribution
+    // Chat profiles are the canonical deployed source for community-facing
+    // names. Do not depend on the retired generic `profiles` table here.
     let authorName = 'Anonymous Sailor';
     try {
-        const { data: profile } = await supabase.from('profiles').select('display_name').eq('id', user.id).single();
+        const { data: profile } = await supabase
+            .from('chat_profiles')
+            .select('display_name')
+            .eq('user_id', user.id)
+            .maybeSingle();
         if (profile?.display_name) authorName = profile.display_name;
     } catch {
         /* use default */

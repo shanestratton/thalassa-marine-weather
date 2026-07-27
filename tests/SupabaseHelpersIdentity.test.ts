@@ -103,21 +103,21 @@ describe('Supabase identity-bound helpers', () => {
     });
 
     it('drops a profile row that resolves after an account switch', async () => {
-        const result = deferred<{ data: { id: string; display_name: string }; error: null }>();
+        const result = deferred<{ data: { user_id: string; display_name: string }; error: null }>();
         const query = {
             select: vi.fn(),
             eq: vi.fn(),
-            single: vi.fn(),
+            maybeSingle: vi.fn(),
         };
         query.select.mockReturnValue(query);
         query.eq.mockReturnValue(query);
-        query.single.mockReturnValue(result.promise);
+        query.maybeSingle.mockReturnValue(result.promise);
         mocks.from.mockReturnValue(query);
         const pending = getUserProfile('account-a');
-        await vi.waitFor(() => expect(query.single).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(query.maybeSingle).toHaveBeenCalledOnce());
 
         setAuthIdentityScope('account-b');
-        result.resolve({ data: { id: 'account-a', display_name: 'Alice' }, error: null });
+        result.resolve({ data: { user_id: 'account-a', display_name: 'Alice' }, error: null });
 
         await expect(pending).resolves.toBeNull();
     });
@@ -125,24 +125,24 @@ describe('Supabase identity-bound helpers', () => {
     it('whitelists editable profile fields and rejects a stale mutation completion', async () => {
         const result = deferred<{ error: null }>();
         const query = {
-            update: vi.fn(),
-            eq: vi.fn(),
+            upsert: vi.fn(),
             then: (onFulfilled: (value: { error: null }) => unknown, onRejected?: (reason: unknown) => unknown) =>
                 result.promise.then(onFulfilled, onRejected),
         };
-        query.update.mockReturnValue(query);
-        query.eq.mockReturnValue(query);
+        query.upsert.mockReturnValue(query);
         mocks.from.mockReturnValue(query);
         const pending = updateUserProfile('account-a', {
             display_name: 'Alice',
             subscription_status: 'active',
             id: 'account-b',
         } as never);
-        await vi.waitFor(() => expect(query.update).toHaveBeenCalledOnce());
-        expect(query.update.mock.calls[0][0]).toEqual({
+        await vi.waitFor(() => expect(query.upsert).toHaveBeenCalledOnce());
+        expect(query.upsert.mock.calls[0][0]).toEqual({
+            user_id: 'account-a',
             display_name: 'Alice',
             updated_at: expect.any(String),
         });
+        expect(query.upsert.mock.calls[0][1]).toEqual({ onConflict: 'user_id' });
 
         setAuthIdentityScope('account-b');
         result.resolve({ error: null });
