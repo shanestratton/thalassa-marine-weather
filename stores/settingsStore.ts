@@ -198,12 +198,13 @@ export function awaitSettingsLoaded(): Promise<void> {
 }
 
 /**
- * Vessel data used to be written as part of the generic settings blob. Keep
- * the compatibility copy locally, but never make it the cloud authority
- * again: a delayed whole-blob settings write is exactly how one device used
- * to overwrite another device's keel, capacity, or polar information.
+ * The generic cloud-settings record is deliberately not a second authority
+ * for vessel configuration or entitlements.  Fleet data has field-level
+ * revisioned storage, while subscription state is resolved from its own
+ * server-owned contract.  Keep both classes local for compatibility, but
+ * never upload or rehydrate them through `user_settings`.
  */
-function settingsWithoutFleetFields(settings: UserSettings): UserSettings {
+function settingsForCloudSync(settings: Partial<UserSettings>): Partial<UserSettings> {
     const {
         vessel: _vessel,
         vesselUnits: _vesselUnits,
@@ -211,17 +212,39 @@ function settingsWithoutFleetFields(settings: UserSettings): UserSettings {
         polarData: _polarData,
         polarBoatModel: _polarBoatModel,
         polarSource_type: _polarSourceType,
+        subscriptionTier: _subscriptionTier,
+        subscriptionExpiry: _subscriptionExpiry,
+        isPro: _isPro,
         ...globalSettings
     } = settings;
-    return globalSettings as UserSettings;
+    return globalSettings;
 }
 
-async function syncToCloud(scope: AuthIdentityScope, s: UserSettings) {
+/**
+ * Serialise generic settings writes from one device.  The database merges
+ * patches atomically, which preserves distinct changes from other devices;
+ * this tail additionally ensures two taps on this device arrive in the same
+ * order that the skipper made them.
+ */
+const _settingsSyncTails = new Map<string, Promise<void>>();
+
+async function syncToCloud(scope: AuthIdentityScope, patch: Partial<UserSettings>): Promise<void> {
     if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
-    const { error } = await supabase
-        .from('profiles')
-        .upsert({ id: scope.userId, settings: settingsWithoutFleetFields(s), updated_at: new Date().toISOString() });
+    const settingsPatch = settingsForCloudSync(patch);
+    if (Object.keys(settingsPatch).length === 0) return;
+
+    const { error } = await supabase.rpc('merge_user_settings', { p_patch: settingsPatch });
     if (error) throw new Error(error.message || 'Could not sync settings');
+}
+
+function queueSettingsSync(scope: AuthIdentityScope, patch: Partial<UserSettings>): Promise<void> {
+    const previous = _settingsSyncTails.get(scope.key) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => syncToCloud(scope, patch));
+    _settingsSyncTails.set(
+        scope.key,
+        run.catch(() => undefined),
+    );
+    return run;
 }
 
 function activeFleetVessel(fleet: Pick<VesselFleet, 'vessels' | 'activeBoatId'>): OwnedVesselProfile | null {
@@ -408,16 +431,15 @@ export interface RestoredSummary {
 /**
  * Merge a cloud-side settings payload onto the current local state.
  *
- * Top-level cloud keys win (so polarData, polarBoatModel, etc. come
- * back whole), but the four "compound" objects get sub-key-preserving
- * deep merges so a partial cloud version can't clobber local sub-keys
- * the cloud row hasn't heard about yet:
+ * Top-level cloud preference keys win, but compound objects get
+ * sub-key-preserving deep merges so a partial cloud version can't clobber
+ * local sub-keys the cloud row hasn't heard about yet:
  *
  *   - notifications   — per-alert enable + threshold
  *   - units           — speed / length / temp / etc.
- *   - comfortParams   — maxWindKts / maxGustKts / maxWaveM / angles
- *   - vessel          — handled by the caller (depends on vessel_identity
- *                       row too), passed in pre-merged
+ *   - vessel + comfort/polar fields — handled only by the fleet contract
+ *   - entitlement fields — handled only by the server-owned entitlement
+ *                          contract
  *
  * Exported for testability.
  */
@@ -426,23 +448,26 @@ export function mergeCloudSettings(
     cloudSettings: Partial<UserSettings> | null,
     mergedVessel: UserSettings['vessel'],
 ): UserSettings {
+    // Defend this boundary in the client too.  The database RPC and legacy
+    // migration strip these fields, but a stale/manual row must not be able
+    // to resurrect a vessel profile or grant a client-controlled paid tier.
+    const safeCloudSettings = cloudSettings ? settingsForCloudSync(cloudSettings) : null;
     return {
         ...current,
-        ...(cloudSettings ?? {}),
+        ...(safeCloudSettings ?? {}),
         notifications: {
             ...current.notifications,
-            ...(cloudSettings?.notifications ?? {}),
+            ...(safeCloudSettings?.notifications ?? {}),
         },
         units: {
             ...current.units,
-            ...(cloudSettings?.units ?? {}),
+            ...(safeCloudSettings?.units ?? {}),
         },
         comfortParams: {
             ...(current.comfortParams ?? {}),
-            ...(cloudSettings?.comfortParams ?? {}),
         },
         vessel: mergedVessel,
-        isPro: tierIsPro(cloudSettings?.subscriptionTier ?? current.subscriptionTier),
+        isPro: tierIsPro(current.subscriptionTier),
     };
 }
 
@@ -661,13 +686,12 @@ async function adoptAnonymousSettingsIfSafe(
  * home port + vessel name come back automatically". Local-only keys
  * (anything the cloud row doesn't carry) stay untouched.
  *
- * Also reads `vessel_identity` for vessel name/model/reg — those
- * live in their own table because onboarding (and the new
- * onboarding-after-auth flow) writes them there, and they are NOT
- * mirrored into profiles.settings on the legacy path.
+ * Also reads `vessel_identity` for the staged compatibility projection while
+ * the fleet is restored.  Full vessel data never travels in the generic
+ * `user_settings` record.
  *
- * Idempotent — running twice is harmless. Also tolerant of the
- * profiles row not existing yet (fresh account).
+ * Idempotent — running twice is harmless. Also tolerant of a fresh account
+ * having no `user_settings` row yet.
  */
 async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
     const userId = scope.userId;
@@ -697,14 +721,18 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
     }
     if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
-        // 1. profiles.settings — the JSONB blob carrying everything
-        // the user has changed via updateSettings.
-        log.warn('[pullFromCloud] querying profiles…');
-        const { data: profile } = await supabase.from('profiles').select('settings').eq('id', userId).maybeSingle();
+        // 1. user_settings — explicit, account-private generic preferences.
+        log.warn('[pullFromCloud] querying user settings…');
+        const { data: settingsRow, error: settingsError } = await supabase
+            .from('user_settings')
+            .select('settings')
+            .eq('user_id', userId)
+            .maybeSingle();
+        if (settingsError) throw new Error(settingsError.message || 'Could not load cloud settings');
         if (!isAuthIdentityScopeCurrent(scope)) return;
-        log.warn(`[pullFromCloud] profiles result: ${profile?.settings ? 'has-settings' : 'no-settings'}`);
+        log.warn(`[pullFromCloud] user settings result: ${settingsRow?.settings ? 'has-settings' : 'no-settings'}`);
 
-        const cloudSettings = (profile?.settings ?? null) as Partial<UserSettings> | null;
+        const cloudSettings = settingsRow?.settings as Partial<UserSettings> | null;
 
         // 2. The legacy active identity is retained as a compatibility
         // projection while the fleet rolls out. It must never override a
@@ -752,18 +780,15 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
         // current.vessel alone (might be undefined for fresh users,
         // and that's a state the rest of the app handles).
         let mergedVessel = current.vessel;
-        const cloudVessel = cloudSettings?.vessel;
-        if (cloudVessel || vessel) {
-            const name = vessel?.vessel_name ?? cloudVessel?.name ?? current.vessel?.name;
-            const type =
-                (vessel?.vessel_type as VesselProfile['type'] | undefined) ?? cloudVessel?.type ?? current.vessel?.type;
+        if (vessel) {
+            const name = vessel.vessel_name ?? current.vessel?.name;
+            const type = (vessel.vessel_type as VesselProfile['type'] | undefined) ?? current.vessel?.type;
             if (name && type) {
                 mergedVessel = {
                     ...(current.vessel ?? ({} as Partial<UserSettings['vessel']>)),
-                    ...(cloudVessel ?? {}),
                     name,
                     type,
-                    model: vessel?.model ?? cloudVessel?.model ?? current.vessel?.model,
+                    model: vessel.model ?? current.vessel?.model,
                 } as UserSettings['vessel'];
             }
         }
@@ -884,26 +909,12 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
         );
         void manageScreenEffects(merged, scope);
 
-        // ── TWO-WAY reconcile (Shane 2026-07-17: "ensure that when I log in on
-        // another device, ALL of the vessel profile info transfers across") ──
-        // The pull was ONE-WAY. A vessel onboarded locally while signed OUT —
-        // the first-launch default, since onboarding runs before sign-in — went
-        // to Capacitor Preferences + vessel_identity (name/type/model) but its
-        // wider dimensions (draft, beam, displacement…) live in
-        // profiles.settings.vessel, which is only written by syncToCloud on an
-        // updateSettings WHILE SIGNED IN. So they never reached the cloud, and a
-        // second device (or the web) pulled a draftless profile → routing fell
-        // back to the default 2.5 m keel. Now: when the merge ENRICHED the cloud
-        // — local carried a keel the cloud row lacked — push the merged settings
-        // (which carry the FULL vessel + every other local-only key) back up, so
-        // this device and every future one converge on the union. mergeCloudSettings
-        // keeps cloud-set values winning, so the push-back can only ADD, never
-        // regress a value the cloud already had.
-        // Generic cloud settings are still reconciled here, but vessel specs
-        // are intentionally excluded by syncToCloud. Fleet bootstrap/patch
-        // above is the only authoritative vessel path.
+        // A deliberate anonymous adoption starts with no cloud settings row.
+        // Push only its generic preferences; fleet bootstrap/patch above is
+        // the sole authoritative vessel path, and entitlements are never
+        // client-synchronised through this store.
         if (_anonymousAdoptedScopes.has(scope.key)) {
-            void syncToCloud(scope, merged).catch((error) => {
+            void queueSettingsSync(scope, merged).catch((error) => {
                 log.warn(`[pullFromCloud] anonymous settings push deferred: ${getErrorMessage(error)}`);
             });
         }
@@ -1596,7 +1607,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                 });
         }
         if (scope.userId && _userId === scope.userId) {
-            void syncToCloud(scope, updated).catch((error) => {
+            // Send only the caller's patch.  The server atomically merges it
+            // with other-device changes; uploading `updated` here would let a
+            // stale full snapshot overwrite an unrelated preference.
+            void queueSettingsSync(scope, patch).catch((error) => {
                 log.warn(`[updateSettings] generic cloud sync deferred: ${getErrorMessage(error)}`);
             });
         }
