@@ -20,9 +20,9 @@ const harness = vi.hoisted(() => ({
     deferredSets: new Map<string, Array<Promise<void>>>(),
     getCalls: [] as string[],
     setCalls: [] as Array<{ key: string; value: string }>,
-    profileSettings: {} as Record<string, Partial<UserSettings> | null>,
+    cloudSettings: {} as Record<string, Partial<UserSettings> | null>,
     vessels: {} as Record<string, Record<string, unknown> | null>,
-    upserts: [] as Array<Record<string, unknown>>,
+    cloudPatches: [] as Array<Record<string, unknown>>,
     geolocationPromise: null as Promise<{ location: string }> | null,
     geolocationCalls: 0,
 }));
@@ -58,8 +58,8 @@ vi.mock('../../services/supabase', () => ({
                     return builder;
                 },
                 maybeSingle: async () => {
-                    if (table === 'profiles') {
-                        const settings = harness.profileSettings[eqValue];
+                    if (table === 'user_settings') {
+                        const settings = harness.cloudSettings[eqValue];
                         return { data: settings ? { settings } : null, error: null };
                     }
                     if (table === 'vessel_identity') {
@@ -67,12 +67,12 @@ vi.mock('../../services/supabase', () => ({
                     }
                     return { data: null, error: null };
                 },
-                upsert: async (payload: Record<string, unknown>) => {
-                    harness.upserts.push(payload);
-                    return { data: null, error: null };
-                },
             };
             return builder;
+        }),
+        rpc: vi.fn(async (name: string, args?: Record<string, unknown>) => {
+            if (name === 'merge_user_settings' && args) harness.cloudPatches.push(args);
+            return { data: null, error: null };
         }),
     },
 }));
@@ -108,9 +108,9 @@ function resetHarness(): void {
     harness.deferredSets.clear();
     harness.getCalls.length = 0;
     harness.setCalls.length = 0;
-    for (const key of Object.keys(harness.profileSettings)) delete harness.profileSettings[key];
+    for (const key of Object.keys(harness.cloudSettings)) delete harness.cloudSettings[key];
     for (const key of Object.keys(harness.vessels)) delete harness.vessels[key];
-    harness.upserts.length = 0;
+    harness.cloudPatches.length = 0;
     harness.geolocationPromise = null;
     harness.geolocationCalls = 0;
     localStorage.clear();
@@ -296,7 +296,7 @@ describe('settingsStore identity isolation', () => {
         identity.setAuthIdentityScope('account-a');
         await settings.awaitSettingsLoaded();
 
-        harness.profileSettings['account-a'] = { firstName: 'Cloud Alice' };
+        harness.cloudSettings['account-a'] = { firstName: 'Cloud Alice' };
         harness.vessels['account-a'] = {
             vessel_name: 'Cloud A Boat',
             vessel_type: 'sail',
@@ -346,11 +346,41 @@ describe('settingsStore identity isolation', () => {
         await settings.awaitSettingsLoaded();
 
         expect(settings.useSettingsStore.getState().settings.firstName).toBeUndefined();
-        expect(harness.upserts).toEqual([]);
+        expect(harness.cloudPatches).toEqual([]);
         expect(JSON.parse(harness.preferences[aKey])).toMatchObject({
             owner_user_id: 'account-a',
             settings: { firstName: 'Late Alice' },
         });
+    });
+
+    it('syncs a generic user_settings patch without fleet or entitlement fields', async () => {
+        const { settings, identity } = await freshStore();
+        identity.setAuthIdentityScope('account-a');
+        await settings.awaitSettingsLoaded();
+
+        await update(settings, {
+            firstName: 'Cloud Alice',
+            units: { ...settings.DEFAULT_SETTINGS.units, temp: 'F' },
+            vessel: vessel('Never Generic', 8),
+            comfortParams: { maxWindKts: 30 },
+            polarBoatModel: 'Never Generic Polar',
+            subscriptionTier: 'free',
+            subscriptionExpiry: '2099-01-01T00:00:00.000Z',
+            isPro: false,
+        });
+
+        await vi.waitFor(() => expect(harness.cloudPatches.length).toBeGreaterThan(0));
+        const patch = harness.cloudPatches.at(-1)?.p_patch as Record<string, unknown>;
+        expect(patch).toMatchObject({
+            firstName: 'Cloud Alice',
+            units: expect.objectContaining({ temp: 'F' }),
+        });
+        expect(patch).not.toHaveProperty('vessel');
+        expect(patch).not.toHaveProperty('comfortParams');
+        expect(patch).not.toHaveProperty('polarBoatModel');
+        expect(patch).not.toHaveProperty('subscriptionTier');
+        expect(patch).not.toHaveProperty('subscriptionExpiry');
+        expect(patch).not.toHaveProperty('isPro');
     });
 
     it('reconciles B cloud data only with B local defaults, never A vessel state', async () => {
@@ -361,7 +391,7 @@ describe('settingsStore identity isolation', () => {
 
         identity.setAuthIdentityScope('account-b');
         await settings.awaitSettingsLoaded();
-        harness.profileSettings['account-b'] = {
+        harness.cloudSettings['account-b'] = {
             firstName: 'Bob Cloud',
             defaultLocation: 'B Harbour',
         };
@@ -381,11 +411,7 @@ describe('settingsStore identity isolation', () => {
         });
         expect(merged.vessel?.draft).toBeUndefined();
         expect(JSON.stringify(merged)).not.toContain('A Boat');
-        expect(
-            harness.upserts
-                .filter((payload) => payload.id === 'account-b')
-                .some((payload) => JSON.stringify(payload).includes('A Boat')),
-        ).toBe(false);
+        expect(harness.cloudPatches.some((payload) => JSON.stringify(payload).includes('A Boat'))).toBe(false);
     });
 
     it('assigns anonymous onboarding once to the first direct sign-in, then clears browse mode', async () => {
@@ -396,12 +422,12 @@ describe('settingsStore identity isolation', () => {
         await settings.awaitSettingsLoaded();
         expect(settings.useSettingsStore.getState().settings.vessel?.name).toBe('Anonymous Boat');
         settings.useSettingsStore.getState()._setUserId('account-a');
-        await vi.waitFor(() => expect(harness.upserts.some((payload) => payload.id === 'account-a')).toBe(true));
+        await vi.waitFor(() => expect(harness.cloudPatches.length).toBeGreaterThan(0));
         // Vessel specifications travel through the fleet API, never the
         // generic profile blob. A late whole-settings write used to let a
         // second device overwrite the boat profile.
         expect(
-            harness.upserts.find((payload) => payload.id === 'account-a')?.settings as Record<string, unknown>,
+            harness.cloudPatches.find((payload) => payload.p_patch)?.p_patch as Record<string, unknown>,
         ).not.toHaveProperty('vessel');
 
         identity.setAuthIdentityScope(null);

@@ -187,12 +187,9 @@ describe('awaitSettingsLoaded — cold-boot race gate', () => {
 
 /**
  * mergeCloudSettings is the pure merge core of pullFromCloud — top-
- * level cloud wins, but the four compound objects (notifications,
- * units, comfortParams, vessel) get sub-key-preserving deep merges.
- * These tests pin down the behaviour you'd care about most: yacht
- * picker, comfort-zone thresholds, and the metric/imperial knobs all
- * come back without any local sub-key getting clobbered by a partial
- * cloud row.
+ * level generic-preference cloud keys win, while notifications and units get
+ * sub-key-preserving merges. Fleet and entitlement data must never be revived
+ * through the generic settings record.
  */
 describe('mergeCloudSettings — partial-cloud defence', () => {
     const baseCurrent: UserSettings = {
@@ -200,15 +197,15 @@ describe('mergeCloudSettings — partial-cloud defence', () => {
         comfortParams: { maxWindKts: 25, maxGustKts: 35, maxWaveM: 3 },
     };
 
-    it('preserves local comfortParams sub-keys when cloud has only one', () => {
+    it('does not restore fleet-owned comfortParams from the generic cloud record', () => {
         const cloud: Partial<UserSettings> = {
             comfortParams: { maxWindKts: 40 }, // partial — missing gust + wave
         };
         const merged = mergeCloudSettings(baseCurrent, cloud, baseCurrent.vessel);
         expect(merged.comfortParams).toEqual({
-            maxWindKts: 40, // cloud wins for the key it has
-            maxGustKts: 35, // local survives
-            maxWaveM: 3, // local survives
+            maxWindKts: 25,
+            maxGustKts: 35,
+            maxWaveM: 3,
         });
     });
 
@@ -217,13 +214,13 @@ describe('mergeCloudSettings — partial-cloud defence', () => {
         expect(merged.comfortParams).toEqual({ maxWindKts: 25, maxGustKts: 35, maxWaveM: 3 });
     });
 
-    it('takes cloud comfortParams whole when local has none', () => {
+    it('does not create a comfort profile from a generic cloud record', () => {
         const localNoComfort = { ...DEFAULT_SETTINGS, comfortParams: undefined };
         const cloud: Partial<UserSettings> = {
             comfortParams: { maxWindKts: 30, maxGustKts: 45, maxWaveM: 2.5 },
         };
         const merged = mergeCloudSettings(localNoComfort, cloud, localNoComfort.vessel);
-        expect(merged.comfortParams).toEqual({ maxWindKts: 30, maxGustKts: 45, maxWaveM: 2.5 });
+        expect(merged.comfortParams).toEqual({});
     });
 
     it('preserves local notification keys when cloud carries a truly partial notifications object', () => {
@@ -264,7 +261,7 @@ describe('mergeCloudSettings — partial-cloud defence', () => {
         expect(merged.units.temp).toBe('C');
     });
 
-    it('top-level polar data round-trips through the merge', () => {
+    it('does not hydrate polar data through generic settings', () => {
         const polarSample = {
             windSpeeds: [5, 10, 15, 20],
             angles: [45, 60, 90, 120, 150],
@@ -281,16 +278,21 @@ describe('mergeCloudSettings — partial-cloud defence', () => {
             polarBoatModel: 'Tayana 55',
         };
         const merged = mergeCloudSettings(baseCurrent, cloud, baseCurrent.vessel);
-        expect(merged.polarData).toEqual(polarSample);
-        expect(merged.polarBoatModel).toBe('Tayana 55');
+        expect(merged.polarData).toBeUndefined();
+        expect(merged.polarBoatModel).toBeUndefined();
     });
 
-    it('isPro stays consistent with subscriptionTier (cloud wins)', () => {
+    it('does not hydrate client-mutable entitlement fields from generic settings', () => {
         const local: UserSettings = { ...DEFAULT_SETTINGS, subscriptionTier: 'free', isPro: false };
-        const cloud: Partial<UserSettings> = { subscriptionTier: 'owner' };
+        const cloud: Partial<UserSettings> = {
+            subscriptionTier: 'owner',
+            subscriptionExpiry: '2099-01-01T00:00:00.000Z',
+            isPro: true,
+        };
         const merged = mergeCloudSettings(local, cloud, local.vessel);
-        expect(merged.subscriptionTier).toBe('owner');
-        expect(merged.isPro).toBe(true);
+        expect(merged.subscriptionTier).toBe('free');
+        expect(merged.subscriptionExpiry).toBeUndefined();
+        expect(merged.isPro).toBe(false);
     });
 
     // Cross-device vessel transfer (Shane 2026-07-17): the pre-merged vessel
@@ -302,8 +304,15 @@ describe('mergeCloudSettings — partial-cloud defence', () => {
             ...DEFAULT_SETTINGS,
             vessel: { name: 'Serene Summer', type: 'sail', draft: 7.9 } as UserSettings['vessel'],
         };
-        // Cloud settings has NO vessel at all (the onboarded-while-signed-out case).
-        const merged = mergeCloudSettings(local, { defaultLocation: 'Newport' }, local.vessel);
+        // A stale/manual generic row cannot replace fleet-owned data.
+        const merged = mergeCloudSettings(
+            local,
+            {
+                defaultLocation: 'Newport',
+                vessel: { name: 'Wrong Boat', type: 'power', draft: 1 } as UserSettings['vessel'],
+            },
+            local.vessel,
+        );
         expect(merged.vessel?.draft).toBe(7.9);
         expect(merged.vessel?.name).toBe('Serene Summer');
         expect(merged.defaultLocation).toBe('Newport'); // cloud key still wins where it has one
