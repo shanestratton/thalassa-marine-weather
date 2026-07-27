@@ -992,33 +992,48 @@ Deno.serve(async (req: Request) => {
         }
 
         // The caller-supplied user_id parameter is intentionally ignored.
-        // Premium entitlement is derived only from a cryptographically verified
-        // user JWT. Anonymous/Pi callers stay on the honest free-provider path.
+        // Premium entitlement is derived only from the verified caller and the
+        // server-owned `user_entitlements` contract. Anonymous/Pi callers stay
+        // on the honest free-provider path.
         let isPremium = false;
 
         if (caller.userId) {
             try {
                 const supabaseUrl = Deno.env.get('SUPABASE_URL');
                 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-                if (!supabaseUrl || !serviceRoleKey) throw new Error('Profile service not configured');
+                if (!supabaseUrl || !serviceRoleKey) throw new Error('Entitlement service not configured');
                 const supabase = createClient(supabaseUrl, serviceRoleKey, {
                     auth: { persistSession: false, autoRefreshToken: false },
                 });
 
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('subscription_status, subscription_expiry')
-                    .eq('id', caller.userId)
-                    .single();
+                const { data: entitlement, error } = await supabase
+                    .from('user_entitlements')
+                    .select('subscription_status, trial_start_date, subscription_expiry')
+                    .eq('user_id', caller.userId)
+                    .maybeSingle();
+                if (error) throw error;
 
-                if (profile) {
-                    const status = profile.subscription_status;
-                    const expiry = profile.subscription_expiry;
-                    const notExpired = !expiry || new Date(expiry) > new Date();
-                    isPremium = (status === 'active' || status === 'trial') && notExpired;
+                if (entitlement) {
+                    const now = Date.now();
+                    const subscriptionExpiry = entitlement.subscription_expiry
+                        ? new Date(entitlement.subscription_expiry).getTime()
+                        : Number.NaN;
+                    const paidSubscriptionIsCurrent =
+                        entitlement.subscription_status === 'active' &&
+                        (!entitlement.subscription_expiry ||
+                            (Number.isFinite(subscriptionExpiry) && subscriptionExpiry > now));
+                    const trialStartedAt = entitlement.trial_start_date
+                        ? new Date(entitlement.trial_start_date).getTime()
+                        : Number.NaN;
+                    const trialIsCurrent =
+                        entitlement.subscription_status === 'trial' &&
+                        Number.isFinite(trialStartedAt) &&
+                        trialStartedAt <= now &&
+                        trialStartedAt + 14 * 24 * 60 * 60 * 1000 > now;
+                    isPremium = paidSubscriptionIsCurrent || trialIsCurrent;
                 }
             } catch (err) {
-                console.warn('[get-weather] Profile lookup failed, defaulting to free:', err);
+                console.warn('[get-weather] Entitlement lookup failed, defaulting to free:', err);
             }
         }
 

@@ -5,7 +5,7 @@
  * For each user with ≥1 alert threshold enabled:
  *   1. Read their location (defaultLocation or Guardian last_known)
  *   2. Fetch current weather from Open-Meteo
- *   3. Evaluate thresholds from profiles.settings.notifications
+ *   3. Evaluate thresholds from user_settings.settings.notifications
  *   4. Dedup against weather_alerts_log (skip if alerted in last 6h)
  *   5. Insert into push_notification_queue → triggers send-push webhook
  *
@@ -198,6 +198,123 @@ function roundCoord(v: number): number {
     return Math.round(v * 10) / 10;
 }
 
+type JsonRecord = Record<string, unknown>;
+
+interface AlertPreference {
+    enabled: boolean;
+    threshold?: number;
+}
+
+interface AlertLocation {
+    lat: number;
+    lon: number;
+    name: string;
+}
+
+interface UserAlert {
+    userId: string;
+    lat: number;
+    lon: number;
+    notifications: Record<string, AlertPreference>;
+    locationName: string;
+}
+
+interface UserSettingsRow {
+    user_id: string;
+    settings: unknown;
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : null;
+}
+
+function finiteCoordinate(value: unknown, axis: 'lat' | 'lon'): number | null {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+    const bound = axis === 'lat' ? 90 : 180;
+    return Math.abs(value) <= bound ? value : null;
+}
+
+/**
+ * Alert configuration is user preference data, so malformed or stale JSON must
+ * be ignored rather than taking the cron down. Only enabled alerts with finite
+ * numeric thresholds are retained; precipitation is threshold-free.
+ */
+function parseAlertPreferences(value: unknown): Record<string, AlertPreference> | null {
+    const notifications = asRecord(value);
+    if (!notifications) return null;
+
+    const parsed: Record<string, AlertPreference> = {};
+    for (const [key, rawPreference] of Object.entries(notifications)) {
+        const preference = asRecord(rawPreference);
+        if (!preference || preference.enabled !== true) continue;
+        const threshold = preference.threshold;
+        parsed[key] = {
+            enabled: true,
+            ...(typeof threshold === 'number' && Number.isFinite(threshold) ? { threshold } : {}),
+        };
+    }
+
+    return Object.keys(parsed).length > 0 ? parsed : null;
+}
+
+/**
+ * `defaultLocationCoords` is the current app setting. The object-shaped
+ * `defaultLocation` fallback keeps already-synchronised legacy settings
+ * working while clients update to the dedicated user_settings table.
+ */
+function configuredLocation(settings: JsonRecord): AlertLocation | null {
+    const currentCoords = asRecord(settings.defaultLocationCoords);
+    const legacyLocation = asRecord(settings.defaultLocation);
+    const coords = currentCoords ?? legacyLocation;
+    if (!coords) return null;
+
+    const lat = finiteCoordinate(coords.lat, 'lat');
+    const lon = finiteCoordinate(coords.lon, 'lon');
+    if (lat === null || lon === null) return null;
+
+    const currentName = typeof settings.defaultLocation === 'string' ? settings.defaultLocation.trim() : '';
+    const legacyName = typeof legacyLocation?.name === 'string' ? legacyLocation.name.trim() : '';
+    return { lat, lon, name: currentName || legacyName || 'Your location' };
+}
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+    return chunks;
+}
+
+/**
+ * Fetch the Guardian fallback positions in bounded batches. This replaces the
+ * previous N+1 `.single()` lookup and deliberately treats Guardian as a
+ * fallback: a transient Guardian failure must not suppress users who supplied
+ * a saved default location in user_settings.
+ */
+async function guardianLocationsForUsers(
+    supabase: ReturnType<typeof createClient>,
+    userIds: readonly string[],
+): Promise<Map<string, AlertLocation>> {
+    const locations = new Map<string, AlertLocation>();
+    for (const ids of chunk([...new Set(userIds)], 200)) {
+        if (ids.length === 0) continue;
+        const { data, error } = await supabase
+            .from('guardian_profiles')
+            .select('user_id, last_known_lat, last_known_lon')
+            .in('user_id', ids);
+        if (error) {
+            console.warn('Guardian fallback lookup failed:', error.message);
+            continue;
+        }
+
+        for (const row of data ?? []) {
+            const lat = finiteCoordinate(row.last_known_lat, 'lat');
+            const lon = finiteCoordinate(row.last_known_lon, 'lon');
+            if (lat === null || lon === null || typeof row.user_id !== 'string') continue;
+            locations.set(row.user_id, { lat, lon, name: 'Your location' });
+        }
+    }
+    return locations;
+}
+
 serve(async (req: Request) => {
     const startTime = Date.now();
     const authorizationFailure = requireServiceRolePost(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
@@ -214,69 +331,60 @@ serve(async (req: Request) => {
         });
 
         // ── 1. Get all users with at least one alert enabled ──
-        const { data: profiles, error: profilesError } = await supabase.from('profiles').select('id, settings');
+        // Settings used to live in an undeployed `profiles` table. The
+        // user_settings contract is now the cloud authority, so this cron must
+        // fail closed (no alert) for rows without a valid opt-in rather than
+        // failing the entire scheduled run because a retired table is absent.
+        const { data: settingsRows, error: settingsError } = await supabase
+            .from('user_settings')
+            .select('user_id, settings');
 
-        if (profilesError) {
-            console.error('Failed to fetch profiles:', profilesError);
-            return jsonResponse({ error: 'Profile fetch failed' }, 500);
+        if (settingsError) {
+            console.error('Failed to fetch user settings:', settingsError);
+            return jsonResponse({ error: 'Settings fetch failed' }, 500);
         }
 
-        if (!profiles || profiles.length === 0) {
-            return jsonResponse({ checked: 0, message: 'No profiles' });
+        if (!settingsRows || settingsRows.length === 0) {
+            return jsonResponse({ checked: 0, message: 'No user settings' });
         }
 
-        // Filter to users with ≥1 alert enabled AND a location
-        interface UserAlert {
+        interface AlertUserCandidate {
             userId: string;
-            lat: number;
-            lon: number;
-            notifications: Record<string, { enabled: boolean; threshold?: number }>;
-            locationName: string;
+            notifications: Record<string, AlertPreference>;
+            location: AlertLocation | null;
         }
+
+        // Filter to users with ≥1 alert enabled. Resolve Guardian positions in
+        // one bounded batch after inspecting the saved location configuration.
+        const candidates: AlertUserCandidate[] = [];
+        for (const row of settingsRows as UserSettingsRow[]) {
+            if (!row || typeof row.user_id !== 'string') continue;
+            const settings = asRecord(row.settings);
+            if (!settings) continue;
+            const notifications = parseAlertPreferences(settings.notifications);
+            if (!notifications) continue;
+            candidates.push({
+                userId: row.user_id,
+                notifications,
+                location: configuredLocation(settings),
+            });
+        }
+
+        const guardianLocations = await guardianLocationsForUsers(
+            supabase,
+            candidates.filter((candidate) => !candidate.location).map((candidate) => candidate.userId),
+        );
 
         const usersToCheck: UserAlert[] = [];
-
-        for (const profile of profiles) {
-            const settings = profile.settings;
-            if (!settings?.notifications) continue;
-
-            const notifs = settings.notifications;
-            const hasAnyEnabled = Object.values(notifs).some((n: { enabled?: boolean }) => n?.enabled === true);
-            if (!hasAnyEnabled) continue;
-
-            // Get location: defaultLocation first, then try guardian last_known
-            let lat: number | null = null;
-            let lon: number | null = null;
-            let locationName = 'Your location';
-
-            if (settings.defaultLocation?.lat && settings.defaultLocation?.lon) {
-                lat = settings.defaultLocation.lat;
-                lon = settings.defaultLocation.lon;
-                locationName = settings.defaultLocation.name || locationName;
-            }
-
-            // Fallback: Try guardian last_known
-            if (lat == null || lon == null) {
-                const { data: guardian } = await supabase
-                    .from('guardian_profiles')
-                    .select('last_known_lat, last_known_lon')
-                    .eq('user_id', profile.id)
-                    .single();
-
-                if (guardian?.last_known_lat && guardian?.last_known_lon) {
-                    lat = guardian.last_known_lat;
-                    lon = guardian.last_known_lon;
-                }
-            }
-
-            if (lat == null || lon == null) continue; // Can't alert without location
-
+        for (const candidate of candidates) {
+            const location = candidate.location ?? guardianLocations.get(candidate.userId);
+            if (!location) continue; // Can't alert without a configured or Guardian location.
             usersToCheck.push({
-                userId: profile.id,
-                lat,
-                lon,
-                notifications: notifs,
-                locationName,
+                userId: candidate.userId,
+                lat: location.lat,
+                lon: location.lon,
+                notifications: candidate.notifications,
+                locationName: location.name,
             });
         }
 
@@ -306,16 +414,19 @@ serve(async (req: Request) => {
         let weatherReqs = 0;
 
         for (const user of usersToCheck) {
-            if (
-                weatherReqs >= MAX_WEATHER_REQS &&
-                !weatherCache.has(`${roundCoord(user.lat)},${roundCoord(user.lon)}`)
-            ) {
+            const weatherKey = `${roundCoord(user.lat)},${roundCoord(user.lon)}`;
+            const needsWeatherFetch = !weatherCache.has(weatherKey);
+            if (weatherReqs >= MAX_WEATHER_REQS && needsWeatherFetch) {
                 continue; // Skip if we'd exceed rate limit
             }
 
+            // Count a cache miss before issuing it, including a failed request.
+            // The former post-fetch increment accidentally counted cache hits
+            // as requests and could stop checking sailors sharing one location.
+            if (needsWeatherFetch) weatherReqs++;
+
             const weather = await getWeather(user.lat, user.lon);
             if (!weather) continue;
-            weatherReqs++; // Only count actual fetches
             usersChecked++;
 
             for (const check of ALERT_CHECKS) {
@@ -337,29 +448,35 @@ serve(async (req: Request) => {
 
                 if (!triggered) continue;
 
-                // ── 4. Dedup check ──
+                // ── 4. Atomically claim the daily alert slot ──
                 const alertKey =
                     check.type === 'precipitation'
                         ? `precip-${weatherCodeToDescription(weather.weather_code ?? 0)}-${today}`
                         : `${check.type}-${check.formatValue(value)}${check.unit}-${today}`;
 
-                const { data: existing } = await supabase
+                // `weather_alerts_log` has a `(user_id, alert_key)` unique
+                // constraint. Claim it before enqueueing the push so two
+                // overlapping cron invocations cannot both notify the same
+                // skipper after each observed an empty pre-check.
+                const { data: claimedAlert, error: claimError } = await supabase
                     .from('weather_alerts_log')
+                    .upsert(
+                        {
+                            user_id: user.userId,
+                            alert_type: check.type,
+                            alert_key: alertKey,
+                        },
+                        { onConflict: 'user_id,alert_key', ignoreDuplicates: true },
+                    )
                     .select('id')
-                    .eq('user_id', user.userId)
-                    .eq('alert_key', alertKey)
                     .maybeSingle();
+                if (claimError) {
+                    console.error(`Weather alert dedup claim failed for ${user.userId}:`, claimError);
+                    continue;
+                }
+                if (!claimedAlert) continue; // An overlapping run already owns this alert.
 
-                if (existing) continue; // Already alerted
-
-                // ── 5. Insert dedup record ──
-                await supabase.from('weather_alerts_log').insert({
-                    user_id: user.userId,
-                    alert_type: check.type,
-                    alert_key: alertKey,
-                });
-
-                // ── 6. Build alert message ──
+                // ── 5. Build alert message ──
                 let title: string;
                 let body: string;
 
@@ -379,7 +496,7 @@ serve(async (req: Request) => {
                 // Determine if this should be a critical alert
                 const isSevere = (check.type === 'wind' && value >= 50) || (check.type === 'gusts' && value >= 65);
 
-                // ── 7. Queue push notification ──
+                // ── 6. Queue push notification ──
                 const { error: insertError } = await supabase.from('push_notification_queue').insert({
                     recipient_user_id: user.userId,
                     notification_type: isSevere ? 'severe_weather_alert' : 'weather_alert',
