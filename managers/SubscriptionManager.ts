@@ -2,15 +2,15 @@
  * SubscriptionManager — Premium / Trial / Paywall Logic
  *
  * The "switch" that controls premium vs free tier access across the app.
- * Reads subscription status from Supabase `profiles` table and caches
- * the result in memory. All feature gates (weather tier, export formats,
+ * Reads entitlement status through the scoped Supabase entitlement RPC and
+ * caches the result in memory. All feature gates (weather tier, export formats,
  * etc.) should call isPremiumUser() rather than checking Supabase directly.
  *
  * Pricing: $79.99/yr
  * Trial: 14 days from first login
  */
 
-import { supabase } from '../services/supabase';
+import { getCurrentUserId, supabase } from '../services/supabase';
 import { createLogger } from '../utils/createLogger';
 import {
     getAuthIdentityScope,
@@ -90,39 +90,38 @@ export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
     const operationScope = getAuthIdentityScope();
     if (!operationScope.userId) return makeFreeInfo();
 
-    // Get current user
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-    if (!user || user.id !== operationScope.userId || !isAuthIdentityScopeCurrent(operationScope)) {
+    // Resolve the locally persisted session rather than making a slow network
+    // `auth.getUser()` round trip. The scoped helper rejects a stale session
+    // if another account becomes active while this request is in flight.
+    const userId = await getCurrentUserId(operationScope);
+    if (!userId || !isAuthIdentityScopeCurrent(operationScope)) {
         return makeFreeInfo();
     }
 
     // Return cached if fresh and same user
     const now = Date.now();
-    if (cachedInfo && cachedUserId === user.id && now - cacheTimestamp < CACHE_TTL_MS) {
+    if (cachedInfo && cachedUserId === userId && now - cacheTimestamp < CACHE_TTL_MS) {
         return cachedInfo;
     }
 
-    // Fetch from profiles table
+    // The RPC is deliberately the only client mutation path. It creates the
+    // caller's initial trial row exactly once, then returns only their own
+    // entitlement. A client cannot promote itself by writing status fields.
     try {
-        const { data, error } = await supabase
-            .from('profiles')
-            .select('subscription_status, trial_start_date, subscription_expiry')
-            .eq('id', user.id)
-            .single();
+        const { data, error } = await supabase.rpc('ensure_own_user_entitlement');
 
         if (!isAuthIdentityScopeCurrent(operationScope)) return makeFreeInfo();
-        if (error || !data) {
-            log.warn('Failed to fetch profile, defaulting to free', error);
+        const entitlement = Array.isArray(data) ? data[0] : data;
+        if (error || !entitlement) {
+            log.warn('Failed to fetch entitlement, defaulting to free', error);
             return makeFreeInfo();
         }
 
-        const info = resolveStatus(data);
+        const info = resolveStatus(entitlement);
 
         // Cache
         cachedInfo = info;
-        cachedUserId = user.id;
+        cachedUserId = userId;
         cacheTimestamp = now;
 
         return info;
