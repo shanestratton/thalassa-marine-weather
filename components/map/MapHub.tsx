@@ -3236,6 +3236,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                     if (setVis(layer.id, desiredBaseLabelVisibility)) changed = true;
                 }
 
+                // ENC'S LAND NAMES ARE THE THIRD LABEL SET, and the one that was
+                // still doubling. Shane 2026-07-28, /plan: "BANKSIA BEACH" drawn
+                // twice — once wide-spaced from enc-vec-lndare-label, once from
+                // the hybrid raster, which is satellite-streets-v12 baked to
+                // tiles and carries its own place names in the PIXELS.
+                //
+                // isBasemapHybridDuplicateLabelLayer cannot catch this and should
+                // not try: it deliberately only touches `composite`/`openmaptiles`
+                // layers, because hiding an app-owned label is worse than leaving
+                // an unfamiliar basemap one alone. ENC's is app-owned, so it was
+                // correctly skipped — and therefore never deduped against baked
+                // pixels nothing can hide.
+                //
+                // LNDARE only. SEAARE_LABEL names sea areas, bays and channels,
+                // which the basemap does NOT provide and a skipper actually wants;
+                // it duplicates nothing. Land/suburb names are the whole overlap.
+                if (map.getLayer(ENC_VEC_LAYERS.LNDARE_LABEL)) {
+                    if (setVis(ENC_VEC_LAYERS.LNDARE_LABEL, desiredBaseLabelVisibility)) changed = true;
+                }
+
                 // Once raw satellite is active, lift the base labels above its
                 // opaque raster. Hybrid deliberately skips the lift because its
                 // baked labels are the authoritative, single set.
