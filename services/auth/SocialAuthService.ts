@@ -200,6 +200,71 @@ export async function signInWithGoogle(): Promise<Session> {
     return data.session;
 }
 
+// ── Browser lane ───────────────────────────────────────────────
+/**
+ * Apple / Google sign-in in a plain browser.
+ *
+ * A DIFFERENT MECHANISM to the native functions above, not a fallback. Native
+ * uses signInWithIdToken: the plugin opens a system dialog, returns a signed ID
+ * token, and we hand that straight to Supabase — one call, no navigation. A
+ * browser has no such plugin, so it must use the OAuth authorization-code flow:
+ * redirect to the provider, come back to Supabase's /auth/v1/callback, then
+ * back here with a session. That is why this returns void rather than a
+ * Session — the page unloads mid-flow and the session is picked up by
+ * detectSessionInUrl on the return leg.
+ *
+ * WHY IT MATTERS (Shane, flagged VERY IMPORTANT 2026-07-09, deferred twice):
+ * the web /plan planner is signed-in-gated. Without this, a browser's only lane
+ * is email OTP — and an account BORN from Apple/Google on the phone cannot use
+ * it (GoTrue answers user_already_exists). So saved routes and vessel details,
+ * both account-scoped, simply never arrive on the web planner.
+ *
+ * REQUIRES DASHBOARD CREDENTIALS THAT DO NOT EXIST YET. Until they are added
+ * this will fail at the provider, by design, with a legible message rather than
+ * a silent redirect to nowhere:
+ *   - Google: a WEB OAuth client (the current provider has no client secret, so
+ *     the authorization-code flow is impossible), with
+ *     https://pcisdplnodrphauixcau.supabase.co/auth/v1/callback as an
+ *     authorized redirect URI.
+ *   - Apple: a SERVICES ID — the provider is currently configured with the app
+ *     bundle id, which Apple will not accept for web — plus its generated
+ *     secret.
+ */
+export async function signInWithProviderOnWeb(provider: 'apple' | 'google'): Promise<void> {
+    if (!supabase) throw new Error('Sign-in is unavailable — no Supabase client.');
+
+    // Return to the page the skipper actually came from, not a hardcoded root:
+    // /plan is a standalone surface and bouncing a planner session back to the
+    // dashboard would lose their place. search+hash are dropped deliberately —
+    // Supabase appends its own, and a stale ?code= would confuse the return leg.
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+            redirectTo,
+            // Force the account chooser. Without it a browser already signed
+            // into one Google account silently reuses it, which on a shared
+            // chart-table laptop is the wrong boat's routes.
+            queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
+        },
+    });
+
+    if (error) {
+        log.warn(`[web-oauth] ${provider} sign-in failed:`, error);
+        // Name the likely cause rather than echoing a raw provider string: the
+        // overwhelmingly probable failure here is the missing dashboard
+        // credential above, and "Unsupported provider" alone sends the reader
+        // looking in the code.
+        throw new Error(
+            `${provider === 'apple' ? 'Apple' : 'Google'} sign-in is not available on the web yet ` +
+                `(${error.message}). Use “Sign in with email” for now.`,
+        );
+    }
+    // No return value: signInWithOAuth navigates away. Anything after this line
+    // runs only if the redirect was blocked.
+}
+
 // ── Sign out (works for any provider) ──────────────────────────
 export async function signOut(): Promise<void> {
     if (!supabase) return;

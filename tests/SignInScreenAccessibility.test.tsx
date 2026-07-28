@@ -52,10 +52,23 @@ describe('SignInScreen accessibility', () => {
         expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(primaryAction).toHaveFocus();
 
-        fireEvent.keyDown(primaryAction, { key: 'Tab' });
+        // The trap's property is that focus WRAPS at the dialog's boundaries:
+        // Tab off the last control lands on the first, and Shift+Tab off the
+        // first lands on the last. Close is first (it renders before the form);
+        // the last used to be "Sign in with email" simply because nothing
+        // followed it on web. Apple/Google now render on web too, so the last
+        // control is Google — assert against THAT rather than relaxing the
+        // check, or this stops testing the wrap at all.
+        const lastAction = screen.getByRole('button', { name: 'Sign in with Google' });
+
+        // Move focus there first. The trap decides from document.activeElement,
+        // not from the event target — the original assertion only worked because
+        // the initially-focused control happened to also be the last one.
+        lastAction.focus();
+        fireEvent.keyDown(lastAction, { key: 'Tab' });
         expect(closeAction).toHaveFocus();
         fireEvent.keyDown(closeAction, { key: 'Tab', shiftKey: true });
-        expect(primaryAction).toHaveFocus();
+        expect(lastAction).toHaveFocus();
 
         fireEvent.keyDown(primaryAction, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
