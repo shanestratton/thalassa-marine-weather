@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { acceptDisclaimer, getDisclaimerText, DISCLAIMER_VERSION } from './LegalGuard';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface DisclaimerOverlayProps {
     onAccepted: () => void;
@@ -15,20 +16,44 @@ interface DisclaimerOverlayProps {
 export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted }) => {
     const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+    // Every other dialog in the app traps focus; this one did not, so a
+    // keyboard or screen-reader user could tab straight out of a legal gate
+    // into the app behind it. NO onEscape on purpose — this is a gate, and
+    // Escape must not dismiss it.
+    const dialogRef = useFocusTrap<HTMLDivElement>(true, { initialFocusRef: scrollRef });
 
-    useEffect(() => {
-        scrollRef.current?.focus();
-    }, []);
-
-    const handleScroll = useCallback(() => {
+    /**
+     * "Has the skipper reached the end of the text?" — which is TRUE when the
+     * text never overflowed in the first place.
+     *
+     * This used to be answered only from onScroll, and the Accept button
+     * renders only in that branch. On any viewport where the disclaimer fits
+     * inside max-h-[50vh] — an iPad in portrait, which TARGETED_DEVICE_FAMILY
+     * "1,2" supports — no scroll event ever fired, so the button never
+     * appeared and the app could not be entered at all. A hard lockout on a
+     * shipping device.
+     */
+    const measure = useCallback(() => {
         const el = scrollRef.current;
         if (!el) return;
-        // Consider "scrolled to bottom" when within 40px of the end
+        // Within 40px of the end, OR never scrollable to begin with.
         const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        if (atBottom && !hasScrolledToBottom) {
-            setHasScrolledToBottom(true);
-        }
-    }, [hasScrolledToBottom]);
+        if (atBottom) setHasScrolledToBottom(true);
+    }, []);
+
+    // Measure on mount (covers short content) and again whenever the box
+    // resizes — rotation, split view, or the text loading late all change
+    // whether it overflows.
+    useEffect(() => {
+        measure();
+        const el = scrollRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [measure]);
+
+    const handleScroll = measure;
 
     const handleAccept = useCallback(() => {
         acceptDisclaimer();
@@ -38,6 +63,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
     return (
         <div
             id="main-content"
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="navigation-disclaimer-title"

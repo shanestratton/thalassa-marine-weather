@@ -452,10 +452,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 estimatedFields.push('beam');
             }
 
-            if (d_ft === 0) {
-                d_ft = l_ft * 0.16; // Approx ratio
-                estimatedFields.push('draft');
-            }
+            // DRAFT IS NEVER FABRICATED. Every other dimension can be guessed
+            // from LOA harmlessly, but draft decides whether the chart shades
+            // water as safe. Back-filling `l_ft * 0.16` wrote a plausible
+            // positive number, which defeated the app's own honesty channel:
+            // `draftAssumed` tested `draft > 0`, so a guess reported as
+            // verified and the ENC safety contour drew against it.
+            //
+            // Left at 0, vesselDraftMetres() returns its documented 2.5 m
+            // fallback — DEEPER than the guess for anything under ~51 ft, so
+            // the honest path is also the conservative one — and
+            // vesselDraftIsAssumed() correctly reports the keel as unknown.
 
             if (disp_lbs === 0) {
                 // DLR Formula approximation

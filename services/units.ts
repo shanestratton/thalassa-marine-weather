@@ -46,6 +46,32 @@ export function vesselAirDraftMetres(vessel: { airDraft?: number } | undefined |
 }
 
 /**
+ * Is this draft a GUESS rather than a measurement?
+ *
+ * The app has a purpose-built honesty channel — `draftAssumed` is threaded
+ * through the ENC popup, the depth-style state, the vector layer and the
+ * tracer's share path, so a chart drawn against an unknown keel says so. It
+ * used to be computed as `!(Number(vessel?.draft) > 0)`, which fires only
+ * when the draft is literally zero.
+ *
+ * Onboarding guarantees that never happens: when the skipper leaves the
+ * field empty it back-fills `length * 0.16` and records the fact in
+ * `estimatedFields`. A fabricated draft is a positive number, so the honesty
+ * channel reported "verified" for a guess and the safety contour shaded
+ * unsafe water as safe. `estimatedFields` is the only place that knew, and it
+ * reached two settings-screen badges.
+ *
+ * Both signals now feed one predicate, so the flag means what its consumers
+ * already assume it means.
+ */
+export function vesselDraftIsAssumed(
+    vessel: { draft?: number; estimatedFields?: string[] } | undefined | null,
+): boolean {
+    if (!(Number(vessel?.draft) > 0)) return true;
+    return vessel?.estimatedFields?.includes('draft') === true;
+}
+
+/**
  * ── THE DERIVED PERFORMANCE FIGURES ─────────────────────────────────
  * `maxWaveHeight` and `cruisingSpeed` are the settings panel's
  * "Performance (Auto)" pair: derived from the hull, never typed by the

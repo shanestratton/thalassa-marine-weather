@@ -833,8 +833,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         }
 
         const isShortRoute = straightLineNM < 100;
-        const VESSEL_DRAFT_M = 2.5; // IsochroneConfig default
-        const minDepthM = isShortRoute ? VESSEL_DRAFT_M + 1 : null;
+        // The skipper's ACTUAL keel, not the IsochroneConfig default. This
+        // read the hardcoded 2.5 m, so every route under 100 NM was gated at
+        // 3.5 m whatever the boat drew — dangerously permissive for anything
+        // deeper, and the exact hand-rolled literal services/units.ts:16 warns
+        // against by name. The same file derives it correctly at :409, :1391,
+        // :1864 and :2218.
+        const minDepthM = isShortRoute ? vesselDraftMetres(useSettingsStore.getState().settings.vessel) + 1 : null;
 
         log.info(
             `[Passage] Distance: ${Math.round(straightLineNM)} NM — ${isShortRoute ? 'SHORT (coastal, minDepth=' + minDepthM + 'm)' : 'LONG (ocean)'}`,
