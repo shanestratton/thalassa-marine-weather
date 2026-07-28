@@ -66,12 +66,26 @@ function json(body: unknown, status = 200, extraHeaders: Record<string, string> 
     return jsonResponse(body, status, { ...corsHeaders, ...extraHeaders });
 }
 
+/**
+ * The only capability publicPhotos needs is a storage signer, so it asks for
+ * exactly that shape. Naming the whole client here instead pinned the helper to
+ * the default schema generics of `createClient`, which are not the generics the
+ * handler's own client is constructed with — a mismatch that says nothing about
+ * this function's actual requirements.
+ */
+type DiaryPhotoSigner = {
+    storage: {
+        from(bucket: string): {
+            createSignedUrl(
+                path: string,
+                expiresIn: number,
+            ): Promise<{ data: { signedUrl: string } | null; error: unknown }>;
+        };
+    };
+};
+
 /** Sign private diary photos only for entries the owner explicitly published. */
-async function publicPhotos(
-    supabase: ReturnType<typeof createClient>,
-    photos: unknown,
-    ownerUserId: string,
-): Promise<string[]> {
+async function publicPhotos(supabase: DiaryPhotoSigner, photos: unknown, ownerUserId: string): Promise<string[]> {
     if (!Array.isArray(photos)) return [];
     const resolved = await Promise.all(
         photos.map(async (photo) => {
@@ -102,8 +116,12 @@ async function publicPhotos(
  * 30-60 s, so "last 5 samples" spanned 2.5-5 minutes — inside a single
  * forecast-cache hour the delta was always 0 and the trend read as a
  * permanent 'steady'.
+ *
+ * `pressure` is accepted as unknown because the track rows arrive straight from
+ * the database with no column typing; the `typeof … === 'number'` filter below
+ * is the guard that establishes the numbers this function relies on.
  */
-function baroTrend(track: { pressure: number | null; timestamp?: unknown }[]): 'rising' | 'falling' | 'steady' {
+function baroTrend(track: { pressure: unknown; timestamp?: unknown }[]): 'rising' | 'falling' | 'steady' {
     const readings = track.filter((t) => typeof t.pressure === 'number');
     if (readings.length < 2) return 'steady';
     const lastTs = Date.parse(String(readings[readings.length - 1].timestamp ?? ''));
@@ -192,9 +210,22 @@ Deno.serve(async (req: Request) => {
         const supabase = createClient(supabaseUrl, serviceRoleKey);
 
         // ── Resolve the config (boat + scope) ──────────────────────
+        // The row shape is named explicitly because postgrest-js can only infer
+        // columns from a select written as one string literal, and these lists
+        // are assembled from concatenated fragments.
+        type VoyageLogConfigRow = {
+            owner_id: string;
+            boat_id: string | null;
+            scope: string | null;
+            enabled: boolean | null;
+            track_days: number | null;
+            destination_name: string | null;
+            destination_lat: number | null;
+            destination_lon: number | null;
+        };
         const { data: config, error: configErr } = await supabase
             .from('voyage_log_configs')
-            .select(
+            .select<string, VoyageLogConfigRow>(
                 'owner_id, boat_id, scope, enabled, track_days, ' +
                     'destination_name, destination_lat, destination_lon',
             )
@@ -309,7 +340,10 @@ Deno.serve(async (req: Request) => {
             while (rows.length < MAX_TRACK_POINTS) {
                 let query = supabase
                     .from('ship_logs')
-                    .select(TRACK_SELECT)
+                    // Rows are declared as untyped column bags to match how they
+                    // are consumed: every reader below re-checks the column it
+                    // needs, because a logbook row can predate any of them.
+                    .select<string, Record<string, unknown>>(TRACK_SELECT)
                     .eq('user_id', ownerId)
                     .neq('entry_type', 'manual')
                     // Binned voyages are soft-archived (archived=true) and
@@ -764,9 +798,31 @@ Deno.serve(async (req: Request) => {
         const diarySelect =
             'id, user_id, title, body, mood, photos, location_name, latitude, longitude, ' +
             'weather_summary, weather_data, tags, created_at, voyage_id';
+        // Named for the same reason as the config row above: a concatenated
+        // select string carries no column information for postgrest-js to infer.
+        type PublicDiaryRow = {
+            id: string;
+            user_id: string;
+            title: string | null;
+            body: string | null;
+            mood: string | null;
+            photos: unknown;
+            location_name: string | null;
+            latitude: number | null;
+            longitude: number | null;
+            weather_summary: string | null;
+            weather_data: unknown;
+            tags: unknown;
+            created_at: string;
+            voyage_id: string | null;
+        };
         let diaryQuery = selectedTrackId
-            ? supabase.from('diary_entries').select(diarySelect).eq('user_id', ownerId).eq('voyage_id', selectedTrackId)
-            : supabase.from('diary_entries').select(diarySelect).in('user_id', entryUserIds);
+            ? supabase
+                  .from('diary_entries')
+                  .select<string, PublicDiaryRow>(diarySelect)
+                  .eq('user_id', ownerId)
+                  .eq('voyage_id', selectedTrackId)
+            : supabase.from('diary_entries').select<string, PublicDiaryRow>(diarySelect).in('user_id', entryUserIds);
         if (boatId) diaryQuery = diaryQuery.eq('boat_id', boatId);
         const entriesRes = await diaryQuery
             .eq('is_public', true)
@@ -1022,7 +1078,9 @@ Deno.serve(async (req: Request) => {
         if (!last && tripSelection.mode === 'legacy' && trackVisibilityReadable) {
             let fallbackQuery = supabase
                 .from('ship_logs')
-                .select(
+                // Untyped column bag again — the candidate below is vetted field
+                // by field before any of it reaches the public payload.
+                .select<string, Record<string, unknown>>(
                     'latitude, longitude, timestamp, speed_kts, course_deg, pressure, wind_speed, ' +
                         'wind_direction, air_temp, water_temp, wave_height, voyage_id, is_on_water',
                 )
