@@ -29,7 +29,7 @@
 
 import type { VoyagePlan, VesselProfile } from '../types';
 import { createLogger } from '../utils/createLogger';
-import { vesselDraftMetres } from './units';
+import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
 
 const log = createLogger('IsoEnhancer');
 
@@ -341,7 +341,10 @@ export async function enhanceVoyagePlanWithIsochrone(
                 const { useSettingsStore } = await import('../stores/settingsStore');
                 const userComfort = useSettingsStore.getState().settings.comfortParams ?? {};
                 const vMaxWind = vessel.maxWindSpeed;
-                const vMaxWave = vessel.maxWaveHeight;
+                // Converted BEFORE the Math.min below: userComfort.maxWaveM is
+                // metres, so comparing it against the profile's feet was not a
+                // comparison of anything.
+                const vMaxWave = vessel.maxWaveHeight != null ? vesselMaxWaveHeightMetres(vessel) : undefined;
                 const uMaxWind = userComfort.maxWindKts;
                 const uMaxWave = userComfort.maxWaveM;
                 const uMaxGust = userComfort.maxGustKts;
@@ -362,7 +365,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 if (vessel.maxWindSpeed || vessel.maxWaveHeight) {
                     comfortParams = {
                         maxWindKts: vessel.maxWindSpeed,
-                        maxWaveM: vessel.maxWaveHeight,
+                        maxWaveM: vesselMaxWaveHeightMetres(vessel),
                     };
                 }
             }

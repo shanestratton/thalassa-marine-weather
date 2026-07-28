@@ -24,7 +24,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
-import { vesselDraftMetres } from './units';
+import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
 import type { VesselProfile } from '../types';
 import type {
     WindField,
@@ -261,7 +261,7 @@ export async function planDepartureWindow(
                         (vessel.maxWindSpeed || vessel.maxWaveHeight
                             ? {
                                   maxWindKts: vessel.maxWindSpeed,
-                                  maxWaveM: vessel.maxWaveHeight,
+                                  maxWaveM: vesselMaxWaveHeightMetres(vessel),
                               }
                             : undefined),
                 },

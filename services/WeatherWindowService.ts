@@ -13,6 +13,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { ComfortParams, PreferredAngle } from '../types';
 import { fetchOpenMeteoProxy } from './weather/openMeteoProxy';
 import { createLogger } from '../utils/createLogger';
+import { vesselMaxWaveHeightMetres } from './units';
 import { circularMean } from '../utils/circularStats';
 
 /**
@@ -160,10 +161,10 @@ function loadScoringComfort(): ScoringComfort {
             v?.maxWindSpeed != null && c.maxWindKts != null
                 ? Math.min(v.maxWindSpeed, c.maxWindKts)
                 : (v?.maxWindSpeed ?? c.maxWindKts ?? 35);
+        // Both sides in METRES before Math.min — the profile stores feet.
+        const vMaxWaveM = v?.maxWaveHeight != null ? vesselMaxWaveHeightMetres(v) : null;
         const tightWave =
-            v?.maxWaveHeight != null && c.maxWaveM != null
-                ? Math.min(v.maxWaveHeight, c.maxWaveM)
-                : (v?.maxWaveHeight ?? c.maxWaveM ?? 4);
+            vMaxWaveM != null && c.maxWaveM != null ? Math.min(vMaxWaveM, c.maxWaveM) : (vMaxWaveM ?? c.maxWaveM ?? 4);
         return {
             maxWindKts: tightWind,
             maxWaveM: tightWave,

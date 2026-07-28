@@ -13,7 +13,7 @@ import { createLogger } from '../utils/createLogger';
 import { mToFt } from '../utils/units';
 import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
-import { vesselDraftMetres } from './units';
+import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
 import type { SpatiotemporalPayload } from '../types/spatiotemporal';
 const log = createLogger('WxRouter');
 
@@ -296,7 +296,8 @@ export async function fetchWeatherRoute(
             type: vessel.type === 'observer' ? 'power' : vessel.type,
             cruising_speed_kts: vessel.cruisingSpeed || 6,
             max_wind_kts: vessel.maxWindSpeed || 30,
-            max_wave_m: vessel.maxWaveHeight || 3,
+            // FEET in the profile, metres on the wire — see vesselMaxWaveHeightMetres.
+            max_wave_m: vesselMaxWaveHeightMetres(vessel, 3),
             draft_m: vesselDraftMetres(vessel),
             polar_data: polarData || null,
         },

@@ -121,6 +121,33 @@ export function vesselMaxWaveHeightFt(
 }
 
 /**
+ * The vessel's maximum workable wave height in METRES.
+ *
+ * `maxWaveHeight` is stored in FEET like every other profile dimension, and
+ * the settings panel renders it "ft". Every ROUTING consumer works in metres
+ * and several name the field so: `maxWaveM: vessel.maxWaveHeight` in
+ * departureWindow and isochroneEnhancer, `max_wave_m` in weatherRouter. Feet
+ * fed into a metre field is a ~3.3x TOO PERMISSIVE ceiling — the opposite
+ * direction to every other safety default here — and the edge validator
+ * (_shared/route-weather-safety.ts) accepts 0.1–30, so a 55 ft monohull's
+ * 19.25 sails through as 19.25 m and the survivability limit is gone in all
+ * but name.
+ *
+ * Worse, isochroneEnhancer took `Math.min(vesselFeet, userMetres)`, which is
+ * not a comparison of anything. This is the metres-side counterpart to
+ * vesselDraftMetres(); route code must never read `vessel.maxWaveHeight`
+ * directly, exactly as it must never read `vessel.draft`.
+ */
+export function vesselMaxWaveHeightMetres(
+    vessel: { maxWaveHeight?: number; length?: number; hullType?: string } | undefined | null,
+    fallbackM = 0,
+): number {
+    const ft = vesselMaxWaveHeightFt(vessel);
+    if (!Number.isFinite(ft) || ft <= 0) return fallbackM;
+    return ft / FEET_PER_METRE;
+}
+
+/**
  * The vessel's cruising speed in KNOTS. Sail boats are hull-speed bound;
  * power boats are not, hence the far larger coefficient. Returns
  * `fallbackKts` only when there is no usable length to derive from.

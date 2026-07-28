@@ -16,7 +16,11 @@ const vessel: VesselProfile = {
     beam: 4,
     draft: 1.2,
     displacement: 9000,
-    maxWaveHeight: 3,
+    // FEET, like every other profile dimension. This said 3, which reads as a
+    // sensible 3 m ceiling and is actually 0.91 m — below the 2 m seas in the
+    // payload fixture below. That the fixture was authored in metres is the
+    // same confusion that produced the bug this file now guards.
+    maxWaveHeight: 10,
     maxWindSpeed: 30,
     cruisingSpeed: 6,
 };
@@ -181,7 +185,11 @@ describe('weatherRouter', () => {
                         type: 'power',
                         cruising_speed_kts: 6,
                         max_wind_kts: 30,
-                        max_wave_m: 3,
+                        // Both dimensions are FEET in the profile and metres on
+                        // the wire. This asserted a raw 3 while converting draft
+                        // correctly two lines below — so the suite certified the
+                        // very bug it should have caught.
+                        max_wave_m: 10 / 3.28084,
                         draft_m: 1.2 / 3.28084,
                         polar_data: null,
                     },
