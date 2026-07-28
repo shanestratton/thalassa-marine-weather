@@ -41,6 +41,14 @@ jobs:
             - name: Lint
               run: npm run lint
 
+            # Migration hygiene, including SECURITY DEFINER search_path pinning
+            # and explicit EXECUTE grants. A definer function that inherits the
+            # default EXECUTE TO PUBLIC is reachable with the anon key that
+            # ships in the web bundle — that is how user_display_name came to
+            # return real names out of auth.users to anonymous callers.
+            - name: Migration audit
+              run: npm run lint:migrations
+
             - name: TypeScript type check
               run: npx tsc --noEmit
 
