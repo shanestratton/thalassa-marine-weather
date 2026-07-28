@@ -1,5 +1,44 @@
 import { describe, expect, it } from 'vitest';
-import { vesselCruisingSpeedKts, vesselDraftIsAssumed, vesselMaxWaveHeightFt } from '../services/units';
+import {
+    vesselCruisingSpeedKts,
+    vesselDraftIsAssumed,
+    vesselMaxWaveHeightFt,
+    vesselMaxWaveHeightMetres,
+} from '../services/units';
+
+/**
+ * The profile stores maxWaveHeight in FEET; every routing consumer works in
+ * metres and several name the field so (`maxWaveM`, `max_wave_m`). Feeding
+ * feet into a metre field makes the survivability ceiling ~3.3x too
+ * permissive — the opposite direction to every other safety default here —
+ * and the edge validator accepts 0.1-30, so 19.25 ft sails through as 19.25 m.
+ */
+describe('vesselMaxWaveHeightMetres', () => {
+    it('converts the stored feet to metres', () => {
+        expect(vesselMaxWaveHeightMetres({ maxWaveHeight: 19.25 })).toBeCloseTo(19.25 / 3.28084, 4);
+        expect(vesselMaxWaveHeightMetres({ maxWaveHeight: 10 })).toBeCloseTo(3.048, 3);
+    });
+
+    it('is always smaller than the feet value — the error direction that matters', () => {
+        // If this ever inverts, the ceiling has become MORE permissive than
+        // the boat can take, which is how a route gets planned through seas
+        // that would break it.
+        const v = { maxWaveHeight: 19.25 };
+        expect(vesselMaxWaveHeightMetres(v)).toBeLessThan(vesselMaxWaveHeightFt(v));
+    });
+
+    it('derives from LOA when unset, then converts', () => {
+        // Same derivation as the feet helper, so a fleet-restored profile with
+        // no stored ceiling still gets a real one rather than zero.
+        expect(vesselMaxWaveHeightMetres({ length: 55, hullType: 'monohull' })).toBeCloseTo((55 * 0.35) / 3.28084, 4);
+    });
+
+    it('falls back only when there is nothing to derive from', () => {
+        expect(vesselMaxWaveHeightMetres(undefined)).toBe(0);
+        expect(vesselMaxWaveHeightMetres({ maxWaveHeight: 0 }, 4)).toBe(4);
+        expect(vesselMaxWaveHeightMetres(null, 3)).toBe(3);
+    });
+});
 
 /**
  * `draftAssumed` is the app's honesty channel — threaded through the ENC
