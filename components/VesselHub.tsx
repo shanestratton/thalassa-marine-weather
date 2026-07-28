@@ -993,6 +993,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     claim={skipperClaim}
                     authenticatedUserId={authenticatedUserId}
                     updateSettings={updateSettings}
+                    vesselName={vesselNameSet ? vesselName : undefined}
                 />
 
                 {/* PASSAGE PLANNING — deliberately one tap from the Vessel
@@ -1252,12 +1253,21 @@ interface SkipperDeviceControlProps {
     claim: SkipperClaim | null;
     authenticatedUserId: string | null;
     updateSettings: (patch: { skipperDevice?: SkipperClaim }) => void;
+    /**
+     * The active fleet vessel this device publishes for. The claim is what
+     * grants publishing authority, but authority alone never said WHICH boat
+     * it speaks for — with up to five in a fleet, "this device is publishing"
+     * is only half an answer. Shown here so the card is the single place that
+     * states both.
+     */
+    vesselName?: string;
 }
 
 export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     claim,
     authenticatedUserId,
     updateSettings,
+    vesselName,
 }) => {
     const claimHeld = holdsClaim(claim);
     const statusDescription = claim
@@ -1337,12 +1347,26 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 data-testid="skipper-device-card"
                 className="mb-4 h-[120px] overflow-hidden rounded-2xl border border-cyan-500/20 bg-slate-900/40 p-3"
             >
-                <div className="mb-1.5 flex h-5 items-center justify-between gap-2">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
+                {/* The vessel rides on the EXISTING title row rather than a new
+                    line: the card is a fixed h-[120px] with overflow-hidden, and
+                    two tests assert that height. It truncates instead of
+                    wrapping so a long boat name can never push the claim button
+                    out of the card. */}
+                <div className="mb-1.5 flex h-5 items-center gap-2">
+                    <span className="shrink-0 text-[11px] font-black uppercase tracking-widest text-cyan-300">
                         ⚓ Skipper device
                     </span>
+                    {vesselName && (
+                        <span
+                            data-testid="skipper-device-vessel"
+                            title={vesselName}
+                            className="min-w-0 flex-1 truncate text-right text-[11px] font-bold text-white/90"
+                        >
+                            {vesselName}
+                        </span>
+                    )}
                     {claimHeld && (
-                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                        <span className="ml-auto shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
                             This device
                         </span>
                     )}
