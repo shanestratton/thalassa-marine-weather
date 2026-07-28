@@ -1,0 +1,29 @@
+project_id = "pcisdplnodrphauixcau"
+
+# ── Edge function JWT verification ────────────────────────────────────────
+#
+# Whether the platform verifies a JWT before a function runs is otherwise a
+# DEPLOY-TIME FLAG (`--no-verify-jwt`), which means it lives in whoever's
+# shell history ran the last deploy. That is exactly the kind of unwritten
+# state that drifts: a blanket `--no-verify-jwt` across a batch silently
+# strips edge auth from functions that had it, and nothing in the repo would
+# show it. Declared here instead, so the setting is reviewable and a deploy
+# cannot quietly change it.
+#
+# Anything NOT listed defaults to verify_jwt = true. Note that Supabase's anon
+# key IS a JWT, so verification still permits anonymous callers — it only
+# rejects requests carrying no credential at all.
+
+[functions.voyage-log]
+# The public voyage log. src/voyageLogApi.ts:206 fetches this with a bare
+# `fetch(url)` — no apikey, no Authorization — because the page is meant to
+# work for a shore contact holding nothing but the link. Verification here
+# would take the public log offline. The function guards itself instead: it
+# resolves the handle and returns only what that vessel has published.
+verify_jwt = false
+
+[functions.proxy-himawari-ir]
+# Satellite tile proxy. Tile URLs are consumed by the map's raster source,
+# which cannot attach an Authorization header, so verification is impossible
+# rather than merely undesirable.
+verify_jwt = false
