@@ -18,6 +18,12 @@ import BackgroundGeolocation, {
     Location,
     Subscription as BGSubscription,
 } from '@transistorsoft/capacitor-background-geolocation';
+// The v9 enums come from the shared types package, NOT from the plugin. The
+// plugin's index.d.ts re-exports them for TYPES only — its dist/index.js does
+// not, so importing them from there type-checks and then dies at bundle time
+// with "DesiredAccuracy is not exported". The types package ships real runtime
+// JS for each enum, so this is the import that actually exists in both worlds.
+import { ActivityType, DesiredAccuracy, LogLevel } from '@transistorsoft/background-geolocation-types';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 
@@ -120,6 +126,19 @@ class BgGeoManagerClass {
         this.startCount++;
         if (this.startCount === 1) {
             await BackgroundGeolocation.start();
+            // REPLACES v8's `isMoving: true` in ready(). v9 removed isMoving
+            // from Config and made it runtime state (State.isMoving), so
+            // without this the engine starts STATIONARY and waits for motion
+            // detection before delivering fixes — precisely the cold-start
+            // stall the fast-lock work exists to avoid, and it would have
+            // regressed silently since nothing type-checks a missing default.
+            try {
+                await BackgroundGeolocation.changePace(true);
+            } catch (e) {
+                // Non-fatal: motion detection still promotes to moving on its
+                // own, just later. Never let it block a track starting.
+                log.warn('changePace(true) failed on start; engine will detect motion itself:', e);
+            }
         }
     }
 
@@ -196,12 +215,14 @@ class BgGeoManagerClass {
         try {
             await this.ensureReady();
             await BackgroundGeolocation.setConfig({
-                distanceFilter: mode === 'fastlock' ? 0 : 1,
-                // Android honours these values. iOS remains distance-driven;
-                // the voyage sampler records each eligible iOS fix no more
-                // often than its active geographic profile permits.
-                locationUpdateInterval: 3000,
-                fastestLocationUpdateInterval: 3000,
+                geolocation: {
+                    distanceFilter: mode === 'fastlock' ? 0 : 1,
+                    // Android honours these values. iOS remains distance-driven;
+                    // the voyage sampler records each eligible iOS fix no more
+                    // often than its active geographic profile permits.
+                    locationUpdateInterval: 3000,
+                    fastestLocationUpdateInterval: 3000,
+                },
             });
             log.info(`GPS sampling → ${mode.toUpperCase()} (distanceFilter ${mode === 'fastlock' ? 0 : 1})`);
         } catch (e) {
@@ -294,55 +315,71 @@ class BgGeoManagerClass {
 
     private async _doReady(): Promise<void> {
         try {
+            // v9 COMPOUND CONFIG. Every value below is carried over unchanged
+            // from the v8 flat config — only the grouping and the enum names
+            // moved (v9.0.0 restructured Config into geolocation/app/logger/
+            // http and replaced BackgroundGeolocation.DESIRED_ACCURACY_HIGH
+            // style constants with DesiredAccuracy/ActivityType/LogLevel).
+            // Deliberately no behaviour change in the same commit as an SDK
+            // major: if tracking regresses, it is the SDK, not our tuning.
+            //
+            // `isMoving: true` has NO compound equivalent — v9 made it runtime
+            // state rather than config (State.isMoving, set via changePace).
+            // It is re-applied in requestStart() right after start().
             await BackgroundGeolocation.ready({
-                // Geolocation — high accuracy for marine navigation
-                desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
-                // 3 s Android target with a 1 m gate — matches
-                // setSamplingMode(). iOS is distance-driven; its available
-                // fixes feed the same app-level geographic sampler.
-                distanceFilter: 1,
-                locationUpdateInterval: 3000,
-                fastestLocationUpdateInterval: 3000,
+                geolocation: {
+                    // High accuracy for marine navigation.
+                    desiredAccuracy: DesiredAccuracy.High,
+                    // 3 s Android target with a 1 m gate — matches
+                    // setSamplingMode(). iOS is distance-driven; its available
+                    // fixes feed the same app-level geographic sampler.
+                    distanceFilter: 1,
+                    locationUpdateInterval: 3000,
+                    fastestLocationUpdateInterval: 3000,
 
-                // Activity recognition
-                stopTimeout: 0, // NEVER auto-stop — vessel may be anchored
-                isMoving: true, // Start in moving mode for immediate GPS
+                    stopTimeout: 0, // NEVER auto-stop — vessel may be anchored
 
-                // Background behavior — the premium features
-                stopOnTerminate: false, // Keep tracking if app is killed
-                startOnBoot: false, // Don't auto-start on device reboot
-                preventSuspend: true, // iOS: prevent app suspension
-                heartbeatInterval: 60, // Heartbeat every 60s when stationary
+                    // Geofencing — high-accuracy mode is REQUIRED for the
+                    // 20–50 m anchor swing-radius use case. Without this
+                    // flag, iOS may fall back to the low-power Significant
+                    // Location Changes API (~500 m resolution) for fence
+                    // checks, which means a vessel can drift 500 m
+                    // off-anchor before the EXIT event fires. Set to true
+                    // 2026-05-17 as part of the anchor-watch reliability
+                    // pass; battery cost is acceptable because the watch
+                    // is only ever armed when the user explicitly drops
+                    // anchor (not during normal sailing).
+                    geofenceProximityRadius: 5000,
+                    geofenceInitialTriggerEntry: false,
+                    geofenceModeHighAccuracy: true,
 
-                // Geofencing — high-accuracy mode is REQUIRED for the
-                // 20–50 m anchor swing-radius use case. Without this
-                // flag, iOS may fall back to the low-power Significant
-                // Location Changes API (~500 m resolution) for fence
-                // checks, which means a vessel can drift 500 m
-                // off-anchor before the EXIT event fires. Set to true
-                // 2026-05-17 as part of the anchor-watch reliability
-                // pass; battery cost is acceptable because the watch
-                // is only ever armed when the user explicitly drops
-                // anchor (not during normal sailing).
-                geofenceProximityRadius: 5000,
-                geofenceInitialTriggerEntry: false,
-                geofenceModeHighAccuracy: true,
+                    // iOS-specific — CRITICAL for background GPS
+                    activityType: ActivityType.OtherNavigation,
+                    showsBackgroundLocationIndicator: true,
+                    // iOS: Request 'WhenInUse' first — iOS will auto-promote to
+                    // 'Always' via its provisional flow when background tracking
+                    // starts. Requesting 'Always' directly in ready() blocks the
+                    // main thread with a synchronous
+                    // CLLocationManager.authorizationStatus check.
+                    locationAuthorizationRequest: 'WhenInUse',
+                },
 
-                // iOS-specific — CRITICAL for background GPS
-                activityType: BackgroundGeolocation.ACTIVITY_TYPE_OTHER_NAVIGATION,
-                showsBackgroundLocationIndicator: true,
-                // iOS: Request 'WhenInUse' first — iOS will auto-promote to 'Always'
-                // via its provisional flow when background tracking starts.
-                // Requesting 'Always' directly in ready() blocks the main thread with
-                // a synchronous CLLocationManager.authorizationStatus check.
-                locationAuthorizationRequest: 'WhenInUse',
+                app: {
+                    stopOnTerminate: false, // Keep tracking if app is killed
+                    startOnBoot: false, // Don't auto-start on device reboot
+                    preventSuspend: true, // iOS: prevent app suspension
+                    heartbeatInterval: 60, // Heartbeat every 60s when stationary
+                },
 
-                // Logging
-                logLevel: BackgroundGeolocation.LOG_LEVEL_WARNING,
-                debug: false,
+                logger: {
+                    logLevel: LogLevel.Warning,
+                    debug: false,
+                },
 
-                // No HTTP — we handle data locally via Supabase
-                autoSync: false,
+                // No HTTP — we handle data locally via Supabase.
+                http: {
+                    autoSync: false,
+                },
             });
 
             // Wire up core event subscriptions (once, globally)
