@@ -748,13 +748,16 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                         : 'bg-gradient-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40'
                 }`}
             >
-                {/* Glow ring when multiple systems active or urgent — sits just outside the button bounds */}
-                {(activeCount > 1 || hasUrgent) && (
-                    <span
-                        className={`absolute inset-[-3px] rounded-2xl animate-ping opacity-30 pointer-events-none ${
-                            hasUrgent ? 'bg-amber-400' : 'bg-sky-400'
-                        }`}
-                    />
+                {/* URGENT ONLY. This used to also ping on `activeCount > 1`, which
+                    under way is the normal state — GPS plus anchor watch plus the
+                    Pi is three — so the badge pinged more or less permanently and
+                    became noise instead of a signal (Shane 2026-07-28: "very
+                    annoying"). An attention animation that never stops is not
+                    conveying attention; the button is already sky-blue and carries
+                    its count, which is the ambient read. Reserve motion for the one
+                    case that genuinely wants the eye. */}
+                {hasUrgent && (
+                    <span className="absolute inset-[-3px] rounded-2xl animate-ping opacity-30 pointer-events-none bg-amber-400" />
                 )}
 
                 {/* Subtle inner highlight for depth — matches the glass aesthetic */}
