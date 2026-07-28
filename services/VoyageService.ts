@@ -756,6 +756,27 @@ export async function endVoyage(voyageId: string, status: 'completed' | 'aborted
     const ownerId = identity.userId;
     if (!(await revalidateAuth(identity, ownerId))) return false;
 
+    // Stop the trip log BEFORE the row is marked done. `stopTracking` had
+    // exactly one call site in the whole tree — the Log page's stop button —
+    // so ending a passage from the Vessel hub's "End Voyage & Archive" left
+    // GPS running and the log still appending to a voyage that was over.
+    //
+    // Ordered ahead of the status update deliberately: stopTracking performs
+    // a final buffer flush and captures the 'Voyage End' entry against this
+    // voyage id, and that work belongs to a passage that is still open.
+    // It is a no-op when this voyage is not the one being tracked.
+    try {
+        const { ShipLogService } = await import('./ShipLogService');
+        if (ShipLogService.getTrackingStatus().isTracking && ShipLogService.getCurrentVoyageId() === voyageId) {
+            await ShipLogService.stopTracking();
+        }
+    } catch (error) {
+        // Never let a tracking teardown failure abandon the voyage in
+        // 'active' — a stuck row is worse than a log that stops late.
+        console.warn('[VoyageService] endVoyage trip-log teardown deferred:', error);
+    }
+    if (!identityStillOwns(identity, ownerId)) return false;
+
     const { data, error } = await supabase
         .from('voyages')
         .update({ status })
