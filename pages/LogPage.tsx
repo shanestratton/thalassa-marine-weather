@@ -463,6 +463,31 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         !!state.currentVoyageId &&
         gpsOverlayDismissedFor !== state.currentVoyageId;
 
+    // SAFETY VALVE — this takeover must never be able to stick (Shane
+    // 2026-07-29: "that gps acquiring message, sometimes never goes away").
+    //
+    // It closes only when voyageHasRecordedFix() sees a plausible point for
+    // state.currentVoyageId in state.entries. Two things can starve that
+    // forever: refreshActiveVoyage merges entries keyed on
+    // ShipLogService.getCurrentVoyageId() read LIVE (useLogPageState.ts:529)
+    // while this tests the id captured into state at last load, so a
+    // stop/start without a reload leaves them pointing at different voyages;
+    // and the offline queue it reads can be drained by a sync before the
+    // merge ever sees a point.
+    //
+    // Rather than guess which, bound it. The overlay is informational —
+    // capture starts on GPS lock regardless, as its own docstring says — so a
+    // full-screen block that outlives a plausible acquisition is strictly
+    // worse than the header badge it falls back to. Two minutes is well past
+    // the ~65 s cold-start fast-lock budget.
+    useEffect(() => {
+        if (!gpsOverlayOpen) return;
+        const voyageId = state.currentVoyageId;
+        if (!voyageId) return;
+        const timer = window.setTimeout(() => setGpsOverlayDismissedFor(voyageId), 120_000);
+        return () => window.clearTimeout(timer);
+    }, [gpsOverlayOpen, state.currentVoyageId]);
+
     // ── Departure prompts (share-live? / link-a-plan?) MOVED OUT ─────
     // These two "at departure" nudges now live in a global, always-mounted
     // <DeparturePrompts/> (App.tsx), driven by ShipLogService's tracking
