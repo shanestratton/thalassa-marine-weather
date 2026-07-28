@@ -1140,7 +1140,12 @@ class DiaryServiceClass {
                 upsert: false,
             });
 
-            if (error || !isAuthIdentityScopeCurrent(scope)) return null;
+            // See the note in _uploadBlob — same swallowed-cause problem.
+            if (error) {
+                log.warn(`[Diary] photo upload rejected (${PHOTO_BUCKET}): ${error.message}`);
+                return null;
+            }
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
 
             return `${STORAGE_REF_PREFIX}${PHOTO_BUCKET}:${path}`;
         } catch (e) {
@@ -1190,7 +1195,16 @@ class DiaryServiceClass {
                 .from(PHOTO_BUCKET)
                 .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
 
-            if (error || !isAuthIdentityScopeCurrent(scope)) return null;
+            // SAY WHY. A failed photo upload parks its whole entry before both
+            // write paths, so this error is the first domino in a permanent,
+            // silent stall — and it used to be discarded unread, leaving
+            // "RLS denied", "bucket rejected the type", and "the socket died"
+            // indistinguishable from each other and from being offline.
+            if (error) {
+                log.warn(`[Diary] photo upload rejected (${PHOTO_BUCKET}): ${error.message}`);
+                return null;
+            }
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
 
             return `${STORAGE_REF_PREFIX}${PHOTO_BUCKET}:${path}`;
         } catch (e) {
@@ -1527,7 +1541,28 @@ class DiaryServiceClass {
                 // current state of the photos array so any blob:→idb:
                 // promotions aren't lost on next sync attempt.
                 if (!allPhotosUploaded) {
-                    log.info('Deferring entry insert — photos still pending upload');
+                    // warn(), not info(): createLogger no-ops info in production
+                    // builds, so on a device this deferral said NOTHING. An entry
+                    // can sit here across every 30 s retry, every reconnect and
+                    // every app launch — indefinitely, because there is no
+                    // attempt ceiling and the IDB blob is only discarded on
+                    // success, so each retry re-attempts the identical upload.
+                    // A week of that is invisible unless the line is a warn.
+                    //
+                    // Still a `continue`, deliberately. Both the Pi handoff and
+                    // the direct write live below, so this parks the whole entry
+                    // — but publishing a diary row that references a photo which
+                    // does not exist in Storage would be worse than waiting: the
+                    // public page would render a broken image with no way back.
+                    // The escape hatch is making the CAUSE visible (the upload
+                    // errors above now name themselves) rather than shipping a
+                    // half-entry.
+                    const stuck = entry.photos.length - uploadedPhotos.length;
+                    log.warn(
+                        `[Diary] entry "${entry.title || entry.id}" deferred — ` +
+                            `${stuck} of ${entry.photos.length} photo(s) not uploaded. ` +
+                            `It will retry, and stays local until they land.`,
+                    );
                     const pendingNow = this._getPendingEntries(scope);
                     const idx = pendingNow.findIndex((e) => e.id === entry.id);
                     if (idx >= 0) {
@@ -1576,6 +1611,14 @@ class DiaryServiceClass {
                 }
                 if (!isAuthIdentityScopeCurrent(scope)) return;
                 if (audioStillPending) {
+                    // Same silent-park shape as the photo gate above, and until
+                    // 20260728120000 this was reachable on format alone: the
+                    // bucket rejected audio/mpeg and audio/aac, both of which
+                    // the recorder is entitled to produce. Say so out loud.
+                    log.warn(
+                        `[Diary] entry "${entry.title || entry.id}" deferred — ` +
+                            `voice memo not uploaded. It will retry, and stays local until it lands.`,
+                    );
                     const pendingNow = this._getPendingEntries(scope);
                     const idx = pendingNow.findIndex((e) => e.id === entry.id);
                     if (idx >= 0) this._savePending(pendingNow, scope);
@@ -2679,7 +2722,15 @@ class DiaryServiceClass {
 
             const { error } = uploadResult;
 
-            if (error || !isAuthIdentityScopeCurrent(scope)) return null;
+            // Naming the MIME type matters here specifically: the bucket's
+            // allowed_mime_types is the one rejection this path cannot retry
+            // its way out of, and without the type in the message the failure
+            // is indistinguishable from a network drop.
+            if (error) {
+                log.warn(`[Diary] audio upload rejected (${AUDIO_BUCKET}, ${mimeType}): ${error.message}`);
+                return null;
+            }
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
 
             return `${STORAGE_REF_PREFIX}${AUDIO_BUCKET}:${path}`;
         } catch (e) {

@@ -203,7 +203,30 @@ export async function submitDiaryDirect(entry: DiaryRelayEnvelope): Promise<Reco
             body: JSON.stringify({ action: 'upsert', entry }),
             signal: AbortSignal.timeout(12_000),
         });
-        if (!response.ok || !isAuthIdentityScopeCurrent(scope)) return null;
+        // NAME THE STATUS. This returned null for every non-2xx without reading
+        // the body, so "the function is not deployed" (404), "bad JWT" (401),
+        // "invalid envelope" (400) and "we are offshore" were one indistinct
+        // outcome. diary-relay is the ONLY route to diary_entries, so a
+        // systematic non-2xx is a permanent zero-row condition — and it was
+        // exactly that for a week (the function was never deployed) with
+        // nothing in the console to say so.
+        //
+        // 4xx is called out separately because retrying cannot fix it: the
+        // request is wrong or unauthorised, and the sync loop will otherwise
+        // repeat it forever at 30s intervals.
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            const detail = body.slice(0, 200);
+            if (response.status >= 400 && response.status < 500) {
+                log.warn(
+                    `[Diary] diary-relay rejected the entry (HTTP ${response.status}) — retrying cannot fix this: ${detail}`,
+                );
+            } else {
+                log.warn(`[Diary] diary-relay unavailable (HTTP ${response.status}) — will retry: ${detail}`);
+            }
+            return null;
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
         const data: unknown = await response.json();
         return isRecord(data) && data.ok === true && isRecord(data.entry) ? data.entry : null;
     } catch (error) {
