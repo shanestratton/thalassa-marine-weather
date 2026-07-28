@@ -41,18 +41,23 @@ export function ObsLayerLoadingPill(props: ObsLayerLoadingPillProps): React.Reac
 
     const label = loadingKind === 'weather' ? 'Loading weather layers' : `Loading ${loadingKind} layer`;
 
+    // Amber, not sky: sky-100 on a dark chart sat in the same blue register as
+    // the water, the wind arrows and half the UI, so it disappeared into its
+    // own background. Amber is the one hue the map never uses, and it reads
+    // over both blue water and green land. Doubled in size for the same
+    // reason — this is a mid-map status, not a chrome detail.
     return (
         <div
             role="status"
             aria-live="polite"
             aria-label={label}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-[520] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-white/10 bg-slate-950/85 px-4 py-2 text-xs font-bold text-sky-100 shadow-lg shadow-black/30 backdrop-blur-md"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[520] flex -translate-x-1/2 -translate-y-1/2 items-center gap-4 rounded-full border-2 border-amber-400/40 bg-slate-950/90 px-8 py-4 text-base font-bold text-amber-200 shadow-xl shadow-amber-500/20 backdrop-blur-md"
         >
             <span
                 aria-hidden
-                className="h-3 w-3 animate-spin rounded-full border-2 border-sky-300/30 border-t-sky-300"
+                className="h-6 w-6 animate-spin rounded-full border-4 border-amber-300/25 border-t-amber-300"
             />
-            Loading
+            {label}
         </div>
     );
 }
