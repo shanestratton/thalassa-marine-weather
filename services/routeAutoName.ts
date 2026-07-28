@@ -56,3 +56,21 @@ export async function autoRouteName(first: LatLon, last: LatLon): Promise<string
     const [a, b] = await Promise.all([placeLabelFor(first), placeLabelFor(last)]);
     return `${a} - ${b}`;
 }
+
+/**
+ * Does this read like a name WE generated, rather than one the skipper typed?
+ *
+ * Auto-naming stops the moment the box no longer matches the last auto value,
+ * so a route opened from storage looked hand-typed and never renamed again:
+ * drag the destination from Moreton Bay to Lady Musgrave and the title still
+ * said Moreton Bay (Shane 2026-07-28). Re-arming on this shape lets an opened
+ * auto-name keep tracking its endpoints.
+ *
+ * Deliberately shape-only — "A - B" with both halves non-empty. A skipper who
+ * hand-types "Brisbane - Gladstone" gets re-armed too, which is the right
+ * outcome: if they then move an endpoint, that name is simply wrong. A name
+ * with no " - " in it is never touched.
+ */
+export function looksAutoNamed(name: string): boolean {
+    return /^\s*\S.*\s-\s.*\S\s*$/.test(name);
+}

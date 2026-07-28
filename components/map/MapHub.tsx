@@ -843,6 +843,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     rebaseHistoryRef.current = true; // opened a saved route → Undo floor
                     setCapturedCoords(t.points);
                     setTraceName(t.name);
+                    // Re-arm auto-naming for a name that WE generated. Without
+                    // this the restored name looks hand-typed, isAuto stays
+                    // false, and dragging the destination never retitles the
+                    // route (Shane 2026-07-28: Moreton Bay → Lady Musgrave).
+                    void import('../../services/routeAutoName').then(({ looksAutoNamed }) => {
+                        if (looksAutoNamed(t.name)) lastAutoNameRef.current = t.name;
+                    });
                     setSavedTraces(loadSavedTraces());
                     // Fit the WHOLE route (Shane 2026-07-17) — same helper as
                     // the card's open path.
@@ -1607,12 +1614,16 @@ export const MapHub: React.FC<MapHubProps> = ({
             rebaseHistoryRef.current = true;
             setCapturedCoords(t.points);
             setTraceName(t.name);
+            // Same re-arm as the load-saved deep link — see there.
+            void import('../../services/routeAutoName').then(({ looksAutoNamed }) => {
+                if (looksAutoNamed(t.name)) lastAutoNameRef.current = t.name;
+            });
             setShowSavedTraces(false);
             setSelectedPin(null);
             if (mapRef.current) fitTraceBounds(mapRef.current, t.points);
             flashTraceFeedback(`Opened "${t.name}"`);
         },
-        [flashTraceFeedback, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
+        [flashTraceFeedback, lastAutoNameRef, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
     );
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
