@@ -175,9 +175,13 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
                 <div className="space-y-2">
                     {groupByDay(state.extremes).map((day) => (
                         <div key={day.key} className="space-y-0.5">
+                            {/* A full-width amber bar, not a text run. These
+                                extremes span days and the day is the thing a
+                                skipper must not misread — it has to separate
+                                the groups visually, not just label them. */}
                             <p
                                 data-testid="tide-day"
-                                className="text-[11px] font-black uppercase tracking-[0.12em] text-white"
+                                className="-mx-1 rounded-md bg-amber-500/20 px-2 py-1 text-sm font-black uppercase tracking-[0.14em] text-amber-200"
                             >
                                 {day.heading}
                             </p>

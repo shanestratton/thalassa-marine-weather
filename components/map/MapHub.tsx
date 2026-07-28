@@ -5991,7 +5991,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="flex min-h-0 flex-1 flex-col">
+                                    <div
+                                        // THE scroller is the whole card body now. It used to be
+                                        // only the waypoint list, with keel line, saved-route,
+                                        // plot row, report, depart, time selects, NOW and GPS-fix
+                                        // all pinned around it — so once tide was added the one
+                                        // flexible child was left about 40px and clipped its rows
+                                        // mid-glyph. Pinning that much furniture only works while
+                                        // the card is nearly empty; it is not any more.
+                                        //
+                                        // Wheel/touch propagation stops here because the card is
+                                        // positioned in MAP CONTAINER coords, so Mapbox's
+                                        // scrollZoom would otherwise preventDefault the wheel and
+                                        // nothing would scroll on desktop at all.
+                                        onWheel={(e) => e.stopPropagation()}
+                                        onTouchMove={(e) => e.stopPropagation()}
+                                        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+                                    >
                                         {/* Draft honesty — ALWAYS say what keel the verdicts
                                 checked; amber when it's the 2.5 m fallback, LOUD
                                 when the number reads like a units mix-up (field
@@ -6298,7 +6314,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </div>
                                         )}
                                         {capturedCoords.length === 0 ? (
-                                            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] leading-snug text-gray-400">
+                                            <div className="shrink-0 px-3 py-3 text-[11px] leading-snug text-gray-400">
                                                 Tap the chart along your intended track — each leg is checked for depth,
                                                 markers and land as you go. Zoom right in for tight channels. Drag a pin
                                                 to nudge it; tap a pin to delete it or insert after it.
@@ -6309,11 +6325,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </div>
                                             </div>
                                         ) : (
-                                            // THE one scroller — flex-1 min-h-0 soaks up
-                                            // the card's slack and scrolls; every footer
-                                            // action below keeps min-height:auto so it
-                                            // stays pinned (Shane 2026-07-17).
-                                            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
+                                            // No longer its own scroller. The card body scrolls as
+                                            // one column now, so a nested scroller here would trap
+                                            // the wheel and re-create the 40px sliver that clipped
+                                            // the tide rows mid-glyph (Shane 2026-07-28: "it has
+                                            // no room to grow").
+                                            <div className="shrink-0 space-y-1 px-3 py-2">
                                                 {/* Tide rides INSIDE the scroller, not above it.
                                                     As a pinned sibling it ate the waypoint
                                                     list's slack and pushed Save off the card
@@ -6578,6 +6595,28 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     </span>
                                                 )}
                                             </div>
+                                            {/* The native date input renders 31/07/2026 in a grey
+                                                system control — legible, but nothing your eye
+                                                lands on, and every tide row below is read against
+                                                it. Spell the chosen departure out in medium form,
+                                                weekday included, because "is that Thursday or
+                                                Friday" is the question that actually gets asked. */}
+                                            {departureMs !== null && (
+                                                <p
+                                                    data-testid="tracer-depart-when"
+                                                    className="text-sm font-black uppercase tracking-wide text-amber-200"
+                                                >
+                                                    {new Date(departureMs).toLocaleString([], {
+                                                        weekday: 'short',
+                                                        day: 'numeric',
+                                                        month: 'short',
+                                                        year: 'numeric',
+                                                        hour: '2-digit',
+                                                        minute: '2-digit',
+                                                        hour12: false,
+                                                    })}
+                                                </p>
+                                            )}
                                             <div className="flex gap-1.5">
                                                 <input
                                                     type="date"
