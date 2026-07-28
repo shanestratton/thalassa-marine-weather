@@ -259,8 +259,20 @@ class EnvironmentServiceClass {
         }
     }
 
-    /** Restore from localStorage on service init */
+    /**
+     * Restore from localStorage on service init.
+     *
+     * NO STORAGE, NO WORK. This runs from the constructor, which runs at module
+     * scope (the singleton is created on import), so anything thrown here takes
+     * down every module that imports this one — ShipLogService among them. A
+     * missing localStorage is not hypothetical: it is absent in the vitest
+     * environment used by the diary suites (18 tests could not even load), and
+     * on a device it can be absent in private browsing or with storage
+     * disabled. Persisted environment state is a nice-to-have; failing to read
+     * it must never be fatal.
+     */
     private restoreFromStorage(): void {
+        if (typeof localStorage === 'undefined' || localStorage === null) return;
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return;
@@ -287,8 +299,16 @@ class EnvironmentServiceClass {
             }
         } catch (e) {
             log.warn('[Environment]', e);
-            // Corrupted data — start fresh
-            localStorage.removeItem(STORAGE_KEY);
+            // Corrupted data — start fresh. Guarded, because THIS is what broke:
+            // the handler recovered by calling the very API whose failure put us
+            // here, so an undefined localStorage threw a SECOND time, out of the
+            // catch, and killed the constructor. An error handler must not
+            // assume the thing that just failed now works.
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch {
+                /* nothing to clear — storage is what failed in the first place */
+            }
         }
     }
 
