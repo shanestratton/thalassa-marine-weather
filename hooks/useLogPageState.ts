@@ -94,6 +94,20 @@ interface LogPageState {
     selectedVoyageId: string | null;
     deleteVoyageId: string | null;
     currentVoyageId: string | undefined;
+    /**
+     * A start has been confirmed but the voyage id has not arrived yet.
+     *
+     * currentVoyageId is written by LOAD_DATA alone, which on the start path
+     * is chained AFTER startTracking() resolves — i.e. after GPS init and a
+     * network load. The acquiring overlay and the live recording card both
+     * required that id, so for those seconds the skipper saw neither: the
+     * slider vanished and nothing replaced it. This is startingRef made
+     * renderable, so the acquiring UI can paint at the tap.
+     *
+     * It gates PRESENTATION only. Nothing about when recording starts, or
+     * which voyage it starts against, depends on it.
+     */
+    startPending: boolean;
     lastVoyageId: string | null;
     expandedVoyages: Set<string>;
     gpsStatus: 'locked' | 'stale' | 'none';
@@ -158,6 +172,7 @@ const initialState: LogPageState = {
     selectedVoyageId: null,
     deleteVoyageId: null,
     currentVoyageId: undefined,
+    startPending: false,
     lastVoyageId: null,
     expandedVoyages: new Set(),
     gpsStatus: 'none',
@@ -191,6 +206,9 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
                 isRapidMode: action.isRapidMode,
                 isPrecisionMode: action.isPrecisionMode,
                 currentVoyageId: action.currentVoyageId,
+                // The id has landed (or the start failed and there is none) —
+                // either way the optimistic window is over.
+                startPending: false,
                 expandedVoyages,
                 loading: false,
             };
@@ -216,6 +234,9 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
                 isPaused: action.isPaused,
                 isRapidMode: false,
                 isPrecisionMode: false,
+                // Pending only while starting WITHOUT an id yet. Continuing an
+                // existing voyage already has one, and stopping clears it.
+                startPending: action.isTracking && !state.currentVoyageId,
             };
         case 'SET_PRECISION_MODE':
             return { ...state, isPrecisionMode: action.isPrecisionMode };

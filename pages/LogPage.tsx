@@ -457,11 +457,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // tracking with no trustworthy recorded fix; clears ITSELF on first fix;
     // manual dismiss drops back to the header badge for this voyage only.
     const [gpsOverlayDismissedFor, setGpsOverlayDismissedFor] = useState<string | null>(null);
+    // `|| state.startPending` is what makes this paint at the TAP. currentVoyageId
+    // arrives only with LOAD_DATA, which is chained after startTracking()
+    // resolves — GPS init plus a network load — so the slider used to vanish
+    // and nothing replace it for those seconds. Perceived speed is speed, and
+    // this is presentation only: nothing about when recording starts, or which
+    // voyage it starts against, depends on this flag.
     const gpsOverlayOpen =
         state.isTracking &&
         !hasRecordedFix &&
-        !!state.currentVoyageId &&
-        gpsOverlayDismissedFor !== state.currentVoyageId;
+        (!!state.currentVoyageId || state.startPending) &&
+        gpsOverlayDismissedFor !== (state.currentVoyageId ?? null);
 
     // SAFETY VALVE — this takeover must never be able to stick (Shane
     // 2026-07-29: "that gps acquiring message, sometimes never goes away").
