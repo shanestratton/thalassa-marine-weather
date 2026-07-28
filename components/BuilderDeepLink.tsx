@@ -35,8 +35,9 @@ export const BuilderDeepLink: React.FC = () => {
     const authChecked = useAuthStore((s) => s.authChecked);
 
     useEffect(() => {
-        if (!active || done || !authChecked) return;
+        if (!active || !authChecked) return;
         if (user) {
+            if (done) return;
             // Session in hand (boot probe or a just-completed sign-in) —
             // open the builder. MapHub's mount effect or the window
             // event picks this up whichever mounts first.
@@ -44,6 +45,12 @@ export const BuilderDeepLink: React.FC = () => {
             setShowSignIn(false);
             requestTracerOpen();
         } else {
+            // No session. This now covers an explicit sign-out from
+            // PlanSignOutButton AFTER the gate had already passed, so `done`
+            // has to be cleared: latching it would hold the wall down for
+            // the rest of the SPA's life and leave a signed-out planner with
+            // no chart data — exactly the state the wall exists to prevent.
+            setDone(false);
             setShowSignIn(true);
         }
     }, [active, done, authChecked, user]);

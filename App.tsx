@@ -28,6 +28,7 @@ import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from '
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
+import { PlanSignOutButton } from './components/PlanSignOutButton';
 import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
@@ -443,6 +444,10 @@ const App: React.FC = () => {
                 session started on thalassawx.app/plan (see the
                 component header). Renders null on native. */}
             <BuilderDeepLink />
+            {/* The tab bar is hidden on /plan, taking Settings → Account —
+                and with it the only sign-out — out of reach. Renders null
+                everywhere else and whenever there is no session. */}
+            <PlanSignOutButton />
             <Suspense fallback={null}>
                 {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
                 <UpgradeModal
