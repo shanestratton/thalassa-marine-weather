@@ -8,14 +8,11 @@ vi.mock('../stores/LocationStore', () => ({
     useLocationCoords: () => ({ lat: -27.47, lon: 153.02 }),
 }));
 
-import { BasketDrawer } from '../components/chandlery/BasketDrawer';
 import { ChannelProposalModal } from '../components/chat/ChannelProposalModal';
 import { ModelComparisonMatrix } from '../components/dashboard/ModelComparisonMatrix';
 import { RainForecastCard } from '../components/dashboard/RainForecastCard';
-import { CheckoutModal } from '../components/marketplace/CheckoutModal';
 import { ServiceLogSheet } from '../components/vessel/maintenance/ServiceLogSheet';
 import { PiSetupWizard } from '../components/voice/PiSetupWizard';
-import type { MarketplaceListing } from '../services/MarketplaceService';
 import type { TaskWithStatus } from '../services/MaintenanceService';
 
 function expectModalBodyPortal(element: HTMLElement) {
@@ -26,38 +23,6 @@ function expectModalBodyPortal(element: HTMLElement) {
 }
 
 describe('direct dialog accessibility', () => {
-    it('contains the basket and restores focus to its opener', () => {
-        const onClose = vi.fn();
-        const { rerender } = render(
-            <>
-                <button>Open basket</button>
-                <BasketDrawer open={false} onClose={onClose} lines={[]} />
-            </>,
-        );
-        const opener = screen.getByRole('button', { name: 'Open basket' });
-        opener.focus();
-
-        rerender(
-            <>
-                <button>Open basket</button>
-                <BasketDrawer open onClose={onClose} lines={[]} />
-            </>,
-        );
-        const close = screen.getByRole('button', { name: 'Close basket' });
-        expect(screen.getByRole('dialog', { name: 'Your Basket (0)' })).toContainElement(close);
-        expect(close).toHaveFocus();
-        fireEvent.keyDown(close, { key: 'Escape' });
-        expect(onClose).toHaveBeenCalledOnce();
-
-        rerender(
-            <>
-                <button>Open basket</button>
-                <BasketDrawer open={false} onClose={onClose} lines={[]} />
-            </>,
-        );
-        expect(opener).toHaveFocus();
-    });
-
     it('focuses the channel name and closes the proposal wizard with Escape', () => {
         const onClose = vi.fn();
         render(
@@ -82,33 +47,6 @@ describe('direct dialog accessibility', () => {
         expectModalBodyPortal(screen.getByRole('dialog', { name: 'New Channel' }));
         expect(name).toHaveFocus();
         fireEvent.keyDown(name, { key: 'Escape' });
-        expect(onClose).toHaveBeenCalledOnce();
-    });
-
-    it('provides a visible, keyboard-safe close action for marketplace checkout', () => {
-        const listing: MarketplaceListing = {
-            id: 'listing-1',
-            seller_id: 'seller-1',
-            title: 'Manson Supreme Anchor',
-            description: null,
-            price: 850,
-            currency: 'AUD',
-            category: 'Hardware',
-            condition: 'Used - Good',
-            images: [],
-            location_name: 'Brisbane',
-            status: 'available',
-            sold_at: null,
-            created_at: '2026-07-23T00:00:00Z',
-            updated_at: '2026-07-23T00:00:00Z',
-        };
-        const onClose = vi.fn();
-        render(<CheckoutModal listing={listing} isOpen onClose={onClose} onCashDeal={vi.fn()} />);
-        const close = screen.getByRole('button', { name: 'Close marketplace checkout' });
-        expect(screen.getByRole('button', { name: 'Secure escrow unavailable during beta' })).toBeDisabled();
-        expect(screen.getByText(/secure card holds are disabled for this beta/i)).toBeInTheDocument();
-        expect(close).toHaveFocus();
-        fireEvent.keyDown(close, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
     });
 

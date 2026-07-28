@@ -7,7 +7,6 @@ import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 describe('beta feature disablement', () => {
     it('keeps launch-gated integrations off by default', () => {
-        expect(FEATURE_VISIBILITY.marketplace).toBe(false);
         expect(FEATURE_VISIBILITY.spoonacular).toBe(false);
     });
 

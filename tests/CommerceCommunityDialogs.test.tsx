@@ -27,7 +27,6 @@ vi.mock('../services/BgGeoManager', () => ({
 
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { CrewModals } from '../components/crew-finder/CrewModals';
-import { CreateListingModal } from '../components/marketplace/CreateListingModal';
 import type { CrewFinderState } from '../hooks/useCrewFinderState';
 
 describe('commerce and community dialogs', () => {
@@ -66,89 +65,6 @@ describe('commerce and community dialogs', () => {
         expect(opener).toHaveFocus();
     });
 
-    it('resets a cancelled marketplace draft regardless of how it is dismissed', () => {
-        const onClose = vi.fn();
-        const { rerender } = render(<CreateListingModal isOpen onClose={onClose} onCreated={vi.fn()} />);
-        const cancel = screen.getByRole('button', { name: 'Close create listing form' });
-        expect(cancel).toHaveFocus();
-        const title = screen.getByRole('textbox', { name: 'Title' });
-        fireEvent.change(title, { target: { value: 'Used anchor' } });
-        expect(title).toHaveValue('Used anchor');
-
-        fireEvent.keyDown(title, { key: 'Escape' });
-        expect(onClose).toHaveBeenCalledOnce();
-        rerender(<CreateListingModal isOpen={false} onClose={onClose} onCreated={vi.fn()} />);
-        rerender(<CreateListingModal isOpen onClose={onClose} onCreated={vi.fn()} />);
-        expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('');
-    });
-
-    it('ignores a late reverse-geocode result after the listing is dismissed', async () => {
-        bgGeoMocks.getLastPosition.mockReturnValueOnce({ latitude: -27.47, longitude: 153.03 }).mockReturnValue(null);
-        let resolveFetch!: (value: { json: () => Promise<unknown> }) => void;
-        const fetchMock = vi.fn(
-            () =>
-                new Promise<{ json: () => Promise<unknown> }>((resolve) => {
-                    resolveFetch = resolve;
-                }),
-        );
-        vi.stubGlobal('fetch', fetchMock);
-        const onClose = vi.fn();
-
-        try {
-            const { rerender } = render(<CreateListingModal isOpen onClose={onClose} onCreated={vi.fn()} />);
-            fireEvent.keyDown(screen.getByRole('button', { name: 'Close create listing form' }), { key: 'Escape' });
-            rerender(<CreateListingModal isOpen={false} onClose={onClose} onCreated={vi.fn()} />);
-
-            resolveFetch({
-                json: () =>
-                    Promise.resolve({
-                        address: { country: 'Australia', state: 'Queensland', suburb: 'Brisbane' },
-                    }),
-            });
-            await Promise.resolve();
-            await Promise.resolve();
-
-            rerender(<CreateListingModal isOpen onClose={onClose} onCreated={vi.fn()} />);
-            expect(screen.getByRole('textbox', { name: 'Country' })).toHaveValue('');
-            expect(screen.getByRole('textbox', { name: 'State' })).toHaveValue('');
-            expect(screen.getByRole('textbox', { name: 'Suburb' })).toHaveValue('');
-        } finally {
-            vi.unstubAllGlobals();
-            bgGeoMocks.getLastPosition.mockReturnValue(null);
-        }
-    });
-
-    it('revokes photo preview URLs when a listing draft is discarded', () => {
-        const createObjectURL = vi.fn().mockReturnValue('blob:listing-photo');
-        const revokeObjectURL = vi.fn();
-        const originalCreateObjectURL = URL.createObjectURL;
-        const originalRevokeObjectURL = URL.revokeObjectURL;
-        Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
-        Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
-
-        try {
-            render(<CreateListingModal isOpen onClose={vi.fn()} onCreated={vi.fn()} />);
-            const fileInput = document.body.querySelector<HTMLInputElement>('input[type="file"]');
-            expect(fileInput).not.toBeNull();
-            fireEvent.change(fileInput!, {
-                target: { files: [new File(['photo'], 'anchor.jpg', { type: 'image/jpeg' })] },
-            });
-            expect(createObjectURL).toHaveBeenCalledOnce();
-
-            fireEvent.click(screen.getByRole('button', { name: 'Close create listing form' }));
-            expect(revokeObjectURL).toHaveBeenCalledWith('blob:listing-photo');
-        } finally {
-            Object.defineProperty(URL, 'createObjectURL', {
-                configurable: true,
-                value: originalCreateObjectURL,
-            });
-            Object.defineProperty(URL, 'revokeObjectURL', {
-                configurable: true,
-                value: originalRevokeObjectURL,
-            });
-        }
-    });
-
     it('keeps crew-report focus on the safe cancel action and handles Escape', () => {
         const dispatch = vi.fn();
         const state = {
@@ -169,7 +85,7 @@ describe('commerce and community dialogs', () => {
             />,
         );
         const cancel = screen.getByRole('button', { name: 'Cancel report' });
-        expect(screen.getByRole('dialog', { name: '🚩 Report User' })).toContainElement(cancel);
+        expect(screen.getByRole('dialog', { name: '🚩 Report profile' })).toContainElement(cancel);
         expect(cancel).toHaveFocus();
         fireEvent.keyDown(cancel, { key: 'Escape' });
         expect(dispatch).toHaveBeenCalledWith({ type: 'SET_SHOW_REPORT_MODAL', payload: null });

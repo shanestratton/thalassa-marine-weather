@@ -19,8 +19,6 @@
  * inventory to feel useful.
  */
 export const FEATURE_VISIBILITY = {
-    /** Peer-to-peer Chandlery / Marketplace (buy/sell/trade gear + boats). */
-    marketplace: false,
     /** The Crew List — discreet skipper / crew introductions. */
     crewFinder: true,
     /**

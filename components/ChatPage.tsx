@@ -33,10 +33,6 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { toast } from './Toast';
 import { useSettings } from '../context/SettingsContext';
-const ChandleryPage = lazyRetry(
-    () => import('./ChandleryPage').then((m) => ({ default: m.ChandleryPage })),
-    'ChandleryPage',
-);
 const AdminPanel = lazyRetry(() => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })), 'AdminPanel_Chat');
 import { ChannelList } from './chat/ChannelList';
 import { ChatMessageList } from './chat/ChatMessageList';
@@ -707,28 +703,6 @@ export const ChatPage: React.FC = React.memo(() => {
 
                     {/* ══════ FIND CREW BOARD ══════ */}
                     {view === 'find_crew' && !loading && <LonelyHeartsPage />}
-                    {/* ══════ CHANDLERY (Store One curated storefront) ══════ */}
-                    {/* Gated to Skipper+ — non-entitled users see an upsell card.
-                        PaywallGate emits a window event ('thalassa:openUpgrade')
-                        that App.tsx listens to, since ChatPage doesn't have
-                        direct access to setIsUpgradeOpen.
-                        ChandleryPage internally falls back to the peer-to-peer
-                        Marketplace via a discreet footer link. */}
-                    {view === 'marketplace' && !loading && (
-                        <PaywallGate
-                            feature="marketplace"
-                            onUpgrade={() => window.dispatchEvent(new CustomEvent('thalassa:openUpgrade'))}
-                            onBack={() => setView('channels')}
-                        >
-                            <ChandleryPage
-                                onBack={() => setView('channels')}
-                                onOpenDM={(sellerId, sellerName) => {
-                                    openDMThread(sellerId, sellerName);
-                                }}
-                            />
-                        </PaywallGate>
-                    )}
-
                     {/* ══════ FULL-PAGE PROFILE ══════ */}
                     {view === 'profile' && !loading && (
                         <ChatProfileView
