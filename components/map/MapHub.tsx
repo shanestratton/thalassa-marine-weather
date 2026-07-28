@@ -127,7 +127,7 @@ import {
     type SeaVoyageChoice,
 } from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
-import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import { hazardDepthForDraft } from '../../services/HazardQueryService';
 import {
@@ -2349,7 +2349,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const submitShare = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         triggerHaptic('medium');
-        const draftAssumed = !(Number(settings.vessel?.draft) > 0);
+        const draftAssumed = vesselDraftIsAssumed(settings.vessel);
         const res = await submitTracedRoute(
             traceName,
             capturedCoords,
@@ -2482,7 +2482,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             return;
         }
         const draftNow = vesselDraftMetres(settings.vessel);
-        const draftAssumed = !(Number(settings.vessel?.draft) > 0);
+        const draftAssumed = vesselDraftIsAssumed(settings.vessel);
         const seq = ++tracerSeqRef.current;
 
         // Draft change invalidates EVERY cached verdict and tide label —

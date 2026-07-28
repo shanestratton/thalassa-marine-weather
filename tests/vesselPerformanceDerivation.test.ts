@@ -1,5 +1,45 @@
 import { describe, expect, it } from 'vitest';
-import { vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../services/units';
+import { vesselCruisingSpeedKts, vesselDraftIsAssumed, vesselMaxWaveHeightFt } from '../services/units';
+
+/**
+ * `draftAssumed` is the app's honesty channel — threaded through the ENC
+ * popup, the depth-style state, the vector layer and the tracer's share path
+ * so a chart drawn against an unknown keel says so.
+ *
+ * It used to test `draft > 0` alone, and onboarding back-filled a missing
+ * draft as `length * 0.16` — a plausible POSITIVE number. So the channel
+ * reported "verified" for a guess and the safety contour shaded unsafe water
+ * as safe. Only estimatedFields knew, and it reached two settings badges.
+ */
+describe('vesselDraftIsAssumed', () => {
+    it('reports an entered draft as known', () => {
+        expect(vesselDraftIsAssumed({ draft: 7.874 })).toBe(false);
+    });
+
+    it('reports a missing draft as assumed', () => {
+        expect(vesselDraftIsAssumed({ draft: 0 })).toBe(true);
+        expect(vesselDraftIsAssumed({})).toBe(true);
+        expect(vesselDraftIsAssumed(undefined)).toBe(true);
+        expect(vesselDraftIsAssumed(null)).toBe(true);
+        expect(vesselDraftIsAssumed({ draft: Number.NaN })).toBe(true);
+        expect(vesselDraftIsAssumed({ draft: -3 })).toBe(true);
+    });
+
+    it('reports a FABRICATED draft as assumed even though it is positive', () => {
+        // The whole point. Existing profiles still carry a back-filled draft
+        // with estimatedFields recording it, so this branch has to keep
+        // working long after onboarding stopped fabricating.
+        expect(vesselDraftIsAssumed({ draft: 6.4, estimatedFields: ['draft'] })).toBe(true);
+        expect(vesselDraftIsAssumed({ draft: 6.4, estimatedFields: ['length', 'beam', 'draft'] })).toBe(true);
+    });
+
+    it('does not fire for other estimated dimensions', () => {
+        // Beam or displacement being guessed says nothing about the keel, and
+        // over-firing would train the skipper to ignore the warning.
+        expect(vesselDraftIsAssumed({ draft: 7.874, estimatedFields: ['beam', 'displacement'] })).toBe(false);
+        expect(vesselDraftIsAssumed({ draft: 7.874, estimatedFields: [] })).toBe(false);
+    });
+});
 
 /**
  * `maxWaveHeight` and `cruisingSpeed` are the settings panel's
