@@ -35,7 +35,7 @@ import { GpsService } from '../services/GpsService';
 import { supabase } from '../services/supabase';
 import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
-import { FEET_PER_METRE } from '../services/units';
+import { FEET_PER_METRE, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../services/units';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 import { OverlayPortal } from './ui/OverlayPortal';
@@ -483,8 +483,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             airDraft: ad_ft,
             hullType,
             keelType,
-            maxWaveHeight: hullType === 'catamaran' ? l_ft * 0.45 : hullType === 'trimaran' ? l_ft * 0.5 : l_ft * 0.35,
-            cruisingSpeed: finalVesselType === 'sail' ? Math.sqrt(l_ft) * 1.2 : Math.sqrt(l_ft) * 3,
+            maxWaveHeight: vesselMaxWaveHeightFt({ length: l_ft, hullType }),
+            cruisingSpeed: vesselCruisingSpeedKts({ length: l_ft, type: finalVesselType }),
             fuelCapacity: fuel ? parseFloat(fuel) : 0,
             waterCapacity: water ? parseFloat(water) : 0,
             crewCount: crewCount ? parseInt(crewCount) || 2 : 2,
