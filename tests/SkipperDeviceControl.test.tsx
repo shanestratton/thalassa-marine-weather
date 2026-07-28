@@ -127,4 +127,41 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             'whitespace-nowrap',
         );
     });
+
+    it('names the active vessel this device publishes for, without growing the card', () => {
+        // Publishing authority alone never said WHICH of up to five fleet
+        // vessels it speaks for. The name has to appear, and it has to appear
+        // inside the existing fixed footprint — a long boat name must truncate
+        // rather than push the claim button out of an overflow-hidden card.
+        const { rerender } = render(
+            <SkipperDeviceControl
+                claim={{ deviceId: getDeviceId(), deviceName: 'This iPhone/iPad', claimedAt: new Date().toISOString() }}
+                authenticatedUserId="skipper-user"
+                updateSettings={vi.fn()}
+                vesselName="Serene Summer"
+            />,
+        );
+
+        const vessel = screen.getByTestId('skipper-device-vessel');
+        expect(vessel).toHaveTextContent('Serene Summer');
+        expect(vessel).toHaveClass('truncate');
+        // Still shown alongside the claim badge, and still 120px tall.
+        expect(screen.getByText('This device')).toBeInTheDocument();
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+
+        rerender(
+            <SkipperDeviceControl
+                claim={null}
+                authenticatedUserId="skipper-user"
+                updateSettings={vi.fn()}
+                vesselName={'Extraordinarily Long Vessel Name That Would Wrap'}
+            />,
+        );
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+
+        // An unnamed vessel must not render an empty slot.
+        rerender(<SkipperDeviceControl claim={null} authenticatedUserId="skipper-user" updateSettings={vi.fn()} />);
+        expect(screen.queryByTestId('skipper-device-vessel')).not.toBeInTheDocument();
+        expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[120px]');
+    });
 });
