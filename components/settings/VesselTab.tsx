@@ -857,6 +857,88 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                 </div>
 
+                {/* SAFETY & SAR — entered once here rather than per voyage, then
+                    pulled into the float plan. Deliberately NOT shown on the
+                    public tracking page: the beacon hex is a credential AMSA
+                    verifies against, and raft/flare detail is an inventory of
+                    portable gear attached to a live position. */}
+                <div className="mx-4 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                        <div className="w-1 h-4 rounded-full bg-rose-500" />
+                        <span className="text-[11px] font-bold text-rose-400 uppercase tracking-widest">
+                            Safety &amp; Rescue
+                        </span>
+                    </div>
+                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
+                            <div className="sm:col-span-2">
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    EPIRB Hex ID
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="text"
+                                    maxLength={15}
+                                    value={vessel?.epirbHexId || ''}
+                                    onChange={(e) =>
+                                        updateVessel(
+                                            'epirbHexId',
+                                            e.target.value
+                                                .toUpperCase()
+                                                .replace(/[^0-9A-F]/g, '')
+                                                .slice(0, 15),
+                                        )
+                                    }
+                                    placeholder="15 characters, from your AMSA registration"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-mono outline-none transition-colors focus:border-rose-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    Liferaft Capacity
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={vessel?.liferaftCapacity ? String(vessel.liferaftCapacity) : ''}
+                                    onChange={(e) => {
+                                        const n = parseInt(e.target.value.replace(/\D/g, ''), 10);
+                                        updateVessel('liferaftCapacity', Number.isFinite(n) ? n : 0);
+                                    }}
+                                    placeholder="persons"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    Raft Serviced
+                                </label>
+                                <input
+                                    type="date"
+                                    value={vessel?.liferaftServiceDate || ''}
+                                    onChange={(e) => updateVessel('liferaftServiceDate', e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors [color-scheme:dark] focus:border-rose-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                    Flares Expire
+                                </label>
+                                <input
+                                    type="date"
+                                    value={vessel?.flaresExpiry || ''}
+                                    onChange={(e) => updateVessel('flaresExpiry', e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors [color-scheme:dark] focus:border-rose-500"
+                                />
+                            </div>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-3">
+                            Goes into your float plan, which you send to one person ashore. Never shown on your public
+                            page.
+                        </p>
+                    </div>
+                </div>
+
                 <Section title="Hull & Keel">
                     <Row>
                         <div className="w-full">

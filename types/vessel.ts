@@ -42,6 +42,24 @@ export interface VesselProfile {
     crewCount?: number;
     customIconUrl?: string;
     estimatedFields?: string[];
+    /**
+     * SAR-relevant gear, entered ONCE on the vessel rather than per voyage.
+     * These exist for the float plan: the beacon's registered hex ID is what
+     * lets a shore contact tie a distress alert to this boat, and raft
+     * capacity tells a rescue coordinator how many souls the search is for.
+     *
+     * NEVER render these on the public tracking page. The hex ID is a
+     * credential AMSA verifies against — publishing it invites hoax alerts
+     * and registry social-engineering — and raft/flare details are an
+     * inventory of portable, valuable gear attached to a live position.
+     * They belong in the float plan, which goes to one chosen person.
+     */
+    epirbHexId?: string;
+    liferaftCapacity?: number;
+    /** ISO date (YYYY-MM-DD) the raft was last serviced. */
+    liferaftServiceDate?: string;
+    /** ISO date (YYYY-MM-DD) the flares expire. */
+    flaresExpiry?: string;
 }
 
 /** Ship's Stores item categories */
