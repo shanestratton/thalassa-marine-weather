@@ -787,6 +787,26 @@ export async function endVoyage(voyageId: string, status: 'completed' | 'aborted
     ) {
         cacheVoyage(null, identity);
     }
+
+    // A passage can end from two doors: the Log page's stop (which runs
+    // ShipLogService.stopTracking and tears following down there) and this
+    // one, from the Vessel hub's End Voyage. Following is scoped to the
+    // voyage, so it has to end at BOTH — otherwise ending a passage here
+    // left the app still following a route for a voyage that was over.
+    // Dynamic import keeps followRouteStore out of this module's graph.
+    try {
+        const { useFollowRouteStore } = await import('../stores/followRouteStore');
+        const following = useFollowRouteStore.getState();
+        // Scoped: never tear down following that belongs to a different
+        // voyage than the one just ended.
+        if (following.isFollowing && (!following.voyageId || following.voyageId === voyageId)) {
+            following.stopFollowing();
+        }
+    } catch {
+        // Following is local state; failing to clear it must never make an
+        // otherwise-successful voyage end report failure.
+    }
+
     return identityStillOwns(identity, ownerId);
 }
 
