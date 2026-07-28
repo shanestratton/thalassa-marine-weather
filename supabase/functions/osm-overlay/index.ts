@@ -13,7 +13,7 @@
  * GET/POST ?bbox=w,s,e,n  →  OsmRouteOverlay JSON
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'npm:@types/geojson';
+import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'npm:@types/geojson@7946';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import {
     fetchWithTimeout,

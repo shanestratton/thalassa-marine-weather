@@ -13,7 +13,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
     fetchWithTimeout,
     jsonResponse,
@@ -224,6 +224,34 @@ interface UserSettingsRow {
     settings: unknown;
 }
 
+/**
+ * Partial schema declaration covering only what the Guardian fallback lookup
+ * selects. Without it the client is schema-less and PostgREST rows resolve to
+ * `never`, so the column names below would go unchecked. The shape mirrors the
+ * guardian_profiles migration: user_id is the NOT NULL primary key, while the
+ * last-known position columns are nullable until the app posts a GPS heartbeat.
+ */
+interface GuardianSchema {
+    public: {
+        Tables: {
+            guardian_profiles: {
+                Row: {
+                    user_id: string;
+                    last_known_lat: number | null;
+                    last_known_lon: number | null;
+                };
+                Insert: { user_id: string };
+                Update: { user_id?: string };
+                Relationships: [];
+            };
+        };
+        Views: Record<string, never>;
+        Functions: Record<string, never>;
+        Enums: Record<string, never>;
+        CompositeTypes: Record<string, never>;
+    };
+}
+
 function asRecord(value: unknown): JsonRecord | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
@@ -290,7 +318,7 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * a saved default location in user_settings.
  */
 async function guardianLocationsForUsers(
-    supabase: ReturnType<typeof createClient>,
+    supabase: SupabaseClient<GuardianSchema>,
     userIds: readonly string[],
 ): Promise<Map<string, AlertLocation>> {
     const locations = new Map<string, AlertLocation>();

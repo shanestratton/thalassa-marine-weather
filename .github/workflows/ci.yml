@@ -52,6 +52,21 @@ jobs:
             - name: TypeScript type check
               run: npx tsc --noEmit
 
+            # The edge tier runs on Deno, so tsc cannot see it — tsconfig
+            # excludes supabase/** because its URL imports are unresolvable to
+            # Node's resolver. That exclusion, plus an eslint ignore and no
+            # Deno step, meant 20.4k LOC across 47 functions had no static
+            # checking of any kind. Turning this on found 48 real type errors,
+            # 27 of them reading columns off supabase-js's error branch.
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.x
+
+            - name: Edge function type check
+              working-directory: supabase/functions
+              run: deno check */index.ts
+
             - name: Run unit tests with coverage
               run: npx vitest run --reporter=verbose --coverage
 

@@ -10,7 +10,7 @@
 // 6. If 48h pass without PIN entry → pg_cron expires the hold
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@14.14.0?target=deno';
 import { requireAuthenticatedQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
@@ -44,7 +44,12 @@ serve(async (req) => {
     const caller = await requireAuthenticatedQuota(req, 'marketplace_payment_create', 10, 3600);
     if (caller instanceof Response) return withCors(caller, corsHeaders);
 
-    let rollbackClient: ReturnType<typeof createClient> | null = null;
+    // ReturnType<typeof createClient> is not the type createClient() actually
+    // produces here: the exported signature leaves two of SupabaseClient's five
+    // generic parameters to be defaulted at the call site, and ReturnType pins
+    // them to unknown/never instead. Naming SupabaseClient directly lets its own
+    // defaults apply, which is what the createClient(url, key) call infers.
+    let rollbackClient: SupabaseClient | null = null;
     let rollbackListingId: string | null = null;
     let rollbackPaymentIntentId: string | null = null;
     let stripeForRollback: Stripe | null = null;

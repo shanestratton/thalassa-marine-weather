@@ -1,0 +1,15 @@
+{
+    "//": "Deno config for the edge tier. Exists so `deno check` can resolve npm: specifiers (musickit-token imports npm:jose@5) — without it the whole typecheck stops at the first npm import. Supabase's own deploy uses its bundled runtime and ignores this file's absence, so it is here for verification, not for deployment.",
+    "nodeModulesDir": "auto",
+    "lint": {
+        "rules": {
+            "tags": ["recommended"]
+        }
+    },
+    "fmt": {
+        "useTabs": false,
+        "lineWidth": 120,
+        "indentWidth": 4,
+        "singleQuote": true
+    }
+}

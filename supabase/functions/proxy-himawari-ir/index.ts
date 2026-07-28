@@ -80,9 +80,11 @@ Deno.serve(async (req: Request) => {
                 Layer: 'Himawari_AHI_Band13_Clean_Infrared',
                 Style: 'default',
                 TileMatrixSet: 'GoogleMapsCompatible_Level6',
-                TileMatrix: z,
-                TileRow: y,
-                TileCol: x,
+                // URLSearchParams stringifies every value anyway, so converting the
+                // bounded integers here is explicit about what already went on the wire.
+                TileMatrix: String(z),
+                TileRow: String(y),
+                TileCol: String(x),
                 Format: 'image/png',
                 Time: dateStr,
             }).toString();

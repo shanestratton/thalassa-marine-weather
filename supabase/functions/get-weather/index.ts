@@ -294,7 +294,10 @@ interface WeatherKitCurrent {
     windSpeed?: number | null;
     windDirection?: number | null;
     windGust?: number | null;
-    conditionCode?: string;
+    // Not optional: parseWeatherKitPayload rejects the whole payload unless
+    // currentWeather.conditionCode is a non-empty string, so by the time a
+    // WeatherKitCurrent exists this field is always present.
+    conditionCode: string;
     cloudCover?: number | null;
     visibility?: number | null;
     uvIndex?: number | null;
@@ -828,7 +831,7 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
     // Next-hour precipitation → nowcast
     let nowcast: StandardNowcast | undefined;
     const nextHour = wk.forecastNextHour;
-    if (nextHour?.minutes?.length > 0) {
+    if (nextHour?.minutes && nextHour.minutes.length > 0) {
         const mins = nextHour.minutes.slice(0, 60);
         nowcast = {
             minutes: mins.map((m: { startTime: string; precipitationIntensity: number }) => ({

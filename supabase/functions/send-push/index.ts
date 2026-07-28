@@ -39,7 +39,14 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { encode as base64url } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
+import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
+
+// std@0.177 declares this encoder as taking `ArrayBuffer | string`, but at runtime it
+// forwards a Uint8Array straight through (its base64 helper branches on
+// `data instanceof Uint8Array` before falling back to `new Uint8Array(data)`).
+// Current TypeScript lib definitions no longer treat a Uint8Array as structurally an
+// ArrayBuffer, so we restate the parameter to match what the function actually accepts.
+const base64url = base64urlEncode as (data: Uint8Array | ArrayBuffer | string) => string;
 
 // ── Retry Config ──
 const MAX_RETRIES = 3;

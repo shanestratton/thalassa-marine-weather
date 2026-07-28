@@ -44,15 +44,22 @@ async function createApnsJwt(): Promise<string> {
     };
 
     const encoder = new TextEncoder();
-    const headerB64 = base64url(encoder.encode(JSON.stringify(header)));
-    const claimsB64 = base64url(encoder.encode(JSON.stringify(claims)));
+    // base64url() takes `ArrayBuffer | string` and UTF-8 encodes a string itself,
+    // so handing it the JSON directly yields the same bytes as pre-encoding here.
+    // Deno's current lib types no longer accept a Uint8Array in that position.
+    const headerB64 = base64url(JSON.stringify(header));
+    const claimsB64 = base64url(JSON.stringify(claims));
     const signingInput = `${headerB64}.${claimsB64}`;
 
     // Sign with ES256
     const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, encoder.encode(signingInput));
 
-    // Convert DER signature to raw r || s format for JWT
-    const sigB64 = base64url(new Uint8Array(signature));
+    // Convert DER signature to raw r || s format for JWT.
+    // The signature is already an ArrayBuffer, which is exactly what base64url()
+    // takes; it wraps the buffer in a Uint8Array internally, so the wrapper that
+    // used to be built here (and which no longer matches the parameter type) is
+    // redundant rather than load-bearing.
+    const sigB64 = base64url(signature);
 
     return `${signingInput}.${sigB64}`;
 }
