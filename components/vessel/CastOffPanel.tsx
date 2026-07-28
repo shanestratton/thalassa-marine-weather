@@ -25,6 +25,9 @@ import { ChatService } from '../../services/ChatService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { FloatPlanSheet } from './FloatPlanSheet';
+import { composeArrivalMessage } from '../../services/floatPlan';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
@@ -56,6 +59,13 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [currentLeg, setCurrentLeg] = useState<PassageLeg | null>(null);
     const [completedLegs, setCompletedLegs] = useState<PassageLeg[]>([]);
     const [arrivalPort, setArrivalPort] = useState('');
+    const [showFloatPlan, setShowFloatPlan] = useState(false);
+    // The close-out half. A float plan that is never cancelled either starts a
+    // real search while the crew are ashore, or teaches the shore contact to
+    // ignore the next one — so ending a voyage offers the stand-down message
+    // rather than leaving the skipper to remember it.
+    const [standDownText, setStandDownText] = useState<string | null>(null);
+    const vesselName = useSettingsStore((s) => s.settings.vessel?.name);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
@@ -177,7 +187,12 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const handleEndVoyage = useCallback(async () => {
         if (!activeVoyage) return;
         triggerHaptic('medium');
+        const destination = activeVoyage.destination_port ?? undefined;
         await endVoyage(activeVoyage.id, 'completed');
+        // Offered, never auto-sent: the skipper decides whether anyone is
+        // waiting on this. Composed before the voyage state is cleared.
+        setStandDownText(composeArrivalMessage({ vesselName, destination, arrivedMs: Date.now() }));
+        setShowFloatPlan(false);
         setActiveVoyage(null);
         setCurrentLeg(null);
         setCompletedLegs([]);
@@ -185,7 +200,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         // Reload drafts
         const d = await getDraftVoyages();
         setDrafts(d);
-    }, [activeVoyage]);
+    }, [activeVoyage, vesselName]);
 
     // ── Passage Leg Handlers ──
 
@@ -389,6 +404,25 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </button>
                         )}
 
+                        {/* Float plan sits with the active voyage, not behind
+                            Cast Off: plans change, and a skipper who leaves
+                            late or reroutes needs to re-send rather than be
+                            told the moment has passed. */}
+                        {activeVoyage && !showFloatPlan && (
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setShowFloatPlan(true);
+                                }}
+                                className="w-full py-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm font-bold text-amber-300 uppercase tracking-widest hover:bg-amber-500/20 transition-colors active:scale-[0.97]"
+                            >
+                                📋 Float Plan
+                            </button>
+                        )}
+                        {activeVoyage && showFloatPlan && (
+                            <FloatPlanSheet voyage={activeVoyage} onClose={() => setShowFloatPlan(false)} />
+                        )}
+
                         <button
                             onClick={handleEndVoyage}
                             className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97]"
@@ -483,6 +517,49 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97]"
                             >
                                 🏁 End Voyage Here
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Stand-down prompt. Shown after a voyage ends, above
+                    everything else, because an uncancelled float plan is the
+                    failure mode that starts a real search for a crew who are
+                    already ashore. */}
+                {standDownText && (
+                    <div
+                        data-testid="stand-down-prompt"
+                        className="mx-5 mb-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.07] p-3"
+                    >
+                        <p className="text-[11px] font-black uppercase tracking-widest text-emerald-300">
+                            Close out your float plan
+                        </p>
+                        <p className="mt-1 text-[11px] leading-snug text-gray-300">{standDownText}</p>
+                        <div className="mt-2 flex gap-2">
+                            <button
+                                onClick={() => setStandDownText(null)}
+                                className="flex-1 rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                            >
+                                Not now
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    triggerHaptic('medium');
+                                    try {
+                                        const { Share } = await import('@capacitor/share');
+                                        await Share.share({
+                                            text: standDownText,
+                                            dialogTitle: 'Tell them you are in',
+                                        });
+                                        setStandDownText(null);
+                                    } catch {
+                                        // Cancelled share sheets reject too —
+                                        // keep the prompt so it can be retried.
+                                    }
+                                }}
+                                className="flex-[2] rounded-lg bg-emerald-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-200 active:scale-95"
+                            >
+                                Send &ldquo;we&rsquo;re in&rdquo;
                             </button>
                         </div>
                     </div>

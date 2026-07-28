@@ -56,11 +56,16 @@ export default function middleware(request: Request) {
     // boat subdomain is the voyage log.
     const url = new URL(request.url);
     const p = url.pathname;
+    // /float is gone (Shane 2026-07-28). A float plan says "nobody is aboard
+    // until Friday and here is exactly where we will be" — on a public URL
+    // that is an invitation, and the gap between arriving and leaving is the
+    // normal state of cruising, not an edge case. It is now composed on the
+    // device and handed to the share sheet, so it reaches one chosen person
+    // instead of the internet. The public page stays strictly backward
+    // looking: where the boat is and where it has been, never where next.
     url.pathname =
         p === '/plan' || p.startsWith('/plan/')
             ? '/index.html' // the interactive planner (Shane 2026-07-17)
-            : p === '/float' || p.startsWith('/float/')
-              ? '/plan.html' // shore-crew float plan (moved off /plan)
-              : '/logs.html';
+            : '/logs.html';
     return fetch(url, request);
 }
