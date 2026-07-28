@@ -219,6 +219,7 @@ vi.mock('../services/shiplog/PassagePlanSave', () => ({
 
 import { ShipLogService } from '../services/ShipLogService';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { useFollowRouteStore } from '../stores/followRouteStore';
 
 beforeAll(() => {
     vi.useFakeTimers();
@@ -386,5 +387,19 @@ describe('ShipLogService tracking owner fence', () => {
         releaseFlush('complete');
         await manual;
         expect(mocks.addManual).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops following a route when tracking stops — following is scoped to the passage', async () => {
+        // Following was a peer of logging, so ending a passage left the app
+        // still following its route: leg grading, ETAs, arrival alerts and the
+        // public page all kept computing against a voyage that was over, and
+        // the next voyage inherited the stale state.
+        if (!ShipLogService.getTrackingStatus().isTracking) await ShipLogService.startTracking(false);
+        useFollowRouteStore.setState({ isFollowing: true, voyageId: ShipLogService.getCurrentVoyageId() });
+        expect(useFollowRouteStore.getState().isFollowing).toBe(true);
+
+        await ShipLogService.stopTracking();
+
+        expect(useFollowRouteStore.getState().isFollowing).toBe(false);
     });
 });

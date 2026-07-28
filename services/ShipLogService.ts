@@ -99,6 +99,11 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from './authIdentityScope';
+// Both are safe as static imports — neither module imports this service, so
+// no cycle. (publishFollowedRoute DOES, which is why the public link is
+// cleared through VoyageLogService directly rather than through it.)
+import { useFollowRouteStore } from '../stores/followRouteStore';
+import { VoyageLogService } from './VoyageLogService';
 
 const log = createLogger('ShipLog');
 
@@ -1273,6 +1278,27 @@ class ShipLogServiceClass {
         const stopIsCurrent = (state: TrackingState) =>
             stopAttempt === this.startAttempt && this.ownerIsCurrent(scope, state);
         const previousVoyageId = activeState.currentVoyageId;
+
+        // Following a route is a CHILD of this passage, not a peer of it: the
+        // route was being followed FOR this voyage, and the voyage is over.
+        // Left armed it kept leg grading, ETAs, arrival alerts and the public
+        // page all computing against a passage that had ended — and the next
+        // voyage started life inheriting stale following state.
+        //
+        // Synchronous and fire-and-forget on purpose. A first cut awaited two
+        // dynamic imports plus clearFollowedRoute() here, which pushed the
+        // whole teardown behind two chunk loads and measurably delayed the
+        // stopped state (ShipLogTrackingIdentity caught it). Writing the
+        // public link through VoyageLogService directly also sidesteps
+        // clearFollowedRoute()'s `isTracking` guard, so ordering against the
+        // state flip below stops mattering at all.
+        useFollowRouteStore.getState().stopFollowing();
+        if (previousVoyageId) {
+            void VoyageLogService.setVoyagePlanLink(previousVoyageId, null).catch((error) => {
+                log.warn('[ShipLog] public followed-route link not cleared:', error);
+            });
+        }
+
         this.scheduler.stop();
 
         // The geographic sampler may have accepted a recent raw fix that was
