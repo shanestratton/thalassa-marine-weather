@@ -190,7 +190,18 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
         <div
             className="flex flex-col"
             style={{
-                height: 'calc(100dvh - 12.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
+                // The 4rem term is the fixed bottom nav (App.tsx: h-16 plus its
+                // own pb-[env(safe-area-inset-bottom)]). It was missing, so this
+                // container's bottom edge sat a full nav-height below the usable
+                // area — and since the Save CTA is a PINNED FOOTER outside the
+                // scroller (below), the footer went under the tab bar with it.
+                // Shane 2026-07-28: "the cta button is half covered by the menu".
+                //
+                // The scroller's paddingBottom does not help here: it pads
+                // SCROLLING CONTENT, and the CTA stopped being scrolling content
+                // when it became a pinned footer. Its comment still claims it
+                // clears the nav for exactly that reason — stale, now corrected.
+                height: 'calc(100dvh - 12.5rem - 4rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
             }}
         >
             {/* Scrollable form area */}
@@ -199,11 +210,16 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 ref={myProfileScrollRef as any}
                 className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 space-y-5"
                 style={{
-                    // Keyboard up → keyboard height (input clears keyboard).
-                    // Keyboard down → 5rem + safe area inset, so the Crew List save CTA
-                    // CTA clears the fixed bottom nav bar (h-16 + safe area, ~98px)
-                    // plus a touch of breathing room.
-                    paddingBottom: kbHeight > 0 ? `${kbHeight}px` : 'calc(5rem + env(safe-area-inset-bottom))',
+                    // Keyboard up → keyboard height, so the focused input clears it.
+                    // Keyboard down → a small tail so the last field is not flush
+                    // against the pinned CTA footer.
+                    //
+                    // NOT nav clearance any more. This used to be sized to clear
+                    // the tab bar because the Save CTA scrolled with the content;
+                    // the CTA is now a pinned footer and the CONTAINER HEIGHT
+                    // above owns that job. Leaving 5rem here just stranded a
+                    // dead gap above a footer that was itself in the wrong place.
+                    paddingBottom: kbHeight > 0 ? `${kbHeight}px` : '1rem',
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     WebkitOverflowScrolling: 'touch' as any,
                 }}
