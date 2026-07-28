@@ -40,6 +40,7 @@ import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import {
     createVoyage,
+    getCachedActiveVoyage,
     getCachedDraftVoyages,
     getDraftVoyages,
     updateVoyage,
@@ -169,6 +170,25 @@ function legacyGeneratedLegName(label: string): string {
  * rows: a conflicting saved_route_id must never be papered over by a stale
  * passage_voyage_id from another graph.
  */
+/**
+ * Split a route label into its two endpoints.
+ *
+ * Two separators are in circulation: routeAutoName builds "Newport - Lady
+ * Musgrave" and logbook labels build "Newport → Lady Musgrave". A label with
+ * neither (a hand-typed "Winter delivery run") has no endpoints to give, and
+ * returning the whole string as the departure is worse than returning nothing
+ * — it puts a route name where a port name is expected.
+ */
+function splitRouteEndpoints(label: string): [string | undefined, string | undefined] {
+    for (const separator of [' → ', ' - ']) {
+        const parts = label.split(separator);
+        if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+            return [parts[0].trim(), parts[1].trim()];
+        }
+    }
+    return [undefined, undefined];
+}
+
 function isCanonicalSavedRouteDraft(
     draft: Voyage,
     canonicalIds: ReadonlySet<string>,
@@ -958,7 +978,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     durationHours,
                 };
             }
-            const [depPart, arrPart] = r.label.split(' → ');
+            // Route names are auto-generated as "A - B" by routeAutoName, while
+            // logbook labels use "A → B". Splitting on the arrow alone left the
+            // ENTIRE name in departure_port and nothing in destination_port for
+            // every hyphen-named route (Shane 2026-07-29: "departure as the
+            // entire route name eg: newport - lady musgrave").
+            //
+            // These stay PLACE NAMES rather than the pin coordinates, even
+            // though the coordinates are authoritative and sit right there:
+            // departure_port feeds isSameCountry() for customs clearance
+            // (ReadinessCardStack.tsx:312) and names the leg in startLeg()
+            // (VoyageService.ts:745). A lat/lon in that column would silently
+            // break both. The coordinates ARE surfaced — as departureCoords
+            // and arrivalCoords, which is what the passage cards read.
+            const [depPart, arrPart] = splitRouteEndpoints(r.label);
             // Stub voyage — id starts with "logbook:" so the on-
             // select handler knows to find-or-create a real row
             // before calling setActivePassage.
@@ -1028,6 +1061,26 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const activeOwnDraft = activeId ? visibleDrafts.find((draft) => draft.id === activeId) : undefined;
         if (activeOwnDraft && !ownRows.some((row) => row.id === activeOwnDraft.id)) {
             ownRows.push(attachCanonicalTraceGeometry(activeOwnDraft));
+        }
+
+        // CAST-OFF RESCUE. The rescue above searches `visibleDrafts`, which
+        // comes from getDraftVoyages() — hard-filtered to status 'planning'
+        // (VoyageService.ts:707 and :712). castOff() flips the SAME voyage id
+        // to 'active', so the moment a passage is under way it drops out of
+        // every list here, `draftVoyages.find(v => v.id === selectedPassageId)`
+        // in ReadinessCardStack returns undefined, and the whole card stack
+        // reads blank: no departureCoords ("Plan a route first" from Weather
+        // Windows and Ocean Currents), no distance, no duration, no ports.
+        //
+        // getPassageStatus() is status-agnostic, so the cards still MOUNT for
+        // an owned active voyage — they just have nothing to render. Put the
+        // row back, with geometry, so an under-way passage is as complete as a
+        // planned one.
+        if (activeId && !ownRows.some((row) => row.id === activeId)) {
+            const cachedActive = getCachedActiveVoyage();
+            if (cachedActive && cachedActive.id === activeId) {
+                ownRows.push(attachCanonicalTraceGeometry(cachedActive));
+            }
         }
 
         const sharedRows: VoyageRow[] = sharedResult.voyages.map(({ voyage, ownerEmail }) => ({
