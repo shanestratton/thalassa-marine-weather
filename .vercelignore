@@ -27,7 +27,23 @@ pi-cache/
 cloudflare-worker/
 workers/
 vessel-scraper/
-supabase/
+
+# supabase/ is excluded EXCEPT functions/_shared, which the browser build
+# genuinely needs: services/ww3CacheClient.ts imports its wave types and
+# constants from supabase/functions/_shared/ww3. With the whole tree excluded,
+# Vercel's checkout was missing that module and tsc failed the build with
+# TS2307 "Cannot find module" — while building fine here, where the file
+# obviously exists. Every production deploy has failed since 2026-07-24, when
+# this ignore file and ww3CacheClient landed on the same day.
+#
+# Written as `supabase/*` rather than `supabase/`, deliberately: gitignore
+# semantics (which this file follows) cannot re-include anything beneath a
+# directory that is itself excluded, so the negations below would be silently
+# inert. Each level has to be opened before the next can be re-included.
+supabase/*
+!supabase/functions
+supabase/functions/*
+!supabase/functions/_shared
 
 # Large local data caches; production map/chart samples live under public/
 tiles/
