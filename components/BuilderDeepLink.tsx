@@ -5,12 +5,20 @@
  * on a builder URL (thalassawx.app/plan or /builder — the "Skipper"
  * link on every yacht's public voyage-log page). uiStore has already
  * booted the app straight onto the map view; this component owns the
- * auth step: wait for the boot session probe, prompt sign-in when
- * there's no session (cloud ENC charts and saved-route sync are
- * account-gated on the web — a signed-out builder honestly shows "no
- * charts here"), then fire the pending tracer-open request MapHub
- * consumes. Declining the sign-in still opens the tracer; the gate is
- * a door, not a wall.
+ * auth step: wait for the boot session probe, require sign-in when
+ * there's no session, then fire the pending tracer-open request MapHub
+ * consumes.
+ *
+ * The gate is a WALL, not a door (Shane, 2026-07-28: "if a punter is
+ * not signed in, then he should not be able to get to that page at
+ * all"). It used to be dismissible, and a dismissed session opened the
+ * tracer anyway on the theory that "no ENC charts" was honest enough.
+ * It wasn't: charted depth on web comes only from the authenticated
+ * enc-cells bucket, so a signed-out builder silently lost TIDE AND
+ * DEPTH GATING — it would plot a route across a bar it had no data to
+ * refuse. Failing closed is the only safe direction for a depth
+ * question. Omitting `onClose` is what removes SignInScreen's close
+ * button; auth success still dismisses it through the effect below.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -42,21 +50,13 @@ export const BuilderDeepLink: React.FC = () => {
 
     if (!active || done || !showSignIn) return null;
 
+    // No `onClose`: that prop is what renders SignInScreen's close button,
+    // so leaving it off is the wall. The effect above tears this down the
+    // moment a session exists, which is the only way past it.
     return (
         <SignInScreen
             isOpen
-            prompt="Sign in to open your passage builder — your charts and saved routes live on your account."
-            onClose={() => {
-                // Auth success closes via the user-effect above. Landing
-                // here signed out means the user dismissed the sheet —
-                // open the tracer anyway; it reports "no ENC charts"
-                // honestly rather than dead-ending the visit.
-                setShowSignIn(false);
-                if (!useAuthStore.getState().user) {
-                    setDone(true);
-                    requestTracerOpen();
-                }
-            }}
+            prompt="Sign in to open your passage builder — your charts, tides and saved routes live on your account."
         />
     );
 };
