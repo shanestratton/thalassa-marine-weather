@@ -31,7 +31,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { signInWithApple, signInWithGoogle } from '../services/auth/SocialAuthService';
+import { signInWithApple, signInWithGoogle, signInWithProviderOnWeb } from '../services/auth/SocialAuthService';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
 import { XIcon } from './Icons';
@@ -119,7 +119,11 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
         setError(null);
         setBusy('apple');
         try {
-            await signInWithApple();
+            // Native returns a Session; web NAVIGATES AWAY and never resolves
+            // normally. Both are awaited the same because the web branch only
+            // returns at all when the redirect failed to start.
+            if (isNative) await signInWithApple();
+            else await signInWithProviderOnWeb('apple');
             triggerHaptic('medium');
             // Dismissal handled by the effect above watching authedUser.
         } catch (err) {
@@ -128,13 +132,14 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
         } finally {
             setBusy(null);
         }
-    }, []);
+    }, [isNative]);
 
     const handleGoogle = useCallback(async () => {
         setError(null);
         setBusy('google');
         try {
-            await signInWithGoogle();
+            if (isNative) await signInWithGoogle();
+            else await signInWithProviderOnWeb('google');
             triggerHaptic('medium');
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -142,7 +147,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
         } finally {
             setBusy(null);
         }
-    }, []);
+    }, [isNative]);
 
     // Controlled mode: respect isOpen.
     if (isOpen === false) return null;
@@ -259,9 +264,13 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     )}
 
                     <div className="space-y-3">
-                        {/* Web/desktop primary: email OTP — the only lane
-                        that works in a plain browser (see isNative note
-                        above). Apple/Google render on native only. */}
+                        {/* Web/desktop primary: email OTP. It stays FIRST and keeps
+                        the focus ref even now that Apple/Google render here too —
+                        email is the lane that works today, whereas the social
+                        buttons depend on dashboard credentials that do not exist
+                        yet and will fail at the provider until they do. Leading
+                        with a button that cannot work would be worse than the
+                        previous state. Swap the order once the credentials land. */}
                         {!isNative && (
                             <button
                                 ref={primaryActionRef}
@@ -273,12 +282,19 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 Sign in with email
                             </button>
                         )}
-                        {isNative && (
+                        {/* Apple/Google now render on BOTH platforms. Native uses the
+                        plugins' ID-token flow; web redirects through Supabase's
+                        OAuth callback (signInWithProviderOnWeb). Without these on
+                        the web, an account created with Apple/Google on the phone
+                        has NO way in at all — email OTP answers user_already_exists
+                        for it — which is why the signed-in-gated /plan planner had
+                        neither saved routes nor vessel details. */}
+                        {
                             <>
                                 {/* Apple — official styling: white background, black
                         text, with the Apple logo. Per Apple HIG. */}
                                 <button
-                                    ref={primaryActionRef}
+                                    ref={isNative ? primaryActionRef : undefined}
                                     type="button"
                                     onClick={() => void handleApple()}
                                     disabled={busy !== null}
@@ -337,7 +353,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                     )}
                                 </button>
                             </>
-                        )}
+                        }
                     </div>
 
                     {/* Error banner — covers RLS, network, unknown provider failure */}
