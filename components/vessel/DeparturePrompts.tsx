@@ -135,11 +135,44 @@ export const DeparturePrompts: React.FC = () => {
         };
     }, [isTracking, voyageId]);
 
+    // Retire the suggestion the moment a link is made anywhere else — the
+    // follow sheet publishes one on every pick. Without this the banner stays
+    // armed behind the sheet and surfaces after it closes, reading as "confirm
+    // the choice you just made" while actually proposing a different plan.
+    useEffect(() => {
+        const onLinked = (event: Event) => {
+            const linkedId = (event as CustomEvent<{ voyageId?: string }>).detail?.voyageId;
+            setPlanPrompt((current) => (current && (!linkedId || current.voyageId === linkedId) ? null : current));
+        };
+        window.addEventListener('thalassa:voyage-plan-link-changed', onLinked);
+        return () => window.removeEventListener('thalassa:voyage-plan-link-changed', onLinked);
+    }, []);
+
     const linkPromptedPlan = useCallback(async () => {
         if (!planPrompt) return;
         const operationScope = getAuthIdentityScope();
         const { voyageId: vid, plan } = planPrompt;
         setPlanPrompt(null);
+        // A SUGGESTION MUST NEVER OVERWRITE A CHOICE.
+        //
+        // This banner arms from a one-shot `links.has(vid)` read taken the
+        // moment the departure fix resolves, and never re-checks. The follow
+        // sheet on the Log page appears immediately and sits at z-[10055],
+        // above this banner at z-[9990] — so the ordinary sequence is: sheet
+        // opens, snapshot is taken with no link yet, skipper picks a route,
+        // sheet closes, and the banner is revealed still offering the plan
+        // suggestPlanForDeparture guessed. Because that heuristic picks the
+        // plan whose departure is nearest to now, and summaries are sorted
+        // newest-first, its guess is reliably the FIRST ROW of the list the
+        // skipper was just looking at — which is exactly what "I select one
+        // and it uses the first one on the list" looks like from the cockpit.
+        //
+        // Re-read immediately before writing: an existing link was made
+        // deliberately and outranks anything inferred from a timestamp.
+        const existing = await VoyageLogService.getPlanLinks();
+        if (!isAuthIdentityScopeCurrent(operationScope)) return;
+        if (existing.has(vid)) return;
+
         const localPlan = buildFollowRoutePlanFromRoute(plan);
         if (localPlan && isAuthIdentityScopeCurrent(operationScope)) {
             useFollowRouteStore.getState().startFollowing(localPlan, plan.id, plan.points);
@@ -251,15 +284,25 @@ const isValidFix = (lat: unknown, lon: unknown): lat is number =>
 
 /**
  * Resolve a departure position for the plan match. Checks the offline
- * queue (local-first capture target) and the persisted last GPS fix,
- * retrying for ~30 s to bridge the gap between cast-off and first fix.
- * `alive` lets the caller abort when the voyage ends mid-wait.
+ * queue (local-first capture target) and the persisted last GPS fix.
+ *
+ * The window used to be 7 attempts at 5 s — about 35 seconds. Miss that and
+ * the effect returned, its deps ([isTracking, voyageId]) never changed again,
+ * and the public-page link prompt was gone for the WHOLE voyage. A cold GPS
+ * start silently costs the skipper the prompt entirely, which is half of
+ * "sometimes it does not ask if i want to link it to the public page".
+ *
+ * Now polls for ~5 minutes, easing from 5 s to 15 s so a long wait is cheap.
+ * That is well within a passage's first leg, and `alive` aborts the moment
+ * the voyage ends or the account changes, so a patient loop costs nothing
+ * when it is not needed.
  */
 async function resolveDepartureFix(
     voyageId: string,
     alive: () => boolean,
 ): Promise<{ lat: number; lon: number } | null> {
-    for (let attempt = 0; attempt < 7 && alive(); attempt++) {
+    // 24 attempts: 6 x 5 s then 18 x 15 s ≈ 5 minutes.
+    for (let attempt = 0; attempt < 24 && alive(); attempt++) {
         try {
             const offline = await ShipLogService.getOfflineEntries();
             const e = offline.find((x) => x.voyageId === voyageId && isValidFix(x.latitude, x.longitude));
@@ -274,7 +317,7 @@ async function resolveDepartureFix(
             /* keep trying */
         }
         if (!alive()) break;
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, attempt < 6 ? 5000 : 15000));
     }
     return null;
 }

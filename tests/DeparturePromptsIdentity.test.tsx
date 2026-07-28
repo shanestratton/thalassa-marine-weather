@@ -151,4 +151,46 @@ describe('DeparturePrompts identity handoff', () => {
         });
         await waitFor(() => expect(departurePromptMocks.setVoyagePlanLink).toHaveBeenCalledWith('voyage-a', route.id));
     });
+
+    it('never overwrites a link the skipper already made', async () => {
+        // THE BUG. This banner arms from a ONE-SHOT `links.has(vid)` read taken
+        // when the departure fix resolves, and used to write without looking
+        // again. The follow sheet sits above it at z-[10055], so the ordinary
+        // sequence is: sheet opens, snapshot taken with no link yet, skipper
+        // picks a route, sheet closes, banner appears still offering the plan
+        // the matcher guessed — and because that heuristic takes the departure
+        // nearest to now, over a newest-first list, its guess is reliably the
+        // FIRST ROW the skipper was just looking at.
+        const suggested: RouteOrTrack = {
+            id: 'planned-newest',
+            label: 'Newport → Scarborough',
+            sublabel: 'Saved passage',
+            points: [
+                { lat: -27.2, lon: 153.1 },
+                { lat: -27.19, lon: 153.11 },
+            ],
+            bbox: [153.1, -27.2, 153.11, -27.19],
+            timestamp: Date.parse('2026-07-28T00:00:00.000Z'),
+            distanceNm: 1,
+            durationHours: 0.2,
+            isLocal: false,
+            kind: 'sea',
+        };
+        departurePromptMocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [suggested], tracks: [] });
+        departurePromptMocks.suggestPlanForDeparture.mockReturnValue(suggested);
+
+        render(<DeparturePrompts />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Keep private' }));
+        const link = await screen.findByRole('button', { name: 'Link passage' });
+
+        // The skipper's own pick lands between the banner arming and the tap.
+        departurePromptMocks.getPlanLinks.mockResolvedValue(new Map([['voyage-a', 'planned-chosen-by-skipper']]));
+
+        fireEvent.click(link);
+
+        await waitFor(() => expect(departurePromptMocks.getPlanLinks).toHaveBeenCalled());
+        // A suggestion must never outrank a choice.
+        expect(departurePromptMocks.setVoyagePlanLink).not.toHaveBeenCalledWith('voyage-a', suggested.id);
+        expect(departurePromptMocks.startFollowing).not.toHaveBeenCalled();
+    });
 });

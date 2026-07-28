@@ -29,6 +29,23 @@ export async function publishFollowedRoute(planVoyageId: string): Promise<Publis
     const immutableTrackingVoyageId = currentVoyageId;
     const ok = await VoyageLogService.setVoyagePlanLink(immutableTrackingVoyageId, immutablePlanVoyageId);
     if (!isAuthIdentityScopeCurrent(scope)) return 'error';
+    if (ok) {
+        // Announce the link so DeparturePrompts can retire its own suggestion.
+        // That banner decides whether to arm from a ONE-SHOT read of the links
+        // table taken when the departure fix resolves, and never re-checks — so
+        // a skipper who picks a route in the follow sheet after that snapshot
+        // finds the banner still offering a different plan, hidden behind the
+        // sheet until it closes.
+        try {
+            window.dispatchEvent(
+                new CustomEvent('thalassa:voyage-plan-link-changed', {
+                    detail: { voyageId: immutableTrackingVoyageId },
+                }),
+            );
+        } catch {
+            /* non-DOM host — the re-read guard in DeparturePrompts still holds */
+        }
+    }
     return ok ? 'linked' : 'error';
 }
 
