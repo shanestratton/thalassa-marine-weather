@@ -6314,6 +6314,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             // action below keeps min-height:auto so it
                                             // stays pinned (Shane 2026-07-17).
                                             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
+                                                {/* Tide rides INSIDE the scroller, not above it.
+                                                    As a pinned sibling it ate the waypoint
+                                                    list's slack and pushed Save off the card
+                                                    entirely — this card is fixed-height by
+                                                    design and the list is its only flex-1
+                                                    child, so anything added outside the
+                                                    scroller comes straight out of the list.
+                                                    -mx-3 cancels the scroller's padding so the
+                                                    panel's own rules still meet the edges. */}
+                                                <div className="-mx-3 -mt-2 mb-1">
+                                                    <TracerTidePanel anchor={tideAnchor} departureMs={departureMs} />
+                                                    {departureLabel ? (
+                                                        <p
+                                                            data-testid="tracer-departure-window"
+                                                            className="border-t border-white/10 px-3 py-2 text-[10px] font-bold leading-snug text-emerald-300"
+                                                        >
+                                                            {departureLabel}
+                                                        </p>
+                                                    ) : null}
+                                                </div>
                                                 {capturedCoords.map((c, i) => {
                                                     if (i === 0)
                                                         return (
@@ -6630,18 +6650,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </button>
                                             )}
                                         </div>
-                                        {/* Tide sits directly under Depart because the two are
-                                            one question: change the departure and every height
-                                            below re-reads against it. */}
-                                        <TracerTidePanel anchor={tideAnchor} departureMs={departureMs} />
-                                        {departureLabel ? (
-                                            <p
-                                                data-testid="tracer-departure-window"
-                                                className="border-t border-white/10 px-3 py-2 text-[10px] font-bold leading-snug text-emerald-300"
-                                            >
-                                                {departureLabel}
-                                            </p>
-                                        ) : null}
                                         {/* Build a route by keying GPS fixes — decimal, DMM
                                             ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
                                             Each Add drops the next pin (Shane 2026-07-16). */}
