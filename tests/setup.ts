@@ -217,6 +217,101 @@ if (!globalThis.structuredClone) {
     (globalThis as any).structuredClone = <T>(val: T): T => JSON.parse(JSON.stringify(val));
 }
 
+// localStorage / sessionStorage.
+//
+// jsdom is active (every other DOM global is present) but under Vitest 4 it is
+// not exposing Storage — a bare `expect(typeof localStorage).not.toBe('undefined')`
+// fails. That is repo-wide, not one suite's problem: this app persists almost
+// everything locally, so any test touching a store, a cache or an outbox died at
+// `localStorage.clear()` in its own beforeEach. It is what took the diary suites
+// down (18 tests, plus 13 in DiaryPublishConfirmation that could not even reach
+// an assertion).
+//
+// A real in-memory Storage rather than a vi.fn() shim, because the code under
+// test does not just call these — it round-trips through them, and several
+// suites assert on what was actually persisted. getItem must return what
+// setItem stored, and clear() between tests must genuinely isolate them.
+//
+// THE IMPLEMENTATION GOES ON Storage.prototype, not on the instance. jsdom does
+// define the Storage class here (it just never hands out working instances), and
+// suites patch storage failures the standard way:
+//
+//     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(...)   // quota errors
+//
+// An instance carrying its own methods would shadow that prototype, the spy
+// would never fire, and a test asserting "we reject when the outbox write fails"
+// would silently pass through a working write instead. So each instance is
+// Object.create(Storage.prototype) holding only its backing map, and every
+// method resolves through the prototype where a spy can intercept it.
+//
+// Installed only when Storage is absent, so a future jsdom/Vitest that provides
+// it natively takes over untouched.
+const StorageCtor = (globalThis as any).Storage as (undefined | (new () => Storage)) | undefined;
+
+if (StorageCtor && typeof (globalThis as any).localStorage === 'undefined') {
+    const proto = StorageCtor.prototype as Storage & { __map?: Map<string, string> };
+    const mapOf = (self: any): Map<string, string> => (self.__map ??= new Map<string, string>());
+
+    Object.defineProperties(proto, {
+        getItem: {
+            configurable: true,
+            writable: true,
+            // `?? null` — Storage returns null for a miss, never undefined, and
+            // callers guard with `if (!raw) return` on exactly that.
+            value: function (key: string) {
+                return mapOf(this).get(String(key)) ?? null;
+            },
+        },
+        setItem: {
+            configurable: true,
+            writable: true,
+            // Storage stringifies both operands, which is why setItem(k, undefined)
+            // reads back as the STRING "undefined" in a browser. Mirrored on purpose:
+            // a stub storing the raw value would hide real JSON.parse bugs.
+            value: function (key: string, value: string) {
+                mapOf(this).set(String(key), String(value));
+            },
+        },
+        removeItem: {
+            configurable: true,
+            writable: true,
+            value: function (key: string) {
+                mapOf(this).delete(String(key));
+            },
+        },
+        clear: {
+            configurable: true,
+            writable: true,
+            value: function () {
+                mapOf(this).clear();
+            },
+        },
+        key: {
+            configurable: true,
+            writable: true,
+            value: function (index: number) {
+                return Array.from(mapOf(this).keys())[index] ?? null;
+            },
+        },
+        length: {
+            configurable: true,
+            get: function () {
+                return mapOf(this).size;
+            },
+        },
+    });
+
+    for (const name of ['localStorage', 'sessionStorage'] as const) {
+        const storage = Object.create(proto) as Storage;
+        Object.defineProperty(globalThis, name, { value: storage, writable: true, configurable: true });
+        // Code reaching for window.localStorage must see the SAME object, so a
+        // write through one is visible through the other.
+        if (typeof window !== 'undefined') {
+            Object.defineProperty(window, name, { value: storage, writable: true, configurable: true });
+        }
+    }
+}
+
 // Suppress noisy console.warn/error in tests (override per-test if needed)
 // Uncomment below if tests are too noisy:
 // vi.spyOn(console, 'warn').mockImplementation(() => {});
