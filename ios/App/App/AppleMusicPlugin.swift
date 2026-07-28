@@ -128,34 +128,14 @@ public class AppleMusicPlugin: CAPPlugin {
     // are logged but never thrown — the play attempt should still
     // proceed even if the session call errored (it usually succeeds
     // even when iOS reports an error code).
-    /**
-     * THE ONE QUEUE every AVAudioSession mutation goes through.
-     *
-     * setCategory/setActive block: they cross into mediaserverd, and iOS's
-     * Thread Performance Checker flags them on the main thread
-     * ("AVAudioSession_iOS.mm: This method can lead to UI unresponsiveness").
-     * Every call site in this file was on main — the voice-input one is just
-     * the one that got noticed, because it lands mid-speech where a stall is
-     * felt immediately.
-     *
-     * SERIAL, and shared by ALL of them, deliberately. Moving only the noisy
-     * call site off main would be worse than leaving it: a main-thread
-     * setActive(false) could then overtake a queued setActive(true) and
-     * deactivate the session we just brought up. Order between activate and
-     * deactivate is the whole contract here, so one queue owns the lot.
-     */
-    private static let audioSessionQueue = DispatchQueue(label: "app.thalassa.audio-session")
-
     private func prepareAudioSession() {
-        Self.audioSessionQueue.async {
-            let session = AVAudioSession.sharedInstance()
-            do {
-                try session.setCategory(.playback, mode: .default, options: [])
-                try session.setActive(true, options: [])
-                NSLog("[AppleMusic] prepareAudioSession: category=playback active=true")
-            } catch {
-                NSLog("[AppleMusic] prepareAudioSession failed (continuing): \(error)")
-            }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: [])
+            NSLog("[AppleMusic] prepareAudioSession: category=playback active=true")
+        } catch {
+            NSLog("[AppleMusic] prepareAudioSession failed (continuing): \(error)")
         }
         // Belt-and-braces: if load() didn't fire for some reason, this
         // makes sure the remote commands get wired up the first time
@@ -190,24 +170,19 @@ public class AppleMusicPlugin: CAPPlugin {
             self.ttsPausedMusic = false
             self.stopTtsPlayback()
 
-            // The state above stays on main (other code mutates it there); only
-            // the blocking session work moves. call.resolve/reject are safe off
-            // the main thread — Capacitor marshals the bridge reply itself.
-            Self.audioSessionQueue.async {
-                let session = AVAudioSession.sharedInstance()
-                do {
-                    try session.setCategory(
-                        .playAndRecord,
-                        mode: .default,
-                        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP]
-                    )
-                    try session.setActive(true, options: [])
-                    NSLog("[AppleMusic] prepareVoiceInput: category=playAndRecord active=true")
-                    call.resolve(["status": "ready"])
-                } catch {
-                    NSLog("[AppleMusic] prepareVoiceInput failed: \(error)")
-                    call.reject("Could not prepare microphone: \(error.localizedDescription)")
-                }
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(
+                    .playAndRecord,
+                    mode: .default,
+                    options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP]
+                )
+                try session.setActive(true, options: [])
+                NSLog("[AppleMusic] prepareVoiceInput: category=playAndRecord active=true")
+                call.resolve(["status": "ready"])
+            } catch {
+                NSLog("[AppleMusic] prepareVoiceInput failed: \(error)")
+                call.reject("Could not prepare microphone: \(error.localizedDescription)")
             }
         }
     }
@@ -237,18 +212,12 @@ public class AppleMusicPlugin: CAPPlugin {
                             // idle playback session active after the console
                             // closed.
                             NSLog("[AppleMusic] releaseVoiceInput music resume failed: \(error)")
-                            Self.audioSessionQueue.async {
-                                try? AVAudioSession.sharedInstance().setActive(
-                                    false, options: .notifyOthersOnDeactivation)
-                            }
+                            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                         }
                     }
                     call.resolve(["status": "music_resuming"])
                 } else {
-                    Self.audioSessionQueue.async {
-                        try? AVAudioSession.sharedInstance().setActive(
-                            false, options: .notifyOthersOnDeactivation)
-                    }
+                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                     call.resolve(["status": "released"])
                 }
                 return
@@ -260,19 +229,16 @@ public class AppleMusicPlugin: CAPPlugin {
                 return
             }
 
-            Self.audioSessionQueue.async {
-                do {
-                    try AVAudioSession.sharedInstance().setActive(
-                        false, options: .notifyOthersOnDeactivation)
-                    NSLog("[AppleMusic] releaseVoiceInput: session inactive")
-                    call.resolve(["status": "released"])
-                } catch {
-                    // The web capture tracks have already been released by this
-                    // point. Treat a stubborn session as best-effort cleanup so
-                    // navigation can never be held hostage by an audio error.
-                    NSLog("[AppleMusic] releaseVoiceInput failed: \(error)")
-                    call.resolve(["status": "release_failed"])
-                }
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                NSLog("[AppleMusic] releaseVoiceInput: session inactive")
+                call.resolve(["status": "released"])
+            } catch {
+                // The web capture tracks have already been released by this
+                // point. Treat a stubborn session as best-effort cleanup so
+                // navigation can never be held hostage by an audio error.
+                NSLog("[AppleMusic] releaseVoiceInput failed: \(error)")
+                call.resolve(["status": "release_failed"])
             }
         }
     }
@@ -2040,30 +2006,22 @@ public class AppleMusicPlugin: CAPPlugin {
                                     NSLog("[AppleMusic] resume(): skipped; a new voice-input session owns audio")
                                     return
                                 }
-                                // The play() Task is nested INSIDE the queue block
-                                // so the ordering survives the move off main:
-                                // the session must be category-set and active
-                                // before MusicKit is asked to play, or resume
-                                // silently no-ops. Task { @MainActor } hops back
-                                // for the MusicKit work, which needs the actor.
                                 let session = AVAudioSession.sharedInstance()
-                                Self.audioSessionQueue.async {
-                                    try? session.setCategory(
-                                        .playback,
-                                        mode: .default,
-                                        options: [.mixWithOthers]
-                                    )
-                                    try? session.setActive(true, options: [])
-                                    Task { @MainActor in
-                                        let preState = ApplicationMusicPlayer.shared.state.playbackStatus
-                                        NSLog("[AppleMusic] resume(): preState=\(preState)")
-                                        do {
-                                            try await ApplicationMusicPlayer.shared.play()
-                                            let postState = ApplicationMusicPlayer.shared.state.playbackStatus
-                                            NSLog("[AppleMusic] resume(): postState=\(postState) — success")
-                                        } catch {
-                                            NSLog("[AppleMusic] resume FAILED: \(error)")
-                                        }
+                                try? session.setCategory(
+                                    .playback,
+                                    mode: .default,
+                                    options: [.mixWithOthers]
+                                )
+                                try? session.setActive(true, options: [])
+                                Task { @MainActor in
+                                    let preState = ApplicationMusicPlayer.shared.state.playbackStatus
+                                    NSLog("[AppleMusic] resume(): preState=\(preState)")
+                                    do {
+                                        try await ApplicationMusicPlayer.shared.play()
+                                        let postState = ApplicationMusicPlayer.shared.state.playbackStatus
+                                        NSLog("[AppleMusic] resume(): postState=\(postState) — success")
+                                    } catch {
+                                        NSLog("[AppleMusic] resume FAILED: \(error)")
                                     }
                                 }
                             }
