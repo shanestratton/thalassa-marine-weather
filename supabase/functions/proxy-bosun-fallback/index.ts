@@ -852,14 +852,38 @@ Deno.serve(async (req: Request) => {
                 headers: { ...CORS, 'Content-Type': 'application/json' },
             });
         }
-        const mimeType = body.mime_type || 'audio/mp4';
+        // STRIP CODEC PARAMETERS BEFORE THE ALLOW-LIST CHECK.
+        //
+        // The client sends `audioBlob.type`, and a MediaRecorder reports its
+        // real output — WebKit hands back "audio/mp4;codecs=mp4a.40.2", Chrome
+        // "audio/webm;codecs=opus". Those are correct, fully-formed MIME types;
+        // the parameter after the semicolon is part of the spec. But this check
+        // was an exact `.includes()` against bare types, so every genuine iOS
+        // recording failed it and came back "invalid audio payload" (Shane
+        // 2026-07-28, talking to Calypso).
+        //
+        // Compare on the ESSENCE (type/subtype), which is what the allow-list is
+        // actually about, and forward the normalised value — the transcription
+        // API wants the base type, not our caller's codec detail.
+        const mimeType = (body.mime_type || 'audio/mp4').split(';')[0].trim().toLowerCase();
         if (
             body.audio_b64.length > 10_000_000 ||
             body.audio_b64.length % 4 !== 0 ||
             !/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio_b64) ||
             !['audio/mp4', 'audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/wav'].includes(mimeType)
         ) {
-            return new Response(JSON.stringify({ error: 'invalid audio payload' }), {
+            // Say WHICH test failed. "invalid audio payload" covered four very
+            // different faults — oversize, bad padding, non-base64, unsupported
+            // type — and told the caller none of them, which is why this cost a
+            // debugging session rather than a glance at a log line.
+            const why =
+                body.audio_b64.length > 10_000_000
+                    ? 'too large'
+                    : body.audio_b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio_b64)
+                      ? 'not valid base64'
+                      : `unsupported mime_type "${mimeType}"`;
+            console.error(`[bosun-fallback] rejected audio: ${why}`);
+            return new Response(JSON.stringify({ error: `invalid audio payload: ${why}` }), {
                 status: 400,
                 headers: { ...CORS, 'Content-Type': 'application/json' },
             });
