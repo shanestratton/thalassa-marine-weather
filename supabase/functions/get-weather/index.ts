@@ -1052,8 +1052,22 @@ Deno.serve(async (req: Request) => {
         }
 
         return json(weather, 200, cacheHeaders);
-    } catch {
-        console.error('[get-weather] Weather provider request failed');
+    } catch (err) {
+        // BIND THE ERROR. This was a bare `catch {}` that logged a fixed
+        // string, so a 502 from here told you only that something in a ~50-line
+        // try block failed — provider fetch, JWT signing, WeatherKit rejecting
+        // the credentials, or the response mapper. The endpoint has been
+        // returning 502 on the free path and the reason was unrecoverable from
+        // the logs, which is the whole cost of a bare catch.
+        //
+        // Message and name only. A stack would be noise here, and the message
+        // is where fetchFree's own diagnostics live ("Apple WeatherKit
+        // credentials not configured", HTTP status text, DNS failures). The
+        // RESPONSE body is deliberately unchanged — the caller still gets the
+        // generic 'Weather fetch failed', because upstream credential and
+        // provider detail must not leak to an anonymous client.
+        const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        console.error(`[get-weather] Weather provider request failed — ${detail}`);
         return errorJson('Weather fetch failed', 502);
     }
 });
