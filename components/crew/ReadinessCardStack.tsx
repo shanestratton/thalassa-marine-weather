@@ -38,6 +38,8 @@ interface ReadinessCardStackProps {
     draftVoyages: VoyageRow[];
     visibleCrew: CrewMember[];
     planCrewCount: number;
+    /** Vessel profile's "Crew Aboard (incl. Skipper)" — the provisioning baseline. */
+    standingCrewAboard?: number;
     // Card states
     reservesReady: boolean;
     vesselChecked: boolean;
@@ -241,6 +243,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     draftVoyages,
     visibleCrew,
     planCrewCount,
+    standingCrewAboard = 1,
     reservesReady,
     vesselChecked,
     medicalReady,
@@ -555,6 +558,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 passageStatus={passageStatus}
                                 className=""
                                 registeredCrewCount={visibleCrew.length}
+                                standingCrewAboard={standingCrewAboard}
                                 onProvisionedChange={handleProvisionedChange}
                                 {...(passageStatus.isOwner
                                     ? {
