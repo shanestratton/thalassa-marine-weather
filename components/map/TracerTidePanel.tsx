@@ -28,8 +28,12 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('TracerTidePanel');
 
-/** How many upcoming extremes to list. Four ≈ one full day either side. */
-const EXTREMES_SHOWN = 6;
+/**
+ * How many upcoming extremes to list. Eight ≈ two full days in a semidiurnal
+ * regime, which is why every row carries its day — the panel routinely spans
+ * more than one, and "HW 02:55" alone could be either.
+ */
+const EXTREMES_SHOWN = 8;
 const HOUR_MS = 3_600_000;
 
 interface TracerTidePanelProps {
@@ -48,10 +52,41 @@ interface TideState {
     approximate: boolean;
 }
 
-function formatClock(iso: string): string | null {
-    const ms = new Date(iso).getTime();
-    if (!Number.isFinite(ms)) return null;
+function formatClock(ms: number): string {
     return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/** "TUE 29 JUL" — the day has to be unmissable; these span several days. */
+function formatDayHeading(ms: number): string {
+    return new Date(ms).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
+}
+
+interface TideDay {
+    key: string;
+    heading: string;
+    tides: { ms: number; type: Tide['type']; height: number }[];
+}
+
+/**
+ * Group extremes under day headings. WorldTides returns a 14-day window and
+ * the panel shows well over a day of it, so a bare "HW 02:55" is ambiguous —
+ * it could be tonight or tomorrow morning, which is exactly the mistake that
+ * puts a boat on a bar.
+ */
+function groupByDay(tides: Tide[]): TideDay[] {
+    const days: TideDay[] = [];
+    for (const t of tides) {
+        const ms = new Date(t.time).getTime();
+        if (!Number.isFinite(ms)) continue;
+        const key = new Date(ms).toDateString();
+        let day = days.find((d) => d.key === key);
+        if (!day) {
+            day = { key, heading: formatDayHeading(ms), tides: [] };
+            days.push(day);
+        }
+        day.tides.push({ ms, type: t.type, height: t.height });
+    }
+    return days;
 }
 
 export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, departureMs }) => {
@@ -137,24 +172,42 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
             )}
 
             {state && state.extremes.length > 0 && (
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                    {state.extremes.map((t) => {
-                        const clock = formatClock(t.time);
-                        if (!clock) return null;
-                        const high = t.type === 'High';
-                        return (
-                            <div key={`${t.time}-${t.type}`} className="flex items-baseline justify-between gap-2">
-                                <span
-                                    className={`text-[10px] font-black uppercase tracking-wide ${
-                                        high ? 'text-sky-300' : 'text-amber-300/80'
-                                    }`}
-                                >
-                                    {high ? 'HW' : 'LW'} {clock}
-                                </span>
-                                <span className="text-[10px] font-mono text-gray-300">{t.height.toFixed(1)} m</span>
-                            </div>
-                        );
-                    })}
+                <div className="space-y-2">
+                    {groupByDay(state.extremes).map((day) => (
+                        <div key={day.key} className="space-y-0.5">
+                            <p
+                                data-testid="tide-day"
+                                className="text-[11px] font-black uppercase tracking-[0.12em] text-white"
+                            >
+                                {day.heading}
+                            </p>
+                            {day.tides.map((t) => {
+                                const high = t.type === 'High';
+                                return (
+                                    <div
+                                        key={`${t.ms}-${t.type}`}
+                                        className="flex items-baseline justify-between gap-2"
+                                    >
+                                        <span className="flex items-baseline gap-1.5">
+                                            <span
+                                                className={`text-[10px] font-black uppercase tracking-wide ${
+                                                    high ? 'text-sky-300' : 'text-amber-300/90'
+                                                }`}
+                                            >
+                                                {high ? 'HW' : 'LW'}
+                                            </span>
+                                            <span className="font-mono text-sm font-bold tabular-nums text-white">
+                                                {formatClock(t.ms)}
+                                            </span>
+                                        </span>
+                                        <span className="font-mono text-[11px] text-gray-300">
+                                            {t.height.toFixed(1)} m
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ))}
                 </div>
             )}
 

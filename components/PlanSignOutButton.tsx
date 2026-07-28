@@ -7,10 +7,10 @@
  * builder gate became a wall rather than a door (BuilderDeepLink), a
  * punter who signed in on a borrowed machine had no way out at all.
  *
- * Placement: top-left. MapHub's right-hand control rail occupies
- * `right-[16px]` from `top-[128px]` down, and the bottom band belongs to
- * the map's own controls, so the top-left corner is the one reliably
- * free spot on this surface.
+ * Placement: top-RIGHT. Top-left was the first attempt and it landed on
+ * top of the zoom pill. MapHub's right-hand control rail starts at
+ * `top-[128px]`, so the strip above it is the one reliably free corner on
+ * this surface — and the bottom band belongs to the map's own controls.
  */
 
 import React, { useState } from 'react';
@@ -52,7 +52,7 @@ export const PlanSignOutButton: React.FC = () => {
             disabled={busy}
             data-testid="plan-sign-out"
             aria-label="Sign out of the passage builder"
-            className="fixed left-3 top-[calc(env(safe-area-inset-top)+12px)] z-[800] rounded-full border border-white/15 bg-slate-900/80 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-200 backdrop-blur transition-colors active:brightness-110 disabled:opacity-50"
+            className="fixed right-3 top-[calc(env(safe-area-inset-top)+12px)] z-[800] rounded-full border border-white/15 bg-slate-900/80 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-200 backdrop-blur transition-colors active:brightness-110 disabled:opacity-50"
         >
             {busy ? 'Signing out…' : 'Sign out'}
         </button>

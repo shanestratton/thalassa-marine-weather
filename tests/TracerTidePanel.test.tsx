@@ -71,6 +71,26 @@ describe('TracerTidePanel', () => {
         expect(await screen.findByText(/1\.1 m · rising/)).toBeInTheDocument();
     });
 
+    it('heads each day so a time can never be read against the wrong one', async () => {
+        // The panel shows ~2 days of extremes. A bare "HW 02:55" could be
+        // tonight or tomorrow morning, and picking the wrong one is exactly
+        // how a boat ends up on a bar.
+        fetchRealTides.mockResolvedValue({
+            tides: [
+                { time: '2026-08-01T08:12:00Z', type: 'High', height: 1.84 },
+                { time: '2026-08-02T02:55:00Z', type: 'High', height: 1.91 },
+            ],
+            guiDetails: { stationName: 'Brisbane Bar', isSecondary: false },
+        });
+        render(<TracerTidePanel anchor={{ lat: -27.4, lon: 153.1 }} departureMs={DEPARTURE} />);
+
+        // Queried by testid, not by text: the heading is locale-formatted, so
+        // asserting a shape like "SAT 1 AUG" pins the CI locale, not the rule.
+        const headings = await screen.findAllByTestId('tide-day');
+        expect(headings.length).toBe(2);
+        expect(headings[0].textContent).not.toBe(headings[1].textContent);
+    });
+
     it('says so plainly when there is no station near the route', async () => {
         fetchRealTides.mockResolvedValue({ tides: [], guiDetails: undefined });
         fetchTideCurve.mockResolvedValue(null);
