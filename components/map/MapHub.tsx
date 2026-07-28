@@ -268,6 +268,7 @@ import { ThreatBanner } from './ThreatBanner';
 import { ConnectivityChip } from './ConnectivityChip';
 import { PerfOverlay } from './PerfOverlay';
 import { PerfDowntierToast } from './PerfDowntierToast';
+import { TracerTidePanel } from './TracerTidePanel';
 import { CoachMark } from '../ui/CoachMark';
 import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
 const AisGuardAlert = lazyRetry(
@@ -2084,6 +2085,17 @@ export const MapHub: React.FC<MapHubProps> = ({
         return out;
     }, [capturedCoords, settings.vessel]);
 
+    // Where the tide panel reads from. The shallowest charted point on the
+    // route is the one that decides whether you get across, so anchor there
+    // when the tracer found one; otherwise the destination, which is what a
+    // skipper checking "can I get in tonight" actually means.
+    const tideAnchor = useMemo(() => {
+        const shallow = legVerdicts.find((v) => v?.needsTide && v.minAt)?.minAt;
+        if (shallow) return { lat: shallow.lat, lon: shallow.lon };
+        const last = capturedCoords[capturedCoords.length - 1];
+        return last ? { lat: last.lat, lon: last.lon } : null;
+    }, [legVerdicts, capturedCoords]);
+
     // ⚡ Auto route (Shane 2026-07-15: "follow deep water. if there is a
     // place we cannot cross, then check that against tide times. we cannot
     // cross land"). Drives the REAL inshore routing engine (tryInshoreRoute)
@@ -2303,7 +2315,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // THE departure window — computed when the report opens. (Below the
     // settings declaration: the dep array reads settings.vessel at render.)
     useEffect(() => {
-        if (!showReport) return;
+        // Also computed when the route has a tide gate, not just when the
+        // report is open: "leave 09:10–13:30 and every gate clears" IS the
+        // answer to "will we make it across", and it was reachable only by
+        // opening 📋 Route report — two taps behind the question.
+        if (!showReport && !legVerdicts.some((v) => v?.needsTide)) return;
         setDepartureLabel(null);
         let stale = false;
         void commonDepartureWindowLabel(legVerdicts, vesselDraftMetres(settings.vessel), {
@@ -6614,6 +6630,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </button>
                                             )}
                                         </div>
+                                        {/* Tide sits directly under Depart because the two are
+                                            one question: change the departure and every height
+                                            below re-reads against it. */}
+                                        <TracerTidePanel anchor={tideAnchor} departureMs={departureMs} />
+                                        {departureLabel ? (
+                                            <p
+                                                data-testid="tracer-departure-window"
+                                                className="border-t border-white/10 px-3 py-2 text-[10px] font-bold leading-snug text-emerald-300"
+                                            >
+                                                {departureLabel}
+                                            </p>
+                                        ) : null}
                                         {/* Build a route by keying GPS fixes — decimal, DMM
                                             ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
                                             Each Add drops the next pin (Shane 2026-07-16). */}
