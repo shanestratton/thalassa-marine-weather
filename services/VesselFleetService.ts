@@ -20,6 +20,7 @@ import type { ComfortParams } from '../types/settings';
 import type { PolarData } from '../types/navigation';
 import type { VesselDimensionUnits, VesselProfile } from '../types/vessel';
 import { supabase } from './supabase';
+import { vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from './units';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -195,8 +196,13 @@ function profileDefaults(raw: Record<string, unknown>): VesselProfile {
         beam: finiteNumber(profile.beam, 0),
         draft: finiteNumber(profile.draft, 0),
         displacement: finiteNumber(profile.displacement, 0),
-        maxWaveHeight: finiteNumber(profile.maxWaveHeight, 0),
-        cruisingSpeed: finiteNumber(profile.cruisingSpeed, 0),
+        // `boat_profiles.profile` has no column for either of these — they are
+        // derived from the hull. Defaulting them to 0 here (as the other
+        // numbers do) is what made the settings panel read "0 kts / 0 ft" for
+        // any profile restored from the fleet, and worse, zeroed the
+        // survivability ceiling isochroneEnhancer gates on.
+        maxWaveHeight: vesselMaxWaveHeightFt(profile),
+        cruisingSpeed: vesselCruisingSpeedKts(profile),
     } as VesselProfile;
 }
 

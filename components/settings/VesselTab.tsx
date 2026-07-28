@@ -11,6 +11,7 @@ import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { saveIdentity } from '../../services/VesselIdentityService';
 import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import { vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
 import { triggerHaptic } from '../../utils/system';
@@ -479,8 +480,13 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             beam: currentVessel.beam || Math.round(entry.loa * 0.32),
             draft: currentVessel.draft || Math.round(entry.loa * 0.16),
             displacement: currentVessel.displacement || Math.round(Math.pow(entry.loa, 3) / 2.5),
-            maxWaveHeight: currentVessel.maxWaveHeight || Math.round(entry.loa * 0.35),
-            cruisingSpeed: currentVessel.cruisingSpeed || Math.round(Math.sqrt(entry.loa) * 1.2 * 10) / 10,
+            // Derived from the NEW length, not the old one: picking a
+            // different yacht has to move these. The previous
+            // `currentVessel.x || …` guards pinned them to whatever the first
+            // selection produced, and the local copies also ignored hull type,
+            // so a catamaran got a monohull's wave ceiling.
+            maxWaveHeight: vesselMaxWaveHeightFt({ ...currentVessel, length: entry.loa, maxWaveHeight: undefined }),
+            cruisingSpeed: vesselCruisingSpeedKts({ ...currentVessel, length: entry.loa, cruisingSpeed: undefined }),
             fuelCapacity: currentVessel.fuelCapacity || 0,
             waterCapacity: currentVessel.waterCapacity || 0,
             model: entry.model,
@@ -983,7 +989,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     Cruising Speed
                                 </label>
                                 <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                                    {Math.round((vessel?.cruisingSpeed || 0) * 10) / 10} kts
+                                    {Math.round(vesselCruisingSpeedKts(vessel) * 10) / 10} kts
                                 </p>
                             </div>
                             <div>
@@ -991,7 +997,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     Max Wave Height
                                 </label>
                                 <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                                    {Math.round((vessel?.maxWaveHeight || 0) * 10) / 10} ft
+                                    {Math.round(vesselMaxWaveHeightFt(vessel) * 10) / 10} ft
                                 </p>
                             </div>
                         </div>
