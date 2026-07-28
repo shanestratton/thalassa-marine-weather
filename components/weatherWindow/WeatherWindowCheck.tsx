@@ -19,6 +19,16 @@ import {
 } from '../../services/weatherWindow/weatherWindowScore';
 
 const BAND: Record<Band, { word: string; text: string; bg: string; ring: string; bar: string }> = {
+    // Slate, deliberately — not amber. An unfinished questionnaire is not a
+    // marginal window, it is an absence of information, and colouring it like
+    // a weather verdict invites it to be read as one.
+    INCOMPLETE: {
+        word: 'INCOMPLETE',
+        text: 'text-slate-300',
+        bg: 'bg-slate-500/15',
+        ring: 'ring-slate-400/40',
+        bar: 'bg-slate-400',
+    },
     GO: {
         word: 'GO',
         text: 'text-emerald-300',
