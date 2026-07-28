@@ -8,12 +8,15 @@ import type { ChatChannel } from '../../services/ChatService';
 import { ChannelProposalModal } from './ChannelProposalModal';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 
-// Channels hidden from the directory. 'Lonely Hearts' is always hidden as a
-// legacy alias. Marketplace and The Crew List each have their own deliberate
-// launch-visibility flag; see utils/featureVisibility.
+// Channels hidden from the directory. 'Lonely Hearts' is a legacy alias, and
+// 'Chandlery'/'Marketplace' are retired features whose channels may still
+// exist on older accounts — both are unconditional now that the surface is
+// gone. The Crew List keeps its deliberate launch-visibility flag; see
+// utils/featureVisibility.
 const HIDDEN_CHANNEL_NAMES = new Set<string>([
     'Lonely Hearts',
-    ...(FEATURE_VISIBILITY.marketplace ? [] : ['Chandlery', 'Marketplace']),
+    'Chandlery',
+    'Marketplace',
     ...(FEATURE_VISIBILITY.crewFinder ? [] : ['Find Crew']),
 ]);
 

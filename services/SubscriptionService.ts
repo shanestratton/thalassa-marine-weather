@@ -82,11 +82,9 @@ export type Feature =
     | 'vesselProfile' // Vessel setup & management
     | 'castOff' // Voyage start/end
     | 'galley' // Meal planning (Skipper+ — gated at the page level)
-    | 'marketplace' // Gear Exchange marketplace (Skipper+)
     | 'diary' // Gemini-AI sailing diary (Skipper+)
     | 'gpsTracking' // GPS track logging
     | 'crewTalkWrite' // Send messages in Crew Talk
-    | 'chandleryPost' // Post listings in Chandlery
     | 'crewFinderCaptain' // Post as captain looking for crew
     | 'directMessages' // DMs & pin drops
     | 'communityDownload' // Download community tracks
@@ -115,11 +113,9 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     vesselProfile: 'owner',
     castOff: 'owner',
     galley: 'owner',
-    marketplace: 'free', // Open to all — see roadmap Chandlery B-pivot
     diary: 'owner',
     gpsTracking: 'crew',
     crewTalkWrite: 'crew',
-    chandleryPost: 'free', // Open to all — see roadmap Chandlery B-pivot
     // crewFinderCaptain: free — same logic as the Chandlery B-pivot
     // (#11 on the WD roadmap). Network-effect features need EVERY
     // tier able to participate, otherwise the listing density never

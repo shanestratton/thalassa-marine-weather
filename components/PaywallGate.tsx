@@ -39,10 +39,6 @@ const DEFAULT_COPY: Partial<Record<Feature, { title: string; subtitle: string }>
         title: 'Galley & Meal Planning',
         subtitle: 'Plan provisioning, log meals, and track inventory across your voyage.',
     },
-    marketplace: {
-        title: 'Gear Exchange',
-        subtitle: 'Buy, sell, and trade marine gear with other Thalassa skippers.',
-    },
     diary: {
         title: 'AI Sailing Diary',
         subtitle: 'Voice-narrated voyage notes with Gemini-powered summaries and weather context.',
