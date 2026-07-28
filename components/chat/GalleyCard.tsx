@@ -71,6 +71,12 @@ interface GalleyCardProps {
     className?: string;
     /** Number of registered crew members (excluding captain). When set, crew count = max(settings, this + 1) */
     registeredCrewCount?: number;
+    /**
+     * The vessel profile's "Crew Aboard (incl. Skipper)". Passed in rather
+     * than read from the settings store so this card stays free of store
+     * coupling — same reason registeredCrewCount is a prop.
+     */
+    standingCrewAboard?: number;
     /** Delegation props — when provided, shows an Assign badge on the header */
     cardDelegations?: Record<string, string>;
     delegationMenuOpen?: string | null;
@@ -85,6 +91,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     passageStatus,
     className,
     registeredCrewCount,
+    standingCrewAboard,
     cardDelegations,
     delegationMenuOpen,
     onDelegationMenuToggle,
@@ -124,12 +131,27 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     const [voyageCrewCount, setVoyageCrewCount] = useState<number | null>(null);
     const { crewCount, setCrewCount: handleSetCrewCount } = useCrewCount();
 
-    // Effective crew count: max(settings count, registered crew + 1 captain)
-    const plannedCrewCount = voyageCrewCount ?? crewCount;
+    // Souls aboard = the vessel's standing crew PLUS anyone invited.
+    //
+    // Two things were wrong here. The baseline came from CrewCountContext, a
+    // separate `thalassa_crew_count` localStorage value — NOT the vessel
+    // profile's "Crew Aboard (incl. Skipper)", whose own helper text promises
+    // it is "used for provisioning and watch scheduling in passage plans". So
+    // editing the field the skipper was told to edit changed nothing here.
+    //
+    // And invitees were folded in with Math.max, which treats them as a
+    // restatement of who is aboard rather than people joining: a two-up boat
+    // inviting two crew provisioned for three. They are additive, and the
+    // vessel field already counts the skipper, so no +1 (Shane 2026-07-29:
+    // "2 crew ... 2 invited, then there are 4 people on board").
+    //
+    // Precedence: an explicit per-voyage count still wins, then the vessel
+    // profile, then the legacy local value as a last resort.
+    const plannedCrewCount = voyageCrewCount ?? standingCrewAboard ?? crewCount;
     const effectiveCrewCount =
         registeredCrewCount !== undefined && registeredCrewCount > 0
-            ? Math.max(plannedCrewCount, registeredCrewCount + 1)
-            : plannedCrewCount;
+            ? Math.max(plannedCrewCount, 1) + registeredCrewCount
+            : Math.max(plannedCrewCount, 1);
 
     useEffect(
         () =>

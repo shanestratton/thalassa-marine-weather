@@ -1728,8 +1728,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const selectedPassageCrew = isSelectedPassageOwner
         ? visibleCrew.filter((member) => member.voyage_id === null || member.voyage_id === selectedPassageId)
         : [];
+    // Souls aboard = the vessel's standing crew PLUS anyone invited to this
+    // passage.
+    //
+    // This used to be `invited + 1` — the skipper, and nobody else, unless
+    // crew had been invited through the app. So a boat that always sails
+    // two-up provisioned for one and got a single-handed watch briefing until
+    // the skipper thought to invite their own partner. Settings → Vessel has
+    // carried "Crew Aboard (incl. Skipper)" all along, and its helper text
+    // already promised it was "used for provisioning and watch scheduling in
+    // passage plans". It was never wired to anything.
+    //
+    // That field INCLUDES the skipper, so it replaces the old +1 rather than
+    // adding to it: 2 aboard with 2 invited is 4 (Shane 2026-07-29), not 5.
+    // Invitees are additive because they are people joining the boat, not a
+    // restatement of who is already on it.
+    const standingCrewAboard = Math.max(settings.vessel?.crewCount ?? 1, 1);
     const selectedPassageCrewCount = isSelectedPassageOwner
-        ? Math.max(selectedPassageCrew.length + 1, 1)
+        ? standingCrewAboard + selectedPassageCrew.length
         : Math.max(selectedVoyage?.crew_count ?? 1, 1);
     const ownVoyageCount = draftVoyages.filter((voyage) => !voyage.isShared).length;
     const sharedVoyageCount = draftVoyages.length - ownVoyageCount;
@@ -1981,6 +1997,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         draftVoyages={draftVoyages}
                         visibleCrew={selectedPassageCrew}
                         planCrewCount={selectedPassageCrewCount}
+                        standingCrewAboard={standingCrewAboard}
                         reservesReady={reservesReady}
                         vesselChecked={vesselChecked}
                         medicalReady={medicalReady}
