@@ -192,6 +192,53 @@ const App: React.FC = () => {
         return () => document.documentElement.classList.remove('display-light');
     }, [isLight]);
 
+    // ── Warm the GPS plugin ONCE, off every critical path ──
+    //
+    // BackgroundGeolocation.ready() is expensive and, per Xcode's CoreLocation
+    // runtime warning, blocks the MAIN THREAD: the plugin dispatches to main and
+    // calls locationServicesEnabled(), a synchronous hop to locationd
+    // (BackgroundGeolocationPlugin.swift:238). The Log page already knew the
+    // price — "saves 1-2s when user taps Start" — and pre-warmed on its own
+    // mount. But a passage is cast off from the HELM, and nothing warmed it
+    // there, so casting off without having opened the Log page first paid that
+    // 1-2 s inside startTracking, before GPS had even been asked to start.
+    //
+    // ON IDLE, not on mount: warming during boot would just move a main-thread
+    // stall into app startup, where it is more visible, not less. requestIdleCallback
+    // waits for a gap; the 2.5 s timeout is the fallback for WebKit builds that
+    // lack it, and idle's own `timeout` stops it being deferred forever on a busy
+    // boot.
+    //
+    // Safe this early: ready() only CONFIGURES (startOnBoot:false). It requests
+    // no permission and starts no tracking — that is start()'s job.
+    // ensureReady() is latched, so the Log page's call becomes a no-op.
+    useEffect(() => {
+        let cancelled = false;
+        const warm = () => {
+            if (cancelled) return;
+            void import('./services/BgGeoManager')
+                .then(({ BgGeoManager }) => BgGeoManager.ensureReady())
+                .catch(() => {
+                    /* no native plugin (web), or engine unavailable — startTracking retries */
+                });
+        };
+        const ric = (window as unknown as { requestIdleCallback?: typeof requestIdleCallback }).requestIdleCallback;
+        if (typeof ric === 'function') {
+            const handle = ric(warm, { timeout: 4000 });
+            return () => {
+                cancelled = true;
+                (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(
+                    handle as unknown as number,
+                );
+            };
+        }
+        const timer = setTimeout(warm, 2500);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, []);
+
     // Global navigation event listener — used by components that can't thread setPage via props
     useEffect(() => {
         const handler = (e: Event) => {
