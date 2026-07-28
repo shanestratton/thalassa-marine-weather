@@ -179,6 +179,33 @@ function legacyGeneratedLegName(label: string): string {
  * returning the whole string as the departure is worse than returning nothing
  * — it puts a route name where a port name is expected.
  */
+/**
+ * Carry already-attached route geometry forward onto a freshly-fetched row.
+ *
+ * reloadDropdown paints twice from bare DB `Voyage` objects before the phase
+ * that attaches geometry runs. If that phase is cancelled — a concurrent
+ * reload bumps the version guard — the rows are left downgraded, and the
+ * Passage Planning summary shows "--" for Duration and Distance and
+ * "Forecast unavailable" for Max Conditions, because every one of those is
+ * derived from routeCoordinates.
+ *
+ * Merging instead of replacing means an aborted reload can only ever fail to
+ * IMPROVE a row; it can never strip one. The fresh row still wins for every
+ * server-owned field.
+ */
+function preserveRouteGeometry(fresh: VoyageRow, previous: VoyageRow | undefined): VoyageRow {
+    if (!previous) return fresh;
+    return {
+        ...fresh,
+        departureCoords: fresh.departureCoords ?? previous.departureCoords,
+        arrivalCoords: fresh.arrivalCoords ?? previous.arrivalCoords,
+        routeCoordinates: fresh.routeCoordinates ?? previous.routeCoordinates,
+        plannedRouteId: fresh.plannedRouteId ?? previous.plannedRouteId,
+        distanceNm: fresh.distanceNm ?? previous.distanceNm,
+        durationHours: fresh.durationHours ?? previous.durationHours,
+    };
+}
+
 function splitRouteEndpoints(label: string): [string | undefined, string | undefined] {
     for (const separator of [' → ', ' - ']) {
         const parts = label.split(separator);
@@ -707,13 +734,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (visibleCachedDrafts.length > 0) {
             // Keep any verified shared passages while the skipper's own cached
             // routes appear immediately.
-            setDraftVoyages((previous) => [
-                ...new Map(
-                    [...visibleCachedDrafts, ...previous.filter((row) => row.isShared)].map(
-                        (row) => [row.id, row] as const,
-                    ),
-                ).values(),
-            ]);
+            setDraftVoyages((previous) => {
+                const prior = new Map(previous.map((row) => [row.id, row] as const));
+                return [
+                    ...new Map(
+                        [
+                            ...visibleCachedDrafts.map((row) => preserveRouteGeometry(row, prior.get(row.id))),
+                            ...previous.filter((row) => row.isShared),
+                        ].map((row) => [row.id, row] as const),
+                    ).values(),
+                ];
+            });
             setSavedRoutesLoading(false);
         } else if (savedRoutesSettledGeneration.current !== scope.generation) {
             // Show the initial load only. Once this identity has confirmed an
@@ -743,13 +774,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const canonicalCachedDrafts = allDrafts.filter((draft) =>
             isCanonicalSavedRouteDraft(draft, cachedCanonicalIds, cachedPassageVoyageIds),
         );
-        setDraftVoyages((previous) => [
-            ...new Map(
-                [...canonicalCachedDrafts, ...previous.filter((row) => row.isShared)].map(
-                    (row) => [row.id, row] as const,
-                ),
-            ).values(),
-        ]);
+        setDraftVoyages((previous) => {
+            const prior = new Map(previous.map((row) => [row.id, row] as const));
+            return [
+                ...new Map(
+                    [
+                        ...canonicalCachedDrafts.map((row) => preserveRouteGeometry(row, prior.get(row.id))),
+                        ...previous.filter((row) => row.isShared),
+                    ].map((row) => [row.id, row] as const),
+                ).values(),
+            ];
+        });
         savedRoutesSettledGeneration.current = scope.generation;
         setSavedRoutesLoading(false);
 

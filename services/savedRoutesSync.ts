@@ -226,7 +226,34 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             }),
             scope,
         );
-        if (isAuthIdentityScopeCurrent(scope)) notifySavedRoutesChanged(scope);
+        // ONLY announce a change when something actually changed.
+        //
+        // This fired unconditionally, and it drove a self-sustaining reload
+        // loop that emptied the Passage Planning summary. notifySavedRoutesChanged
+        // dispatches 'thalassa:saved-routes-changed' SYNCHRONOUSLY; CrewManagement
+        // listens for it and calls reloadDropdown(), whose first statement bumps
+        // dropdownReloadVersion. That bump lands before the in-flight reload's
+        // `await Promise.all([... syncSavedRoutes() ...])` resumes, so its version
+        // guard aborts it — after its early phases have already repainted the rows
+        // as bare Voyage objects, and BEFORE the only phase that attaches geometry.
+        //
+        // Every reload therefore stripped departureCoords, routeCoordinates,
+        // distanceNm and durationHours and then cancelled itself, forever. Hence
+        // Duration "--", Distance "--" and "Forecast unavailable" (the max-conditions
+        // fetch short-circuits on fewer than 2 route points). It only appeared to
+        // self-heal when a sync threw, or when signed out — which is why it read as
+        // intermittent rather than broken.
+        //
+        // Signature is order-insensitive and cheap: identity plus the two things a
+        // meaningful change moves — the revision stamp and the point count.
+        const signature = (traces: SavedTrace[]) =>
+            traces
+                .map((t) => `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}`)
+                .sort()
+                .join('|');
+        if (isAuthIdentityScopeCurrent(scope) && signature(local) !== signature(repaired.traces)) {
+            notifySavedRoutesChanged(scope);
+        }
         return isAuthIdentityScopeCurrent(scope) ? repaired.traces : loadSavedTraces();
     } catch (err) {
         log.warn(`sync failed: ${err instanceof Error ? err.message : String(err)}`);
