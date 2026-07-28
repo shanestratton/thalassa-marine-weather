@@ -458,12 +458,29 @@ function parseWeatherKitPayload(value: Record<string, unknown>): WeatherKitPaylo
         return null;
     }
 
+    // ── Array caps: sized to what Apple ACTUALLY returns, not to the name ──
+    //
+    // These three caps are sanity bounds, not the memory guard — the response
+    // is already capped at WEATHERKIT_MAX_BYTES. Two of them were set from what
+    // the field is CALLED rather than what it contains, and both were being
+    // exceeded on every single request, which is why this endpoint 502'd on the
+    // free path (Shane 2026-07-28). Measured against Apple's live response for
+    // Brisbane:
+    //
+    //   forecastNextHour.minutes   84 sent  vs   60 cap   ← "next hour" runs ~85 min
+    //   forecastHourly.hours      250 sent  vs  240 cap   ← not 10 x 24
+    //   forecastDaily.days         10 sent  vs   10 cap   ← passing with NO headroom
+    //
+    // Raised with room to move: one rejected element fails the WHOLE payload
+    // (parseWeatherKitPayload returns null and the caller throws), so a cap set
+    // at the observed value is a latent outage the first time Apple returns one
+    // more element than today.
     const nextHour = value.forecastNextHour as Record<string, unknown> | undefined;
     const minutes = nextHour?.minutes;
     if (
         minutes !== undefined &&
         (!Array.isArray(minutes) ||
-            minutes.length > 60 ||
+            minutes.length > 120 ||
             !minutes.every(
                 (minute) =>
                     isRecord(minute) &&
@@ -492,7 +509,7 @@ function parseWeatherKitPayload(value: Record<string, unknown>): WeatherKitPaylo
 
     const hourly = value.forecastHourly as Record<string, unknown> | undefined;
     const hours = hourly?.hours;
-    if (!Array.isArray(hours) || hours.length > 240 || !hours.every(isRecord)) return null;
+    if (!Array.isArray(hours) || hours.length > 400 || !hours.every(isRecord)) return null;
     for (const hour of hours) {
         if (
             !hasOptionalFiniteNumbers(hour, [
@@ -519,7 +536,7 @@ function parseWeatherKitPayload(value: Record<string, unknown>): WeatherKitPaylo
 
     const daily = value.forecastDaily as Record<string, unknown> | undefined;
     const days = daily?.days;
-    if (!Array.isArray(days) || days.length > 10 || !days.every(isRecord)) return null;
+    if (!Array.isArray(days) || days.length > 16 || !days.every(isRecord)) return null;
     for (const day of days) {
         if (
             !hasOptionalFiniteNumbers(day, [
