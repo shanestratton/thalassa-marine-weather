@@ -104,10 +104,25 @@ public class BackgroundLocationPlugin: CAPPlugin, CLLocationManagerDelegate {
      * voyage / anchor tracking already owns the live Core Location stream via
      * TSLocationManager. Reading that cache adds no second GPS consumer,
      * battery use, or permission request.
+     *
+     * SDK v9 moved the cache: `lastLocation` is no longer a property of the
+     * manager (which Swift now imports as non-optional `BackgroundGeolocation`,
+     * so the old `?.` is a compile error too). It lives on TSOdometer, which
+     * keeps the last fix in order to accumulate distance — same CLLocation,
+     * same provenance fields, just reached through the object that owns it.
      */
     @objc func getActiveLocationSource(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            guard let location = TSLocationManager.sharedInstance()?.lastLocation else {
+            // Bound through an explicit Optional ON PURPOSE. TSOdometer.h
+            // declares `lastLocation` as a bare `CLLocation*` with no
+            // nullability annotation, so Swift imports it as NON-optional and
+            // rejects `guard let` outright — while Objective-C is still free to
+            // hand back nil, which it does before the very first fix of a
+            // session. Taking Swift's word for it would turn "no fix yet" into
+            // a crash on the first call. Widening to CLLocation? costs nothing
+            // and restores the check the API cannot express.
+            let cachedLocation: CLLocation? = TSOdometer.sharedInstance().lastLocation
+            guard let location = cachedLocation else {
                 call.resolve([
                     "hasLocation": false,
                     "timestampMs": NSNull(),
