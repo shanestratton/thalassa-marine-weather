@@ -74,9 +74,26 @@ describe('weatherWindowScore', () => {
         expect(r.weakest.length).toBeGreaterThan(0);
     });
 
-    it('is provisional until every question is answered', () => {
+    it('never returns a GO band on an unfinished questionnaire', () => {
+        // `complete` was computed and then ignored: the band came purely from
+        // the score, so answering two easy questions well returned a green GO
+        // on a form that had never asked about the bar, the crew or the
+        // bail-outs. The only trace was a sentence prepended to the verdict —
+        // the part a skipper glancing at a green badge does not read.
         const r = scoreWeatherWindow({ tropical_system: 'no', window_margin: 'over2' });
         expect(r.complete).toBe(false);
+        expect(r.band).toBe('INCOMPLETE');
+        expect(r.verdict).toMatch(/not enough answered/i);
+    });
+
+    it('still reports a veto on an unfinished questionnaire', () => {
+        // A failed gate is true and actionable however much is left blank, so
+        // incompleteness must not mask it.
+        const r = scoreWeatherWindow({ tropical_system: 'yes' });
+        expect(r.complete).toBe(false);
+        expect(r.band).toBe('NO-GO');
+        expect(r.vetoes.length).toBeGreaterThan(0);
+        // ...but the skipper is still told the rest is unanswered.
         expect(r.verdict).toMatch(/answer all/i);
     });
 

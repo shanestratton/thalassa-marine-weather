@@ -29,6 +29,21 @@ function finalLocalityToken(value: string): string {
 }
 
 /**
+ * Is this string a GENERATED endpoint label — "<title> — start" / "— end" —
+ * rather than a real place?
+ *
+ * The Route Tracer stamps those onto a passage's departure_port and
+ * destination_port. They read as a place name to any consumer that does not
+ * know better, and the Passage Coordinates panel was rendering
+ * "Newport – Moreton Bay – start" under a heading that promises a lat/lon
+ * (Shane 2026-07-29: "the passage coords are wrong").
+ */
+export function isGeneratedEndpointLabel(value: string | null | undefined): boolean {
+    if (!value) return false;
+    return generatedEndpointBase(value, 'start') !== null || generatedEndpointBase(value, 'end') !== null;
+}
+
+/**
  * Return the saved trace title when both endpoint labels are the generated
  * `<title> — start/end` pair. GPS precision can make the two title prefixes
  * differ slightly, so a shared final destination locality is also accepted.

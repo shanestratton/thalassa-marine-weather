@@ -61,7 +61,7 @@ export type Question = ScoredQuestion | GateQuestion;
 /** Answers keyed by question id → chosen option id. */
 export type Answers = Record<string, string>;
 
-export type Band = 'GO' | 'MARGINAL' | 'NO-GO';
+export type Band = 'GO' | 'MARGINAL' | 'NO-GO' | 'INCOMPLETE';
 
 export interface WeatherWindowResult {
     /** 0–100 over the scored questions answered. */
@@ -249,6 +249,7 @@ export const QUESTIONS: Question[] = [
 ];
 
 const VERDICTS: Record<Band, string> = {
+    INCOMPLETE: 'Not enough answered to call it. Finish the questions — a partial score is not a window.',
     GO: 'Clears the bar — this looks like a window. Final call is yours, against the official forecast.',
     MARGINAL: 'Marginal — only if you’re rigged for the worst of it and your bail-outs are solid.',
     'NO-GO': 'Not a window. Wait for a better one.',
@@ -284,9 +285,23 @@ export function scoreWeatherWindow(answers: Answers): WeatherWindowResult {
     const answeredGates = gates.filter((g) => answers[g.id] != null).length;
     const complete = answeredGates === gates.length && answeredScored === scored.length;
 
-    // 3. Band — gates override the number.
+    // 3. Band — gates override the number, and an unfinished form overrides
+    // a flattering one.
+    //
+    // `complete` was computed here and then ignored: the band came purely
+    // from the score, so answering two easy questions well returned a green
+    // GO on a questionnaire that had never asked about the bar, the crew or
+    // the bail-outs. The only trace of incompleteness was a sentence
+    // prepended to the verdict text — which is the part a skipper glancing at
+    // a green badge does not read.
+    //
+    // A veto still wins over incompleteness: "one of your gates already fails"
+    // is a true and actionable answer no matter how much is left blank. But an
+    // unfinished form can never produce GO or MARGINAL, because a score over a
+    // subset is not a score of the passage.
     let band: Band;
     if (vetoes.length > 0) band = 'NO-GO';
+    else if (!complete) band = 'INCOMPLETE';
     else if (score >= GO_THRESHOLD) band = 'GO';
     else if (score >= MARGINAL_THRESHOLD) band = 'MARGINAL';
     else band = 'NO-GO';
@@ -297,7 +312,11 @@ export function scoreWeatherWindow(answers: Answers): WeatherWindowResult {
         .slice(0, 3);
 
     let verdict = VERDICTS[band];
-    if (!complete) verdict = `Answer all questions for a full read. So far: ${verdict}`;
+    // Still flag a partial read on a VETOED form — that band is legitimate,
+    // but the skipper should know the rest is unanswered.
+    if (!complete && band !== 'INCOMPLETE') {
+        verdict = `Answer all questions for a full read. So far: ${verdict}`;
+    }
 
     return {
         score,

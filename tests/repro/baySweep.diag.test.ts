@@ -379,6 +379,13 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
             throw new Error(`BAY_SWEEP_ONLY did not match a passage: ${process.env.BAY_SWEEP_ONLY}`);
         }
         const rows: string[] = [];
+        // Recorded here, asserted AFTER the sweep. The per-passage try/catch
+        // below exists so one environmental failure (Pi down, a cell missing)
+        // does not abandon the other eleven diagnostics — but it also caught
+        // AssertionError, turning the one real safety check in this file into
+        // a "THREW:" line in a log nobody reads, after which the test passed
+        // on a row count. A guard that cannot fail is worse than no guard.
+        let seawayHardLand: number | null = null;
         for (const p of passages) {
             const t0 = Date.now();
             let row = `\n### ${p.name}`;
@@ -438,9 +445,7 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
                         `  caution ${(r.cautionMask ?? []).filter(Boolean).length}/${(r.cautionMask ?? []).length} segs` +
                         `  [${ms} ms, cells=${cells.join(',')}]`;
                     if (p.name === 'Seaway → Paradise Point') {
-                        expect(hardLand, 'Seaway → Paradise Point must never emit an unvouched hard-land sample').toBe(
-                            0,
-                        );
+                        seawayHardLand = hardLand;
                     }
                 }
             } catch (err) {
@@ -451,6 +456,11 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
         }
         console.log('\n=== SWEEP COMPLETE ===');
         expect(rows.length).toBe(passages.length);
+        // Outside the try, so an AssertionError here actually fails the test.
+        // null means the passage never produced a reading at all — which is
+        // itself a failure of this check, not a pass by absence.
+        expect(seawayHardLand, 'Seaway → Paradise Point produced no hard-land reading').not.toBeNull();
+        expect(seawayHardLand, 'Seaway → Paradise Point must never emit an unvouched hard-land sample').toBe(0);
         // 300s cap like the sibling long diags (mooloolabaHomecoming,
         // tangaloomaLeads) — the 12-passage sweep runs ~110s with the Pi
         // up, and the suite-wide 20s default was failing it on time alone.

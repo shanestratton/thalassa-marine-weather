@@ -19,7 +19,7 @@ import type { ShipLogEntry } from '../../types';
 import { TrackMapViewer } from '../TrackMapViewer';
 import { useReadinessIdentityScope } from '../../hooks/useReadinessSync';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
-import { formatPlannedRouteLabel } from '../../services/shiplog/plannedRouteNaming';
+import { formatPlannedRouteLabel, isGeneratedEndpointLabel } from '../../services/shiplog/plannedRouteNaming';
 import {
     departureAtLocalTime,
     derivePassageSummarySchedule,
@@ -962,7 +962,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         <div className="text-xs text-white font-mono">
                             {effectiveDepartLat != null && effectiveDepartLon != null
                                 ? formatCoord(effectiveDepartLat, effectiveDepartLon)
-                                : departPort || '--'}
+                                : isGeneratedEndpointLabel(departPort)
+                                  ? '--'
+                                  : departPort || '--'}
                         </div>
                     </div>
                     <div>
@@ -972,7 +974,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         <div className="text-xs text-white font-mono">
                             {effectiveArriveLat != null && effectiveArriveLon != null
                                 ? formatCoord(effectiveArriveLat, effectiveArriveLon)
-                                : destPort || '--'}
+                                : isGeneratedEndpointLabel(destPort)
+                                  ? '--'
+                                  : destPort || '--'}
                         </div>
                     </div>
                 </div>
