@@ -52,7 +52,7 @@ import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
-import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { peekPassageRequest, clearPassageRequest } from '../../services/passageHandoff';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
@@ -1407,7 +1407,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             validateRouteSegments(seedNodes, {
                                 vesselDraftM,
                                 // Assumed default draft (no draft set) → surface the caution (audit #2).
-                                draftAssumed: !(Number(useSettingsStore.getState().settings.vessel?.draft) > 0),
+                                draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
                                 departureTimeMs,
                                 stillCurrent: () => !shortRouteStale,
                             }),
@@ -1878,7 +1878,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 validateRouteSegments(isoResult.route, {
                                     vesselDraftM,
                                     // Assumed default draft (no draft set) → surface the caution (audit #2).
-                                    draftAssumed: !(Number(useSettingsStore.getState().settings.vessel?.draft) > 0),
+                                    draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
                                     departureTimeMs,
                                     stillCurrent: () => !deferredStale && computeGenRef.current === gen,
                                 }),
@@ -2230,8 +2230,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                                 validateRouteSegments(ecmwfNodes, {
                                                     vesselDraftM,
                                                     // Assumed default draft (no draft set) → caution (audit #2).
-                                                    draftAssumed: !(
-                                                        Number(useSettingsStore.getState().settings.vessel?.draft) > 0
+                                                    draftAssumed: vesselDraftIsAssumed(
+                                                        useSettingsStore.getState().settings.vessel,
                                                     ),
                                                     departureTimeMs,
                                                     // The braid is the ECMWF COMPARISON line,
