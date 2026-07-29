@@ -169,7 +169,10 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: VoyagePlanner,
         boundaryName: 'VoyagePlanner',
         group: 'standalone',
-        getProps: (ctx) => ({ onTriggerUpgrade: () => ctx.setIsUpgradeOpen(true) }),
+        getProps: (ctx) => ({
+            onTriggerUpgrade: () => ctx.setIsUpgradeOpen(true),
+            onBack: () => ctx.setPage('dashboard'),
+        }),
     },
     settings: {
         component: SettingsView,
@@ -204,6 +207,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: ChatPage,
         boundaryName: 'Chat',
         group: 'standalone',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('dashboard') }),
     },
     voice: {
         component: BosunConsolePage,

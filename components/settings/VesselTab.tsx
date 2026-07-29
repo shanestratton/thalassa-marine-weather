@@ -1061,30 +1061,77 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-1 h-4 rounded-full bg-emerald-500" />
                         <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">
-                            Performance (Auto)
+                            Performance
                         </span>
+                        <span className="text-[11px] text-gray-400 ml-auto">Auto unless you set it</span>
                     </div>
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        {/* Derived from LOA and hull type, but OVERRIDABLE: the
+                            formulas are a starting guess and the skipper knows
+                            the boat. A stored positive value wins in every
+                            consumer (see vesselCruisingSpeedKts /
+                            vesselMaxWaveHeightFt); storing 0 means "absent", so
+                            Reset hands the figure back to the formula. */}
+                        <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Cruising Speed
-                                </label>
-                                <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                                    {Math.round(vesselCruisingSpeedKts(vessel) * 10) / 10} kts
-                                </p>
+                                <MetricInput
+                                    label="Cruising Speed"
+                                    valInStandard={
+                                        Number(vessel?.cruisingSpeed) > 0 ? Number(vessel?.cruisingSpeed) : 0
+                                    }
+                                    standardUnit="kts"
+                                    // Knots only, deliberately. VesselDimensionUnits has no
+                                    // speed member, and adding one would ripple through the
+                                    // settings store and the fleet profile that owns vessel
+                                    // data — for a figure every skipper already thinks about
+                                    // in knots.
+                                    unitType="kts"
+                                    unitOptions={['kts']}
+                                    onChangeValue={(v) => updateVessel('cruisingSpeed', v)}
+                                    onChangeUnit={() => {}}
+                                    placeholder={String(Math.round(vesselCruisingSpeedKts(vessel) * 10) / 10)}
+                                />
+                                {Number(vessel?.cruisingSpeed) > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => updateVessel('cruisingSpeed', 0)}
+                                        className="mt-1.5 text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                                    >
+                                        ↻ Reset to auto (
+                                        {Math.round(vesselCruisingSpeedKts({ ...vessel, cruisingSpeed: 0 }) * 10) / 10}{' '}
+                                        kts)
+                                    </button>
+                                )}
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Max Wave Height
-                                </label>
-                                <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                                    {Math.round(vesselMaxWaveHeightFt(vessel) * 10) / 10} ft
-                                </p>
+                                <MetricInput
+                                    label="Max Wave Height"
+                                    valInStandard={
+                                        Number(vessel?.maxWaveHeight) > 0 ? Number(vessel?.maxWaveHeight) : 0
+                                    }
+                                    standardUnit="ft"
+                                    unitType={settings.vesselUnits?.length || 'ft'}
+                                    unitOptions={['ft', 'm']}
+                                    onChangeValue={(v) => updateVessel('maxWaveHeight', v)}
+                                    onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
+                                    placeholder={String(Math.round(vesselMaxWaveHeightFt(vessel) * 10) / 10)}
+                                />
+                                {Number(vessel?.maxWaveHeight) > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => updateVessel('maxWaveHeight', 0)}
+                                        className="mt-1.5 text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                                    >
+                                        ↻ Reset to auto (
+                                        {Math.round(vesselMaxWaveHeightFt({ ...vessel, maxWaveHeight: 0 }) * 10) / 10}{' '}
+                                        ft)
+                                    </button>
+                                )}
                             </div>
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-3">
-                            Auto-calculated from vessel length and hull type
+                        <p className="mt-3 text-[11px] text-gray-400">
+                            Started from your length and hull type. Type over either one if you know better — the
+                            passage planner, ETAs and tide windows all use what you set here.
                         </p>
                     </div>
                 </div>

@@ -105,7 +105,7 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
 }
 
 // --- MAIN COMPONENT ---
-export const ChatPage: React.FC = React.memo(() => {
+export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack }) => {
     const { settings } = useSettings();
 
     // View state
@@ -604,6 +604,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 isUserBlocked={isUserBlocked}
                 hasDMPartner={!!dmPartner}
                 onGoBack={goBack}
+                onExit={onBack}
                 onOpenProfile={() => {
                     setNavDirection('forward');
                     setView('profile');

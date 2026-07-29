@@ -1583,20 +1583,25 @@ interface MetricChipData {
  *  like a row of instrument readouts. */
 const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix, color, ariaLabel }) => (
     <span
-        className="inline-flex items-center gap-1 font-mono tabular-nums whitespace-nowrap text-[11px] leading-none"
+        className="inline-flex items-center gap-1 font-mono tabular-nums whitespace-nowrap text-[13px] leading-none"
         style={color ? { color } : undefined}
         aria-label={ariaLabel}
         title={ariaLabel}
     >
         {icon && (
-            <span className="inline-flex items-center justify-center w-3 h-3 text-white/70 [&_svg]:w-3 [&_svg]:h-3">
+            <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-white/70 [&_svg]:w-3.5 [&_svg]:h-3.5">
                 {icon}
             </span>
         )}
-        {label && <span className="text-[10px] uppercase tracking-wider text-white/40">{label}</span>}
-        <span className={color ? 'font-bold text-base leading-none' : 'text-white/85'}>{value}</span>
-        {unit && <span className="text-[10px] text-white/40">{unit}</span>}
-        {suffix && <span className="text-[10px] text-white/60 ml-0.5">{suffix}</span>}
+        {label && <span className="text-[11px] uppercase tracking-wider text-white/40">{label}</span>}
+        {/* The VALUE is the datum the skipper is actually reading at a glance,
+            so it carries the size. Labels and units stay subordinate but sit at
+            11px rather than 10px — the project's own stated legibility floor. */}
+        <span className={color ? 'font-bold text-xl leading-none' : 'text-[17px] font-semibold text-white/90'}>
+            {value}
+        </span>
+        {unit && <span className="text-[11px] text-white/40">{unit}</span>}
+        {suffix && <span className="text-[11px] text-white/60 ml-0.5">{suffix}</span>}
     </span>
 );
 
@@ -1615,7 +1620,7 @@ const MetricChipStrip: React.FC<{ chips: MetricChipData[]; showTopBorder?: boole
     if (chips.length === 0) return null;
     return (
         <div
-            className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-4 pt-1.5 pb-3 ${
+            className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 pt-1 pb-2 ${
                 showTopBorder ? 'border-t border-white/[0.06]' : ''
             }`}
         >
