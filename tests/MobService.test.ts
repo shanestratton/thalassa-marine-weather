@@ -122,6 +122,19 @@ describe('MobService', () => {
         await resetService();
     });
 
+    it('STARTS the GPS engine, not just a passive listener', async () => {
+        // GpsService.watchPosition defaults ensureRunning to false: a bare
+        // subscribe receives fixes only if something else already started the
+        // engine. App renders MapHub and the Dashboard — the only hooks that
+        // do — mutually exclusively with the MOB screen, so without
+        // ensureRunning the live bearing and distance to the person in the
+        // water never populate, under a pulsing "Live" badge.
+        mockFix = { latitude: -27.4, longitude: 153.1, accuracy: 5 };
+        await MobService.activate();
+        const call = vi.mocked(GpsService.watchPosition).mock.calls.at(-1);
+        expect(call?.[1]).toEqual({ ensureRunning: true });
+    });
+
     it('activates at the current GPS fix and is active', async () => {
         mockFix = { latitude: -27.0, longitude: 153.0, accuracy: 4 };
         const snap = await MobService.activate();
