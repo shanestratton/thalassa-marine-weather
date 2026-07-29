@@ -114,9 +114,9 @@ export const calculateFeelsLike = (tempC: number, humidity: number, windSpeedKts
  * @param {number} lon2 - Longitude of second point
  * @returns {number} Distance in kilometers
  * @example
- * calculateDistance(-27.47, 153.02, -33.87, 151.21) // Sydney to Brisbane ≈ 730km
+ * calculateDistanceKm(-27.47, 153.02, -33.87, 151.21) // Sydney to Brisbane ≈ 730km
  */
-export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+export const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371; // Radius of the earth in km
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);

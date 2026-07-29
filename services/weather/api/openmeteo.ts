@@ -5,7 +5,7 @@ import { isWxServerAvailable, wxServerBase } from '../wxServer';
 import { isConcreteModel } from '../forecastModels';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { generateDescription } from '../transformers';
-import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
+import { calculateFeelsLike, calculateDistanceKm } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
 import { piCache } from '../../PiCacheService';
 import { getSolarTimes, getMoonData } from '../../../utils/celestial';
@@ -584,7 +584,7 @@ const doFetchOpenMeteo = async (
                 );
 
             if (!isGeneric) {
-                distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
+                distToLand = calculateDistanceKm(lat, lon, landCtx.lat, landCtx.lon);
             } else {
                 landCtx = null;
                 distToLand = 9999;

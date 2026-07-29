@@ -1,4 +1,4 @@
-import { calculateDistance } from '../../utils/math';
+import { calculateDistanceKm } from '../../utils/math';
 import { fetchOpenMeteoPoints } from './openMeteoProxy';
 
 export interface MarineProximityResult {
@@ -62,7 +62,7 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
                 // Found valid water!
                 // Calculate actual distance from user to the matching ring point
                 const matchedPoint = points[idx];
-                const distKm = matchedPoint ? calculateDistance(lat, lon, matchedPoint.lat, matchedPoint.lon) : 0;
+                const distKm = matchedPoint ? calculateDistanceKm(lat, lon, matchedPoint.lat, matchedPoint.lon) : 0;
 
                 return {
                     hasMarineData: true,

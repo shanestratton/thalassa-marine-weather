@@ -4,7 +4,7 @@ import {
     calculateWindChill,
     calculateApparentTemp,
     calculateFeelsLike,
-    calculateDistance,
+    calculateDistanceKm,
     getSunTimes,
 } from '../utils/math';
 
@@ -35,28 +35,28 @@ describe('Math Utils', () => {
         });
     });
 
-    describe('calculateDistance', () => {
+    describe('calculateDistanceKm', () => {
         it('should calculate distance between two points', () => {
             // New York to London approx 3461 miles / 5570 km / 3007 nm
             // 40.7128° N, 74.0060° W -> 51.5074° N, 0.1278° W
-            const dist = calculateDistance(40.7128, -74.006, 51.5074, -0.1278);
+            const dist = calculateDistanceKm(40.7128, -74.006, 51.5074, -0.1278);
             expect(dist).toBeGreaterThan(5500); // KM (approx 5570km)
             expect(dist).toBeLessThan(5600);
         });
 
         it('should return 0 for same location', () => {
-            expect(calculateDistance(10, 10, 10, 10)).toBe(0);
+            expect(calculateDistanceKm(10, 10, 10, 10)).toBe(0);
         });
 
         it('1 degree lat ≈ 111 km', () => {
-            const dist = calculateDistance(0, 0, 1, 0);
+            const dist = calculateDistanceKm(0, 0, 1, 0);
             expect(dist).toBeGreaterThan(110);
             expect(dist).toBeLessThan(112);
         });
 
         it('is symmetric', () => {
-            const ab = calculateDistance(-33, 151, -27, 153);
-            const ba = calculateDistance(-27, 153, -33, 151);
+            const ab = calculateDistanceKm(-33, 151, -27, 153);
+            const ba = calculateDistanceKm(-27, 153, -33, 151);
             expect(ab).toBeCloseTo(ba, 5);
         });
     });

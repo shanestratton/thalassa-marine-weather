@@ -22,7 +22,7 @@ import { describe, it, expect } from 'vitest';
 
 // Exported great-circle distance implementations (the ones a test can reach)
 import { calculateDistance as navDistanceNm } from '../utils/navigationCalculations';
-import { calculateDistance as mathDistanceKm } from '../utils/math';
+import { calculateDistanceKm as mathDistanceKm } from '../utils/math';
 import { calculateDistanceNM as shiplogDistanceNm } from '../services/shiplog/helpers';
 import { haversineMeters as gpsBufferMeters } from '../services/shiplog/GpsTrackBuffer';
 import { haversineNm as isochroneDistanceNm } from '../services/isochrone/geodesy';
@@ -67,8 +67,8 @@ const FIXTURES: Fixture[] = [
 
 // name → adapter that returns the implementation's result in METRES
 const GREAT_CIRCLE: { name: string; meters: (f: Fixture['p']) => number }[] = [
-    { name: 'navigationCalculations.calculateDistance', meters: (p) => navDistanceNm(...p) * NM_TO_M },
-    { name: 'math.calculateDistance', meters: (p) => mathDistanceKm(...p) * KM_TO_M },
+    { name: 'navigationCalculations.calculateDistanceKm', meters: (p) => navDistanceNm(...p) * NM_TO_M },
+    { name: 'math.calculateDistanceKm', meters: (p) => mathDistanceKm(...p) * KM_TO_M },
     { name: 'shiplog/helpers.calculateDistanceNM', meters: (p) => shiplogDistanceNm(...p) * NM_TO_M },
     { name: 'shiplog/GpsTrackBuffer.haversineMeters', meters: (p) => gpsBufferMeters(...p) },
     { name: 'isochrone/geodesy.haversineNm', meters: (p) => isochroneDistanceNm(...p) * NM_TO_M },

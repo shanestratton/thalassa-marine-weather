@@ -6,7 +6,7 @@
 import React from 'react';
 import type { VoyagePlan, VesselProfile } from '../../types';
 import { fmtLat, fmtLon, fmtCoord } from '../../utils/coords';
-import { calculateDistance } from '../../utils/math';
+import { calculateDistanceKm } from '../../utils/math';
 import { WindIcon, WaveIcon } from '../Icons';
 
 interface VoyageLogTableProps {
@@ -68,7 +68,7 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                 : voyagePlan.waypoints[i - 1].coordinates?.lon || 0;
                         const distKm =
                             wp.coordinates && prevLat
-                                ? calculateDistance(prevLat, prevLon, wp.coordinates.lat, wp.coordinates.lon)
+                                ? calculateDistanceKm(prevLat, prevLon, wp.coordinates.lat, wp.coordinates.lon)
                                 : 0;
                         const _distNm = distKm * 0.539957;
 
