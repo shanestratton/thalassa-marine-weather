@@ -171,6 +171,8 @@ import { useAutoRouteLeg } from './useAutoRouteLeg';
 import { useTracerLegFixes } from './useTracerLegFixes';
 import { useTracerGhostLanes } from './useTracerGhostLanes';
 import { useTracerSessionEffects } from './useTracerSessionEffects';
+import { useTracerFrameMarkers } from './useTracerFrameMarkers';
+import { useTracerPinMarkers } from './useTracerPinMarkers';
 import {
     AUTO_ROUTE_BUTTON_VISIBLE,
     CHARTS_FAB_CATEGORY_VISIBLE,
@@ -451,29 +453,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         plotArmedRef.current = plotArmed;
     }, [plotArmed]);
-    // Per-pin marker records for RECONCILIATION (Shane 2026-07-15: "still
-    // becoming unresponsive the moment I have a lot of waypoints"). The
-    // old effect destroyed and recreated every DOM marker on EVERY pin
-    // add / nudge / selection tap — O(N) DOM churn per interaction, and
-    // the churn itself forced Mapbox to re-anchor all N roots. Records
-    // let each pass touch only what changed: append = 1 create + 1
-    // restyle, drag = 1 move, select = 2 restyles. `index` is LIVE —
-    // listeners read it at fire time so inserts/deletes never orphan a
-    // closure; `sig` is the rendered-style signature so unchanged pins
-    // skip all style writes.
-    const captureMarkersRef = useRef<
-        Array<{
-            marker: mapboxgl.Marker;
-            el: HTMLDivElement;
-            dot: HTMLDivElement;
-            tag: HTMLDivElement | null;
-            sig: string;
-            lat: number;
-            lon: number;
-            index: number;
-            dragged: boolean;
-        }>
-    >([]);
     // Tracer verdicts + context. The context (ENC cells + OSM overlay +
     // depth grid over the trace bbox) builds async once per area; a seq
     // guard drops stale builds when pins outrun a slow fetch.
@@ -708,7 +687,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [fromQuery, setFromQuery] = useState('');
     const [toQuery, setToQuery] = useState('');
     const [frameBusy, setFrameBusy] = useState(false);
-    const frameMarkersRef = useRef<mapboxgl.Marker[]>([]);
     /** Route report (Phase 3): review → Fix/Acknowledge → sail. */
     const [showReport, setShowReport] = useState(false);
     const [ackedLegs, setAckedLegs] = useState<Set<number>>(new Set());
@@ -1264,37 +1242,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (firstTry !== null) window.clearInterval(firstTry);
         };
     }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest, traceLayerNudge]);
-    // START / 🏁 ghost markers for the course frame — DOM markers (they
-    // survive basemap style switches), hollow rings so they can never be
-    // mistaken for trace pins. Rebuilt whole on any frame change.
-    useEffect(() => {
-        frameMarkersRef.current.forEach((m) => m.remove());
-        frameMarkersRef.current = [];
-        const map = mapRef.current;
-        if (!map || !coordCaptureMode) return;
-        const mk = (p: { lat: number; lon: number; name: string }, kind: 'start' | 'finish'): mapboxgl.Marker => {
-            const colour = kind === 'start' ? '#34d399' : '#f87171';
-            const el = document.createElement('div');
-            el.style.cssText = 'display:flex;flex-direction:column;align-items:center;pointer-events:none;';
-            const ring = document.createElement('div');
-            ring.style.cssText = `width:16px;height:16px;border-radius:50%;border:3px solid ${colour};background:rgba(15,23,42,0.5);box-shadow:0 0 6px rgba(0,0,0,0.7);`;
-            const label = document.createElement('div');
-            label.style.cssText = `margin-top:2px;max-width:96px;font:800 9px/1.15 system-ui;letter-spacing:0.04em;text-align:center;color:${colour};text-shadow:0 1px 3px #000;`;
-            label.textContent = kind === 'start' ? 'START' : `🏁 ${p.name}`;
-            el.append(ring, label);
-            return new mapboxgl.Marker({ element: el, anchor: 'top' }).setLngLat([p.lon, p.lat]).addTo(map);
-        };
-        // Origin ghost only until the first real pin lands — pin 1 IS the
-        // START button now, and two green STARTs on one chart is noise.
-        // The 🏁 destination ghost stays: it's the target being traced
-        // toward until the trace actually gets there.
-        if (traceOrigin && capturedCoords.length === 0) frameMarkersRef.current.push(mk(traceOrigin, 'start'));
-        if (traceDest) frameMarkersRef.current.push(mk(traceDest, 'finish'));
-        return () => {
-            frameMarkersRef.current.forEach((m) => m.remove());
-            frameMarkersRef.current = [];
-        };
-    }, [traceOrigin, traceDest, coordCaptureMode, capturedCoords.length]);
+    // START / 🏁 ghost rings for the course frame —
+    // components/map/useTracerFrameMarkers.ts. Called BEFORE the pin markers
+    // on purpose: DOM markers paint in insertion order, so pins go on top.
+    useTracerFrameMarkers({ mapRef, coordCaptureMode, traceOrigin, traceDest, pinCount: capturedCoords.length });
     // Arrival nudge — the punter's latest pin landed on the doorstep of
     // the framed destination: close the loop, point at Save.
     useEffect(() => {
@@ -1318,140 +1269,22 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         triggerHaptic('medium');
     }, [capturedCoords]);
-    // Drop / refresh a numbered pin per captured coord so the skipper can see
-    // exactly where each tap landed. Pins are DRAGGABLE (nudge one and the
-    // adjoining legs re-grade live) and TAPPABLE (select → Delete / Insert-
-    // after in the panel). The visual circle stays 22 px but rides inside a
-    // 40 px transparent hit-slop so gloved fingers can actually grab it.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map) return;
-        const recs = captureMarkersRef.current;
-        if (!coordCaptureMode) {
-            recs.forEach((r) => r.marker.remove());
-            captureMarkersRef.current = [];
-            return;
-        }
-        // RECONCILE, don't rebuild: pins deleted → pop their markers;
-        // everything else updates in place (position / style signature).
-        while (recs.length > capturedCoords.length) recs.pop()!.marker.remove();
-        capturedCoords.forEach((c, i) => {
-            // Journey book-ends (Shane 2026-07-14): the FIRST pin IS the
-            // green START button and the LAST pin IS the red finish ring —
-            // middles stay numbered (2, 3, …). Appending a pin restyles
-            // the old tail back to its number via the sig diff below.
-            const isStart = i === 0;
-            const isEnd = !isStart && i === capturedCoords.length - 1;
-            // Chained-leg lock (Shane 2026-07-17): pin 1 of a "next leg" IS
-            // the previous leg's arrival — exact coords, not draggable.
-            const locked = isStart && legAnchor !== null;
-            const label = isStart ? '1' : isEnd ? String(capturedCoords.length) : String(i + 1);
-            const smallFont = capturedCoords.length > 9 && isEnd;
-            const sig = `${isStart ? 's' : isEnd ? 'e' : 'm'}|${label}|${i === selectedPin ? 1 : 0}|${smallFont ? 1 : 0}|${locked ? 'L' : ''}`;
-            let rec = recs[i];
-            if (!rec) {
-                const el = document.createElement('div');
-                // NEVER set `position` inline on a Marker root: it overrides
-                // Mapbox's .mapboxgl-marker { position: absolute } and drops
-                // the pin into document FLOW — each pin then rendered a fixed
-                // 40 px × index below its true anchor, which reads as "routes
-                // move when you zoom" (Shane 2026-07-14; live-site autopsy:
-                // transform said y=58, rect said y=118). The root is already
-                // absolutely positioned by Mapbox, so it IS the containing
-                // block for the absolute START label — no `relative` needed.
-                el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
-                const dot = document.createElement('div');
-                el.appendChild(dot);
-                const marker = new mapboxgl.Marker({ element: el, draggable: true })
-                    .setLngLat([c.lon, c.lat])
-                    .addTo(map);
-                const newRec: (typeof recs)[number] = {
-                    marker,
-                    el,
-                    dot,
-                    tag: null,
-                    sig: '', // forces the first style pass below
-                    lat: c.lat,
-                    lon: c.lon,
-                    index: i,
-                    dragged: false,
-                };
-                marker.on('dragstart', () => {
-                    newRec.dragged = true;
-                });
-                marker.on('dragend', () => {
-                    const ll = marker.getLngLat();
-                    triggerHaptic('light');
-                    // Dragging NEAR a lead lands ON the lead (same fat-finger
-                    // rule as placement; >120 m away stays where dropped).
-                    let p0 = { lat: ll.lat, lon: ll.lng };
-                    const ctx = tracerCtxRef.current;
-                    const onLead = ctx ? snapTraceTapToLead(ctx, p0) : null;
-                    if (onLead) {
-                        p0 = onLead;
-                        marker.setLngLat([p0.lon, p0.lat]);
-                        flashTraceFeedback('Snapped onto the lead 🎯');
-                    }
-                    setCapturedCoords((prev) => prev.map((p, j) => (j === newRec.index ? p0 : p)));
-                });
-                el.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (newRec.dragged) {
-                        newRec.dragged = false;
-                        return;
-                    }
-                    triggerHaptic('light');
-                    setSelectedPin((cur) => (cur === newRec.index ? null : newRec.index));
-                    setInsertAfter(null);
-                    insertAfterRef.current = null;
-                });
-                recs[i] = newRec;
-                rec = newRec;
-            }
-            rec.index = i; // keep listener closures honest across inserts/deletes
-            if (rec.lat !== c.lat || rec.lon !== c.lon) {
-                rec.marker.setLngLat([c.lon, c.lat]);
-                rec.lat = c.lat;
-                rec.lon = c.lon;
-            }
-            if (rec.sig === sig) return; // style already right — zero writes
-            rec.sig = sig;
-            // Idempotent per style pass (the sig carries the lock flag).
-            rec.marker.setDraggable(!locked);
-            const ring =
-                i === selectedPin
-                    ? 'box-shadow:0 0 0 3px #38bdf8,0 1px 4px rgba(0,0,0,.5);'
-                    : 'box-shadow:0 1px 4px rgba(0,0,0,.5);';
-            if (isStart || isEnd) {
-                const colour = isStart ? '#34d399' : '#f87171';
-                // The sequence number rides INSIDE the ring (Shane
-                // 2026-07-15: "1 inside the green, whatever the last
-                // number is inside the red") — the journey book-ends
-                // still count as waypoints.
-                rec.dot.textContent = label;
-                rec.dot.style.cssText = `width:22px;height:22px;border-radius:9999px;border:4px solid ${colour};background:rgba(15,23,42,0.85);color:${colour};display:flex;align-items:center;justify-content:center;font:800 ${smallFont ? 8 : 10}px sans-serif;${ring}`;
-            } else {
-                rec.dot.textContent = label;
-                rec.dot.style.cssText = `background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;${ring}`;
-            }
-            if (isStart && !rec.tag) {
-                // Label overflows the fixed 40 px hit-box (absolute, no
-                // layout part) so the marker's centre anchor — and drag
-                // grab point — stays exactly on the coordinate.
-                const tag = document.createElement('div');
-                tag.style.cssText =
-                    'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;white-space:nowrap;';
-                rec.el.appendChild(tag);
-                rec.tag = tag;
-            } else if (!isStart && rec.tag) {
-                rec.tag.remove();
-                rec.tag = null;
-            }
-            // Chained legs read "🔒 START" — the padlock says why this one
-            // won't drag (its spot IS the previous leg's arrival).
-            if (rec.tag) rec.tag.textContent = locked ? '🔒 START' : 'START';
-        });
-    }, [capturedCoords, coordCaptureMode, selectedPin, legAnchor, flashTraceFeedback, setCapturedCoords]);
+    // Numbered draggable pins — components/map/useTracerPinMarkers.ts.
+    // AFTER the frame markers: DOM markers have no z-index, so insertion
+    // order decides and the pins belong above the ghost rings.
+    useTracerPinMarkers({
+        mapRef,
+        tracerCtxRef,
+        coordCaptureMode,
+        capturedCoords,
+        setCapturedCoords,
+        selectedPin,
+        setSelectedPin,
+        setInsertAfter,
+        insertAfterRef,
+        legAnchor,
+        flashTraceFeedback,
+    });
 
     // Deeper-water GHOST waypoints — REMOVED (Shane 2026-07-16: "get rid of
     // the phantom waypoints, that went haywire"). A thin route sprouted a
