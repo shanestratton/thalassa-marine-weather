@@ -197,8 +197,19 @@ export const AisGuardZone = {
      * Check AIS features against the guard zone.
      * Called from useAisStreamLayer on every merge cycle.
      * Returns new alerts (vessels that just entered the zone).
+     *
+     * EVERY source is checked, including the boat's own AIS receiver. This
+     * used to `continue` on `source === 'local'` believing that meant ownship;
+     * it does not — useAisStreamLayer stamps 'local' on every AIVDM target off
+     * the receiver, and ownship is resolved separately from NMEA/GPS and passed
+     * in as ownLat/ownLon. So the collision guard was watching only the
+     * internet feed and silently ignoring the nearest, freshest, most reliable
+     * targets there are.
+     *
+     * @param ownMmsi optional — the skipper's own MMSI, so an installation
+     *        whose receiver echoes its own transmission cannot self-alarm.
      */
-    checkFeatures(ownLat: number, ownLon: number, features: GeoJSON.Feature[]): GuardAlert[] {
+    checkFeatures(ownLat: number, ownLon: number, features: GeoJSON.Feature[], ownMmsi?: number): GuardAlert[] {
         if (
             !Number.isFinite(ownLat) ||
             ownLat < -90 ||
@@ -226,8 +237,10 @@ export const AisGuardZone = {
                 const p = feat.properties;
                 if (!p) continue;
 
-                // Skip own vessel (local NMEA) and stale ghosts
-                if (p.source === 'local') continue;
+                // Skip ownship BY MMSI (not by transport — see the note above)
+                // and skip stale ghosts.
+                const mmsiVal = Number(p.mmsi);
+                if (ownMmsi != null && Number.isFinite(mmsiVal) && mmsiVal === ownMmsi) continue;
                 if (Number(p.staleMinutes ?? 0) > 30) continue;
 
                 const coords = (feat.geometry as GeoJSON.Point)?.coordinates;

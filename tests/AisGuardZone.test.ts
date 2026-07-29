@@ -108,6 +108,34 @@ describe('AisGuardZone', () => {
             expect(newAlerts[0].name).toBe('Nearby Vessel');
         });
 
+        it('alerts on targets from the boat OWN AIS receiver', () => {
+            // These are stamped source:'local' by useAisStreamLayer — AIVDM
+            // targets off the onboard receiver, NOT ownship. The guard used to
+            // `continue` on that flag believing it meant ownship, so it watched
+            // only the internet feed and silently ignored the nearest, freshest
+            // targets there are. Ownship comes from NMEA/GPS and is passed in
+            // separately as ownLat/ownLon.
+            AisGuardZone.setEnabled(true);
+            AisGuardZone.setRadius(5);
+
+            const local = makeGeoFeature(987654321, -33.87, 151.21, 'Local Receiver Target');
+            local.properties = { ...local.properties, source: 'local', staleMinutes: 0 };
+
+            const newAlerts = AisGuardZone.checkFeatures(-33.868, 151.209, [local]);
+            expect(newAlerts.map((a) => a.mmsi)).toContain(987654321);
+        });
+
+        it('still excludes ownship, but by MMSI rather than by transport', () => {
+            AisGuardZone.setEnabled(true);
+            AisGuardZone.setRadius(5);
+
+            const self = makeGeoFeature(111222333, -33.87, 151.21, 'My Own Boat');
+            self.properties = { ...self.properties, source: 'local', staleMinutes: 0 };
+
+            const newAlerts = AisGuardZone.checkFeatures(-33.868, 151.209, [self], 111222333);
+            expect(newAlerts).toEqual([]);
+        });
+
         it('does not alert for target outside radius', () => {
             AisGuardZone.setEnabled(true);
             AisGuardZone.setRadius(0.5); // 0.5 NM — very tight

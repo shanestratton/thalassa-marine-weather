@@ -321,10 +321,21 @@ class MobServiceClass {
 
     private startLiveTracking(): void {
         if (this.gpsUnsub) return;
-        this.gpsUnsub = GpsService.watchPosition((pos) => {
-            this.own = { ...pos };
-            this.emit();
-        });
+        // ensureRunning: THE ENGINE MUST BE STARTED, not merely listened to.
+        // GpsService.watchPosition defaults ensureRunning to false, so a bare
+        // subscribe only receives fixes if some OTHER consumer already spun the
+        // engine up — and App renders MapHub and the Dashboard (the only hooks
+        // that do) mutually exclusively with the MOB screen. Without this, live
+        // bearing and distance to the person in the water silently never
+        // populate while the UI shows a pulsing "Live" badge. GpsService's own
+        // comment names MOB as an ensureRunning consumer; it just never was one.
+        this.gpsUnsub = GpsService.watchPosition(
+            (pos) => {
+                this.own = { ...pos };
+                this.emit();
+            },
+            { ensureRunning: true },
+        );
         // Keep elapsed-time ticker so the UI clock moves even when GPS is silent
         if (!this.tickerId) {
             this.tickerId = setInterval(() => this.emit(), 1000);

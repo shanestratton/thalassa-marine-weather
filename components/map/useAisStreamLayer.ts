@@ -19,6 +19,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { NmeaStore } from '../../services/NmeaStore';
 import { computeCpa } from '../../utils/cpaCalculation';
 import { AisGuardZone } from '../../services/AisGuardZone';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { triggerHaptic } from '../../utils/system';
 import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
@@ -671,10 +672,19 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         const merged: GeoJSON.FeatureCollection = {
             type: 'FeatureCollection',
             features: [
-                ...localGeoJson.features.map((f) => ({
-                    ...f,
-                    properties: { ...f.properties, source: 'local', staleMinutes: 0 },
-                })),
+                // staleMinutes from the target's OWN lastUpdated, not 0. These
+                // are AIVDM targets off the boat's receiver, and AisStore keeps
+                // them for 10 minutes with a 60 s sweep — so hard-stamping 0
+                // presented positions up to ~11 minutes old as current, and fed
+                // them to CPA and the DANGER banner at full confidence.
+                ...localGeoJson.features.map((f) => {
+                    const lastUpdated = Number(f.properties?.lastUpdated);
+                    const ageMin = Number.isFinite(lastUpdated) ? Math.max(0, (now - lastUpdated) / 60_000) : null;
+                    return {
+                        ...f,
+                        properties: { ...f.properties, source: 'local', staleMinutes: ageMin },
+                    };
+                }),
                 ...internetFeatures,
             ],
         };
@@ -741,7 +751,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
         // ── Guard Zone check ──
         const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState(), now);
-        const newAlerts = own ? AisGuardZone.checkFeatures(own.lat, own.lon, merged.features) : [];
+        // Ownship MMSI (profile field, stored as a string) so an installation
+        // whose own receiver echoes its transmission cannot self-alarm. The
+        // guard now checks LOCAL targets too, so this is the only ownship
+        // exclusion left.
+        const ownMmsiRaw = Number(useSettingsStore.getState().settings?.vessel?.mmsi);
+        const ownMmsi = Number.isFinite(ownMmsiRaw) && ownMmsiRaw > 0 ? ownMmsiRaw : undefined;
+        const newAlerts = own ? AisGuardZone.checkFeatures(own.lat, own.lon, merged.features, ownMmsi) : [];
         if (newAlerts.length > 0) {
             triggerHaptic('heavy');
             // Dispatch custom event for UI to show alert toast
@@ -1003,7 +1019,12 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                     }
                 }
             }
-            if (p.source === 'local') lastSeen = 'Live';
+            // "Live" is a claim about the fix, not about the transport. A local
+            // target can be minutes old; only say Live when it actually is.
+            if (p.source === 'local') {
+                const localAge = finiteAisDisplayNumber(p.staleMinutes);
+                if (localAge != null && localAge < 1) lastSeen = 'Live';
+            }
 
             // ── CPA / TCPA ──
             const nmea = NmeaStore.getState();
