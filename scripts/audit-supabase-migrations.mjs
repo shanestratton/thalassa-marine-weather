@@ -59,6 +59,18 @@ const definerHygieneGrandfathered = new Set([
     '20260727131000_crew_list_conversation_hardening.sql',
 ]);
 
+/**
+ * Tables whose RLS was disabled before this check existed. Both are now
+ * re-enabled by 20260730090000_enable_rls_on_reference_tables.sql, but the
+ * original migrations stay as applied history — editing them would desync
+ * every deployed environment.
+ *
+ * DO NOT ADD TO THIS LIST. RLS off on a PostgREST-exposed table means the anon
+ * key that ships in the client bundle is the only thing between the public and
+ * your rows.
+ */
+const rlsDisableGrandfathered = new Set(['20260516160000_linz_warnings.sql', '20260516170000_australian_ports.sql']);
+
 const entries = (await readdir(migrationDirectory, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
     .map((entry) => entry.name)
@@ -84,9 +96,35 @@ for (const filename of entries) {
         versions.set(version, filename);
     }
 
-    if (definerHygieneGrandfathered.has(filename)) continue;
-
     const sql = await readFile(path.join(migrationDirectory, filename), 'utf8');
+
+    // ── RLS must not be switched off on a PostgREST-exposed table ──────────
+    // A comment asserting "only service-role touches this" is intent, not
+    // enforcement: with RLS off the gate is the GRANT, and Supabase grants
+    // privileges on public tables by default. linz_warnings held in-force
+    // navigational warnings and was writable by the anon key in the bundle.
+    if (!rlsDisableGrandfathered.has(filename)) {
+        for (const m of sql.matchAll(
+            /ALTER\s+TABLE\s+(?:public\.)?([a-z0-9_]+)\s+DISABLE\s+ROW\s+LEVEL\s+SECURITY/gi,
+        )) {
+            const table = m[1];
+            // The only defensible form is an explicit REVOKE of the client
+            // roles in the same migration, so the exposure is stated and
+            // reviewable rather than inherited.
+            const revoked = new RegExp(
+                `REVOKE[\\s\\S]{0,400}?ON\\s+(?:TABLE\\s+)?(?:public\\.)?${table}\\b[\\s\\S]{0,200}?(anon|authenticated)`,
+                'i',
+            ).test(sql);
+            if (!revoked) {
+                errors.push(
+                    `${filename}: ${table} has RLS DISABLED with no REVOKE from anon/authenticated — ` +
+                        `the anon key ships in the client bundle`,
+                );
+            }
+        }
+    }
+
+    if (definerHygieneGrandfathered.has(filename)) continue;
     // Split on the dollar-quoted body terminator so each chunk holds at most
     // one function definition; crude, but it keeps a later function's pin
     // from vouching for an earlier one's omission.
