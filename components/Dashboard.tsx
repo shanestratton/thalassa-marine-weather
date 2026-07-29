@@ -768,7 +768,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     if (!data || !current || !safeActive) {
         return (
             <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-black text-white px-4 py-8">
-                {!navigator.onLine ? (
+                {/* isOffline (internetProbe-verified WAN reachability), NOT
+                    navigator.onLine. On a boat the phone is joined to the Pi's
+                    wifi LAN, so navigator.onLine reads TRUE while the uplink is
+                    dead — and this screen sat on "Loading conditions…" forever
+                    instead of saying there was no connection. The probe is the
+                    only thing that knows the difference, and it was already
+                    being read three lines from here for the staleness banner.
+
+                    The fetch guards further up deliberately still use
+                    navigator.onLine: there, "the OS says there is no network at
+                    all" is the cheap conservative check, and a probe
+                    false-positive must not stop us trying the Pi. */}
+                {isOffline ? (
                     <div className="text-center max-w-xs">
                         <div className="w-10 h-10 mx-auto mb-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
                             <svg
