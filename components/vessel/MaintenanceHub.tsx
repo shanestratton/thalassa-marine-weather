@@ -26,6 +26,7 @@ import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
 import { SlideToAction } from '../ui/SlideToAction';
 import { EmptyState } from '../ui/EmptyState';
+import { LoadErrorState } from '../ui/LoadErrorState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { PageHeader } from '../ui/PageHeader';
 import { OfflineBadge } from '../ui/OfflineBadge';
@@ -78,6 +79,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [isEditingHours, setIsEditingHours] = useState(false);
     const [engineHoursEditIdentity, setEngineHoursEditIdentity] = useState<AuthIdentityScope | null>(null);
     const [loading, setLoading] = useState(true);
+    // A failed fetch used to fall through to the empty state, so a network
+    // error read as "nothing logged" — see components/ui/LoadErrorState.
+    const [loadError, setLoadError] = useState(false);
 
     // Log Service sheet
     const [sheetTask, setSheetTask] = useState<{ identity: AuthIdentityScope; task: TaskWithStatus } | null>(null);
@@ -121,6 +125,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // ── Load ──
     const loadTasks = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope()) => {
+        setLoadError(false);
         if (!isAuthIdentityScopeCurrent(identity)) return;
         const requestId = ++loadRequestRef.current;
         const isCurrentRequest = () => requestId === loadRequestRef.current && isAuthIdentityScopeCurrent(identity);
@@ -154,7 +159,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (isCurrentRequest()) setTaskData({ identity, tasks: data });
         } catch (e) {
             log.error('Failed to load tasks:', e);
-            if (isCurrentRequest()) toast.error('Failed to load maintenance tasks');
+            if (isCurrentRequest()) {
+                setLoadError(true);
+                toast.error('Failed to load maintenance tasks');
+            }
         } finally {
             if (isCurrentRequest()) setLoading(false);
         }
@@ -697,6 +705,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <ShimmerBlock variant="card" />
                             <ShimmerBlock variant="list" rows={5} />
                         </div>
+                    ) : loadError ? (
+                        <LoadErrorState what="the maintenance log" onRetry={loadTasks} />
                     ) : groupedTasks.length === 0 ? (
                         <EmptyState
                             icon={

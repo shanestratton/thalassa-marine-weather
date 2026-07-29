@@ -21,6 +21,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
+import { LoadErrorState } from '../ui/LoadErrorState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
@@ -49,6 +50,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const [items, setItems] = useState<EquipmentItem[]>([]);
     const [dataScopeKey, setDataScopeKey] = useState(initialScope.key);
     const [loading, setLoading] = useState(true);
+    // A failed fetch used to fall through to the empty state, so a network
+    // error read as "nothing logged" — see components/ui/LoadErrorState.
+    const [loadError, setLoadError] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
 
@@ -89,6 +93,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     // ── Load ──
     const loadItems = useCallback(() => {
+        setLoadError(false);
         const scope = getAuthIdentityScope();
         setLoading(true);
         try {
@@ -98,7 +103,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setItems(loaded);
         } catch (e) {
             log.error('Failed to load equipment:', e);
-            if (isAuthIdentityScopeCurrent(scope)) toast.error('Failed to load equipment');
+            if (isAuthIdentityScopeCurrent(scope)) {
+                setLoadError(true);
+                toast.error('Failed to load equipment');
+            }
         } finally {
             if (isAuthIdentityScopeCurrent(scope)) setLoading(false);
         }
@@ -523,6 +531,8 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         <div className="space-y-3 px-1">
                             <ShimmerBlock variant="list" rows={4} />
                         </div>
+                    ) : loadError ? (
+                        <LoadErrorState what="your equipment" onRetry={loadItems} />
                     ) : groupedItems.length === 0 ? (
                         <EmptyState
                             icon={

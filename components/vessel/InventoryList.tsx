@@ -18,6 +18,7 @@ import { SlideToAction } from '../ui/SlideToAction';
 import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
+import { LoadErrorState } from '../ui/LoadErrorState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { UndoToast } from '../ui/UndoToast';
@@ -63,6 +64,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     );
     const stats = inventoryDataIsCurrent ? inventoryData.stats : null;
     const [loading, setLoading] = useState(true);
+    // Distinct from "no items": a failed fetch used to fall straight through to
+    // the empty state, so a network error read as "you have no stores".
+    const [loadError, setLoadError] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -98,6 +102,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 if (!isCurrentRequest()) return;
                 localStorage.setItem(dedupKey, '1');
             }
+            setLoadError(false);
             const data = await InventoryService.getAll();
             if (!isCurrentRequest()) return;
             const nextStats = await InventoryService.getStats();
@@ -105,7 +110,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setInventoryData({ identity, items: data, stats: nextStats });
         } catch (e) {
             log.warn(' load failed:', e);
-            if (isCurrentRequest()) toast.error('Failed to load stores');
+            if (isCurrentRequest()) {
+                setLoadError(true);
+                toast.error('Failed to load stores');
+            }
         } finally {
             if (isCurrentRequest()) setLoading(false);
         }
@@ -501,6 +509,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         <div className="space-y-3 px-1">
                             <ShimmerBlock variant="list" rows={4} />
                         </div>
+                    ) : loadError ? (
+                        <LoadErrorState what="your stores" onRetry={loadItems} />
                     ) : groupedItems.length === 0 ? (
                         <EmptyState
                             icon={
