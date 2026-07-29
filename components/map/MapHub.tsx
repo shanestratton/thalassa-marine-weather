@@ -364,6 +364,33 @@ export const MapHub: React.FC<MapHubProps> = ({
     pickerMode = false,
     hideTracer = false,
 }) => {
+    // ── Foundations ──
+    // The map handle, the container it mounts into, the two markers we own
+    // outright, and the settings/UI context. Declared FIRST because they are
+    // what everything else in this component is written against.
+    //
+    // These used to sit ~1,700 lines down, and the file had grown comments
+    // apologising for it — "settings isn't in scope this early", "auto route
+    // lives below the settings declaration". That ordering is also what
+    // blocked extracting the tracer hooks: they need `settings.vessel` and
+    // `mapRef` as plain arguments, and you cannot pass a binding that has not
+    // been declared yet. Hoisting is behaviour-neutral (context reads, refs,
+    // and an online subscription — none of them order-sensitive) and it is
+    // the enabling move for the rest of the MapHub break-up, so it ships on
+    // its own commit where a bisect can find it.
+    const isOnline = useOnlineStatus();
+    const containerRef = useRef<HTMLDivElement>(null);
+    const mapRef = useRef<mapboxgl.Map | null>(null);
+    const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    const locationDotRef = useRef<mapboxgl.Marker | null>(null);
+    const { settings, updateSettings } = useSettings();
+    const { setPage, currentView } = useUI();
+    // The inspect popup renders in a DETACHED React root, so it can't read
+    // context. Its save action reads the live settings through this ref
+    // rather than a render-time closure.
+    const settingsRef = useRef(settings);
+    settingsRef.current = settings;
+
     // ── Pin View Mode (from chat pin tap) ──
 
     const ownedPinViewRef = useRef<PinViewHandoff | null>(null);
@@ -1883,9 +1910,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // false-failed with "No clean detour here".
     const applyFixes = useCallback(
         async (legIdxs: number[]): Promise<{ fixed: number; added: number }> => {
-            // Draft from the last grading pass (settings isn't in scope this
-            // early in the component) — Fix buttons only exist once a pass
-            // has graded, so the ref is always populated here.
+            // Draft from the LAST GRADING PASS, not from settings — the two
+            // can differ, and the fix has to reason about the same keel the
+            // verdict was computed against. Fix buttons only exist once a
+            // pass has graded, so the ref is always populated here.
             const draft = gradedDraftRef.current;
             if (!draft) return { fixed: 0, added: 0 };
             let pins = [...capturedCoords];
@@ -1979,8 +2007,6 @@ export const MapHub: React.FC<MapHubProps> = ({
             });
         }, 30);
     }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
-    // ⚡ Auto route lives below the settings declaration (it reads
-    // settings.vessel for draft/air-draft) — see autoRouteLeg.
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
     // Append a typed GPS fix as the next pin. parseCoordinateString handles
@@ -2060,18 +2086,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Zoom readout lives in ZoomLevelFab now — self-subscribed, so the
     // per-frame 'zoom' events never re-render this component (perf hunt
     // 2026-07-15: they re-rendered the whole tree every pinch frame).
-    const isOnline = useOnlineStatus();
-    const containerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<mapboxgl.Map | null>(null);
-    const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
-    const locationDotRef = useRef<mapboxgl.Marker | null>(null);
-    const { settings, updateSettings } = useSettings();
-    const { setPage, currentView } = useUI();
-    // The inspect popup renders in a DETACHED React root, so it can't read
-    // context. Its save action reads the live settings through this ref
-    // rather than a render-time closure.
-    const settingsRef = useRef(settings);
-    settingsRef.current = settings;
 
     // Per-leg transit offsets (ms from departure to leg i's START pin) at
     // cruising speed — the ETA the tide windows are evaluated at. Pin-start
