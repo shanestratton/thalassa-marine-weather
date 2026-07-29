@@ -234,7 +234,7 @@ export const OnboardingOverlay: React.FC = () => {
                                     <button
                                         aria-label="Skip onboarding"
                                         onClick={dismiss}
-                                        className="text-sm text-white/30 hover:text-white/60 transition-colors"
+                                        className="text-sm text-white/50 hover:text-white/60 transition-colors"
                                     >
                                         Skip
                                     </button>

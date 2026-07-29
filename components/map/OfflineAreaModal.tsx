@@ -260,7 +260,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                                 className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                     canDownload
                                         ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
-                                        : 'bg-white/[0.03] border border-white/[0.06] text-gray-600 cursor-not-allowed'
+                                        : 'bg-white/[0.03] border border-white/[0.06] text-gray-400 cursor-not-allowed'
                                 }`}
                             >
                                 {done ? 'Download Again' : 'Download'}

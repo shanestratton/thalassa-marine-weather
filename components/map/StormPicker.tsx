@@ -200,7 +200,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                             />
                                         ) : (
                                             <svg
-                                                className="w-4 h-4 text-gray-600 shrink-0"
+                                                className="w-4 h-4 text-gray-400 shrink-0"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
                                                 stroke="currentColor"

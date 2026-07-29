@@ -936,12 +936,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                         {WIND_BUCKETS.map((b) => (
                             <div key={b.key} className="flex flex-col items-center gap-0.5">
                                 <span className="w-4 h-2 rounded-sm" style={{ background: b.color }} />
-                                <span className="text-[8px] text-white/55 leading-none">{b.label}</span>
+                                <span className="text-[10px] text-white/55 leading-none">{b.label}</span>
                             </div>
                         ))}
                         <div className="flex flex-col items-center gap-0.5 ml-1">
                             <span className="w-4 h-2 rounded-sm" style={{ background: WIND_NODATA_COLOR }} />
-                            <span className="text-[8px] text-white/55 leading-none">n/a</span>
+                            <span className="text-[10px] text-white/55 leading-none">n/a</span>
                         </div>
                     </div>
                 </div>

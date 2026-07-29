@@ -255,7 +255,7 @@ const FollowRouteButton: React.FC<{
                     />
                 </svg>
             )}
-            <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">
+            <span className="text-[10px] uppercase font-bold tracking-wider mt-0.5">
                 {isThisFollowed ? 'Active' : isStarting ? 'Loading' : 'Follow'}
             </span>
         </button>
@@ -609,7 +609,7 @@ export const VoyageCard: React.FC<{
                                     d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
                                 />
                             </svg>
-                            <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">Map</span>
+                            <span className="text-[10px] uppercase font-bold tracking-wider mt-0.5">Map</span>
                         </button>
                         {isPlannedRoute && (
                             <button
@@ -642,7 +642,7 @@ export const VoyageCard: React.FC<{
                                         d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                                     />
                                 </svg>
-                                <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">GPX</span>
+                                <span className="text-[10px] uppercase font-bold tracking-wider mt-0.5">GPX</span>
                             </button>
                         )}
                         {isPlannedRoute && (
@@ -694,7 +694,7 @@ export const VoyageCard: React.FC<{
                                                         Sail vs Motor
                                                     </span>
                                                     {estimated && (
-                                                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/35">
+                                                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/50">
                                                             {estPct >= 95 ? 'estimated' : 'partly estimated'}
                                                         </span>
                                                     )}
@@ -734,7 +734,7 @@ export const VoyageCard: React.FC<{
                                                         >
                                                             <span className="text-white/70 font-medium">
                                                                 Day {r.dayNumber}
-                                                                <span className="text-white/35 ml-2">
+                                                                <span className="text-white/50 ml-2">
                                                                     {new Date(r.windowStartMs).toLocaleDateString(
                                                                         'en-GB',
                                                                         { day: '2-digit', month: 'short' },

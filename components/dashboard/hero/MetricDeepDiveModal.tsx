@@ -727,7 +727,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                             <p className="text-sm text-white/80 leading-relaxed">{dirRead}</p>
                         </div>
 
-                        <p className="text-[11px] text-white/30 leading-relaxed">
+                        <p className="text-[11px] text-white/50 leading-relaxed">
                             The cardinal is where the wind blows <em>from</em>; the arrow points where it's heading.
                             Yesterday needs WeatherKit history; today and tomorrow come from the forecast.
                         </p>
@@ -737,7 +737,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         {/* Chart */}
                         <div className="rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.015] border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                             <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
-                            <div className="flex justify-between text-[10px] text-white/35 px-1 mt-1">
+                            <div className="flex justify-between text-[10px] text-white/50 px-1 mt-1">
                                 <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
                                 {hasHistory ? <span className="text-white/45">Now</span> : null}
                                 <span>+5 days →</span>
@@ -782,7 +782,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         </div>
 
                         {cfg.marine && (
-                            <p className="text-[11px] text-white/30 leading-relaxed">
+                            <p className="text-[11px] text-white/50 leading-relaxed">
                                 Marine metrics show the forecast window — yesterday history isn’t available for waves.
                             </p>
                         )}

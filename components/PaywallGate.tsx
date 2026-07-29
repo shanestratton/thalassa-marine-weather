@@ -107,7 +107,7 @@ export const PaywallGate: React.FC<PaywallGateProps> = ({ feature, onUpgrade, ti
                 </button>
             )}
 
-            <p className="text-[11px] text-gray-600 mt-8">7-day free trial · cancel anytime</p>
+            <p className="text-[11px] text-gray-400 mt-8">7-day free trial · cancel anytime</p>
         </div>
     );
 };

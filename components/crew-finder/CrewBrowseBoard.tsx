@@ -295,7 +295,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                     <div className="relative">
                         {/* Counter */}
                         <div className="text-center mb-3">
-                            <span className="text-xs text-white/30 font-medium">
+                            <span className="text-xs text-white/50 font-medium">
                                 {currentCardIndex + 1} of {listings.length}
                             </span>
                         </div>
@@ -464,7 +464,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         </div>
                                         {card.skills.length > 0 && (
                                             <div>
-                                                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/30 mb-1.5">
+                                                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/50 mb-1.5">
                                                     Skills
                                                 </p>
                                                 <div className="flex flex-wrap gap-1.5">
@@ -547,7 +547,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                         showActionMenu === card.user_id ? null : card.user_id,
                                                     )
                                                 }
-                                                className="w-10 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-white/[0.03] border border-white/[0.06] text-white/30 hover:text-white/50"
+                                                className="w-10 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-white/[0.03] border border-white/[0.06] text-white/50 hover:text-white/50"
                                             >
                                                 ⋮
                                             </button>

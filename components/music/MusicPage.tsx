@@ -1483,7 +1483,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Song or artist…"
                         aria-label="Search Apple Music catalog"
-                        className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
+                        className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') void handleSearch();
                         }}
@@ -1756,7 +1756,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 aria-label="Playlist name"
                                 disabled={busy}
                                 maxLength={80}
-                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
+                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' && canSubmit) {
                                         onSubmit(name, description);
@@ -1777,7 +1777,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 aria-label="Playlist description"
                                 disabled={busy}
                                 maxLength={140}
-                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
+                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
                             />
                         </label>
 

@@ -126,7 +126,7 @@ export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, 
                                     {opt.desc}
                                 </p>
                                 <p
-                                    className={`text-xs mt-1.5 leading-relaxed ${isActive ? 'text-gray-400' : 'text-gray-600'}`}
+                                    className={`text-xs mt-1.5 leading-relaxed ${isActive ? 'text-gray-400' : 'text-gray-400'}`}
                                 >
                                     {opt.detail}
                                 </p>

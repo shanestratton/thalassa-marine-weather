@@ -118,7 +118,7 @@ export const MetricsWidget = ({
             >
                 <div className="absolute top-2 right-2 flex gap-1">
                     {isSensorLocked && (
-                        <span className="text-[7px] font-bold bg-emerald-500 text-white px-1 py-0.5 rounded leading-none uppercase tracking-tighter">
+                        <span className="text-[10px] font-bold bg-emerald-500 text-white px-1 py-0.5 rounded leading-none uppercase tracking-tighter">
                             Verified
                         </span>
                     )}

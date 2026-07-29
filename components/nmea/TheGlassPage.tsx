@@ -498,7 +498,7 @@ const HeelCapsule: React.FC<{ degrees: number; isLive: boolean }> = ({ degrees, 
 const SensorIcon: React.FC<{ icon: string; label: string; active: boolean }> = ({ icon, label, active }) => (
     <div className="flex flex-col items-center gap-0.5">
         <span className={`text-lg ${active ? 'opacity-100' : 'opacity-30'}`}>{icon}</span>
-        <span className={`text-[9px] font-bold uppercase tracking-wider ${active ? 'text-cyan-400' : 'text-gray-600'}`}>
+        <span className={`text-[9px] font-bold uppercase tracking-wider ${active ? 'text-cyan-400' : 'text-gray-400'}`}>
             {label}
         </span>
     </div>
@@ -693,7 +693,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         showAxes
                                         label="sog"
                                     />
-                                    <p className="text-[8px] font-bold uppercase tracking-widest text-gray-600 text-center mt-0.5">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
                                         Rolling Chart
                                     </p>
                                 </div>
@@ -731,7 +731,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         showAxes
                                         label="aws"
                                     />
-                                    <p className="text-[8px] font-bold uppercase tracking-widest text-gray-600 text-center mt-0.5">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
                                         Apparent Winds
                                     </p>
                                 </div>
@@ -817,7 +817,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">m</span>
                             </div>
-                            <p className="text-[8px] font-bold uppercase tracking-widest text-gray-600 mt-0.5">W</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5">W</p>
                             <div className="mt-1">
                                 <Sparkline
                                     history={depthChart.history}
@@ -830,7 +830,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     axisUnit="m"
                                     label="depth"
                                 />
-                                <p className="text-[7px] font-bold uppercase tracking-widest text-gray-600 text-center mt-0.5">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
                                     15 min chart
                                 </p>
                             </div>

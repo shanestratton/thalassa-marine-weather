@@ -265,7 +265,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                     </div>
                                 </div>
                                 <p className="text-lg font-semibold text-white/70 mb-1">All quiet on deck</p>
-                                <p className="text-sm text-white/30 max-w-[220px] text-center leading-relaxed">
+                                <p className="text-sm text-white/50 max-w-[220px] text-center leading-relaxed">
                                     Be the first to break radio silence — say ahoy to the crew!
                                 </p>
                                 <div className="flex items-center gap-3 mt-5">
@@ -596,7 +596,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         <button
                                                             onClick={() => onReportMsg(msg)}
                                                             aria-label="Report message"
-                                                            className="text-sm text-white/30 hover:text-amber-400/60 transition-colors min-h-[36px]"
+                                                            className="text-sm text-white/50 hover:text-amber-400/60 transition-colors min-h-[36px]"
                                                         >
                                                             Report
                                                         </button>

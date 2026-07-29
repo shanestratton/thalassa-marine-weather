@@ -157,7 +157,7 @@ const CellRow: React.FC<{
                 >
                     {formatBBox(cell.bbox)}
                 </button>
-                <p className="text-[11px] text-gray-600">
+                <p className="text-[11px] text-gray-400">
                     Edition {cell.edition} · Issued {cell.issued} · Imported {formatRelative(cell.importedAt)} ·{' '}
                     {cell.hazardCount.toLocaleString()} features
                 </p>
@@ -699,7 +699,7 @@ export const EncCellManager: React.FC = () => {
                             aria-invalid={urlError ? 'true' : 'false'}
                             aria-describedby={urlError ? 'enc-install-url-error' : 'enc-install-url-help'}
                             placeholder="https://example.gov/charts/cell.zip"
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-sky-400 disabled:opacity-60"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-gray-400 focus:border-sky-400 disabled:opacity-60"
                         />
                         <p id="enc-install-url-help" className="mt-2 text-[11px] text-gray-500">
                             Only direct HTTP or HTTPS downloads are supported.

@@ -2004,7 +2004,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                             const stamp = `${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}.${Math.floor(t.getMilliseconds() / 100)}`;
                             return (
                                 <div key={`${e.ts}-${i}`} className="flex gap-2">
-                                    <span className="text-gray-600">{stamp}</span>
+                                    <span className="text-gray-400">{stamp}</span>
                                     <span className="flex-1 break-words">{e.msg}</span>
                                 </div>
                             );

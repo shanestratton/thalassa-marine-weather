@@ -214,7 +214,7 @@ export const GlassTutorial: React.FC = () => {
                                     <button
                                         aria-label="Skip Glass tutorial"
                                         onClick={dismiss}
-                                        className="text-sm text-white/30 hover:text-white/60 transition-colors"
+                                        className="text-sm text-white/50 hover:text-white/60 transition-colors"
                                     >
                                         Skip
                                     </button>
@@ -385,7 +385,7 @@ function OffshoreModelsVisual() {
                 {['WIND', 'GUST', 'WAVE', 'HPA'].map((p, i) => (
                     <span
                         key={p}
-                        className={`text-[8px] font-bold tracking-wider px-2 py-0.5 rounded ${
+                        className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded ${
                             i === 0 ? 'bg-sky-500/30 text-sky-200 ring-1 ring-sky-400/40' : 'bg-white/5 text-white/40'
                         }`}
                     >

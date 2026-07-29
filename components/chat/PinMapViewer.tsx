@@ -242,7 +242,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 <div className="flex items-center justify-between bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3">
                     <div className="min-w-0 flex-1 pr-2">
                         <p className="text-xs font-semibold text-white/70 truncate">{caption}</p>
-                        <p className="text-[11px] text-white/30 tabular-nums mt-0.5">
+                        <p className="text-[11px] text-white/50 tabular-nums mt-0.5">
                             📍 {formattedLat}, {formattedLng}
                         </p>
                     </div>

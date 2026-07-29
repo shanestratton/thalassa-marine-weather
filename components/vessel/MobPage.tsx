@@ -307,7 +307,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                         </div>
                     </button>
 
-                    <div className="text-center text-[11px] font-bold tracking-wider uppercase text-slate-600 max-w-xs">
+                    <div className="text-center text-[11px] font-bold tracking-wider uppercase text-slate-400 max-w-xs">
                         Also immediately: throw a flotation device, shout &ldquo;Man Overboard,&rdquo; assign a spotter,
                         and hit the MOB button on your chartplotter if fitted.
                     </div>

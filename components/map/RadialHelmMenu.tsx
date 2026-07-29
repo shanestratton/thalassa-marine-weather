@@ -995,7 +995,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         "Charts") fit inside the 60px bubble without hanging over
                                         the edges. Width clamp + truncate is a safety net for any
                                         future label that still overflows. */}
-                                        <span className="mt-1 max-w-[52px] truncate text-[8px] font-black uppercase leading-none tracking-wider">
+                                        <span className="mt-1 max-w-[52px] truncate text-[10px] font-black uppercase leading-none tracking-wider">
                                             {cat.label}
                                         </span>
                                     </motion.div>

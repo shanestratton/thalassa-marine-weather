@@ -233,7 +233,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         <p className="text-[11px] text-gray-500">
                             Deckhand (Free) includes basic 3-day weather, map, and Chandlery browsing.
                         </p>
-                        <p className="text-[10px] text-gray-600 italic">
+                        <p className="text-[10px] text-gray-400 italic">
                             Skipper is half the price of PredictWind ($228/yr) and competitive with Orca CORE ($129/yr)
                             — with crew-talk, marketplace, and AI passage diary none of them ship.
                         </p>

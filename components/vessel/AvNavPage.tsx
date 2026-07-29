@@ -225,7 +225,7 @@ const RegionHeader: React.FC<{
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
         </svg>
         <span className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex-1 text-left">{label}</span>
-        <span className="text-[11px] text-white/20 font-mono">{count}</span>
+        <span className="text-[11px] text-white/50 font-mono">{count}</span>
     </button>
 );
 
@@ -834,7 +834,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     disabled={!sshUsername || !sshPassword || provisionBusy}
                                                     className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                                         !sshUsername || !sshPassword || provisionBusy
-                                                            ? 'bg-white/[0.03] text-gray-600 cursor-not-allowed'
+                                                            ? 'bg-white/[0.03] text-gray-400 cursor-not-allowed'
                                                             : 'bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
                                                     }`}
                                                 >
@@ -868,7 +868,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     );
                                                 })()}
                                                 {provisionProgress.output && (
-                                                    <pre className="text-[10px] text-gray-600 font-mono max-h-24 overflow-y-auto bg-black/30 rounded-lg p-2 mt-1">
+                                                    <pre className="text-[10px] text-gray-400 font-mono max-h-24 overflow-y-auto bg-black/30 rounded-lg p-2 mt-1">
                                                         {provisionProgress.output.slice(-500)}
                                                     </pre>
                                                 )}
@@ -877,7 +877,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
                                         {/* ── Option 2: Manual command ── */}
                                         <div className="space-y-1.5">
-                                            <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">
                                                 {sshAvailable ? 'Or install manually' : 'Manual Install'}
                                             </p>
                                             <pre
@@ -1249,7 +1249,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         </span>
                     </div>
                     <svg
-                        className="w-4 h-4 text-white/30"
+                        className="w-4 h-4 text-white/50"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"

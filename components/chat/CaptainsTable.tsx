@@ -483,16 +483,16 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                 {/* Optional note */}
                                 <div>
                                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">
-                                        Note <span className="normal-case text-gray-600">(optional)</span>
+                                        Note <span className="normal-case text-gray-400">(optional)</span>
                                     </p>
                                     <textarea
                                         value={shareNote}
                                         onChange={(e) => setShareNote(e.target.value.slice(0, 280))}
                                         placeholder="Made this on the run to Cairns, crew loved it..."
                                         rows={2}
-                                        className="w-full px-2.5 py-2 rounded-lg bg-slate-900/60 border border-white/[0.08] text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-sky-400/40 resize-none"
+                                        className="w-full px-2.5 py-2 rounded-lg bg-slate-900/60 border border-white/[0.08] text-xs text-white placeholder:text-gray-400 focus:outline-none focus:border-sky-400/40 resize-none"
                                     />
-                                    <p className="text-[10px] text-gray-600 mt-1 text-right">{shareNote.length}/280</p>
+                                    <p className="text-[10px] text-gray-400 mt-1 text-right">{shareNote.length}/280</p>
                                 </div>
 
                                 {/* Post button */}

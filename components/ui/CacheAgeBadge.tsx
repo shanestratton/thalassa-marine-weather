@@ -58,7 +58,7 @@ export const CacheAgeBadge: React.FC<CacheAgeBadgeProps> = ({ timestamp, label =
                 ? 'bg-amber-400'
                 : 'bg-red-400';
 
-    const textColor = ageMins < 60 ? 'text-white/30' : ageMins < 360 ? 'text-amber-400/50' : 'text-red-400/50';
+    const textColor = ageMins < 60 ? 'text-white/50' : ageMins < 360 ? 'text-amber-400/50' : 'text-red-400/50';
 
     return (
         <div className={`flex items-center gap-1.5 ${className}`}>
