@@ -132,11 +132,28 @@ describe('AisGuardZone', () => {
             expect(alerts).toHaveLength(0);
         });
 
-        it('ignores local NMEA source (own vessel)', () => {
+        it('ALERTS on local-source targets — they are the boat’s own receiver, not ownship', () => {
+            // This case used to assert the opposite, and the opposite was a bug.
+            // useAisStreamLayer stamps source:'local' on every AIVDM target off
+            // the onboard receiver; ownship is resolved separately from NMEA/GPS
+            // and arrives as ownLat/ownLon. Skipping 'local' meant the collision
+            // guard watched only the internet feed and ignored the nearest,
+            // freshest targets there are.
             AisGuardZone.setEnabled(true);
             const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [
                 makeFeature(123456789, NEAR_LAT, NEAR_LON, { source: 'local' }),
             ]);
+            expect(alerts.map((a) => a.mmsi)).toEqual([123456789]);
+        });
+
+        it('excludes ownship by MMSI, so an echoing receiver cannot self-alarm', () => {
+            AisGuardZone.setEnabled(true);
+            const alerts = AisGuardZone.checkFeatures(
+                OWN_LAT,
+                OWN_LON,
+                [makeFeature(123456789, NEAR_LAT, NEAR_LON, { source: 'local' })],
+                123456789,
+            );
             expect(alerts).toHaveLength(0);
         });
 

@@ -477,11 +477,24 @@ describe('SyncService durable outbox', () => {
 
         const retried = await syncNow();
         expect(retried.pushed).toBe(1);
-        expect(harness.storageUpload).toHaveBeenLastCalledWith(
-            'user-1/documents/document-1.pdf',
-            expect.any(Blob),
-            expect.objectContaining({ contentType: 'application/pdf', upsert: true }),
-        );
+        // NOT expect.any(Blob). Two Blob constructors exist under vitest —
+        // Node's (node:buffer) and jsdom's — and `any` does an instanceof
+        // against whichever this file resolved. SyncService builds a Node Blob,
+        // so the check passed locally and failed in CI on a realm mismatch, with
+        // the diff showing a perfectly good Blob "not matching" Any<Blob>.
+        // Assert the properties that actually matter instead; they hold in
+        // either realm.
+        const lastUpload = harness.storageUpload.mock.calls.at(-1) as unknown as [
+            string,
+            { size: number; type: string },
+            { contentType: string; upsert: boolean },
+        ];
+        expect(lastUpload, 'storage upload was never called').toBeDefined();
+        const [uploadPath, uploadBody, uploadOpts] = lastUpload;
+        expect(uploadPath).toBe('user-1/documents/document-1.pdf');
+        expect(uploadBody.type).toBe('application/pdf');
+        expect(uploadBody.size).toBeGreaterThan(0);
+        expect(uploadOpts).toMatchObject({ contentType: 'application/pdf', upsert: true });
         expect(harness.state.upsertPayloads[0]).toMatchObject({
             id: 'document-1',
             user_id: 'user-1',
