@@ -42,7 +42,16 @@ export const DEFAULT_VESSEL: VesselProfile = {
     draft: 5.9, // 1.8m in feet — VesselProfile stores draft in feet (see project_vessel_draft_is_feet memory)
     displacement: 7500, // kg, ~16,500 lb
     airDraft: 50, // feet — typical 35ft sloop mast height
-    maxWaveHeight: 2.5, // metres
+    // FEET, like every other dimension on VesselProfile — this said "metres"
+    // two lines under a draft field that correctly annotates feet. 8.2 ft is
+    // the 2.5 m that was intended.
+    //
+    // Corrected in the SAME commit as hooks/useVoyageForm.ts, deliberately: on
+    // this default profile the two bugs cancelled. A mislabelled 2.5 read as
+    // metres by an unconverted sink happened to yield the right 2.5 m ceiling,
+    // so fixing either alone would have MOVED behaviour — 0.76 m (absurdly
+    // conservative) or 8.2 m (no ceiling at all).
+    maxWaveHeight: 8.2, // feet (2.5 m)
     maxWindSpeed: 25, // knots
     cruisingSpeed: 6, // knots
     // Optional fields left undefined — the routing engine handles

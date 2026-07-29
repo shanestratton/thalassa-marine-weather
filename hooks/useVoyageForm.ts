@@ -21,7 +21,7 @@ import { withTimeout } from '../utils/deadline';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
-import { vesselDraftMetres, vesselAirDraftMetres } from '../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres, vesselMaxWaveHeightMetres } from '../services/units';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -1317,10 +1317,16 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 vessel.maxWindSpeed != null && userComfort.maxWindKts != null
                     ? Math.min(vessel.maxWindSpeed, userComfort.maxWindKts)
                     : (vessel.maxWindSpeed ?? userComfort.maxWindKts);
+            // The SIXTH sink. Commit 974e7dc1 converted five and declared the
+            // job done; this one — the path the departure-window UI actually
+            // calls — was missed, so the repo held a safety fix that believed
+            // itself complete. userComfort.maxWaveM is metres and the profile
+            // stores feet, so Math.min was comparing the two directly.
+            const vesselMaxWaveM = vessel.maxWaveHeight != null ? vesselMaxWaveHeightMetres(vessel) : null;
             const tightestWave =
-                vessel.maxWaveHeight != null && userComfort.maxWaveM != null
-                    ? Math.min(vessel.maxWaveHeight, userComfort.maxWaveM)
-                    : (vessel.maxWaveHeight ?? userComfort.maxWaveM);
+                vesselMaxWaveM != null && userComfort.maxWaveM != null
+                    ? Math.min(vesselMaxWaveM, userComfort.maxWaveM)
+                    : (vesselMaxWaveM ?? userComfort.maxWaveM);
             const blendedComfort =
                 tightestWind != null ||
                 tightestWave != null ||
