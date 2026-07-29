@@ -27,6 +27,8 @@ export interface ChatHeaderProps {
     isUserBlocked: boolean;
     hasDMPartner: boolean;
     onGoBack: () => void;
+    /** Leaves Scuttlebutt entirely — shown on the root channel list. */
+    onExit?: () => void;
     onOpenProfile: () => void;
     onOpenDMInbox: () => void;
     onToggleBlock: () => void;
@@ -45,6 +47,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
         isUserBlocked,
         hasDMPartner,
         onGoBack,
+        onExit,
         onOpenProfile,
         onOpenDMInbox,
         onToggleBlock,
@@ -57,10 +60,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
             <div className={t.header.bar}>
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        {view !== 'channels' && (
+                        {/* Intra-page back on the sub-views; on the ROOT
+                            channel list the same chevron LEAVES Scuttlebutt,
+                            which previously had no header exit at all. */}
+                        {(view !== 'channels' || onExit) && (
                             <button
-                                aria-label="Go back"
-                                onClick={onGoBack}
+                                aria-label={view === 'channels' ? 'Back' : 'Go back'}
+                                onClick={view === 'channels' ? onExit : onGoBack}
                                 className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
                             >
                                 <span className="text-sky-400 text-lg">‹</span>
