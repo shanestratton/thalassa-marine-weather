@@ -1,4 +1,5 @@
 import React, { Suspense, useState, useEffect, useRef } from 'react';
+import { NIGHT_SCRIM_Z_INDEX } from './components/ui/OverlayPortal';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
@@ -105,6 +106,14 @@ const App: React.FC = () => {
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
     const [mapPickerActive, setMapPickerActive] = useState(false);
+    // Mobile landscape hides the bottom nav to buy vertical room for the wide
+    // view. That is fine as a DEFAULT and fatal as an absolute: onboarding can
+    // lock the device to landscape (settingsStore ScreenOrientation.lock), and
+    // Settings — the only place to undo that choice — was reachable exclusively
+    // THROUGH the nav it hid. Choosing "Landscape" on a phone therefore made the
+    // app permanently unnavigable, with no route back short of a reinstall. The
+    // nav is now summonable instead of absent.
+    const [landscapeNavOpen, setLandscapeNavOpen] = useState(false);
 
     // Bosun voice console — registered as the 'voice' page in
     // viewRegistry. The mic button in the app header (and the floating
@@ -1075,7 +1084,29 @@ const App: React.FC = () => {
                     <GlobalNowPlayingBar />
                 </Suspense>
 
-                {!isMobileLandscape && !isStandalonePlan && (
+                {/* The escape hatch for landscape. Deliberately small and
+                    bottom-left so it stays clear of the chart FABs, and z-ordered
+                    ABOVE the nav so it doubles as the close control once open. */}
+                {isMobileLandscape && !isStandalonePlan && (
+                    <button
+                        type="button"
+                        onClick={() => setLandscapeNavOpen((v) => !v)}
+                        aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
+                        aria-expanded={landscapeNavOpen}
+                        className="press fixed bottom-2 left-2 z-[901] flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur"
+                        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+                    >
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            {landscapeNavOpen ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                            )}
+                        </svg>
+                    </button>
+                )}
+
+                {(!isMobileLandscape || landscapeNavOpen) && !isStandalonePlan && (
                     <nav
                         className="fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)]"
                         style={{
@@ -1221,10 +1252,25 @@ const App: React.FC = () => {
                 )}
             </div>
 
+            {/* NIGHT-VISION SCRIM — must be the TOPMOST layer in the app.
+                It sat at z-[9999] and lost to twelve overlays at z >= 10000:
+                the Chart depth controls (10060), the trip leg picker (10060),
+                the Plan-on-web hint (10070), the departure prompt (10055), the
+                trace report (10050), onboarding (10000) and more. Every one of
+                those painted at FULL brightness over a scrim that exists to
+                protect the helm's dark adaptation — worst at the chart, at
+                night, which is exactly when it matters.
+
+                Bumping the number would only lose the race to the next overlay,
+                so the value is DERIVED from the overlay scale — one band below
+                `critical`, the tier reserved for alarms that must outrank every
+                other surface, because a drag alarm at 3am should punch through a
+                night scrim. tests/NightVisionScrimCeiling.test.ts enforces that
+                nothing else creeps above it. */}
             {effectiveMode === 'night' && (
                 <div
-                    className="fixed inset-0 z-[9999] pointer-events-none touch-none"
-                    style={{ backgroundColor: 'rgba(69, 10, 10, 0.25)' }}
+                    className="fixed inset-0 pointer-events-none touch-none"
+                    style={{ backgroundColor: 'rgba(69, 10, 10, 0.25)', zIndex: NIGHT_SCRIM_Z_INDEX }}
                     aria-hidden="true"
                 ></div>
             )}
