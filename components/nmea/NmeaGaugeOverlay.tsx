@@ -11,6 +11,7 @@
  * Glassmorphism backdrop with blur, tap-to-dismiss, back chevron.
  */
 import React, { useEffect, useId, useRef, useState, useCallback } from 'react';
+import { BackButton } from '../ui/BackButton';
 import type { TimestampedMetric } from '../../services/NmeaStore';
 import { CompassGauge } from './gauges/CompassGauge';
 import { ArcGauge } from './gauges/ArcGauge';
@@ -257,22 +258,7 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
                 className="flex items-center gap-3 px-4 pt-safe-top"
                 style={{ paddingTop: 'calc(env(safe-area-inset-top, 20px) + 12px)' }}
             >
-                <button
-                    ref={closeButtonRef}
-                    onClick={handleClose}
-                    aria-label="Go back"
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center press"
-                >
-                    <svg
-                        className="w-5 h-5 text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                </button>
+                <BackButton ref={closeButtonRef} onClick={handleClose} />
 
                 <span
                     id={titleId}

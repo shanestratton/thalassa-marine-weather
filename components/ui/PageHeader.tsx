@@ -13,6 +13,7 @@
  *   />
  */
 import React from 'react';
+import { BackButton } from './BackButton';
 
 interface PageHeaderProps {
     title: string;
@@ -56,23 +57,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
         )}
 
         <div className="flex items-center gap-3">
-            {onBack && (
-                <button
-                    onClick={onBack}
-                    aria-label="Go back"
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center press"
-                >
-                    <svg
-                        className="w-5 h-5 text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                </button>
-            )}
+            {onBack && <BackButton onClick={onBack} />}
 
             <div className="flex-1 min-w-0">
                 <h1 className="text-xl font-extrabold text-white uppercase tracking-wider truncate">{title}</h1>
