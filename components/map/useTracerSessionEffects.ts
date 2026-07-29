@@ -43,16 +43,17 @@
  * force-rearms the pen on each run, so widening the deps re-arms it while the
  * skipper has deliberately paused it.
  *
- * PRE-EXISTING BUG, MOVED VERBATIM: the syncSavedRoutes().then() has no
- * identity-scope check and no cancellation, so a sign-out mid-flight lands the
- * previous account's routes. Every other saved-routes path in MapHub guards.
- * Fixing it here would make a regression and a refactor indistinguishable in a
- * bisect — it belongs in its own commit.
+ * The bootstrap's saved-routes merge is IDENTITY-GUARDED. It is a network
+ * round trip, so a sign-out or account switch while it is in flight would
+ * otherwise land the previous account's routes in the picker. The guard is the
+ * same expectedScope pattern every other saved-routes path uses; there is
+ * still no cancellation, which is fine because the guard makes a late arrival
+ * a no-op rather than a leak.
  */
 
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { loadSavedTraces, type SavedTrace } from '../../services/routeTracer';
 
 export interface TracerSessionEffectDeps {
@@ -127,9 +128,17 @@ export function useTracerSessionEffects({
             void import('../../services/enc/cloudCellSync')
                 .then(({ registerCloudCells }) => registerCloudCells())
                 .catch(() => {});
+            // Identity-guarded: the merge is a network round trip, and a
+            // sign-out or account switch while it is in flight would otherwise
+            // land the PREVIOUS account's routes in the picker. Same
+            // expectedScope pattern every other saved-routes path here uses.
+            const expectedScope = getAuthIdentityScope();
             void import('../../services/savedRoutesSync')
                 .then(({ syncSavedRoutes }) => syncSavedRoutes())
-                .then((merged) => setSavedTraces(merged))
+                .then((merged) => {
+                    if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+                    setSavedTraces(merged);
+                })
                 .catch(() => {});
         }
         // The three identities below are named only to satisfy
