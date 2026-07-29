@@ -61,7 +61,13 @@ vi.mock('../services/VesselMetadataService', () => ({
     },
 }));
 vi.mock('../managers/FeatureGate', () => ({ isFeatureLockedSync: mocks.isFeatureLockedSync }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+// Spread the real module: the guard-zone path now reads the vessel MMSI from
+// the settings store, and stores/settingsStore calls getSystemUnits() at MODULE
+// scope — so a triggerHaptic-only mock throws on import.
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../utils/MmsiDecoder', () => ({ getMmsiFlag: () => '🏳️' }));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ warn: vi.fn() }),
