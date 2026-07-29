@@ -372,7 +372,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${
                                     editExperience === level
                                         ? 'bg-gradient-to-r from-emerald-500/15 to-sky-500/15 text-emerald-200 border border-emerald-400/15'
-                                        : 'bg-white/[0.02] text-white/35 border border-white/[0.04] hover:bg-white/[0.04]'
+                                        : 'bg-white/[0.02] text-white/50 border border-white/[0.04] hover:bg-white/[0.04]'
                                 }`}
                             >
                                 {level}
@@ -398,7 +398,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
                                             selected
                                                 ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
-                                                : 'bg-white/[0.03] text-white/35 border border-white/[0.05] hover:bg-white/[0.05]'
+                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05] hover:bg-white/[0.05]'
                                         }`}
                                     >
                                         {skill}
@@ -526,7 +526,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                                     editVibe.includes(v)
                                         ? 'bg-gradient-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
-                                        : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                        : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
                                 }`}
                             >
                                 {v}
@@ -549,7 +549,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                                     editLanguages.includes(lang)
                                         ? 'bg-gradient-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
-                                        : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                        : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
                                 }`}
                             >
                                 {lang}
@@ -566,7 +566,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <div className="space-y-3">
                         {/* Smoking */}
                         <div>
-                            <p className="text-[11px] text-white/30 mb-1.5">🚬 Smoking</p>
+                            <p className="text-[11px] text-white/50 mb-1.5">🚬 Smoking</p>
                             <div className="flex gap-1.5 flex-wrap">
                                 {SMOKING_OPTIONS.map((opt) => (
                                     <button
@@ -576,7 +576,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editSmoking === opt
                                                 ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/20'
-                                                : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
                                         }`}
                                     >
                                         {opt}
@@ -586,7 +586,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         </div>
                         {/* Drinking */}
                         <div>
-                            <p className="text-[11px] text-white/30 mb-1.5">🍷 Drinking</p>
+                            <p className="text-[11px] text-white/50 mb-1.5">🍷 Drinking</p>
                             <div className="flex gap-1.5 flex-wrap">
                                 {DRINKING_OPTIONS.map((opt) => (
                                     <button
@@ -596,7 +596,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editDrinking === opt
                                                 ? 'bg-amber-500/20 text-amber-200 border border-amber-400/20'
-                                                : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
                                         }`}
                                     >
                                         {opt}
@@ -606,7 +606,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         </div>
                         {/* Pets */}
                         <div>
-                            <p className="text-[11px] text-white/30 mb-1.5">🐾 Pets</p>
+                            <p className="text-[11px] text-white/50 mb-1.5">🐾 Pets</p>
                             <div className="flex gap-1.5 flex-wrap">
                                 {PET_OPTIONS.map((opt) => (
                                     <button
@@ -616,7 +616,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editPets === opt
                                                 ? 'bg-sky-500/20 text-sky-200 border border-sky-400/20'
-                                                : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
                                         }`}
                                     >
                                         {opt}
@@ -644,7 +644,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 className={`px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                                     editInterests.includes(interest)
                                         ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-200 border border-amber-400/20'
-                                        : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                        : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
                                 }`}
                             >
                                 {interest}

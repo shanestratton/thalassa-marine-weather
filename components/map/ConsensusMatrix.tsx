@@ -261,7 +261,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                 {/* Data source + model legend */}
                 <div className="flex items-center gap-3 mb-2">
                     <span
-                        className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${
                             data.dataSource === 'live'
                                 ? 'bg-emerald-500/15 text-emerald-400'
                                 : 'bg-amber-500/15 text-amber-400'

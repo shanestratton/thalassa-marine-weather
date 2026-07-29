@@ -784,7 +784,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     <div className="text-center max-w-xs">
                         <div className="w-10 h-10 mx-auto mb-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
                             <svg
-                                className="w-5 h-5 text-white/30"
+                                className="w-5 h-5 text-white/50"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"

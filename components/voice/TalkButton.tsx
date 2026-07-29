@@ -159,7 +159,7 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
                 {subtitle && (
                     <p
                         className={`text-[10px] uppercase tracking-widest font-bold ${
-                            disabled ? 'text-slate-600' : 'text-sky-300'
+                            disabled ? 'text-slate-400' : 'text-sky-300'
                         }`}
                     >
                         {subtitle}

@@ -717,7 +717,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                             )}
                                             {isExpanded && isMe && (
                                                 <div className="px-3.5 pb-3 pt-2 border-t border-white/[0.04]">
-                                                    <p className="text-[11px] text-white/30 text-center">
+                                                    <p className="text-[11px] text-white/50 text-center">
                                                         You cannot modify your own role
                                                     </p>
                                                 </div>
@@ -764,7 +764,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                             </span>
                                                         )}
                                                         {ch.parent_id && (
-                                                            <span className="text-[11px] font-bold text-white/30 bg-white/[0.05] px-1.5 py-0.5 rounded-full">
+                                                            <span className="text-[11px] font-bold text-white/50 bg-white/[0.05] px-1.5 py-0.5 rounded-full">
                                                                 SUB
                                                             </span>
                                                         )}
@@ -866,7 +866,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     🚩 Safety reports ({pendingCrewReports.length})
                                 </p>
                                 {pendingCrewReports.length > 0 && (
-                                    <span className="text-[11px] text-white/35">Reporter stays confidential</span>
+                                    <span className="text-[11px] text-white/50">Reporter stays confidential</span>
                                 )}
                             </div>
 
@@ -897,7 +897,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                     </span>
                                                 </div>
 
-                                                <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/35">
+                                                <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-white/50">
                                                     Reported concern
                                                 </p>
                                                 <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-white/70">
@@ -1005,7 +1005,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                             </div>
 
                                             <div className="border-t border-white/[0.05] px-3.5 py-3">
-                                                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/35">
+                                                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/50">
                                                     Listing note
                                                 </p>
                                                 <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-white/65">
@@ -1075,13 +1075,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                 <span className={`text-xs font-bold ${meta.color}`}>{meta.label}</span>
-                                                <span className="text-[11px] text-white/30">by</span>
+                                                <span className="text-[11px] text-white/50">by</span>
                                                 <span className="text-[11px] font-semibold text-white/60">
                                                     {entry.actor_name}
                                                 </span>
                                             </div>
                                             {entry.details && Object.keys(entry.details).length > 0 && (
-                                                <p className="text-[11px] text-white/30 mt-0.5">
+                                                <p className="text-[11px] text-white/50 mt-0.5">
                                                     {Object.entries(entry.details)
                                                         .map(([k, v]) => `${k}: ${v}`)
                                                         .join(' · ')}

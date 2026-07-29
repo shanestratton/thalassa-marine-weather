@@ -74,7 +74,7 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                     </div>
                 </div>
                 <p className="text-sm font-semibold text-white/70 mb-1">No messages in the bottle</p>
-                <p className="text-[11px] text-white/30 max-w-[220px] text-center leading-relaxed">
+                <p className="text-[11px] text-white/50 max-w-[220px] text-center leading-relaxed">
                     Tap a sailor's avatar in any channel to start a private conversation
                 </p>
             </div>
@@ -128,7 +128,7 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(({ thread, p
                         </div>
                     </div>
                     <p className="text-sm font-semibold text-white/70 mb-1">Start a conversation</p>
-                    <p className="text-[11px] text-white/30 max-w-[200px] text-center leading-relaxed">
+                    <p className="text-[11px] text-white/50 max-w-[200px] text-center leading-relaxed">
                         Say ahoy to {partnerName} — they're just a message away!
                     </p>
                 </div>

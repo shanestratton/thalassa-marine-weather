@@ -440,7 +440,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                         >
                             {/* High indicator */}
                             <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
-                            <span className="text-[7px] font-bold text-white/40 uppercase">{config.highLabel}</span>
+                            <span className="text-[10px] font-bold text-white/40 uppercase">{config.highLabel}</span>
 
                             {/* Color bar */}
                             <div
@@ -453,7 +453,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             />
 
                             {/* Low indicator */}
-                            <span className="text-[7px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
+                            <span className="text-[10px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
                             <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
 
                             {/* Layer icon */}
@@ -728,9 +728,9 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
                         }}
                     >
                         <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
-                        <span className="text-[7px] font-bold text-white/40 uppercase">{config.highLabel}</span>
+                        <span className="text-[10px] font-bold text-white/40 uppercase">{config.highLabel}</span>
                         <div className="rounded-full" style={{ width: 6, height: 64, background: config.gradient }} />
-                        <span className="text-[7px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
+                        <span className="text-[10px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
                         <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
                         <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/[0.04]">
                             <span className="text-sm">{config.icon}</span>

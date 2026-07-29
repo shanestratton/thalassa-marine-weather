@@ -478,10 +478,10 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                     role="img"
                 >
                     {/* Label + peak readout pinned to the top corners of the strip */}
-                    <span className="absolute top-1 left-2 text-[8px] font-bold uppercase tracking-widest text-white/40 leading-none pointer-events-none">
+                    <span className="absolute top-1 left-2 text-[10px] font-bold uppercase tracking-widest text-white/40 leading-none pointer-events-none">
                         12h Wind
                     </span>
-                    <span className="absolute top-1 right-2 text-[8px] font-mono font-bold uppercase tracking-wider text-white/60 leading-none pointer-events-none">
+                    <span className="absolute top-1 right-2 text-[10px] font-mono font-bold uppercase tracking-wider text-white/60 leading-none pointer-events-none">
                         peak {Math.round(sparkline.peak)} {speedUnit}
                     </span>
                     <svg

@@ -483,7 +483,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         )}
                         <span className="text-[11px] text-white/70 font-semibold leading-none tracking-wide">
                             {windLabel} {displaySpeed}
-                            <span className="text-white/35 ml-0.5">{speedUnit}</span>
+                            <span className="text-white/50 ml-0.5">{speedUnit}</span>
                         </span>
                     </div>
                 )}

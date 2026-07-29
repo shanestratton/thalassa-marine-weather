@@ -273,7 +273,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
                 {/* Title + artist — capped so a long title never turns the
                     compact control into a wall across the chart. */}
                 <div className="min-w-0 max-w-[126px] pr-0.5">
-                    <div className="mb-0.5 flex items-center gap-1 text-[8px] font-black uppercase tracking-[0.14em] text-cyan-100/65">
+                    <div className="mb-0.5 flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-100/65">
                         <span
                             className={`h-1 w-1 rounded-full ${nowPlaying.isPlaying ? 'bg-cyan-300' : 'bg-slate-500'}`}
                         />

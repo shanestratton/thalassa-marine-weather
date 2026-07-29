@@ -240,7 +240,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                     </span>
                                     {(entryHasCoords || entry.location_name) && (
                                         <>
-                                            <span className="text-slate-600 shrink-0">·</span>
+                                            <span className="text-slate-400 shrink-0">·</span>
                                             <svg
                                                 className="w-3 h-3 shrink-0 text-sky-500/60"
                                                 fill="none"

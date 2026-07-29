@@ -72,7 +72,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                             >
                                 Awaiting your choice ({incoming.length})
                             </h3>
-                            <span className="text-[11px] text-white/35">No pressure — decline is private.</span>
+                            <span className="text-[11px] text-white/50">No pressure — decline is private.</span>
                         </div>
                         <div className="space-y-3">
                             {incoming.map((introduction) => {

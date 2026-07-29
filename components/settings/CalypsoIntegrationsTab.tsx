@@ -415,7 +415,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                     playing
                                         ? 'border-sky-400 text-sky-400 bg-sky-400/10'
                                         : samplePlaying
-                                          ? 'border-gray-700 text-gray-600'
+                                          ? 'border-gray-700 text-gray-400'
                                           : 'border-gray-600 text-gray-300 hover:text-sky-400 hover:border-sky-400/50'
                                 }`}
                                 aria-label={`Play sample of ${preset.label}`}

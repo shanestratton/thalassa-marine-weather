@@ -684,7 +684,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                 <div className="w-5 h-5 border-2 border-sky-400/30 rounded-full border-t-sky-400 animate-spin" />
                             ) : (
                                 <span
-                                    className={`text-white/30 text-sm transition-transform ${pullRefresh.pullDistance > 28 ? 'rotate-180' : ''}`}
+                                    className={`text-white/50 text-sm transition-transform ${pullRefresh.pullDistance > 28 ? 'rotate-180' : ''}`}
                                 >
                                     ↓
                                 </span>

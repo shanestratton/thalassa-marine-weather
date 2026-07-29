@@ -438,7 +438,7 @@ const SystemRow: React.FC<{
                 {label}
             </p>
             <p
-                className={`text-[11px] leading-relaxed mt-0.5 truncate ${active ? 'text-slate-400' : 'text-slate-600'}`}
+                className={`text-[11px] leading-relaxed mt-0.5 truncate ${active ? 'text-slate-400' : 'text-slate-400'}`}
             >
                 {detail}
             </p>

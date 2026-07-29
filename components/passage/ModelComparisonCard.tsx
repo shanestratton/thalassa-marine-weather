@@ -383,7 +383,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                                 className={`flex-1 h-3 ${waveHeatColor(hp.waveHeight)} flex items-center justify-center transition-all hover:scale-y-[1.5] hover:z-10 relative group cursor-default`}
                                                 title={`+${hIdx * 6}h: ${hp.waveHeight}m waves`}
                                             >
-                                                <span className="text-[7px] font-mono text-white/40 group-hover:text-white/80 transition-colors">
+                                                <span className="text-[10px] font-mono text-white/40 group-hover:text-white/80 transition-colors">
                                                     {hp.waveHeight.toFixed(1)}
                                                 </span>
                                             </div>
@@ -440,7 +440,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                 ].map((s, i) => (
                     <div key={i} className="flex flex-col items-center gap-0.5">
                         <div className={`w-5 h-2.5 rounded-sm ${s.cls}`} />
-                        <span className="text-[7px] text-gray-500 font-mono">{s.label}</span>
+                        <span className="text-[10px] text-gray-500 font-mono">{s.label}</span>
                     </div>
                 ))}
                 <span className="text-[11px] text-gray-500 ml-1">kt</span>

@@ -803,7 +803,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
                     {/* Attribution — CC-BY-4.0 licence condition, not a courtesy */}
                     <div className="px-5 pb-4">
-                        <p className="text-[9px] text-gray-600 text-center">{MODEL_ATTRIBUTION_LINE}</p>
+                        <p className="text-[9px] text-gray-400 text-center">{MODEL_ATTRIBUTION_LINE}</p>
                     </div>
                 </div>
             </div>,

@@ -1249,7 +1249,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     </button>
                                                 </div>
                                                 {engineRunning === undefined && (
-                                                    <span className="text-[10px] text-white/35">— tap to log</span>
+                                                    <span className="text-[10px] text-white/50">— tap to log</span>
                                                 )}
                                             </div>
 

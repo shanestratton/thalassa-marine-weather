@@ -192,7 +192,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                                 <time
                                                     dateTime={message.created_at}
                                                     className={`mt-1.5 block text-[11px] tabular-nums ${
-                                                        isMine ? 'text-sky-100/50' : 'text-white/35'
+                                                        isMine ? 'text-sky-100/50' : 'text-white/50'
                                                     }`}
                                                 >
                                                     {sentAt}
@@ -228,13 +228,13 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                 disabled={loading || sending || unavailable}
                                 rows={1}
                                 placeholder={`Message ${partnerName}…`}
-                                className="max-h-32 min-h-[48px] flex-1 resize-none rounded-2xl border border-white/[0.09] bg-white/[0.045] px-3.5 py-3 text-sm leading-5 text-white placeholder:text-white/35 transition-colors focus:outline-none focus-visible:border-sky-300/50 focus-visible:ring-2 focus-visible:ring-sky-300/20 disabled:cursor-not-allowed disabled:opacity-55"
+                                className="max-h-32 min-h-[48px] flex-1 resize-none rounded-2xl border border-white/[0.09] bg-white/[0.045] px-3.5 py-3 text-sm leading-5 text-white placeholder:text-white/50 transition-colors focus:outline-none focus-visible:border-sky-300/50 focus-visible:ring-2 focus-visible:ring-sky-300/20 disabled:cursor-not-allowed disabled:opacity-55"
                             />
                             <button
                                 type="submit"
                                 disabled={!canSend}
                                 aria-label={sending ? 'Sending message' : `Send message to ${partnerName}`}
-                                className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-2xl border border-sky-300/25 bg-gradient-to-br from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20 transition-all hover:from-sky-400 hover:to-cyan-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 active:scale-[0.94] disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:from-white/[0.08] disabled:to-white/[0.05] disabled:text-white/35 disabled:shadow-none"
+                                className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-2xl border border-sky-300/25 bg-gradient-to-br from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20 transition-all hover:from-sky-400 hover:to-cyan-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 active:scale-[0.94] disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:from-white/[0.08] disabled:to-white/[0.05] disabled:text-white/50 disabled:shadow-none"
                             >
                                 {sending ? (
                                     <span
@@ -259,7 +259,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                 )}
                             </button>
                         </div>
-                        <p className="mt-1.5 px-1 text-[11px] text-white/30">Use ⌘/Ctrl + Enter to send.</p>
+                        <p className="mt-1.5 px-1 text-[11px] text-white/50">Use ⌘/Ctrl + Enter to send.</p>
                     </div>
                 </form>
             </section>

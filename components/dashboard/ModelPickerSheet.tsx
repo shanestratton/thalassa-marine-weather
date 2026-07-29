@@ -171,7 +171,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                     >
                         Close
                     </button>
-                    <p className="text-[9px] text-gray-600 text-center">{MODEL_ATTRIBUTION_LINE}</p>
+                    <p className="text-[9px] text-gray-400 text-center">{MODEL_ATTRIBUTION_LINE}</p>
                 </div>
             </div>
         </div>,

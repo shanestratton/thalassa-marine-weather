@@ -481,7 +481,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                         )}
                         {savedPins.length > 0 && (
                             <div className="mb-3">
-                                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/35 mb-1.5">
+                                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/50 mb-1.5">
                                     Recent places
                                 </p>
                                 <div
