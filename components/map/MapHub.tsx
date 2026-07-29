@@ -40,9 +40,6 @@ import { ZoomLevelFab } from './ZoomLevelFab';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
-import { piCache } from '../../services/PiCacheService';
-import { MapOfflineService } from '../../services/MapOfflineService';
-import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 
 import {
     type MapHubProps,
@@ -173,6 +170,8 @@ import { useTracerSessionEffects } from './useTracerSessionEffects';
 import { useTracerFrameMarkers } from './useTracerFrameMarkers';
 import { useTracerPinMarkers } from './useTracerPinMarkers';
 import { useTracerTraceLayer } from './useTracerTraceLayer';
+import { usePassageRouterEvents } from './usePassageRouterEvents';
+import { usePiTileAutoCache } from './usePiTileAutoCache';
 import {
     AUTO_ROUTE_BUTTON_VISIBLE,
     CHARTS_FAB_CATEGORY_VISIBLE,
@@ -1797,161 +1796,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
     }, [currentView]);
 
-    // Listen for isochrone progress + completion events
-    useEffect(() => {
-        const onProgress = (e: Event) => {
-            const d = (e as CustomEvent).detail;
-            log.info('Isochrone progress:', d);
-            if (d)
-                setIsoProgress({
-                    step: d.step,
-                    closestNM: d.closestNM,
-                    totalDistNM: d.totalDistNM,
-                    elapsed: d.elapsed,
-                    frontSize: d.frontSize,
-                    phase: d.phase,
-                });
-
-            // ── Progressive route rendering ──
-            // Draw the partial route as the wavefronts expand so the user
-            // sees the line growing — use a separate preview source to avoid
-            // wiping out the harbour leg features on 'route-line'.
-            if (d?.partialRoute && d.partialRoute.length >= 2) {
-                const map = mapRef.current;
-                if (!map) return;
-                // Lazily create preview source/layer
-                if (!map.getSource('route-preview')) {
-                    map.addSource('route-preview', {
-                        type: 'geojson',
-                        data: { type: 'FeatureCollection', features: [] },
-                    });
-                    map.addLayer({
-                        id: 'route-preview-layer',
-                        type: 'line',
-                        source: 'route-preview',
-                        layout: { 'line-join': 'round', 'line-cap': 'round' },
-                        paint: {
-                            'line-color': '#00e676',
-                            'line-width': 2,
-                            'line-opacity': 0.5,
-                            'line-dasharray': [4, 4],
-                        },
-                    });
-                }
-                const src = map.getSource('route-preview') as mapboxgl.GeoJSONSource;
-                if (src) {
-                    src.setData({
-                        type: 'FeatureCollection',
-                        features: [
-                            {
-                                type: 'Feature',
-                                properties: {},
-                                geometry: {
-                                    type: 'LineString',
-                                    coordinates: d.partialRoute,
-                                },
-                            },
-                        ],
-                    });
-                }
-            }
-        };
-        const onComplete = () => {
-            log.info('Isochrone complete — clearing progress');
-            setIsoProgress(null);
-            // Clean up the progressive preview layer
-            const map = mapRef.current;
-            if (map) {
-                if (map.getLayer('route-preview-layer')) map.removeLayer('route-preview-layer');
-                if (map.getSource('route-preview')) map.removeSource('route-preview');
-            }
-        };
-        window.addEventListener('thalassa:isochrone-progress', onProgress);
-        window.addEventListener('thalassa:isochrone-complete', onComplete);
-        return () => {
-            window.removeEventListener('thalassa:isochrone-progress', onProgress);
-            window.removeEventListener('thalassa:isochrone-complete', onComplete);
-        };
-    }, []);
-
-    // Passage notices — refusals, chart-gap rejections, too-short bails.
-    // Field bug 2026-06-12: these outcomes were dispatched (or only
-    // logged) with no listener, so the map stayed blank with zero
-    // feedback — indistinguishable from a hang.
-    useEffect(() => {
-        const onNotice = (e: Event) => {
-            setPassageNotice((e as CustomEvent).detail ?? null);
-        };
-        const onTooShort = (e: Event) => {
-            const d = (e as CustomEvent).detail;
-            setPassageNotice({
-                severity: 'warn',
-                title: `Route too short for passage planning (${d?.distanceNM ?? '?'} NM)`,
-                message: d?.message ?? 'Try Community Routes for local harbour exits and coastal legs.',
-            });
-        };
-        window.addEventListener('thalassa:passage-notice', onNotice);
-        window.addEventListener('thalassa:passage-too-short', onTooShort);
-        return () => {
-            window.removeEventListener('thalassa:passage-notice', onNotice);
-            window.removeEventListener('thalassa:passage-too-short', onTooShort);
-        };
-    }, []);
-
-    // Listen for pin-drop-navigate events from DM chat
-    useEffect(() => {
-        const onPinDrop = (e: Event) => {
-            const { lat, lon, label } = (e as CustomEvent).detail;
-            if (!isFinite(lat) || !isFinite(lon)) return;
-
-            // Request tab switch to map via global event
-            window.dispatchEvent(new CustomEvent('thalassa:navigate-tab', { detail: { tab: 'map' } }));
-
-            // Fly to the pin location (delay gives map tab time to render)
-            setTimeout(() => {
-                const map = mapRef.current;
-                if (!map) return;
-
-                map.flyTo({ center: [lon, lat], zoom: 14, duration: 1500 });
-
-                // Drop a temporary pin marker
-                const el = document.createElement('div');
-                el.className = 'pin-drop-marker';
-                const wrapper = document.createElement('div');
-                wrapper.style.cssText =
-                    'display:flex;flex-direction:column;align-items:center;animation:pinDropBounce 0.5s ease-out';
-                const pin = document.createElement('span');
-                pin.style.cssText = 'font-size:28px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4))';
-                pin.textContent = '📍';
-                wrapper.appendChild(pin);
-                const lbl = document.createElement('span');
-                lbl.style.cssText =
-                    'font-size:10px;color:#38bdf8;font-weight:700;background:rgba(0,0,0,0.6);padding:2px 8px;border-radius:8px;margin-top:2px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis';
-                lbl.textContent = label;
-                wrapper.appendChild(lbl);
-                el.appendChild(wrapper);
-
-                const mapboxgl = window.mapboxgl;
-                if (mapboxgl?.Marker) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const marker = new (mapboxgl as any).Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
-
-                    // Auto-remove after 10 seconds
-                    setTimeout(() => {
-                        try {
-                            marker.remove();
-                        } catch (e) {
-                            console.warn('Suppressed:', e);
-                            /* already removed */
-                        }
-                    }, 10_000);
-                }
-            }, 500);
-        };
-
-        window.addEventListener('pin-drop-navigate', onPinDrop);
-        return () => window.removeEventListener('pin-drop-navigate', onPinDrop);
-    }, []);
+    // Passage router event bus — isochrone progress + preview line, passage
+    // notices, and chat pin-drops. components/map/usePassageRouterEvents.ts.
+    usePassageRouterEvents({ mapRef, setIsoProgress, setPassageNotice });
 
     const location = useLocationStore();
     const { weatherData, saveVoyagePlan } = useWeather();
@@ -3264,105 +3111,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         weatherCoords,
     ]);
 
-    // ── Auto-cache tiles around the user when a Pi is in play ──
-    // When the boat has a Pi on the network AND the user has a strong
-    // internet connection, silently download a 1000 NM tiered shell of
-    // raster tiles around the user so the map keeps working the moment
-    // they drop offline. Tier breakdown lives in MapOfflineService:
-    //   1000 NM @ z4-7   (ocean-wide)
-    //   500 NM  @ z8-9   (regional)
-    //   150 NM  @ z10-11 (coastal approach)
-    //   40 NM   @ z12-13 (harbour detail)
-    //
-    // Conditions for firing:
-    //   - Pi is reachable (piCache.isAvailable())
-    //   - Connection quality is 'high' (WiFi / good 4G — NOT cellular
-    //     2G/3G, NOT satellite, NOT save-data mode). User explicitly
-    //     asked for "only if they have a strong connection".
-    //   - User has a valid weatherCoords
-    //   - User has moved > 100 NM since the last auto-cache (tracked
-    //     in localStorage by MapOfflineService)
-    //   - Pi's SQLite cache isn't already gigantic (>10 GB)
-    //
-    // Re-evaluates on three triggers — Pi appearing, connection
-    // improving to 'high', or location changing — so a phone that
-    // started on weak cellular and later joined a marina WiFi will
-    // pick up the cache automatically without the user having to do
-    // anything. No prompts, no confirmations.
-    const autoCacheRanRef = useRef(false);
-    useEffect(() => {
-        // Planning mode is a visual-isolation concern. This silent Pi cache
-        // job is non-visual, and aborting it on Chart → Plan after setting the
-        // session guard could prevent it from ever retrying.
-        if (embedded || pickerMode || isPinView) return;
-        if (!weatherCoords) return;
-        if (autoCacheRanRef.current) return;
-
-        let cancelled = false;
-        const ctrl = new AbortController();
-        const tryRun = async () => {
-            if (!piCache.isAvailable()) return; // wait for Pi
-            // Connection-quality gate — only auto-cache when the user
-            // actually has the bandwidth to spare. Strong = WiFi or
-            // 4G+ with > 0.5 Mbps downlink + saveData off. Weak = 2G,
-            // 3G with low downlink, satellite, or saveData enabled.
-            const conn = getConnectionState();
-            if (conn.quality !== 'high') {
-                log.info(
-                    `Auto-cache: skipping — connection quality '${conn.quality}' (type=${conn.type}, downlink=${conn.effectiveDownlink}). Will retry when it improves.`,
-                );
-                return;
-            }
-            autoCacheRanRef.current = true;
-            const outcome = await MapOfflineService.autoDownloadAroundUser({
-                centerLat: weatherCoords.lat,
-                centerLon: weatherCoords.lon,
-                signal: ctrl.signal,
-                // Toast progress callback removed — Shane found the
-                // "Auto-caching 1000 NM…" + "Pi cached N tiles…"
-                // toasts unannounced/distracting on the Charts page.
-                // The cache fills silently in the background; if the
-                // user wants to verify, the Pi cache status badge in
-                // settings shows tile counts.
-                onProgress: () => {},
-            });
-            if (cancelled) return;
-            if (outcome.status === 'error') {
-                // Reset the guard so a later weatherCoords change can retry.
-                autoCacheRanRef.current = false;
-                log.warn('Auto-cache failed:', outcome.message);
-            } else if (outcome.status === 'skipped') {
-                // Skipped for a legitimate reason (no Pi, not moved, cache full) —
-                // don't toast the user, but leave the guard open so Pi arriving
-                // later or movement over the threshold can still kick it off.
-                autoCacheRanRef.current = false;
-                log.info('Auto-cache skipped:', outcome.reason);
-            }
-        };
-
-        // Run once now, then subscribe so we fire the moment EITHER
-        //   (a) the Pi is found, or
-        //   (b) the connection upgrades to high quality
-        // — whichever was the missing condition the first time.
-        tryRun();
-        const unsubPi = piCache.onStatusChange(() => {
-            if (!autoCacheRanRef.current && piCache.isAvailable()) tryRun();
-        });
-        const unsubConn = onConnectionChange((state) => {
-            if (!autoCacheRanRef.current && state.quality === 'high' && piCache.isAvailable()) {
-                log.info(`Auto-cache: connection upgraded to high (${state.type}) — kicking off`);
-                tryRun();
-            }
-        });
-
-        return () => {
-            cancelled = true;
-            ctrl.abort();
-            unsubPi();
-            unsubConn();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [weatherCoords?.lat, weatherCoords?.lon, embedded, pickerMode, isPinView]);
+    // Silent Pi-backed tile pre-cache around the boat —
+    // components/map/usePiTileAutoCache.ts.
+    usePiTileAutoCache({ weatherCoords, embedded, pickerMode, isPinView });
 
     // ── GPS Vessel Tracker Layer ──
     useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible && !planningSurface);
