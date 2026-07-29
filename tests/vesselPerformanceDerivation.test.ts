@@ -5,6 +5,7 @@ import {
     vesselMaxWaveHeightFt,
     vesselMaxWaveHeightMetres,
 } from '../services/units';
+import { DEFAULT_VESSEL } from '../utils/defaultVessel';
 
 /**
  * The profile stores maxWaveHeight in FEET; every routing consumer works in
@@ -31,6 +32,15 @@ describe('vesselMaxWaveHeightMetres', () => {
         // Same derivation as the feet helper, so a fleet-restored profile with
         // no stored ceiling still gets a real one rather than zero.
         expect(vesselMaxWaveHeightMetres({ length: 55, hullType: 'monohull' })).toBeCloseTo((55 * 0.35) / 3.28084, 4);
+    });
+
+    it('turns the default profile back into the 2.5 m that was intended', () => {
+        // These two bugs CANCELLED: defaultVessel said `2.5 // metres` on a
+        // feet field, and the departure-window sink read it as metres without
+        // converting — accidentally correct. Fixing either alone would have
+        // moved behaviour to 0.76 m or 8.2 m, so they had to land together.
+        // This pins the round trip so neither can drift back alone.
+        expect(vesselMaxWaveHeightMetres(DEFAULT_VESSEL)).toBeCloseTo(2.5, 1);
     });
 
     it('falls back only when there is nothing to derive from', () => {
