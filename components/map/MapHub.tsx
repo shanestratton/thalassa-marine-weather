@@ -18,7 +18,6 @@
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { SearchIcon } from '../Icons';
-import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
 import { lazyRetry } from '../../utils/lazyRetry';
@@ -178,6 +177,7 @@ import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDet
 import { PinDirectionsCta } from './PinDirectionsCta';
 import { ChartDepthControls, LiveTideAckModal } from './ChartDepthControls';
 import { useTideDepthMode } from './useTideDepthMode';
+import { useWeatherInspectPopup } from './useWeatherInspectPopup';
 import {
     AUTO_MAX_LEG_M,
     AUTO_ROUTE_BUTTON_VISIBLE,
@@ -191,7 +191,6 @@ import {
     TRACER_CARD_LIBRARY_VISIBLE,
     TRACER_CARD_SHARE_VISIBLE,
     TRACER_COPY_BUTTON_VISIBLE,
-    coordName,
     distMetres,
     fitTraceBounds,
     legCacheKey,
@@ -213,14 +212,6 @@ import { RadialHelmMenu } from './RadialHelmMenu';
 import { MapActionFabs } from './MapActionFabs';
 import { TimePicker24 } from '../passage/TimePicker24';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
-import type { PointWeatherData } from '../../services/weather/pointWeather';
-import {
-    buildRemoveLocationPatch,
-    buildSaveLocationPatch,
-    disambiguateSavedName,
-    findSavedAt,
-    toPlannerString,
-} from '../../utils/savedLocations';
 
 // ── Lazy-loaded overlay components (split into separate chunks) ──
 const ConsensusMatrix = lazyRetry(
@@ -315,17 +306,6 @@ const StormPickerLoading: React.FC = () => (
 );
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { usePersistedState, usePersistedStringSet } from '../../hooks/usePersistedState';
-// WeatherInspectPopup is rendered imperatively via createRoot — use direct dynamic import
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _WeatherInspectPopup: React.ComponentType<any> | null = null;
-const getWeatherInspectPopup = async () => {
-    if (!_WeatherInspectPopup) {
-        const mod = await import('./WeatherInspectPopup');
-        _WeatherInspectPopup = mod.WeatherInspectPopup;
-    }
-    return _WeatherInspectPopup;
-};
-
 type PinViewHandoff = {
     lat: number;
     lng: number;
@@ -2717,10 +2697,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const playheadMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     // ── Weather Inspect Popup ──
-    const [_inspectData, setInspectData] = useState<PointWeatherData | null>(null);
-    const [_inspectLoading, setInspectLoading] = useState(false);
-    const inspectPopupRef = useRef<mapboxgl.Popup | null>(null);
-    const inspectRootRef = useRef<ReturnType<typeof createRoot> | null>(null);
+    // An imperative Mapbox popup with its own detached React root, in
+    // components/map/useWeatherInspectPopup.tsx.
+    const { showWeatherInspect, closeWeatherInspect } = useWeatherInspectPopup(mapRef, settingsRef, updateSettings);
 
     // Re-check pin view when navigating TO the map tab
     useEffect(() => {
@@ -3999,184 +3978,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         vesselSearchMarkerRef.current?.remove();
         vesselSearchMarkerRef.current = null;
-        if (inspectPopupRef.current) {
-            inspectPopupRef.current.remove();
-            inspectPopupRef.current = null;
-        }
-        if (inspectRootRef.current) {
-            inspectRootRef.current.unmount();
-            inspectRootRef.current = null;
-        }
-        setInspectData(null);
-        setInspectLoading(false);
-    }, [planningSurface, setShowTideAck]);
-
-    const showWeatherInspect = (lat: number, lon: number): void => {
-        const map = mapRef.current;
-        if (!map) return;
-        // Close any existing inspect popup
-        if (inspectPopupRef.current) {
-            inspectPopupRef.current.remove();
-            inspectPopupRef.current = null;
-        }
-        if (inspectRootRef.current) {
-            inspectRootRef.current.unmount();
-            inspectRootRef.current = null;
-        }
-
-        const container = document.createElement('div');
-        container.style.minWidth = '240px';
-        const root = createRoot(container);
-        inspectRootRef.current = root;
-
-        setInspectData(null);
-        setInspectLoading(true);
-
-        const closePopup = () => {
-            if (inspectPopupRef.current) {
-                inspectPopupRef.current.remove();
-                inspectPopupRef.current = null;
-            }
-            if (inspectRootRef.current) {
-                inspectRootRef.current.unmount();
-                inspectRootRef.current = null;
-            }
-            setInspectData(null);
-            setInspectLoading(false);
-        };
-
-        // Everything the popup shows lives here so any of it can change
-        // (weather lands, the geocoded name lands, the user saves) and
-        // re-render through one path — the popup is an imperative root,
-        // it has no props-flow of its own.
-        const view: {
-            data: PointWeatherData | null;
-            loading: boolean;
-            suggestedName: string;
-            savedAs: string | null;
-        } = {
-            data: null,
-            loading: true,
-            suggestedName: coordName(lat, lon),
-            savedAs: findSavedAt(settingsRef.current.savedLocationCoords, lat, lon),
-        };
-
-        // Reverse geocode ONCE, and only when the punter opens the name
-        // editor. A real place name beats "20.2670°S, 148.7180°E" in the
-        // saved list, but the name is never shown anywhere else — and
-        // this popup opens on every inspect tap, so geocoding eagerly
-        // would bill a lookup per tap for something usually unseen.
-        // Offshore taps legitimately have no name; the coord string stays.
-        let nameRequested = false;
-        const ensureName = (): void => {
-            if (nameRequested) return;
-            nameRequested = true;
-            void import('../../services/weatherService')
-                .then(({ reverseGeocode }) => reverseGeocode(lat, lon))
-                .then((name) => {
-                    if (inspectRootRef.current !== root || !name) return;
-                    view.suggestedName = name;
-                    paint();
-                })
-                .catch(() => {
-                    /* keep the coord fallback */
-                });
-        };
-
-        const paint = (): void => {
-            void getWeatherInspectPopup().then((WIP) => {
-                // The popup may have closed while the chunk loaded.
-                if (inspectRootRef.current !== root) return;
-                root.render(
-                    <WIP
-                        data={view.data}
-                        loading={view.loading}
-                        onClose={closePopup}
-                        save={{
-                            suggestedName: view.suggestedName,
-                            savedAs: view.savedAs,
-                            onRequestName: ensureName,
-                            onSave: (name: string) => {
-                                const s = settingsRef.current;
-                                // The store is name-keyed but this popup asks
-                                // by coords, and geocoding is locality-level —
-                                // without this, a second anchorage in the same
-                                // bay overwrites the first (see
-                                // disambiguateSavedName).
-                                const unique = disambiguateSavedName(
-                                    s.savedLocations,
-                                    s.savedLocationCoords,
-                                    name,
-                                    lat,
-                                    lon,
-                                );
-                                const planner = toPlannerString({ name: unique, lat, lon });
-                                const patch = buildSaveLocationPatch(s.savedLocations, s.savedLocationCoords, planner);
-                                if (!patch) return;
-                                updateSettings(patch);
-                                triggerHaptic('light');
-                                // Optimistic: the settings write propagates
-                                // asynchronously, but the tap must land now.
-                                // Show the name actually stored, suffix and all.
-                                view.savedAs = unique;
-                                paint();
-                            },
-                            onUnsave: (name: string) => {
-                                const s = settingsRef.current;
-                                updateSettings(buildRemoveLocationPatch(s.savedLocations, s.savedLocationCoords, name));
-                                triggerHaptic('light');
-                                view.savedAs = null;
-                                paint();
-                            },
-                        }}
-                    />,
-                );
-            });
-        };
-
-        paint();
-
-        const popup = new mapboxgl.Popup({
-            closeButton: false,
-            closeOnClick: true,
-            className: 'weather-inspect-popup',
-            maxWidth: '300px',
-            offset: 8,
-        })
-            .setLngLat([lon, lat])
-            .setDOMContent(container)
-            .addTo(map);
-
-        inspectPopupRef.current = popup;
-        popup.on('close', () => {
-            if (inspectRootRef.current) {
-                inspectRootRef.current.unmount();
-                inspectRootRef.current = null;
-            }
-            inspectPopupRef.current = null;
-            setInspectData(null);
-            setInspectLoading(false);
-        });
-
-        import('../../services/weather/pointWeather')
-            .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
-            .then((data) => {
-                if (!inspectPopupRef.current) return; // popup was closed
-                setInspectData(data);
-                setInspectLoading(false);
-                view.data = data;
-                view.loading = false;
-                paint();
-            })
-            .catch(() => {
-                setInspectLoading(false);
-                // Drop the skeleton rather than spinning forever — the save
-                // row still stands, so a failed forecast doesn't cost the
-                // punter the spot they tapped.
-                view.loading = false;
-                paint();
-            });
-    };
+        closeWeatherInspect();
+    }, [planningSurface, setShowTideAck, closeWeatherInspect]);
 
     // ── Map Init ──
     const { dropPin } = useMapInit({
