@@ -103,13 +103,7 @@ import {
 } from './EncVectorLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { useBuoyageDirectionLayer } from './useBuoyageDirectionLayer';
-import {
-    submitTracedRoute,
-    communityLanesNear,
-    listPendingRoutes,
-    reviewRoute,
-    type PendingRoute,
-} from '../../services/communityRoutes';
+import { submitTracedRoute, listPendingRoutes, reviewRoute, type PendingRoute } from '../../services/communityRoutes';
 import {
     fetchSeaVoyageChoices,
     loadVoyageTrackPoints,
@@ -141,7 +135,6 @@ import {
     reverseRouteName,
     bearingDegBetween,
     courseArrow,
-    curatedLanesNear,
     commonDepartureWindowLabel,
     persistLegVerdicts,
     hydrateLegVerdicts,
@@ -151,7 +144,6 @@ import {
     destNameFromRouteName,
     retroBadgeFirstLeg,
     healTripChain,
-    type GhostLane,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     type TraceLegVerdict,
@@ -177,6 +169,8 @@ import { useTideDepthMode } from './useTideDepthMode';
 import { useWeatherInspectPopup } from './useWeatherInspectPopup';
 import { useAutoRouteLeg } from './useAutoRouteLeg';
 import { useTracerLegFixes } from './useTracerLegFixes';
+import { useTracerGhostLanes } from './useTracerGhostLanes';
+import { useTracerSessionEffects } from './useTracerSessionEffects';
 import {
     AUTO_ROUTE_BUTTON_VISIBLE,
     CHARTS_FAB_CATEGORY_VISIBLE,
@@ -733,65 +727,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [showQueue, setShowQueue] = useState(false);
     const [voyageTracks, setVoyageTracks] = useState<SeaVoyageChoice[]>([]);
     const [showVoyagePicker, setShowVoyagePicker] = useState(false);
-    /** Proven-lane ghosts: curated fairways near the trace area, drawn dotted
-     *  grey; accepting one loads its pins ("trace out of the marina" solved
-     *  in two taps where a lane exists). */
-    const [ghostLanes, setGhostLanes] = useState<GhostLane[]>([]);
-    // Ghosts only ever RENDER while the trace has ≤1 pin (the "trace out
-    // of the marina" moment) — yet this effect used to rescan lanes and
-    // mint a fresh array on EVERY pin edit, dirtying the trace-line
-    // sync's deps for a wasted 4×setData pass per pin (perf hunt
-    // 2026-07-15). The primitive key kills that: 'off' once ≥2 pins
-    // exist, else the first pin rounded to ~100 m — nudges and pans
-    // don't rescan, a genuinely new start area does.
-    const ghostKey =
-        !coordCaptureMode || capturedCoords.length > 1
-            ? 'off'
-            : capturedCoords.length === 1
-              ? `${capturedCoords[0].lat.toFixed(3)},${capturedCoords[0].lon.toFixed(3)}`
-              : 'centre';
-    useEffect(() => {
-        if (ghostKey === 'off') {
-            setGhostLanes((prev) => (prev.length === 0 ? prev : []));
-            return;
-        }
-        const map = mapRef.current;
-        const centre =
-            capturedCoords.length > 0
-                ? capturedCoords[capturedCoords.length - 1]
-                : map
-                  ? { lat: map.getCenter().lat, lon: map.getCenter().lng }
-                  : null;
-        if (!centre) {
-            setGhostLanes((prev) => (prev.length === 0 ? prev : []));
-            return;
-        }
-        const bbox: [number, number, number, number] = [
-            centre.lon - 0.05,
-            centre.lat - 0.05,
-            centre.lon + 0.05,
-            centre.lat + 0.05,
-        ];
-        // Curated lanes land instantly; approved community lanes merge in as
-        // the RPC returns (10-min cached). Stale-guarded — a pin drop mid-
-        // fetch supersedes this run.
-        let stale = false;
-        setGhostLanes(curatedLanesNear(bbox));
-        void communityLanesNear(bbox).then((community) => {
-            if (stale || community.length === 0) return;
-            setGhostLanes((prev) => {
-                const seen = new Set(prev.map((l) => l.id));
-                return [...prev, ...community.filter((l) => !seen.has(l.id))];
-            });
-        });
-        return () => {
-            stale = true;
-        };
-        // capturedCoords is read for the centre only — ghostKey already
-        // encodes it to ~100 m, so re-running on every array identity
-        // would defeat the whole gate.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ghostKey]);
+    // Proven-lane ghosts — curated + community fairways near the start of a
+    // trace, in components/map/useTracerGhostLanes.ts.
+    const ghostLanes = useTracerGhostLanes(mapRef, coordCaptureMode, capturedCoords);
     // Deep-link door (Phase 5.1): thalassawx.app/plan boots the map with
     // a pending tracer-open request — consume it on mount, or via the
     // 'thalassa:trace-mode' window event when the map is already up
@@ -926,61 +864,19 @@ export const MapHub: React.FC<MapHubProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [embedded, pickerMode, hideTracer, isPinView]);
 
-    // Routing-page declutter (Shane 2026-07-17): tell app-level chrome (the
-    // Bosun mic orb over the map) when the tracer is active so it steps
-    // aside; Done brings it back.
-    useEffect(() => {
-        if (embedded || pickerMode || isPinView) return;
-        const say = (active: boolean) => {
-            try {
-                window.dispatchEvent(new CustomEvent('thalassa:tracer-active', { detail: { active } }));
-            } catch {
-                /* chrome just stays visible */
-            }
-        };
-        say(coordCaptureMode);
-        // Done no longer exits trace mode (2026-07-17) — the tab bar does,
-        // by UNMOUNTING MapHub. Without this cleanup the mic orb would stay
-        // hidden on every other page after leaving mid-trace.
-        return () => say(false);
-    }, [coordCaptureMode, embedded, pickerMode, isPinView]);
-
-    // Departure set on the PLAN page (DepartControl) → adopt it here so the
-    // tide windows / weather ETAs re-anchor without a remount.
-    useEffect(() => {
-        const onDep = (e: Event) => {
-            const detail = (e as CustomEvent).detail as
-                | { ms?: unknown; scopeKey?: unknown; scopeGeneration?: unknown }
-                | undefined;
-            const scope = getAuthIdentityScope();
-            if (detail?.scopeKey !== scope.key || detail.scopeGeneration !== scope.generation) return;
-            const ms = detail.ms;
-            setDepartureMs(typeof ms === 'number' && Number.isFinite(ms) ? ms : null);
-        };
-        window.addEventListener('thalassa:departure-changed', onDep);
-        return () => window.removeEventListener('thalassa:departure-changed', onDep);
-    }, [setDepartureMs]);
-    // (Tap-the-water popup suppression lives below, after mapRef/mapReady
-    // are declared — it's per-map now, not module-global.)
-    useEffect(() => {
-        coordCaptureRef.current = coordCaptureMode;
-        if (coordCaptureMode) {
-            // Every tracer open starts with the pen ARMED — pausing is a
-            // within-session choice, never a haunting state.
-            setPlotArmed(true);
-            setSavedTraces(loadSavedTraces());
-            // Desktop builder (Phase 5): register cloud ENC cells (idempotent,
-            // signed-in only — a browser can't reach the Pi) and pull the
-            // account's saved routes; refresh the list when the merge lands.
-            void import('../../services/enc/cloudCellSync')
-                .then(({ registerCloudCells }) => registerCloudCells())
-                .catch(() => {});
-            void import('../../services/savedRoutesSync')
-                .then(({ syncSavedRoutes }) => syncSavedRoutes())
-                .then((merged) => setSavedTraces(merged))
-                .catch(() => {});
-        }
-    }, [coordCaptureMode]);
+    // Chrome broadcast, PLAN-page departure adoption, and the tracer-open
+    // bootstrap — components/map/useTracerSessionEffects.ts. None of the three
+    // touches the map, and their guards differ ON PURPOSE.
+    useTracerSessionEffects({
+        coordCaptureMode,
+        embedded,
+        pickerMode,
+        isPinView,
+        setDepartureMs,
+        coordCaptureRef,
+        setPlotArmed,
+        setSavedTraces,
+    });
     // One pending idle-promote at a time — see the use site in sync().
     const traceIdlePromoteRef = useRef(false);
     // Draw the graded legs on a dedicated source ('route-line' belongs to the
