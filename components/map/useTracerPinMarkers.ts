@@ -12,8 +12,8 @@
  *
  * The three listeners — marker dragstart, marker dragend, and the element's
  * DOM click — are bound ONCE at record creation and never rebound. They
- * capture setCapturedCoords, flashTraceFeedback, setSelectedPin,
- * setInsertAfter and insertAfterRef at that render. Do not add an
+ * capture flashTraceFeedback, setSelectedPin, setInsertAfter and
+ * insertAfterRef at that render, all of which are stable. Do not add an
  * .off()/removeEventListener that does not exist today.
  *
  * `e.stopPropagation()` in the click handler is load-bearing: it is the only
@@ -38,13 +38,24 @@
  * DOM elements and shifts data down the record array, so DOM stacking order
  * stays CREATION order and diverges from pin index order. That is intended.
  *
- * PRE-EXISTING BUG, MOVED VERBATIM: setCapturedCoords is the one unstable
- * capture. A pin created before a sign-in or sign-out keeps the OLD dispatcher,
- * whose own identity guard turns it into a SILENT no-op — the marker moves,
- * the feedback flashes, and the pin snaps back on the next render. Do NOT
- * "fix" it with a ref indirection: that is exactly the render-time to
- * fire-time conversion these extractions must never make. It needs its own
- * commit.
+ * setCapturedCoords is the ONE capture that must be read at fire time, and it
+ * goes through setCapturedCoordsRef for that reason. useTraceDraft mints a new
+ * dispatcher per auth identity, and each one captures its own scope and
+ * early-returns unless that scope is still current. A listener bound before a
+ * sign-in or sign-out therefore held a dispatcher that had become a SILENT
+ * no-op: Mapbox had already moved the marker, "Snapped onto the lead" flashed,
+ * and the pin snapped back on the next render with no error anywhere.
+ *
+ * The latest-ref is correct rather than merely convenient. Marker records are
+ * REUSED across identity changes — the effect repositions them from the new
+ * draft instead of rebuilding them — so by the time a reused marker is
+ * dragged, it represents the CURRENT draft's pin at that index, and the
+ * current draft is exactly what the write must land on.
+ *
+ * This is the one deliberate render-time to fire-time conversion in this file.
+ * Every other capture stays as it was: flashTraceFeedback, setSelectedPin and
+ * setInsertAfter are genuinely stable, so routing them through refs would add
+ * indirection and buy nothing.
  *
  * Also pre-existing and deliberately unfixed: the null-map early return fires
  * before the mode-off teardown and there is no re-entry ticket in the deps, so
@@ -68,7 +79,7 @@ export interface TracerPinMarkerDeps {
     tracerCtxRef: React.RefObject<TracerContext | null>;
     coordCaptureMode: boolean;
     capturedCoords: { lat: number; lon: number }[];
-    /** The one unstable capture — see the sign-out note above. */
+    /** Re-minted per auth identity, so listeners read it at fire time. */
     setCapturedCoords: Dispatch<SetStateAction<{ lat: number; lon: number }[]>>;
     selectedPin: number | null;
     setSelectedPin: Dispatch<SetStateAction<number | null>>;
@@ -92,6 +103,11 @@ export function useTracerPinMarkers({
     legAnchor,
     flashTraceFeedback,
 }: TracerPinMarkerDeps): void {
+    // Always the CURRENT dispatcher. useTraceDraft re-mints setCapturedCoords
+    // per auth identity and a superseded one silently early-returns, so a
+    // listener bound before a sign-in would drop the drag on the floor.
+    const setCapturedCoordsRef = useRef(setCapturedCoords);
+    setCapturedCoordsRef.current = setCapturedCoords;
     // Per-pin marker records for RECONCILIATION (Shane 2026-07-15: "still
     // becoming unresponsive the moment I have a lot of waypoints"). The
     // old effect destroyed and recreated every DOM marker on EVERY pin
@@ -189,7 +205,7 @@ export function useTracerPinMarkers({
                         marker.setLngLat([p0.lon, p0.lat]);
                         flashTraceFeedback('Snapped onto the lead 🎯');
                     }
-                    setCapturedCoords((prev) => prev.map((p, j) => (j === newRec.index ? p0 : p)));
+                    setCapturedCoordsRef.current((prev) => prev.map((p, j) => (j === newRec.index ? p0 : p)));
                 });
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();
