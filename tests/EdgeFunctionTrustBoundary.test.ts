@@ -17,12 +17,8 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
     });
 
     it('locks every cron/sweeper entry point to exact service-role POST requests', () => {
-        for (const name of [
-            'check-weather-alerts',
-            'scrape-vessel-metadata',
-            'sweep-expired-escrows',
-            'sweep-stale-vessels',
-        ]) {
+        // sweep-expired-escrows is gone with the Marketplace (bc065281).
+        for (const name of ['check-weather-alerts', 'scrape-vessel-metadata', 'sweep-stale-vessels']) {
             const edge = functionSource(name);
             expect(edge, name).toContain('requireServiceRolePost(');
             expect(edge, name).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
@@ -143,28 +139,10 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
         expect(migration).not.toContain('CREATE FUNCTION public.check_geofence_distance');
     });
 
-    it('reserves capture before Stripe and provides service-only reconciliation', () => {
-        const migration = source('supabase/migrations/20260724090000_public_edge_quota_and_ais_rpc.sql');
-        expect(migration).toContain("'capture_pending'");
-        expect(migration).toContain('claim_marketplace_escrow_reconciliation');
-        expect(migration).toContain('finalize_marketplace_escrow_release');
-        expect(migration).toContain('complete_marketplace_escrow_cancellation');
-        expect(migration).toMatch(
-            /GRANT EXECUTE ON FUNCTION public\.claim_marketplace_escrow_reconciliation\(INTEGER\)\s+TO service_role/,
-        );
-
-        expect(functionSource('create-marketplace-payment')).toContain('requireAuthenticatedQuota(');
-        expect(functionSource('capture-escrow-payment')).toContain('requireAuthenticatedQuota(');
-        expect(functionSource('sweep-expired-escrows')).toContain('requireServiceRolePost(');
-        for (const functionName of ['create-marketplace-payment', 'capture-escrow-payment', 'sweep-expired-escrows']) {
-            const edge = functionSource(functionName);
-            expect(edge).toContain("Deno.env.get('MARKETPLACE_ENABLED') !== 'true'");
-            expect(edge).toContain('timeout: STRIPE_TIMEOUT_MS');
-            expect(edge).toContain('maxNetworkRetries: 1');
-        }
-        const sweep = functionSource('sweep-expired-escrows');
-        expect(sweep).toContain("reason: 'payments_disabled'");
-        expect(sweep).toContain("'stripe_canceled_at'");
-        expect(sweep).toContain('Unresolved escrow records require operator reconciliation');
-    });
+    // The Marketplace escrow trust-boundary test lived here. The whole feature
+    // was retired in bc065281 — create-marketplace-payment, capture-escrow-payment
+    // and sweep-expired-escrows no longer exist, and 20260729080000_drop_marketplace.sql
+    // drops the escrow RPCs. The test outlived the code it guarded and failed CI
+    // on ENOENT rather than on anything meaningful, so it is deleted rather than
+    // weakened: there is no trust boundary left to protect.
 });
