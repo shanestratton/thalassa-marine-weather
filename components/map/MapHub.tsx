@@ -145,7 +145,6 @@ import {
     commonDepartureWindowLabel,
     persistLegVerdicts,
     hydrateLegVerdicts,
-    groupTracesByTrip,
     nextLegSeed,
     ordinalLegLabel,
     withLegBadge,
@@ -192,7 +191,6 @@ import {
     fitTraceBounds,
     legCacheKey,
     isBasemapHybridDuplicateLabelLayer,
-    msToLocalInput,
 } from './mapHubHelpers';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
 // islet land-fill dot, hidden over satellite/hybrid so it can't blanket the
@@ -207,7 +205,6 @@ import { useRouteTrackLayer } from './useRouteTrackLayer';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { RadialHelmMenu } from './RadialHelmMenu';
 import { MapActionFabs } from './MapActionFabs';
-import { TimePicker24 } from '../passage/TimePicker24';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 
 // ── Lazy-loaded overlay components (split into separate chunks) ──
@@ -241,7 +238,10 @@ import { ThreatBanner } from './ThreatBanner';
 import { ConnectivityChip } from './ConnectivityChip';
 import { PerfOverlay } from './PerfOverlay';
 import { PerfDowntierToast } from './PerfDowntierToast';
-import { TracerTidePanel } from './TracerTidePanel';
+import { TracerInputRows } from './tracer/TracerInputRows';
+import { TracerWaypointList } from './tracer/TracerWaypointList';
+import { TracerSavedRoutePicker } from './tracer/TracerSavedRoutePicker';
+import { TracerPinEditor } from './tracer/TracerPinEditor';
 import { CoachMark } from '../ui/CoachMark';
 import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
 const AisGuardAlert = lazyRetry(
@@ -5495,63 +5495,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 chart → delete it or splice a new pin after it
                                 (fixing pin 5 of 29 no longer costs 24 Undos). */}
                                         {selectedPin !== null && selectedPin < capturedCoords.length && (
-                                            <div className="flex items-center gap-1.5 border-b border-sky-500/30 bg-sky-500/10 px-3 py-1.5">
-                                                <span className="flex-1 text-[11px] font-bold text-sky-300">
-                                                    {selectedPin === 0
-                                                        ? legAnchor
-                                                            ? `Start — locked to ${legAnchor.fromName} 🔒`
-                                                            : 'Start'
-                                                        : selectedPin === capturedCoords.length - 1
-                                                          ? 'Finish'
-                                                          : `Pin ${selectedPin + 1}`}
-                                                    {insertAfter !== null
-                                                        ? ' — hold on the chart to insert after it'
-                                                        : ''}
-                                                </span>
-                                                {insertAfter === null && (
-                                                    <button
-                                                        onClick={() => {
-                                                            triggerHaptic('light');
-                                                            setInsertAfter(selectedPin);
-                                                            insertAfterRef.current = selectedPin;
-                                                        }}
-                                                        className="rounded-lg bg-sky-500/20 px-2 py-1.5 text-[11px] font-black uppercase text-sky-300 active:scale-95"
-                                                    >
-                                                        + Insert
-                                                    </button>
-                                                )}
-                                                <button
-                                                    onClick={() => {
-                                                        // The chained-leg start can't be deleted —
-                                                        // it IS the previous leg's arrival.
-                                                        if (selectedPin === 0 && legAnchor) {
-                                                            flashTraceFeedback(
-                                                                `First pin is locked to ${legAnchor.fromName} — edit the previous leg to move it`,
-                                                            );
-                                                            return;
-                                                        }
-                                                        triggerHaptic('medium');
-                                                        const idx = selectedPin;
-                                                        setSelectedPin(null);
-                                                        setInsertAfter(null);
-                                                        insertAfterRef.current = null;
-                                                        setCapturedCoords((prev) => prev.filter((_, j) => j !== idx));
-                                                    }}
-                                                    className="rounded-lg bg-red-500/20 px-2 py-1.5 text-[11px] font-black uppercase text-red-300 active:scale-95"
-                                                >
-                                                    Delete
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedPin(null);
-                                                        setInsertAfter(null);
-                                                        insertAfterRef.current = null;
-                                                    }}
-                                                    className="px-1 text-gray-400"
-                                                >
-                                                    ✕
-                                                </button>
-                                            </div>
+                                            <TracerPinEditor
+                                                selectedPin={selectedPin}
+                                                setSelectedPin={setSelectedPin}
+                                                pinCount={capturedCoords.length}
+                                                setCapturedCoords={setCapturedCoords}
+                                                legAnchor={legAnchor}
+                                                insertAfter={insertAfter}
+                                                setInsertAfter={setInsertAfter}
+                                                insertAfterRef={insertAfterRef}
+                                                flashTraceFeedback={flashTraceFeedback}
+                                            />
                                         )}
                                         {/* Pin-on-land diagnosis: a fat-fingered pin on the
                                 breakwater used to show as two cryptic red legs
@@ -5563,225 +5517,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {pinDiagnosis}
                                             </div>
                                         )}
-                                        {/* Open a saved route — the only path to previous
-                                            tracks on the standalone /plan web page (no PLAN
-                                            front door there). The "Key" toggle was removed
-                                            (Shane 2026-07-17: "makes the card go haywire and
-                                            gives no meaningful info"); the empty-state help
-                                            still carries the colour key. */}
-                                        <div className="flex shrink-0 border-b border-white/10 px-3 py-1.5">
-                                            <button
-                                                onClick={() => {
-                                                    triggerHaptic('light');
-                                                    setSavedTraces(loadSavedTraces());
-                                                    setShowSavedTraces((v) => !v);
-                                                }}
-                                                className={`flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
-                                            >
-                                                {showSavedTraces ? '▾ Saved routes' : '📂 Open a saved route'}
-                                            </button>
-                                        </div>
-                                        {showSavedTraces && (
-                                            <div className="max-h-40 shrink-0 space-y-1 overflow-y-auto border-b border-white/10 px-3 py-2">
-                                                {savedTraces.length === 0 ? (
-                                                    <div className="text-[10px] text-gray-500">
-                                                        No saved routes yet — plot one and Save it.
-                                                    </div>
-                                                ) : (
-                                                    // GROUPED by trip (Shane 2026-07-17), the same
-                                                    // shared helper the PLAN Trip box uses: a
-                                                    // multi-leg trip shows a header + indented
-                                                    // legs; a standalone route is one row.
-                                                    groupTracesByTrip(savedTraces).map((trip) =>
-                                                        trip.legs.length === 1 ? (
-                                                            <button
-                                                                key={trip.key}
-                                                                onClick={() => openSavedTrace(trip.legs[0])}
-                                                                className="block w-full truncate rounded-md px-1.5 py-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
-                                                            >
-                                                                {trip.legs[0].name}{' '}
-                                                                <span className="text-gray-500">
-                                                                    ({trip.legs[0].points.length} pins)
-                                                                </span>
-                                                            </button>
-                                                        ) : (
-                                                            <div key={trip.key}>
-                                                                <div className="truncate px-1.5 pt-1 text-[10px] font-black uppercase tracking-wide text-amber-300/90">
-                                                                    🧩 {trip.label}
-                                                                </div>
-                                                                {trip.legs.map((leg) => (
-                                                                    <button
-                                                                        key={leg.id}
-                                                                        onClick={() => openSavedTrace(leg)}
-                                                                        className="block w-full truncate rounded-md py-1.5 pl-4 pr-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
-                                                                    >
-                                                                        {leg.name}{' '}
-                                                                        <span className="text-gray-500">
-                                                                            ({leg.points.length} pins)
-                                                                        </span>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        ),
-                                                    )
-                                                )}
-                                            </div>
-                                        )}
-                                        {capturedCoords.length === 0 ? (
-                                            <div className="shrink-0 px-3 py-3 text-[11px] leading-snug text-gray-400">
-                                                Tap the chart along your intended track — each leg is checked for depth,
-                                                markers and land as you go. Zoom right in for tight channels. Drag a pin
-                                                to nudge it; tap a pin to delete it or insert after it.
-                                                <div className="pt-1">
-                                                    <span className="text-emerald-300">●</span> good water ·{' '}
-                                                    <span className="text-amber-300">●</span> check it ·{' '}
-                                                    <span className="text-red-400">●</span> no-go at low tide
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            // No longer its own scroller. The card body scrolls as
-                                            // one column now, so a nested scroller here would trap
-                                            // the wheel and re-create the 40px sliver that clipped
-                                            // the tide rows mid-glyph (Shane 2026-07-28: "it has
-                                            // no room to grow").
-                                            <div className="shrink-0 space-y-1 px-3 py-2">
-                                                {/* Tide rides INSIDE the scroller, not above it.
-                                                    As a pinned sibling it ate the waypoint
-                                                    list's slack and pushed Save off the card
-                                                    entirely — this card is fixed-height by
-                                                    design and the list is its only flex-1
-                                                    child, so anything added outside the
-                                                    scroller comes straight out of the list.
-                                                    -mx-3 cancels the scroller's padding so the
-                                                    panel's own rules still meet the edges. */}
-                                                <div className="-mx-3 -mt-2 mb-1">
-                                                    <TracerTidePanel anchor={tideAnchor} departureMs={departureMs} />
-                                                    {departureLabel ? (
-                                                        <p
-                                                            data-testid="tracer-departure-window"
-                                                            className="border-t border-white/10 px-3 py-2 text-[10px] font-bold leading-snug text-emerald-300"
-                                                        >
-                                                            {departureLabel}
-                                                        </p>
-                                                    ) : null}
-                                                </div>
-                                                {capturedCoords.map((c, i) => {
-                                                    if (i === 0)
-                                                        return (
-                                                            <div
-                                                                key="p0"
-                                                                className="font-mono text-[10px] text-gray-500"
-                                                            >
-                                                                <span className="text-amber-400">1.</span>{' '}
-                                                                {c.lat.toFixed(5)}, {c.lon.toFixed(5)}
-                                                            </div>
-                                                        );
-                                                    const v = legVerdicts[i - 1];
-                                                    const dot = !v
-                                                        ? 'text-gray-500'
-                                                        : v.grade === 'danger'
-                                                          ? 'text-red-400'
-                                                          : v.grade === 'caution'
-                                                            ? 'text-amber-300'
-                                                            : 'text-emerald-300';
-                                                    // A clear leg normally reads "clear — N m least",
-                                                    // but a green 'info' note (e.g. "Red mark to your
-                                                    // port — correct side heading in") takes its place
-                                                    // so a right mark-pass shows its confirmation.
-                                                    const infoNote = v?.issues.find((iss) => iss.severity === 'info');
-                                                    const msg = !v
-                                                        ? 'checking…'
-                                                        : v.grade === 'clear'
-                                                          ? infoNote
-                                                              ? infoNote.message
-                                                              : v.minDepthM !== null
-                                                                ? `clear — ${v.minDepthM.toFixed(1)} m least`
-                                                                : 'clear'
-                                                          : (v.issues.find((iss) => iss.severity !== 'info')?.message ??
-                                                            v.grade);
-                                                    // Tap a leg row → fly to the MARK it's
-                                                    // about (haloed) when there is one, else
-                                                    // the problem spot / leg midpoint.
-                                                    const firstIssue = v?.issues[0];
-                                                    const spot = firstIssue?.mark ??
-                                                        firstIssue?.at ??
-                                                        v?.minAt ?? {
-                                                            lat: (capturedCoords[i - 1].lat + c.lat) / 2,
-                                                            lon: (capturedCoords[i - 1].lon + c.lon) / 2,
-                                                        };
-                                                    return (
-                                                        <div
-                                                            key={i}
-                                                            onClick={() => {
-                                                                const m = mapRef.current;
-                                                                if (!m) return;
-                                                                triggerHaptic('light');
-                                                                m.flyTo({
-                                                                    center: [spot.lon, spot.lat],
-                                                                    zoom: Math.max(m.getZoom(), 15),
-                                                                    duration: 700,
-                                                                });
-                                                                if (firstIssue?.mark) pulseMarkHalo(firstIssue.mark);
-                                                            }}
-                                                            className="cursor-pointer active:opacity-70"
-                                                        >
-                                                            <div className="flex items-start gap-1.5 text-[11px] leading-tight">
-                                                                <span className={`${dot} font-black`}>
-                                                                    {v?.grade === 'danger'
-                                                                        ? '⛔'
-                                                                        : v?.grade === 'caution'
-                                                                          ? '⚠'
-                                                                          : '●'}
-                                                                </span>
-                                                                <span className="text-gray-200">
-                                                                    <span className="font-mono text-gray-400">
-                                                                        {i}→{i + 1}
-                                                                    </span>{' '}
-                                                                    {msg}
-                                                                </span>
-                                                            </div>
-                                                            {v &&
-                                                                (tideLabels[i - 1] ||
-                                                                    v.nudge ||
-                                                                    v.issues.length > 1) && (
-                                                                    <div className="pl-4 text-[10px] leading-tight text-gray-400">
-                                                                        {v.issues.slice(1).map((iss, k) => (
-                                                                            <div
-                                                                                key={k}
-                                                                                onClick={(e) => {
-                                                                                    const tgt = iss.mark ?? iss.at;
-                                                                                    const m = mapRef.current;
-                                                                                    if (!tgt || !m) return;
-                                                                                    e.stopPropagation();
-                                                                                    triggerHaptic('light');
-                                                                                    m.flyTo({
-                                                                                        center: [tgt.lon, tgt.lat],
-                                                                                        zoom: Math.max(m.getZoom(), 15),
-                                                                                        duration: 700,
-                                                                                    });
-                                                                                    if (iss.mark)
-                                                                                        pulseMarkHalo(iss.mark);
-                                                                                }}
-                                                                                className={
-                                                                                    iss.mark || iss.at
-                                                                                        ? 'cursor-pointer underline decoration-dotted underline-offset-2 active:opacity-70'
-                                                                                        : undefined
-                                                                                }
-                                                                            >
-                                                                                · {iss.message}
-                                                                            </div>
-                                                                        ))}
-                                                                        {tideLabels[i - 1] && (
-                                                                            <div>🌊 {tideLabels[i - 1]}</div>
-                                                                        )}
-                                                                        {v.nudge && <div>💡 {v.nudge}</div>}
-                                                                    </div>
-                                                                )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
+                                        <TracerSavedRoutePicker
+                                            savedTraces={savedTraces}
+                                            setSavedTraces={setSavedTraces}
+                                            showSavedTraces={showSavedTraces}
+                                            setShowSavedTraces={setShowSavedTraces}
+                                            openSavedTrace={openSavedTrace}
+                                        />
+                                        <TracerWaypointList
+                                            capturedCoords={capturedCoords}
+                                            legVerdicts={legVerdicts}
+                                            tideLabels={tideLabels}
+                                            tideAnchor={tideAnchor}
+                                            departureMs={departureMs}
+                                            departureLabel={departureLabel}
+                                            mapRef={mapRef}
+                                            pulseMarkHalo={pulseMarkHalo}
+                                        />
                                         <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
                                             <button
                                                 onClick={() => {
@@ -5893,144 +5645,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 )}
                                             </div>
                                         )}
-                                        {/* Departure date/time (Shane 2026-07-16): anchors the
-                                            tide windows at each leg's ETA, the departure-window
-                                            headline, and the report's per-waypoint weather.
-                                            Empty = leave now. Two lines (date, then 24-hour
-                                            selects) so neither is squeezed. */}
-                                        <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
-                                            <div className="flex items-baseline justify-between">
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                                    🕐 Depart
-                                                </span>
-                                                {departureMs === null && (
-                                                    <span className="text-[10px] font-bold text-emerald-300/80">
-                                                        now
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {/* The native date input renders 31/07/2026 in a grey
-                                                system control — legible, but nothing your eye
-                                                lands on, and every tide row below is read against
-                                                it. Spell the chosen departure out in medium form,
-                                                weekday included, because "is that Thursday or
-                                                Friday" is the question that actually gets asked. */}
-                                            {departureMs !== null && (
-                                                <p
-                                                    data-testid="tracer-depart-when"
-                                                    className="text-sm font-black uppercase tracking-wide text-amber-200"
-                                                >
-                                                    {new Date(departureMs).toLocaleString([], {
-                                                        weekday: 'short',
-                                                        day: 'numeric',
-                                                        month: 'short',
-                                                        year: 'numeric',
-                                                        hour: '2-digit',
-                                                        minute: '2-digit',
-                                                        hour12: false,
-                                                    })}
-                                                </p>
-                                            )}
-                                            <div className="flex gap-1.5">
-                                                <input
-                                                    type="date"
-                                                    value={
-                                                        departureMs !== null
-                                                            ? msToLocalInput(departureMs).slice(0, 10)
-                                                            : msToLocalInput(Date.now()).slice(0, 10)
-                                                    }
-                                                    // Past dates greyed out (Shane 2026-07-17) —
-                                                    // can't plan to leave yesterday.
-                                                    min={msToLocalInput(Date.now()).slice(0, 10)}
-                                                    onChange={(e) => {
-                                                        triggerHaptic('light');
-                                                        if (!e.target.value) {
-                                                            setDepartureMs(null);
-                                                            return;
-                                                        }
-                                                        const time =
-                                                            departureMs !== null
-                                                                ? msToLocalInput(departureMs).slice(11, 16)
-                                                                : msToLocalInput(Date.now()).slice(11, 16);
-                                                        const t = new Date(`${e.target.value}T${time}`).getTime();
-                                                        if (Number.isFinite(t)) setDepartureMs(t);
-                                                    }}
-                                                    aria-label="Departure date"
-                                                    className="min-w-0 flex-[3] rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
-                                                />
-                                                {/* 24-hour time (Shane 2026-07-17: the web time
-                                                    input's AM/PM clipped in the card). */}
-                                                <TimePicker24
-                                                    value={
-                                                        departureMs !== null
-                                                            ? {
-                                                                  h: Number(msToLocalInput(departureMs).slice(11, 13)),
-                                                                  m: Number(msToLocalInput(departureMs).slice(14, 16)),
-                                                              }
-                                                            : null
-                                                    }
-                                                    dateStr={
-                                                        departureMs !== null
-                                                            ? msToLocalInput(departureMs).slice(0, 10)
-                                                            : ''
-                                                    }
-                                                    onChange={(h, m) => {
-                                                        triggerHaptic('light');
-                                                        const date =
-                                                            departureMs !== null
-                                                                ? msToLocalInput(departureMs).slice(0, 10)
-                                                                : msToLocalInput(Date.now()).slice(0, 10);
-                                                        const p = (n: number) => String(n).padStart(2, '0');
-                                                        const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
-                                                        if (Number.isFinite(t)) setDepartureMs(t);
-                                                    }}
-                                                    selectClassName="min-w-0 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
-                                                />
-                                            </div>
-                                            {/* OK button REMOVED (Shane 2026-07-17): it only
-                                                existed to blur the native time wheel closed,
-                                                and the 24-hour selects dismiss themselves. */}
-                                            {departureMs !== null && (
-                                                <button
-                                                    onClick={() => {
-                                                        triggerHaptic('light');
-                                                        (document.activeElement as HTMLElement | null)?.blur?.();
-                                                        setDepartureMs(null);
-                                                    }}
-                                                    className="w-full rounded-lg bg-white/10 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
-                                                >
-                                                    Now
-                                                </button>
-                                            )}
-                                        </div>
-                                        {/* Build a route by keying GPS fixes — decimal, DMM
-                                            ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
-                                            Each Add drops the next pin (Shane 2026-07-16). */}
-                                        <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
-                                            <input
-                                                value={coordEntry}
-                                                onChange={(e) => setCoordEntry(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        addCoordPin();
-                                                    }
-                                                }}
-                                                inputMode="text"
-                                                autoCapitalize="characters"
-                                                autoCorrect="off"
-                                                spellCheck={false}
-                                                placeholder="Add a GPS Fix"
-                                                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-emerald-500/50 focus:outline-none"
-                                            />
-                                            <button
-                                                onClick={addCoordPin}
-                                                disabled={!coordEntry.trim()}
-                                                className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
-                                            >
-                                                ＋ Add
-                                            </button>
-                                        </div>
+                                        <TracerInputRows
+                                            departureMs={departureMs}
+                                            setDepartureMs={setDepartureMs}
+                                            coordEntry={coordEntry}
+                                            setCoordEntry={setCoordEntry}
+                                            addCoordPin={addCoordPin}
+                                        />
                                         <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
                                             <input
                                                 ref={traceNameInputRef}
