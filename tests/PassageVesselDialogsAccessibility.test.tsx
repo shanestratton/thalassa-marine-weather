@@ -48,7 +48,11 @@ vi.mock('../services/deepLink', () => ({
     requestTracerOpen: vi.fn(),
 }));
 
-vi.mock('../utils/system', () => ({
+// Spread the real module: stores/settingsStore calls getSystemUnits() at
+// MODULE scope, so a mock that returns only triggerHaptic makes any import
+// graph that reaches the settings store throw on load.
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 

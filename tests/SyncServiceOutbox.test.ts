@@ -255,6 +255,11 @@ describe('SyncService durable outbox', () => {
         harness.state.sessionCurrent = true;
         harness.state.visibleRows.clear();
         harness.state.deniedDeletes.clear();
+        // mockReset before mockResolvedValue: clearAllMocks() above resets call
+        // records but does NOT drain a mockResolvedValueOnce queue, and a once
+        // value that a run never consumed would silently satisfy the FIRST
+        // upload of the next test. Only mockReset clears the queue.
+        harness.storageUpload.mockReset();
         harness.storageUpload.mockResolvedValue({ error: null });
         harness.storageSign.mockResolvedValue({
             data: { signedUrl: 'https://storage.test/signed-file' },
