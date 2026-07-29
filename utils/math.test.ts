@@ -8,7 +8,7 @@ import {
     calculateHeatIndex,
     calculateApparentTemp,
     calculateFeelsLike,
-    calculateDistance,
+    calculateDistanceKm,
     getSunTimes,
 } from './math';
 
@@ -94,26 +94,26 @@ describe('calculateFeelsLike', () => {
     });
 });
 
-describe('calculateDistance (Haversine)', () => {
+describe('calculateDistanceKm (Haversine)', () => {
     it('returns 0 for same point', () => {
-        expect(calculateDistance(-27.47, 153.02, -27.47, 153.02)).toBe(0);
+        expect(calculateDistanceKm(-27.47, 153.02, -27.47, 153.02)).toBe(0);
     });
 
     it('Brisbane to Sydney ≈ 730km', () => {
-        const d = calculateDistance(-27.47, 153.02, -33.87, 151.21);
+        const d = calculateDistanceKm(-27.47, 153.02, -33.87, 151.21);
         expect(d).toBeGreaterThan(700);
         expect(d).toBeLessThan(800);
     });
 
     it('London to New York ≈ 5570km', () => {
-        const d = calculateDistance(51.5, -0.12, 40.7, -74.0);
+        const d = calculateDistanceKm(51.5, -0.12, 40.7, -74.0);
         expect(d).toBeGreaterThan(5500);
         expect(d).toBeLessThan(5700);
     });
 
     it('is symmetric: A→B = B→A', () => {
-        const ab = calculateDistance(-27, 153, -33, 151);
-        const ba = calculateDistance(-33, 151, -27, 153);
+        const ab = calculateDistanceKm(-27, 153, -33, 151);
+        const ba = calculateDistanceKm(-33, 151, -27, 153);
         expect(ab).toBeCloseTo(ba, 5);
     });
 });

@@ -4,7 +4,7 @@ import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
 
 import { mapStormGlassToReport, AstroEntry } from '../transformers';
-import { calculateDistance } from '../../../utils/math';
+import { calculateDistanceKm } from '../../../utils/math';
 import { determineLocationType } from '../locationType';
 import { mergeWeatherData } from './dataSourceMerger';
 import { findAndFetchNearestBeacon } from './beaconService';
@@ -326,7 +326,7 @@ const doFetchStormGlassWeather = async (
                     );
 
                 if (!isGeneric) {
-                    distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
+                    distToLand = calculateDistanceKm(lat, lon, landCtx.lat, landCtx.lon);
                 } else {
                     // Force landCtx null so determiner sees it as "Far from Land"
                     // (We can't set landCtx to null because it's const, but we can manage the call below)
