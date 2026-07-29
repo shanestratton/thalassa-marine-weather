@@ -3,6 +3,7 @@
  * Extracted from ChatPage to reduce monolith complexity.
  */
 import React from 'react';
+import { BackButton } from '../ui/BackButton';
 import { ChatChannel } from '../../services/ChatService';
 import { useTheme } from '../../context/ThemeContext';
 import { SafeImage } from '../ui/SafeImage';
@@ -64,13 +65,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             channel list the same chevron LEAVES Scuttlebutt,
                             which previously had no header exit at all. */}
                         {(view !== 'channels' || onExit) && (
-                            <button
-                                aria-label={view === 'channels' ? 'Back' : 'Go back'}
-                                onClick={view === 'channels' ? onExit : onGoBack}
-                                className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
-                            >
-                                <span className="text-sky-400 text-lg">‹</span>
-                            </button>
+                            <BackButton onClick={view === 'channels' ? (onExit ?? onGoBack) : onGoBack} />
                         )}
                         {view === 'channels' ? (
                             <span className={t.typography.pageTitle}>Community</span>
