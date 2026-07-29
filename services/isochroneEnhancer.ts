@@ -29,7 +29,7 @@
 
 import type { VoyagePlan, VesselProfile } from '../types';
 import { createLogger } from '../utils/createLogger';
-import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
+import { vesselDraftMetres, vesselMaxWaveHeightMetres, vesselDraftIsAssumed } from './units';
 
 const log = createLogger('IsoEnhancer');
 
@@ -433,7 +433,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                     // feet here was the "bathymetry is sometimes off" bug.
                     vesselDraftM: vesselDraftMetres(vessel),
                     // Assumed default draft (no draft set) → surface the caution (audit #2).
-                    draftAssumed: !(Number(vessel?.draft) > 0),
+                    draftAssumed: vesselDraftIsAssumed(vessel),
                     departureTimeMs,
                     stillCurrent: () => !enhancerStale,
                 }),
