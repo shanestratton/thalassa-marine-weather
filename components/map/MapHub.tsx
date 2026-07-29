@@ -180,15 +180,9 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
-import { listCells as listEncCells, getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
-import {
-    subscribe as subscribeToEnc,
-    subscribeHydration as subscribeToEncHydration,
-    getHydrationProgress as getEncHydrationProgress,
-    hasCoverageFor as encHasCoverageFor,
-    setEncHydrationPaused,
-} from '../../services/enc/EncHazardService';
-import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
+import { getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
+import { setEncHydrationPaused } from '../../services/enc/EncHazardService';
+import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 import { PinDirectionsCta } from './PinDirectionsCta';
 import { ChartDepthControls, LiveTideAckModal, TIDE_DEPTH_ACK_KEY } from './ChartDepthControls';
@@ -217,7 +211,6 @@ import {
 // imagery. Passed to applyChartDetailLevel so its restore side yields (audit
 // rank 8: LNDARE_ISLET was the ~8 Hz default-config styledata loop).
 const IMAGERY_SCRUB_OWNED: ReadonlySet<string> = new Set([ENC_VEC_LAYERS.LNDARE_ISLET]);
-import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -2949,111 +2942,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // restore usePersistedState('thalassa_map_enc_chart_detail_v2', true) at
     // that point and give it a writer in the same commit.
     const encChartDetail = true;
-    // Live cell-count so the layer FAB shows the right "N cells imported" caption
-    // and surfaces the toggle the moment the first cell lands.
-    const [encCellCount, setEncCellCount] = useState(() => listEncCells().length);
-    // Cloud-chart hydration progress — silent downloads read as "no
-    // chart here" (2026-07-12 audit): the punter needs to know dark
-    // water is a cell still on its way down, not a gap in coverage.
-    const [encHydration, setEncHydration] = useState(() => getEncHydrationProgress());
-    useEffect(() => subscribeToEncHydration(setEncHydration), []);
-    // No-coverage affordance (2026-07-17 audit): browsing genuinely
-    // UNCHARTED water at nav zoom was indistinguishable from having the
-    // chart layer off — the dark shell told the punter nothing. When the
-    // viewport escapes every imported cell's bbox at z11+, say so.
-    const [encNoCoverage, setEncNoCoverage] = useState(false);
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady || !encVisible) {
-            setEncNoCoverage(false);
-            return;
-        }
-        const probe = (): void => {
-            try {
-                if (map.getZoom() < 11 || listEncCells().length === 0) {
-                    setEncNoCoverage(false);
-                    return;
-                }
-                const b = map.getBounds();
-                if (!b) return;
-                setEncNoCoverage(!encHasCoverageFor([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]));
-            } catch {
-                setEncNoCoverage(false);
-            }
-        };
-        probe();
-        map.on('moveend', probe);
-        return () => {
-            map.off('moveend', probe);
-        };
-    }, [mapReady, encVisible]);
-    useEffect(() => {
-        const refresh = () => {
-            const cells = listEncCells();
-            // Diagnostic — count only: joining all 172 cloud-cell ids
-            // built a ~2.5 KB string per notify and flooded the console
-            // during registration storms (2026-07-12 audit).
-            log.info(`encCellCount = ${cells.length}`);
-            setEncCellCount(cells.length);
-        };
-        refresh();
-        // Debounced: a 172-cell cloud registration fires one notify PER
-        // CELL; refreshing synchronously each time was an O(n²) parse
-        // burst on first signed-in boot.
-        let t: number | null = null;
-        const unsub = subscribeToEnc(() => {
-            if (t !== null) window.clearTimeout(t);
-            t = window.setTimeout(() => {
-                t = null;
-                refresh();
-            }, 300);
-        });
-        return () => {
-            if (t !== null) window.clearTimeout(t);
-            unsub();
-        };
-    }, []);
-    // One-shot import of any bundled sample cells the dev server is serving.
-    // No-op once the localStorage flag is set or when real cells already exist.
-    useEffect(() => {
-        void bootstrapEncSamplesIfNeeded();
-        // After the bundled NOAA demo lands, also check if the user's Bosun
-        // Pi is reachable on local wifi and silently pull any AU/NZ/EU cells
-        // they've decrypted there. Polling — runs immediately + every 10 min
-        // while foregrounded so a user who buys a chart at the marina cafe
-        // walks back to the boat and the cells flow in within a poll cycle.
-        // Throttled to never hit the Pi more than once per 5 min.
-        startAutoSyncPolling();
-        // Web default = the white depth chart (Shane 2026-07-11: "show our
-        // new layer as the default on our routing web page"). Cloud cells
-        // used to register only when the tracer opened, so a signed-in
-        // punter browsing thalassawx.app/plan saw a bare dark map until
-        // they tapped Trace. Register at map mount instead — idempotent,
-        // manifest-only (blobs still hydrate on demand), and quietly a
-        // no-op when signed out (the private bucket refuses: licensing
-        // gate stays). Native keeps its Pi-first ladder; a cloud
-        // registration there is equally idempotent and covers boats
-        // sailing without a Pi aboard.
-        void import('../../services/enc/cloudCellSync')
-            .then(({ registerCloudCells }) => registerCloudCells())
-            .catch(() => {});
-        // A punter who lands signed OUT and signs in on the page gets the
-        // charts the moment auth flips — without needing to open the tracer.
-        let unsubAuth: (() => void) | undefined;
-        void import('../../services/supabase')
-            .then(({ supabase }) => {
-                if (!supabase) return;
-                const { data } = supabase.auth.onAuthStateChange((event: string) => {
-                    if (event !== 'SIGNED_IN') return;
-                    void import('../../services/enc/cloudCellSync')
-                        .then(({ registerCloudCells }) => registerCloudCells())
-                        .catch(() => {});
-                });
-                unsubAuth = () => data.subscription.unsubscribe();
-            })
-            .catch(() => {});
-        return () => unsubAuth?.();
-    }, []);
+    // Chart inventory — cell count, hydration progress and the no-coverage
+    // affordance — with its subscriptions. Extracted to
+    // components/map/useEncChartInventory.ts; it writes no map layers, so it
+    // was the safe pilot for breaking this file up. Called exactly where the
+    // state used to be declared: below mapReady, above chokepointVisible, so
+    // hook order is unchanged.
+    const { encCellCount, encHydration, encNoCoverage } = useEncChartInventory(mapRef, mapReady, encVisible);
     const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
