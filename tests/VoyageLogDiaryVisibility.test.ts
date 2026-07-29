@@ -11,6 +11,26 @@ function diaryQuerySource(): string {
 }
 
 describe('public Voyage Log diary visibility', () => {
+    /**
+     * The awaited query chain only — from `await diaryQuery` to the row cap.
+     *
+     * The public-only filter used to be asserted as the literal string
+     * "diaryQuery.eq('is_public', true)", which broke the moment the call was
+     * chained onto the next line instead of written inline. The filter itself
+     * never changed. What actually matters is that `.eq('is_public', true)`
+     * lands INSIDE the chain that gets awaited — so that is what we assert,
+     * tolerant of formatting but still red if the filter is deleted or hoisted
+     * out of the executed query.
+     */
+    const awaitedDiaryChain = (): string => {
+        const src = diaryQuerySource();
+        const start = src.indexOf('const entriesRes = await diaryQuery');
+        const end = src.indexOf('.limit(MAX_ENTRIES)', start);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+        return src.slice(start, end);
+    };
+
     it('shows only the owner’s explicitly published entries for a selected recorded track', () => {
         const diaryQuery = diaryQuerySource();
         const selectedTrackBranch = diaryQuery.slice(
@@ -20,7 +40,7 @@ describe('public Voyage Log diary visibility', () => {
 
         expect(selectedTrackBranch).toContain(".eq('user_id', ownerId)");
         expect(selectedTrackBranch).toContain(".eq('voyage_id', selectedTrackId)");
-        expect(diaryQuery).toContain("diaryQuery.eq('is_public', true)");
+        expect(awaitedDiaryChain()).toContain(".eq('is_public', true)");
         expect(diaryQuery).toContain("diaryQuery = diaryQuery.eq('boat_id', boatId)");
         expect(selectedTrackBranch.indexOf(".eq('voyage_id', selectedTrackId)")).toBeLessThan(
             diaryQuery.indexOf('.limit(MAX_ENTRIES)'),
@@ -35,7 +55,7 @@ describe('public Voyage Log diary visibility', () => {
         );
 
         expect(catchAllBranch).toContain(".in('user_id', entryUserIds)");
-        expect(diaryQuery).toContain("diaryQuery.eq('is_public', true)");
+        expect(awaitedDiaryChain()).toContain(".eq('is_public', true)");
         expect(catchAllBranch).not.toMatch(/\.(?:eq|neq|not)\('voyage_id'/);
     });
 

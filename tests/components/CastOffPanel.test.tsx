@@ -16,7 +16,12 @@ const castOffMocks = vi.hoisted(() => ({
 vi.mock('../../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
-vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
+// Spread the real module — settingsStore calls getSystemUnits() at module
+// scope, so a triggerHaptic-only mock breaks the import graph on load.
+vi.mock('../../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../../context/SettingsContext', () => ({
     useSettings: () => ({
         settings: { vesselName: 'Test Vessel', vesselType: 'sailboat' },

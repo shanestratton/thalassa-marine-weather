@@ -26,8 +26,21 @@ describe('weather Edge upstream response boundaries', () => {
         expect(source).toContain('parseRainbowPayload(payload)');
         expect(source).toContain('parseWeatherKitPayload(payload)');
         expect(source).toContain('value.forecast.length > 300');
-        expect(source).toContain('hours.length > 240');
-        expect(source).toContain('days.length > 10');
+
+        // Sanity caps must EXIST and must clear what Apple actually sends.
+        // Pinning the literal number made CI red for a fix rather than a
+        // regression: the old hours cap of 240 was exceeded on every single
+        // request (Apple sends ~250), which 502'd this endpoint, and days sat
+        // at 10 against 10 sent — passing with no headroom at all. One rejected
+        // element fails the WHOLE payload, so a cap set at the observed value is
+        // a latent outage. Assert the guarantee, not the digits.
+        const capOf = (series: string): number => {
+            const found = source.match(new RegExp(`${series}\\.length > (\\d[\\d_]*)`));
+            expect(found, `no sanity cap found on ${series}`).not.toBeNull();
+            return Number(found![1].replace(/_/g, ''));
+        };
+        expect(capOf('hours')).toBeGreaterThan(250);
+        expect(capOf('days')).toBeGreaterThan(10);
         expect(source).not.toContain("console.error('[get-weather] Fatal:', err)");
     });
 
