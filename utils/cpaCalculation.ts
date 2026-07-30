@@ -125,7 +125,21 @@ function riskLevel(
     targetNavStatus?: number,
 ): 'DANGER' | 'CAUTION' | 'SAFE' | 'NONE' {
     // ── Target is anchored, moored, or not under command ──
-    const isTargetStationary = targetNavStatus === 1 || targetNavStatus === 5 || targetNavStatus === 6;
+    // CROSS-CHECKED AGAINST OBSERVED SPEED, because nav_status is
+    // self-reported and stale nav_status is one of the commonest AIS data
+    // faults there is: skippers leave it on "moored" after getting underway.
+    // Taking that claim at face value returned NONE unconditionally, so a
+    // vessel making 12 kt with nav_status 5 never raised DANGER, never
+    // rendered the collision chip, and had its CPA/TCPA painted neutral —
+    // the geometry was computed and then thrown away on the target's word.
+    //
+    // Believe the claim only while the speed agrees with it. 2 kt leaves room
+    // for a genuinely anchored vessel swinging on the tide without letting a
+    // vessel that is plainly underway veto its own risk grade.
+    const STATIONARY_CLAIM_MAX_SOG_KTS = 2;
+    const claimsStationary = targetNavStatus === 1 || targetNavStatus === 5 || targetNavStatus === 6;
+    const isTargetStationary =
+        claimsStationary && (!Number.isFinite(targetSog) || targetSog < STATIONARY_CLAIM_MAX_SOG_KTS);
     if (isTargetStationary) return 'NONE';
 
     // ── Diverging or already past ──
