@@ -40,6 +40,15 @@ describe('stale nav_status cannot veto the geometry', () => {
         expect(closing(0.4, 1)!.risk).toBe('NONE');
     });
 
+    it('keeps 2 kt inside the anchored envelope — the boundary is inclusive', () => {
+        // utils/cpaCalculation.test.ts already specified that an "anchored"
+        // target making 2 kt grades NONE even when close, and a boat swinging
+        // on a strong tide really does show that. This fix targets the 12 kt
+        // case, not that boundary, so the bound is <= rather than <.
+        expect(closing(2, 1)!.risk).toBe('NONE');
+        expect(closing(2.5, 1)!.risk).not.toBe('NONE');
+    });
+
     it('matches the ungraded case — no nav_status behaves like a moving target', () => {
         expect(closing(12)!.risk).toBe(closing(12, 5)!.risk);
     });
