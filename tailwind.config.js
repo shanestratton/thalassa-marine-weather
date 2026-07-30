@@ -14,6 +14,15 @@ export default {
         // utils/ emits class names too (createMarkerEl map markers,
         // useDeviceClass tier classes).
         './utils/**/*.{js,ts,jsx,tsx}',
+        // modules/ holds the LEGAL GATE (DisclaimerOverlay) — the first screen
+        // every user sees and the only thing Lighthouse ever audits. Missing
+        // here until 2026-07-30, so any class it did not share with a globbed
+        // file was purged from production CSS. Exactly the pages/ bug above,
+        // on the one screen nobody can skip.
+        './modules/**/*.{js,ts,jsx,tsx}',
+        // contexts/ (plural) exists alongside context/ (singular) and was
+        // likewise uncovered.
+        './contexts/**/*.{js,ts,jsx,tsx}',
         './*.{js,ts,jsx,tsx}',
     ],
     theme: {

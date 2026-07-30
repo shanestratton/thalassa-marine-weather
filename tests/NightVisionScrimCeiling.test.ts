@@ -20,7 +20,7 @@ import { OVERLAY_Z_INDEX } from '../components/ui/OverlayPortal';
  */
 
 const ROOT = resolve(process.cwd());
-const SCAN_DIRS = ['components', 'pages'];
+const SCAN_DIRS = ['components', 'pages', 'modules'];
 const SCAN_FILES = ['App.tsx'];
 
 function walk(dir: string, out: string[] = []): string[] {
