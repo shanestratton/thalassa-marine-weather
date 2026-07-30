@@ -80,6 +80,9 @@ jobs:
               run: |
                   npx puppeteer browsers install chrome
                   npx lhci autorun --config=lighthouserc.cjs
+                  # A disclaimer-only audit passes every budget, so verify what
+                  # was actually measured before trusting a green Lighthouse.
+                  node scripts/assert-lighthouse-audited-app.mjs
 
             - name: Install Playwright browsers
               run: npx playwright install chromium --with-deps
