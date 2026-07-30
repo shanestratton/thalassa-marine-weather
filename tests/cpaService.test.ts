@@ -7,6 +7,44 @@
 import { describe, it, expect } from 'vitest';
 import { computeCpa } from '../utils/cpaCalculation';
 
+describe('stale nav_status cannot veto the geometry', () => {
+    // nav_status is SELF-REPORTED, and leaving it on "moored" after getting
+    // underway is one of the commonest AIS data faults. Taking the claim at
+    // face value returned NONE unconditionally, so a vessel making 12 kt with
+    // nav_status 5 never raised DANGER, never rendered the collision chip, and
+    // had its CPA/TCPA painted neutral — the geometry computed, then discarded
+    // on the target's word.
+    const OWN = { lat: -33.8, lon: 151.0 };
+
+    // Head-on closing course, both making way: unambiguous collision geometry.
+    const closing = (targetSog: number, navStatus?: number) =>
+        computeCpa(OWN.lat, OWN.lon, 0, 8, OWN.lat + 0.02, OWN.lon, 180, targetSog, navStatus);
+
+    it('grades a 12 kt target that CLAIMS to be moored on its actual geometry', () => {
+        const moored = closing(12, 5);
+        expect(moored).not.toBeNull();
+        // Guard against the assertions below going vacuous if the field is
+        // renamed: `undefined !== 'NONE'` would pass while testing nothing.
+        expect(moored!.risk, 'CpaResult.risk missing — the not.toBe checks would be vacuous').toBeDefined();
+        expect(moored!.risk).not.toBe('NONE');
+    });
+
+    it('does the same for "at anchor" and "aground"', () => {
+        for (const navStatus of [1, 6]) {
+            expect(closing(12, navStatus)!.risk, `navStatus ${navStatus}`).not.toBe('NONE');
+        }
+    });
+
+    it('still trusts the claim when the speed agrees with it', () => {
+        // A genuinely anchored vessel swinging on the tide stays quiet.
+        expect(closing(0.4, 1)!.risk).toBe('NONE');
+    });
+
+    it('matches the ungraded case — no nav_status behaves like a moving target', () => {
+        expect(closing(12)!.risk).toBe(closing(12, 5)!.risk);
+    });
+});
+
 describe('computeCpa', () => {
     // Sydney Harbour test coordinates
     const OWN = { lat: -33.8568, lon: 151.2153 };
