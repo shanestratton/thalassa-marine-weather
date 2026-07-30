@@ -15,38 +15,14 @@
  * The proof is the contrast: A hugs (|L-R| large, one side ~0), B is balanced.
  */
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 import { routeMarina, DEFAULT_MARINA_PARAMS } from '../../services/marinaCenterline';
+import { encLayer } from '../helpers/encCells';
 
 type LL = { lat: number; lon: number };
 const M_PER_LAT = 110_540;
 const mPerLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
 
-function piReachable(): boolean {
-    try {
-        execFileSync('curl', ['-s', '-f', '-m', '4', 'http://calypso.local:3001/api/enc/health'], { stdio: 'ignore' });
-        return true;
-    } catch {
-        return false;
-    }
-}
-const PI_UP = piReachable();
-function ensure(id: string, path: string): void {
-    if (existsSync(path)) return;
-    const out = execFileSync('curl', ['-s', '-f', `http://calypso.local:3001/api/enc/installed/${id}/data`], {
-        maxBuffer: 64 * 1024 * 1024,
-    });
-    require('node:fs').writeFileSync(path, out);
-}
-function layer(path: string, id: string, name: string): Feature[] {
-    const blob = JSON.parse(readFileSync(path, 'utf8')) as {
-        cells: { cellId: string; layers: Record<string, { features: Feature[] }> }[];
-    };
-    const cell = blob.cells.find((c) => c.cellId === id) ?? blob.cells[0];
-    return (cell.layers[name]?.features ?? []) as Feature[];
-}
 function pointInRing(lon: number, lat: number, ring: Position[]): boolean {
     let inside = false;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -75,10 +51,8 @@ function inAny(lon: number, lat: number, polys: Feature[]): boolean {
 const BB = { minLon: 153.083, minLat: -27.218, maxLon: 153.101, maxLat: -27.179 };
 const CELL_M = 12;
 
-describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* hugs', () => {
+describe('Newport channel — medial axis rides centre where A* hugs', () => {
     it('measures left/right bank balance: shortest-path vs medial-axis', { timeout: 60000 }, () => {
-        ensure('OC-61-10ENB5', '/tmp/enb5.json');
-        ensure('OC-61-10RCS5', '/tmp/rcs5.json');
         // "The lines" = the NAVIGABLE-DEPTH edge, not land. Water = inside a DEPARE
         // polygon deep enough for the boat (DRVAL1 ≥ NAV_M) OR inside the dredged
         // channel (DRGARE). The bank = where it shoals below NAV_M (handles intertidal
@@ -89,14 +63,10 @@ describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* h
             const n = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
             return Number.isFinite(n) ? n : -1;
         };
-        const depare = [
-            ...layer('/tmp/enb5.json', 'OC-61-10ENB5', 'DEPARE'),
-            ...layer('/tmp/rcs5.json', 'OC-61-10RCS5', 'DEPARE'),
-        ].filter((f) => drval1(f) >= NAV_M);
-        const drgare = [
-            ...layer('/tmp/enb5.json', 'OC-61-10ENB5', 'DRGARE'),
-            ...layer('/tmp/rcs5.json', 'OC-61-10RCS5', 'DRGARE'),
-        ];
+        const depare = [...encLayer('OC-61-10ENB5', 'DEPARE'), ...encLayer('OC-61-10RCS5', 'DEPARE')].filter(
+            (f) => drval1(f) >= NAV_M,
+        );
+        const drgare = [...encLayer('OC-61-10ENB5', 'DRGARE'), ...encLayer('OC-61-10RCS5', 'DRGARE')];
         const navPolys = [...depare, ...drgare];
 
         const midLat = (BB.minLat + BB.maxLat) / 2;
@@ -110,10 +80,7 @@ describe.skipIf(!PI_UP)('Newport channel — medial axis rides centre where A* h
             lon: BB.minLon + (x + 0.5) * dLon,
         });
 
-        const lndare = [
-            ...layer('/tmp/enb5.json', 'OC-61-10ENB5', 'LNDARE'),
-            ...layer('/tmp/rcs5.json', 'OC-61-10RCS5', 'LNDARE'),
-        ];
+        const lndare = [...encLayer('OC-61-10ENB5', 'LNDARE'), ...encLayer('OC-61-10RCS5', 'LNDARE')];
         // Report the depth-mask connectivity finding, then route on the connected
         // land mask (water = NOT LNDARE) so the concept can be measured at all.
         let navCells = 0;

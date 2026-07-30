@@ -16,39 +16,13 @@
  * clusters to the ONE channel the span rides and returns a clean centreline.
  */
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 import { parseLateralMarks } from '../../services/fairlead';
 import { followChannelGates } from '../../services/tier3/tier3Router';
 import type { NavGrid } from '../../services/inshoreRouterEngine';
+import { encLayer } from '../helpers/encCells';
 
 type LL = { lat: number; lon: number };
-
-function piReachable(): boolean {
-    try {
-        execFileSync('curl', ['-s', '-f', '-m', '4', 'http://calypso.local:3001/api/enc/health'], { stdio: 'ignore' });
-        return true;
-    } catch {
-        return false;
-    }
-}
-const PI_UP = piReachable();
-
-function ensure(id: string, path: string): void {
-    if (existsSync(path)) return;
-    const out = execFileSync('curl', ['-s', '-f', `http://calypso.local:3001/api/enc/installed/${id}/data`], {
-        maxBuffer: 64 * 1024 * 1024,
-    });
-    require('node:fs').writeFileSync(path, out);
-}
-function layer(path: string, id: string, name: string): Feature[] {
-    const blob = JSON.parse(readFileSync(path, 'utf8')) as {
-        cells: { cellId: string; layers: Record<string, { features: Feature[] }> }[];
-    };
-    const cell = blob.cells.find((c) => c.cellId === id) ?? blob.cells[0];
-    return (cell.layers[name]?.features ?? []) as Feature[];
-}
 
 // ── Grid build: rasterise the real LNDARE into landBlocked ──────────
 const M_PER_LAT = 110_540;
@@ -117,21 +91,16 @@ function onLand(grid: NavGrid, p: LL): boolean {
 
 const BBOX = { minLon: 153.082, minLat: -27.216, maxLon: 153.112, maxLat: -27.158 };
 
-describe.skipIf(!PI_UP)('followChannelGates — Newport exit, two-parallel-channel land-cross', () => {
+describe('followChannelGates — Newport exit, two-parallel-channel land-cross', () => {
     it('follows ONE channel cleanly and never crosses land', () => {
-        ensure('OC-61-10ENB5', '/tmp/enb5.json');
-        ensure('OC-61-10RCS5', '/tmp/rcs5.json');
         const markFeats = [
-            ...layer('/tmp/enb5.json', 'OC-61-10ENB5', 'BOYLAT'),
-            ...layer('/tmp/enb5.json', 'OC-61-10ENB5', 'BCNLAT'),
-            ...layer('/tmp/rcs5.json', 'OC-61-10RCS5', 'BOYLAT'),
-            ...layer('/tmp/rcs5.json', 'OC-61-10RCS5', 'BCNLAT'),
+            ...encLayer('OC-61-10ENB5', 'BOYLAT'),
+            ...encLayer('OC-61-10ENB5', 'BCNLAT'),
+            ...encLayer('OC-61-10RCS5', 'BOYLAT'),
+            ...encLayer('OC-61-10RCS5', 'BCNLAT'),
         ];
         const marks = parseLateralMarks(markFeats as never);
-        const lndare = [
-            ...layer('/tmp/enb5.json', 'OC-61-10ENB5', 'LNDARE'),
-            ...layer('/tmp/rcs5.json', 'OC-61-10RCS5', 'LNDARE'),
-        ];
+        const lndare = [...encLayer('OC-61-10ENB5', 'LNDARE'), ...encLayer('OC-61-10RCS5', 'LNDARE')];
         const grid = buildGrid(BBOX, lndare);
 
         // The span = what coarse A* actually produces: a WATER-following path from
