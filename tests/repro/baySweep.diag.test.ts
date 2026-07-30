@@ -364,105 +364,105 @@ const polysOf = (fc: FeatureCollection | undefined): (Polygon | MultiPolygon)[] 
         .filter((g): g is Polygon | MultiPolygon => !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'));
 
 describe('BAY SWEEP — classic passages vs real cells', () => {
-    it('routes every passage and prints the scorecard', async () => {
-        if (!PI_UP) {
-            console.log('SKIP — Pi unreachable');
-            return;
-        }
-        const installed = listInstalled();
-        console.log(`\ninstalled OC cells: ${installed.length}`);
-        const requestedPassage = process.env.BAY_SWEEP_ONLY?.trim().toLowerCase();
-        const passages = requestedPassage
-            ? PASSAGES.filter((passage) => passage.name.toLowerCase().includes(requestedPassage))
-            : PASSAGES;
-        if (requestedPassage && passages.length === 0) {
-            throw new Error(`BAY_SWEEP_ONLY did not match a passage: ${process.env.BAY_SWEEP_ONLY}`);
-        }
-        const rows: string[] = [];
-        // Recorded here, asserted AFTER the sweep. The per-passage try/catch
-        // below exists so one environmental failure (Pi down, a cell missing)
-        // does not abandon the other eleven diagnostics — but it also caught
-        // AssertionError, turning the one real safety check in this file into
-        // a "THREW:" line in a log nobody reads, after which the test passed
-        // on a row count. A guard that cannot fail is worse than no guard.
-        let seawayHardLand: number | null = null;
-        for (const p of passages) {
-            const t0 = Date.now();
-            let row = `\n### ${p.name}`;
-            try {
-                const { layers, cells } = assembleLayers(p, installed);
-                const { osmWater, tags } = await applyDeviceEnrichment(layers, p);
-                row += `  {${tags.join(' ')}}`;
-                const lnd = polysOf(layers.LNDARE);
-                const wet = [
-                    ...polysOf(layers.DEPARE),
-                    ...polysOf(layers.DRGARE),
-                    ...polysOf(layers.FAIRWY),
-                    ...(osmWater
-                        .map((f) => f.geometry)
-                        .filter(
-                            (g): g is Polygon | MultiPolygon =>
-                                !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'),
-                        ) ?? []),
-                ];
-                const r = routeInshore(layers, {
-                    fromLat: p.from[1],
-                    fromLon: p.from[0],
-                    toLat: p.to[1],
-                    toLon: p.to[0],
-                    draftM: 2.4,
-                    safetyM: 0.5,
-                    resolutionM: 50,
-                    unchartedPolicy: 'strict',
-                });
-                const ms = Date.now() - t0;
-                if ('error' in r) {
-                    row += `\n  REFUSED (${r.code ?? 'no-code'}): ${r.error}  [${ms} ms, cells=${cells.join(',')}]`;
-                } else {
-                    // Efficiency
-                    let routeM = 0;
-                    for (let i = 1; i < r.polyline.length; i++) routeM += distM(r.polyline[i - 1], r.polyline[i]);
-                    const directM = distM(r.polyline[0], r.polyline[r.polyline.length - 1]);
-                    // Hard-land crossings: sampled point inside LNDARE with NO wet vouch.
-                    let hardLand = 0;
-                    let samples = 0;
-                    for (let i = 1; i < r.polyline.length; i++) {
-                        const segM = distM(r.polyline[i - 1], r.polyline[i]);
-                        const steps = Math.max(1, Math.ceil(segM / 60));
-                        for (let s = 0; s < steps; s++) {
-                            const t = s / steps;
-                            const lon = r.polyline[i - 1][0] + (r.polyline[i][0] - r.polyline[i - 1][0]) * t;
-                            const lat = r.polyline[i - 1][1] + (r.polyline[i][1] - r.polyline[i - 1][1]) * t;
-                            samples++;
-                            if (ptInAny(lon, lat, lnd) && !ptInAny(lon, lat, wet)) hardLand++;
+    it.skipIf(!PI_UP)(
+        'routes every passage and prints the scorecard',
+        async () => {
+            const installed = listInstalled();
+            console.log(`\ninstalled OC cells: ${installed.length}`);
+            const requestedPassage = process.env.BAY_SWEEP_ONLY?.trim().toLowerCase();
+            const passages = requestedPassage
+                ? PASSAGES.filter((passage) => passage.name.toLowerCase().includes(requestedPassage))
+                : PASSAGES;
+            if (requestedPassage && passages.length === 0) {
+                throw new Error(`BAY_SWEEP_ONLY did not match a passage: ${process.env.BAY_SWEEP_ONLY}`);
+            }
+            const rows: string[] = [];
+            // Recorded here, asserted AFTER the sweep. The per-passage try/catch
+            // below exists so one environmental failure (Pi down, a cell missing)
+            // does not abandon the other eleven diagnostics — but it also caught
+            // AssertionError, turning the one real safety check in this file into
+            // a "THREW:" line in a log nobody reads, after which the test passed
+            // on a row count. A guard that cannot fail is worse than no guard.
+            let seawayHardLand: number | null = null;
+            for (const p of passages) {
+                const t0 = Date.now();
+                let row = `\n### ${p.name}`;
+                try {
+                    const { layers, cells } = assembleLayers(p, installed);
+                    const { osmWater, tags } = await applyDeviceEnrichment(layers, p);
+                    row += `  {${tags.join(' ')}}`;
+                    const lnd = polysOf(layers.LNDARE);
+                    const wet = [
+                        ...polysOf(layers.DEPARE),
+                        ...polysOf(layers.DRGARE),
+                        ...polysOf(layers.FAIRWY),
+                        ...(osmWater
+                            .map((f) => f.geometry)
+                            .filter(
+                                (g): g is Polygon | MultiPolygon =>
+                                    !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'),
+                            ) ?? []),
+                    ];
+                    const r = routeInshore(layers, {
+                        fromLat: p.from[1],
+                        fromLon: p.from[0],
+                        toLat: p.to[1],
+                        toLon: p.to[0],
+                        draftM: 2.4,
+                        safetyM: 0.5,
+                        resolutionM: 50,
+                        unchartedPolicy: 'strict',
+                    });
+                    const ms = Date.now() - t0;
+                    if ('error' in r) {
+                        row += `\n  REFUSED (${r.code ?? 'no-code'}): ${r.error}  [${ms} ms, cells=${cells.join(',')}]`;
+                    } else {
+                        // Efficiency
+                        let routeM = 0;
+                        for (let i = 1; i < r.polyline.length; i++) routeM += distM(r.polyline[i - 1], r.polyline[i]);
+                        const directM = distM(r.polyline[0], r.polyline[r.polyline.length - 1]);
+                        // Hard-land crossings: sampled point inside LNDARE with NO wet vouch.
+                        let hardLand = 0;
+                        let samples = 0;
+                        for (let i = 1; i < r.polyline.length; i++) {
+                            const segM = distM(r.polyline[i - 1], r.polyline[i]);
+                            const steps = Math.max(1, Math.ceil(segM / 60));
+                            for (let s = 0; s < steps; s++) {
+                                const t = s / steps;
+                                const lon = r.polyline[i - 1][0] + (r.polyline[i][0] - r.polyline[i - 1][0]) * t;
+                                const lat = r.polyline[i - 1][1] + (r.polyline[i][1] - r.polyline[i - 1][1]) * t;
+                                samples++;
+                                if (ptInAny(lon, lat, lnd) && !ptInAny(lon, lat, wet)) hardLand++;
+                            }
+                        }
+                        const runs = r.shallowRuns ?? [];
+                        row +=
+                            `\n  OK ${r.distanceNM.toFixed(2)} NM  ratio ${(routeM / Math.max(1, directM)).toFixed(3)}` +
+                            `  hardLand ${hardLand}/${samples}` +
+                            `  shallowRuns ${runs.length} [${runs.map((x) => (x.minDepthM === null ? '∅' : x.minDepthM.toFixed(1))).join(',')}]` +
+                            `  caution ${(r.cautionMask ?? []).filter(Boolean).length}/${(r.cautionMask ?? []).length} segs` +
+                            `  [${ms} ms, cells=${cells.join(',')}]`;
+                        if (p.name === 'Seaway → Paradise Point') {
+                            seawayHardLand = hardLand;
                         }
                     }
-                    const runs = r.shallowRuns ?? [];
-                    row +=
-                        `\n  OK ${r.distanceNM.toFixed(2)} NM  ratio ${(routeM / Math.max(1, directM)).toFixed(3)}` +
-                        `  hardLand ${hardLand}/${samples}` +
-                        `  shallowRuns ${runs.length} [${runs.map((x) => (x.minDepthM === null ? '∅' : x.minDepthM.toFixed(1))).join(',')}]` +
-                        `  caution ${(r.cautionMask ?? []).filter(Boolean).length}/${(r.cautionMask ?? []).length} segs` +
-                        `  [${ms} ms, cells=${cells.join(',')}]`;
-                    if (p.name === 'Seaway → Paradise Point') {
-                        seawayHardLand = hardLand;
-                    }
+                } catch (err) {
+                    row += `\n  THREW: ${err instanceof Error ? err.message : String(err)}`;
                 }
-            } catch (err) {
-                row += `\n  THREW: ${err instanceof Error ? err.message : String(err)}`;
+                rows.push(row);
+                console.log(row);
             }
-            rows.push(row);
-            console.log(row);
-        }
-        console.log('\n=== SWEEP COMPLETE ===');
-        expect(rows.length).toBe(passages.length);
-        // Outside the try, so an AssertionError here actually fails the test.
-        // null means the passage never produced a reading at all — which is
-        // itself a failure of this check, not a pass by absence.
-        expect(seawayHardLand, 'Seaway → Paradise Point produced no hard-land reading').not.toBeNull();
-        expect(seawayHardLand, 'Seaway → Paradise Point must never emit an unvouched hard-land sample').toBe(0);
-        // 300s cap like the sibling long diags (mooloolabaHomecoming,
-        // tangaloomaLeads) — the 12-passage sweep runs ~110s with the Pi
-        // up, and the suite-wide 20s default was failing it on time alone.
-    }, 300_000);
+            console.log('\n=== SWEEP COMPLETE ===');
+            expect(rows.length).toBe(passages.length);
+            // Outside the try, so an AssertionError here actually fails the test.
+            // null means the passage never produced a reading at all — which is
+            // itself a failure of this check, not a pass by absence.
+            expect(seawayHardLand, 'Seaway → Paradise Point produced no hard-land reading').not.toBeNull();
+            expect(seawayHardLand, 'Seaway → Paradise Point must never emit an unvouched hard-land sample').toBe(0);
+            // 300s cap like the sibling long diags (mooloolabaHomecoming,
+            // tangaloomaLeads) — the 12-passage sweep runs ~110s with the Pi
+            // up, and the suite-wide 20s default was failing it on time alone.
+        },
+        300_000,
+    );
 });

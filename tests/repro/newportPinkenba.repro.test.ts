@@ -53,8 +53,7 @@
  */
 
 import { describe, expect, it, beforeAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { Feature, FeatureCollection, LineString, MultiPolygon, Polygon, Position } from 'geojson';
 import { pointInGeometry, geometryBbox } from '../../services/engine/geometry';
 
@@ -66,21 +65,11 @@ import {
 } from '../../services/inshoreRouterEngine';
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
+import { encCell, osmOverlay, seQldNavMarkers } from '../helpers/encCells';
 
 // This harness routes on the REAL ENC pulled live from the boat's chart server
 // (calypso.local). It is a DIAGNOSTIC, not a CI gate — when the Pi is unreachable
 // (CI, another machine) the whole suite skips cleanly rather than failing.
-function piReachable(): boolean {
-    try {
-        execFileSync('curl', ['-s', '-f', '-m', '4', 'http://calypso.local:3001/api/enc/health'], {
-            stdio: 'ignore',
-        });
-        return true;
-    } catch {
-        return false;
-    }
-}
-const PI_UP = piReachable();
 
 // ── Route under test ────────────────────────────────────────────────
 const NEWPORT = { lat: -27.2141, lon: 153.0877 };
@@ -98,7 +87,6 @@ const CELLS = [
 //    chart NAVLNE). Served by the same Pi. ─────────────────────────────────
 const OSM_OVERLAY = 'http://calypso.local:3001/api/osm/overlay';
 const OSM_BBOX = '153.05,-27.48,153.25,-27.15'; // covers Newport→bay→river→Pinkenba
-const OSM_PATH = '/tmp/osm_overlay_repro.json';
 const REGIONAL_MARKERS_URL =
     'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
 
@@ -212,22 +200,6 @@ function pointInAnyPolygon(lon: number, lat: number, polys: Feature[]): boolean 
 // ── Cell loading ────────────────────────────────────────────────────
 type RawCell = { cellId: string; bbox: number[]; layers: Record<string, FeatureCollection> };
 
-function ensureCells(): void {
-    for (const c of CELLS) {
-        if (existsSync(c.path)) continue;
-        // Curl the /data endpoint to /tmp. Done in a setup step (not under the
-        // vitest network sandbox) so the route call reads a stable local file.
-        try {
-            const out = execFileSync('curl', ['-s', '-f', `${PI}/${c.id}/data`], {
-                maxBuffer: 64 * 1024 * 1024,
-            });
-            require('node:fs').writeFileSync(c.path, out);
-        } catch (e) {
-            throw new Error(`failed to fetch ${c.id} from Pi (${PI}); is calypso.local reachable? ${String(e)}`);
-        }
-    }
-}
-
 function loadCell(path: string, id: string): RawCell {
     const blob = JSON.parse(readFileSync(path, 'utf8')) as { cells?: RawCell[] } & Partial<RawCell>;
     // /data shape is {cells:[...]}; device blob shape is top-level .layers.
@@ -237,41 +209,30 @@ function loadCell(path: string, id: string): RawCell {
 }
 
 /** Curl the REAL OSM overlay (the on-device navLines source) to /tmp once. */
-function ensureOsm(): void {
-    if (existsSync(OSM_PATH)) return;
-    try {
-        const out = execFileSync('curl', ['-s', '-f', `${OSM_OVERLAY}?bbox=${OSM_BBOX}`], {
-            maxBuffer: 64 * 1024 * 1024,
-        });
-        require('node:fs').writeFileSync(OSM_PATH, out);
-    } catch (e) {
-        throw new Error(`failed to fetch OSM overlay from Pi; is calypso.local reachable? ${String(e)}`);
-    }
-}
 
 /** The real OSM navLines (LineString FeatureCollection), pushed 1:1 into NAVLINE
  *  exactly as InshoreRouter.ts:692-697 does on-device. */
 function loadOsmNavLines(): Feature[] {
-    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { navLines?: FeatureCollection };
+    const d = osmOverlay('newport-pinkenba') as { navLines?: FeatureCollection };
     return (d.navLines?.features ?? []) as Feature[];
 }
 
 /** The real OSM canal centre-lines (LineString FeatureCollection), pushed 1:1 into
  *  CANAL exactly as InshoreRouter.ts:677 does on-device — the lines tier-1 follows. */
 function loadOsmCanalLines(): Feature[] {
-    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { canalLines?: FeatureCollection };
+    const d = osmOverlay('newport-pinkenba') as { canalLines?: FeatureCollection };
     return (d.canalLines?.features ?? []) as Feature[];
 }
 
 function loadOsmCoastline(): Feature[] {
-    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { coastline?: FeatureCollection };
+    const d = osmOverlay('newport-pinkenba') as { coastline?: FeatureCollection };
     return (d.coastline?.features ?? []) as Feature[];
 }
 
 /** OSM water polygons — the navigable-water footprint InshoreRouter injects into
  *  DEPARE as `_source:'mapbox-water'` so uncharted canals route tier1:finegrid. */
 function loadOsmWater(): Feature[] {
-    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { water?: FeatureCollection };
+    const d = osmOverlay('newport-pinkenba') as { water?: FeatureCollection };
     return (d.water?.features ?? []) as Feature[];
 }
 
@@ -459,9 +420,7 @@ let osmCanal: Feature[];
 let osmCoastline: Feature[];
 
 beforeAll(() => {
-    ensureCells();
-    ensureOsm();
-    cells = CELLS.map((c) => loadCell(c.path, c.id));
+    cells = CELLS.map((c) => encCell(c.id) as RawCell);
     const allRectrc = cells.flatMap((c) => c.layers['RECTRC']?.features ?? []);
     rectrcChain = buildRectrcRiverChain(allRectrc as Feature[]);
     drgarePolys = cells.flatMap((c) => (c.layers['DRGARE']?.features ?? []) as Feature[]);
@@ -593,14 +552,14 @@ async function runVariantWithRegionalMarkers(injectWater = false): Promise<{
 }
 
 function osmWaterFeatures(): Feature[] {
-    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as {
+    const d = osmOverlay('newport-pinkenba') as {
         water?: FeatureCollection;
         marina?: FeatureCollection;
     };
     return [...((d.water?.features ?? []) as Feature[]), ...((d.marina?.features ?? []) as Feature[])];
 }
 
-describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real ENC', () => {
+describe('Newport → Pinkenba — hug reproduction against real ENC', () => {
     it('sanity: RECTRC river chain + DRGARE assembled from the real cells', () => {
         console.log(
             'SANITY cells=',

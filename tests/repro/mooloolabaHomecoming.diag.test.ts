@@ -279,222 +279,224 @@ async function printWindows(
 }
 
 describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
-    it('prints the three-variant passage plan with tomorrow tide windows', async () => {
-        if (!PI_UP) {
-            console.log('SKIP — Pi unreachable');
-            return;
-        }
-        const draftM = 2.4;
-        // Tomorrow 04:00 → 22:00 local.
-        const now = new Date();
-        const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 4, 0, 0).getTime();
-        const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 22, 0, 0).getTime();
-        console.log(`\nPASSAGE PLAN window: ${new Date(from).toString()} → ${new Date(until).toString()}`);
+    it.skipIf(!PI_UP)(
+        'prints the three-variant passage plan with tomorrow tide windows',
+        async () => {
+            const draftM = 2.4;
+            // Tomorrow 04:00 → 22:00 local.
+            const now = new Date();
+            const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 4, 0, 0).getTime();
+            const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 22, 0, 0).getTime();
+            console.log(`\nPASSAGE PLAN window: ${new Date(from).toString()} → ${new Date(until).toString()}`);
 
-        const layers = await assemble(MOOLOOLABA_WHARF, NEWPORT_CHANNEL);
-        const req = {
-            fromLat: MOOLOOLABA_WHARF[1],
-            fromLon: MOOLOOLABA_WHARF[0],
-            toLat: NEWPORT_CHANNEL[1],
-            toLon: NEWPORT_CHANNEL[0],
-            draftM,
-            safetyM: 0.5,
-            resolutionM: 50,
-            unchartedPolicy: 'strict' as const,
-        };
-
-        // A) SAFEST
-        const safest = routeInshore(layers, req);
-        if ('error' in safest) console.log(`SAFEST REFUSED: ${safest.error}`);
-        else {
-            describeRoute('A · SAFEST (default profile)', safest);
-            await printWindows('A', safest, draftM, from, until);
-        }
-
-        // A+NTM) SAFEST with NtM 364(T) survey zones applied (as if acked +
-        // current) — the Mooloolaba entrance re-priced by the 1 Jul survey:
-        // the ENC's drying −1.6 artifact becomes surveyed 1.4/1.5/2.0/2.5 m
-        // zones, the exit should ride the REF-mark alternative corridor, and
-        // the entrance chip should turn from "needs +4.5 — never" into the
-        // corridor's honest "+0.4 above LAT".
-        {
-            const { NTM_ROUTING_PACKS } = await import('../../services/ntmRouting');
-            const pack = NTM_ROUTING_PACKS.find((p) => p.id === 'mooloolah-bar')!;
-            const ntmFeatures = pack.zones.map((z) => ({
-                type: 'Feature' as const,
-                properties: { _class: 'ntm-survey', depthM: z.depthM, _noticeKey: pack.noticeKey, _label: z.label },
-                geometry: { type: 'Polygon' as const, coordinates: [z.polygon] },
-            }));
-            // DEVICE PARITY: tryInshoreRoute injects the pack trackline into
-            // NAVLINE *and* RECTRC (the tier-2 rider) — mirror it here.
-            const trackFeatures = (
-                pack.trackline && pack.trackline.length >= 2
-                    ? [
-                          {
-                              type: 'Feature' as const,
-                              properties: { acronym: 'NAVLNE', _source: 'ntm-pack' },
-                              geometry: { type: 'LineString' as const, coordinates: pack.trackline },
-                          },
-                      ]
-                    : []
-            ) as Feature[];
-            // DEVICE PARITY (2026-07-06): tryInshoreRoute injects the surveyed
-            // zones as NTMZONE AND the promulgated REF track as the dedicated
-            // NTMBAR layer, which spliceNtmBarTransit WEAVES the route through
-            // (mouth → REF2 → REF1) as a final post-pass. The earlier NAVLINE/
-            // RECTRC injection was removed 2026-07-03 (it perturbed tier ordering
-            // 40 NM away); NTMBAR is bar-local and can't. The pilotage audit
-            // below (REF2/REF1 minDist) is the adherence regression guard.
-            const ntmLayers = {
-                ...layers,
-                NTMZONE: { type: 'FeatureCollection' as const, features: ntmFeatures },
-                NTMBAR: { type: 'FeatureCollection' as const, features: trackFeatures },
+            const layers = await assemble(MOOLOOLABA_WHARF, NEWPORT_CHANNEL);
+            const req = {
+                fromLat: MOOLOOLABA_WHARF[1],
+                fromLon: MOOLOOLABA_WHARF[0],
+                toLat: NEWPORT_CHANNEL[1],
+                toLon: NEWPORT_CHANNEL[0],
+                draftM,
+                safetyM: 0.5,
+                resolutionM: 50,
+                unchartedPolicy: 'strict' as const,
             };
-            const withNtm = routeInshore(ntmLayers, req);
-            // WHARF-START GUARD (task #23, fixed 2026-07-07): from Shane's real
-            // berth the route must ride the curated Mooloolaba fairway (north of
-            // the pontoons) out to the channel, NOT cut over the pens. The
-            // marina reach used to clear the nearest berth by only ~20 m (line
-            // over the pens); the curated fairway lifts it clear. The 31 m floor
-            // is the berth start itself (the boat begins AT its pontoon); the
-            // fairway proper is 250 m+ clear.
-            if (!('error' in withNtm)) {
-                const berthPts: Position[] = [];
-                for (const f of ntmLayers.BERTH?.features ?? []) {
-                    const g = f.geometry;
-                    if (g?.type === 'LineString') berthPts.push(...(g.coordinates as Position[]));
-                    else if (g?.type === 'Polygon') berthPts.push(...(g.coordinates[0] as Position[]));
-                }
-                const near = berthPts.filter(
-                    (p) => p[1] > -26.69 && p[1] < -26.678 && p[0] > 153.115 && p[0] < 153.135,
-                );
-                // Skip the immediate berth exit (< 80 m from the tap) — the boat
-                // starts AT its pontoon, so a few metres there is unavoidable and
-                // not what we're guarding. Measure the DOWN-RIVER reach.
-                let minToRoute = Infinity;
-                for (const rv of (withNtm.polyline as Position[]).filter(
-                    (p) => p[1] > -26.69 && p[1] < -26.678 && distM(p, MOOLOOLABA_WHARF) > 80,
-                )) {
-                    for (const bp of near) minToRoute = Math.min(minToRoute, distM(rv, bp));
-                }
-                console.log(`[wharf-start] down-river reach clears the nearest berth by ${Math.round(minToRoute)} m`);
-                // Guard against the over-the-pens regression (~3 m). The floor is
-                // 12 m, not more: this now follows Shane's OWN tapped channel,
-                // which genuinely runs ~17 m off a pontoon where the water is
-                // tight — that IS the navigable line, not a bug.
-                expect(minToRoute).toBeGreaterThan(12);
-            }
-            if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
+
+            // A) SAFEST
+            const safest = routeInshore(layers, req);
+            if ('error' in safest) console.log(`SAFEST REFUSED: ${safest.error}`);
             else {
-                describeRoute('A+NTM · SAFEST with NtM 364(T) surveyed zones applied', withNtm);
-                await printWindows('A+NTM', withNtm, draftM, from, until);
-                // PILOTAGE AUDIT (Shane 2026-07-03): REF-mark corridor adherence
-                // + which SIDE the three unpaired river greens fall on outbound.
-                const poly = withNtm.polyline as Position[];
-                const minDistTo = (lat: number, lon: number): number => {
-                    let best = Infinity;
-                    for (let i = 0; i + 1 < poly.length; i++) {
-                        for (let s = 0; s <= 10; s++) {
-                            const t = s / 10;
-                            const qLon = poly[i][0] + (poly[i + 1][0] - poly[i][0]) * t;
-                            const qLat = poly[i][1] + (poly[i + 1][1] - poly[i][1]) * t;
-                            best = Math.min(best, distM([qLon, qLat], [lon, lat]));
-                        }
-                    }
-                    return best;
+                describeRoute('A · SAFEST (default profile)', safest);
+                await printWindows('A', safest, draftM, from, until);
+            }
+
+            // A+NTM) SAFEST with NtM 364(T) survey zones applied (as if acked +
+            // current) — the Mooloolaba entrance re-priced by the 1 Jul survey:
+            // the ENC's drying −1.6 artifact becomes surveyed 1.4/1.5/2.0/2.5 m
+            // zones, the exit should ride the REF-mark alternative corridor, and
+            // the entrance chip should turn from "needs +4.5 — never" into the
+            // corridor's honest "+0.4 above LAT".
+            {
+                const { NTM_ROUTING_PACKS } = await import('../../services/ntmRouting');
+                const pack = NTM_ROUTING_PACKS.find((p) => p.id === 'mooloolah-bar')!;
+                const ntmFeatures = pack.zones.map((z) => ({
+                    type: 'Feature' as const,
+                    properties: { _class: 'ntm-survey', depthM: z.depthM, _noticeKey: pack.noticeKey, _label: z.label },
+                    geometry: { type: 'Polygon' as const, coordinates: [z.polygon] },
+                }));
+                // DEVICE PARITY: tryInshoreRoute injects the pack trackline into
+                // NAVLINE *and* RECTRC (the tier-2 rider) — mirror it here.
+                const trackFeatures = (
+                    pack.trackline && pack.trackline.length >= 2
+                        ? [
+                              {
+                                  type: 'Feature' as const,
+                                  properties: { acronym: 'NAVLNE', _source: 'ntm-pack' },
+                                  geometry: { type: 'LineString' as const, coordinates: pack.trackline },
+                              },
+                          ]
+                        : []
+                ) as Feature[];
+                // DEVICE PARITY (2026-07-06): tryInshoreRoute injects the surveyed
+                // zones as NTMZONE AND the promulgated REF track as the dedicated
+                // NTMBAR layer, which spliceNtmBarTransit WEAVES the route through
+                // (mouth → REF2 → REF1) as a final post-pass. The earlier NAVLINE/
+                // RECTRC injection was removed 2026-07-03 (it perturbed tier ordering
+                // 40 NM away); NTMBAR is bar-local and can't. The pilotage audit
+                // below (REF2/REF1 minDist) is the adherence regression guard.
+                const ntmLayers = {
+                    ...layers,
+                    NTMZONE: { type: 'FeatureCollection' as const, features: ntmFeatures },
+                    NTMBAR: { type: 'FeatureCollection' as const, features: trackFeatures },
                 };
-                const sideOf = (lat: number, lon: number): string => {
-                    // Sign of cross product at the CLOSEST segment, relative to
-                    // travel direction (wharf→Newport = outbound).
-                    let best = Infinity;
-                    let side = '?';
-                    for (let i = 0; i + 1 < poly.length; i++) {
-                        const d = distM(poly[i], [lon, lat]);
-                        if (d < best) {
-                            best = d;
-                            const vx = poly[i + 1][0] - poly[i][0];
-                            const vy = poly[i + 1][1] - poly[i][1];
-                            const wx = lon - poly[i][0];
-                            const wy = lat - poly[i][1];
-                            side = vx * wy - vy * wx > 0 ? 'LEFT(port)' : 'RIGHT(stbd)';
-                        }
+                const withNtm = routeInshore(ntmLayers, req);
+                // WHARF-START GUARD (task #23, fixed 2026-07-07): from Shane's real
+                // berth the route must ride the curated Mooloolaba fairway (north of
+                // the pontoons) out to the channel, NOT cut over the pens. The
+                // marina reach used to clear the nearest berth by only ~20 m (line
+                // over the pens); the curated fairway lifts it clear. The 31 m floor
+                // is the berth start itself (the boat begins AT its pontoon); the
+                // fairway proper is 250 m+ clear.
+                if (!('error' in withNtm)) {
+                    const berthPts: Position[] = [];
+                    for (const f of ntmLayers.BERTH?.features ?? []) {
+                        const g = f.geometry;
+                        if (g?.type === 'LineString') berthPts.push(...(g.coordinates as Position[]));
+                        else if (g?.type === 'Polygon') berthPts.push(...(g.coordinates[0] as Position[]));
                     }
-                    return side;
-                };
-                console.log(
-                    `  [pilotage] REF2 minDist ${minDistTo(-(26 + 40.7927 / 60), 153 + 7.9164 / 60).toFixed(0)} m, REF1 minDist ${minDistTo(-(26 + 40.8675 / 60), 153 + 7.8257 / 60).toFixed(0)} m (target ≤ ~90 m each)`,
-                );
-                const greens: [string, number, number][] = [
-                    ['green A (153.12747)', -26.687214, 153.12747],
-                    ['green B (153.129887)', -26.687175, 153.129887],
-                    ['green C (153.11951)', -26.687727, 153.11951],
-                ];
-                for (const [name, lat, lon] of greens)
-                    console.log(
-                        `  [pilotage] ${name}: ${minDistTo(lat, lon).toFixed(0)} m off track, on our ${sideOf(lat, lon)} outbound`,
+                    const near = berthPts.filter(
+                        (p) => p[1] > -26.69 && p[1] < -26.678 && p[0] > 153.115 && p[0] < 153.135,
                     );
+                    // Skip the immediate berth exit (< 80 m from the tap) — the boat
+                    // starts AT its pontoon, so a few metres there is unavoidable and
+                    // not what we're guarding. Measure the DOWN-RIVER reach.
+                    let minToRoute = Infinity;
+                    for (const rv of (withNtm.polyline as Position[]).filter(
+                        (p) => p[1] > -26.69 && p[1] < -26.678 && distM(p, MOOLOOLABA_WHARF) > 80,
+                    )) {
+                        for (const bp of near) minToRoute = Math.min(minToRoute, distM(rv, bp));
+                    }
+                    console.log(
+                        `[wharf-start] down-river reach clears the nearest berth by ${Math.round(minToRoute)} m`,
+                    );
+                    // Guard against the over-the-pens regression (~3 m). The floor is
+                    // 12 m, not more: this now follows Shane's OWN tapped channel,
+                    // which genuinely runs ~17 m off a pontoon where the water is
+                    // tight — that IS the navigable line, not a bug.
+                    expect(minToRoute).toBeGreaterThan(12);
+                }
+                if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
+                else {
+                    describeRoute('A+NTM · SAFEST with NtM 364(T) surveyed zones applied', withNtm);
+                    await printWindows('A+NTM', withNtm, draftM, from, until);
+                    // PILOTAGE AUDIT (Shane 2026-07-03): REF-mark corridor adherence
+                    // + which SIDE the three unpaired river greens fall on outbound.
+                    const poly = withNtm.polyline as Position[];
+                    const minDistTo = (lat: number, lon: number): number => {
+                        let best = Infinity;
+                        for (let i = 0; i + 1 < poly.length; i++) {
+                            for (let s = 0; s <= 10; s++) {
+                                const t = s / 10;
+                                const qLon = poly[i][0] + (poly[i + 1][0] - poly[i][0]) * t;
+                                const qLat = poly[i][1] + (poly[i + 1][1] - poly[i][1]) * t;
+                                best = Math.min(best, distM([qLon, qLat], [lon, lat]));
+                            }
+                        }
+                        return best;
+                    };
+                    const sideOf = (lat: number, lon: number): string => {
+                        // Sign of cross product at the CLOSEST segment, relative to
+                        // travel direction (wharf→Newport = outbound).
+                        let best = Infinity;
+                        let side = '?';
+                        for (let i = 0; i + 1 < poly.length; i++) {
+                            const d = distM(poly[i], [lon, lat]);
+                            if (d < best) {
+                                best = d;
+                                const vx = poly[i + 1][0] - poly[i][0];
+                                const vy = poly[i + 1][1] - poly[i][1];
+                                const wx = lon - poly[i][0];
+                                const wy = lat - poly[i][1];
+                                side = vx * wy - vy * wx > 0 ? 'LEFT(port)' : 'RIGHT(stbd)';
+                            }
+                        }
+                        return side;
+                    };
+                    console.log(
+                        `  [pilotage] REF2 minDist ${minDistTo(-(26 + 40.7927 / 60), 153 + 7.9164 / 60).toFixed(0)} m, REF1 minDist ${minDistTo(-(26 + 40.8675 / 60), 153 + 7.8257 / 60).toFixed(0)} m (target ≤ ~90 m each)`,
+                    );
+                    const greens: [string, number, number][] = [
+                        ['green A (153.12747)', -26.687214, 153.12747],
+                        ['green B (153.129887)', -26.687175, 153.129887],
+                        ['green C (153.11951)', -26.687727, 153.11951],
+                    ];
+                    for (const [name, lat, lon] of greens)
+                        console.log(
+                            `  [pilotage] ${name}: ${minDistTo(lat, lon).toFixed(0)} m off track, on our ${sideOf(lat, lon)} outbound`,
+                        );
+                }
             }
-        }
 
-        // B) SHORTEST (tideAssist)
-        const shortest = routeInshore(layers, { ...req, routeProfile: 'tideAssist' });
-        if ('error' in shortest) console.log(`SHORTEST REFUSED: ${shortest.error}`);
-        else {
-            describeRoute('B · SHORTEST (tide-assist profile — Gilligans Island bank)', shortest);
-            await printWindows('B', shortest, draftM, from, until);
-        }
-
-        // C) VIA PEARL CHANNEL — three-leg stitch down the probed 153.22 spine.
-        const legDefs: [[number, number], [number, number]][] = [
-            [MOOLOOLABA_WHARF, PEARL_N],
-            [PEARL_N, PEARL_S],
-            [PEARL_S, NEWPORT_CHANNEL],
-        ];
-        const legs: RouteResult[] = [];
-        let legFail: string | null = null;
-        for (const [a, b] of legDefs) {
-            const lr = routeInshore(layers, { ...req, fromLat: a[1], fromLon: a[0], toLat: b[1], toLon: b[0] });
-            if ('error' in lr) {
-                legFail = `${a} → ${b}: ${lr.error}`;
-                break;
+            // B) SHORTEST (tideAssist)
+            const shortest = routeInshore(layers, { ...req, routeProfile: 'tideAssist' });
+            if ('error' in shortest) console.log(`SHORTEST REFUSED: ${shortest.error}`);
+            else {
+                describeRoute('B · SHORTEST (tide-assist profile — Gilligans Island bank)', shortest);
+                await printWindows('B', shortest, draftM, from, until);
             }
-            legs.push(lr);
-        }
-        if (legFail) {
-            console.log(`PEARL CHANNEL variant failed: ${legFail}`);
-        } else {
-            const stitched: RouteResult = {
-                ...legs[legs.length - 1],
-                polyline: legs.reduce<[number, number][]>(
-                    (acc, l, i) => [...acc, ...(i === 0 ? l.polyline : l.polyline.slice(1))],
-                    [],
-                ),
-                distanceNM: legs.reduce((s, l) => s + l.distanceNM, 0),
-                cautionMask: legs.flatMap((l) => l.cautionMask ?? []),
-                shallowRuns: legs.flatMap((l) => l.shallowRuns ?? []),
-            };
-            console.log(`  (legs: ${legs.map((l) => l.distanceNM.toFixed(1)).join(' + ')} NM)`);
-            describeRoute('C · VIA PEARL CHANNEL (proper N-entry/S-exit)', stitched);
-            await printWindows('C', stitched, draftM, from, until);
-        }
 
-        // D) DEVICE TWO-TAP CHECK — on the boat Shane taps Mooloolaba→PEARL_N,
-        // then PEARL_N→Newport. Verify the second tap's FREE A* (no forced
-        // PEARL_S via) still rides the spine south and rounds the banks,
-        // instead of cutting across the drying Moreton Banks.
-        const d2 = routeInshore(layers, {
-            ...req,
-            fromLat: PEARL_N[1],
-            fromLon: PEARL_N[0],
-            toLat: NEWPORT_CHANNEL[1],
-            toLon: NEWPORT_CHANNEL[0],
-        });
-        if ('error' in d2) console.log(`TWO-TAP LEG REFUSED: ${d2.error}`);
-        else {
-            describeRoute('D · TWO-TAP: Pearl N entry → Newport (free A*)', d2);
-            await printWindows('D', d2, draftM, from, until);
-        }
+            // C) VIA PEARL CHANNEL — three-leg stitch down the probed 153.22 spine.
+            const legDefs: [[number, number], [number, number]][] = [
+                [MOOLOOLABA_WHARF, PEARL_N],
+                [PEARL_N, PEARL_S],
+                [PEARL_S, NEWPORT_CHANNEL],
+            ];
+            const legs: RouteResult[] = [];
+            let legFail: string | null = null;
+            for (const [a, b] of legDefs) {
+                const lr = routeInshore(layers, { ...req, fromLat: a[1], fromLon: a[0], toLat: b[1], toLon: b[0] });
+                if ('error' in lr) {
+                    legFail = `${a} → ${b}: ${lr.error}`;
+                    break;
+                }
+                legs.push(lr);
+            }
+            if (legFail) {
+                console.log(`PEARL CHANNEL variant failed: ${legFail}`);
+            } else {
+                const stitched: RouteResult = {
+                    ...legs[legs.length - 1],
+                    polyline: legs.reduce<[number, number][]>(
+                        (acc, l, i) => [...acc, ...(i === 0 ? l.polyline : l.polyline.slice(1))],
+                        [],
+                    ),
+                    distanceNM: legs.reduce((s, l) => s + l.distanceNM, 0),
+                    cautionMask: legs.flatMap((l) => l.cautionMask ?? []),
+                    shallowRuns: legs.flatMap((l) => l.shallowRuns ?? []),
+                };
+                console.log(`  (legs: ${legs.map((l) => l.distanceNM.toFixed(1)).join(' + ')} NM)`);
+                describeRoute('C · VIA PEARL CHANNEL (proper N-entry/S-exit)', stitched);
+                await printWindows('C', stitched, draftM, from, until);
+            }
 
-        expect(true).toBe(true);
-    }, 300_000);
+            // D) DEVICE TWO-TAP CHECK — on the boat Shane taps Mooloolaba→PEARL_N,
+            // then PEARL_N→Newport. Verify the second tap's FREE A* (no forced
+            // PEARL_S via) still rides the spine south and rounds the banks,
+            // instead of cutting across the drying Moreton Banks.
+            const d2 = routeInshore(layers, {
+                ...req,
+                fromLat: PEARL_N[1],
+                fromLon: PEARL_N[0],
+                toLat: NEWPORT_CHANNEL[1],
+                toLon: NEWPORT_CHANNEL[0],
+            });
+            if ('error' in d2) console.log(`TWO-TAP LEG REFUSED: ${d2.error}`);
+            else {
+                describeRoute('D · TWO-TAP: Pearl N entry → Newport (free A*)', d2);
+                await printWindows('D', d2, draftM, from, until);
+            }
+
+            expect(true).toBe(true);
+        },
+        300_000,
+    );
 });

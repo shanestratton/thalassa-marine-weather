@@ -8,41 +8,18 @@
  * corridorCenterline for the Newport-exit channel. Skips without the Pi.
  */
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
 import type { Feature } from 'geojson';
 import { parseLateralMarks, groupChannels, corridorCenterline, distM, type LateralMark } from '../../services/fairlead';
+import { encLayer } from '../helpers/encCells';
 
-function piReachable(): boolean {
-    try {
-        execFileSync('curl', ['-s', '-f', '-m', '4', 'http://calypso.local:3001/api/enc/health'], { stdio: 'ignore' });
-        return true;
-    } catch {
-        return false;
-    }
-}
-const PI_UP = piReachable();
-
-function ensure(id: string, path: string): void {
-    if (existsSync(path)) return;
-    const out = execFileSync('curl', ['-s', '-f', `http://calypso.local:3001/api/enc/installed/${id}/data`], {
-        maxBuffer: 64 * 1024 * 1024,
-    });
-    require('node:fs').writeFileSync(path, out);
-}
-function loadMarks(path: string, id: string): Feature[] {
-    const blob = JSON.parse(readFileSync(path, 'utf8')) as {
-        cells: { cellId: string; layers: Record<string, { features: Feature[] }> }[];
-    };
-    const cell = blob.cells.find((c) => c.cellId === id) ?? blob.cells[0];
-    return [...(cell.layers['BOYLAT']?.features ?? []), ...(cell.layers['BCNLAT']?.features ?? [])];
+/** Both lateral-mark layers for one cell, from the committed fixture. */
+function loadMarks(id: string): Feature[] {
+    return [...encLayer(id, 'BOYLAT'), ...encLayer(id, 'BCNLAT')];
 }
 
-describe.skipIf(!PI_UP)('Newport marks — fairlead reconstruction diagnostic', () => {
+describe('Newport marks — fairlead reconstruction diagnostic', () => {
     it('reports why the Newport-exit channel does/does not reconstruct', () => {
-        ensure('OC-61-10ENB5', '/tmp/enb5.json');
-        ensure('OC-61-10RCS5', '/tmp/rcs5.json');
-        const feats = [...loadMarks('/tmp/enb5.json', 'OC-61-10ENB5'), ...loadMarks('/tmp/rcs5.json', 'OC-61-10RCS5')];
+        const feats = [...loadMarks('OC-61-10ENB5'), ...loadMarks('OC-61-10RCS5')];
         const marks = parseLateralMarks(feats as never);
 
         // Newport-exit marks: lat -27.214..-27.16, lon 153.085..153.11.
