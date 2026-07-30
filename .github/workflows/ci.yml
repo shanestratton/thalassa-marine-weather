@@ -78,8 +78,8 @@ jobs:
 
             - name: Lighthouse CI
               run: |
-                  npm install -g @lhci/cli@0.14.x
-                  lhci autorun --config=lighthouserc.cjs
+                  npx puppeteer browsers install chrome
+                  npx lhci autorun --config=lighthouserc.cjs
 
             - name: Install Playwright browsers
               run: npx playwright install chromium --with-deps
