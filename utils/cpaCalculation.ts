@@ -133,13 +133,17 @@ function riskLevel(
     // rendered the collision chip, and had its CPA/TCPA painted neutral —
     // the geometry was computed and then thrown away on the target's word.
     //
-    // Believe the claim only while the speed agrees with it. 2 kt leaves room
-    // for a genuinely anchored vessel swinging on the tide without letting a
-    // vessel that is plainly underway veto its own risk grade.
+    // Believe the claim only while the speed agrees with it. The bound is
+    // INCLUSIVE at 2 kt because the existing spec deliberately places 2 kt
+    // inside the anchored envelope (utils/cpaCalculation.test.ts: "target
+    // anchored (nav_status 1) → NONE even if close", targetSog 2) — an anchored
+    // vessel swinging on a strong tide really does show a couple of knots over
+    // ground. That boundary was someone's considered call and is not what was
+    // broken here; a 12 kt "moored" target is.
     const STATIONARY_CLAIM_MAX_SOG_KTS = 2;
     const claimsStationary = targetNavStatus === 1 || targetNavStatus === 5 || targetNavStatus === 6;
     const isTargetStationary =
-        claimsStationary && (!Number.isFinite(targetSog) || targetSog < STATIONARY_CLAIM_MAX_SOG_KTS);
+        claimsStationary && (!Number.isFinite(targetSog) || targetSog <= STATIONARY_CLAIM_MAX_SOG_KTS);
     if (isTargetStationary) return 'NONE';
 
     // ── Diverging or already past ──
