@@ -252,18 +252,40 @@ class BgGeoManagerClass {
         return () => this.activityListeners.delete(cb);
     }
 
+    /** The cache, but ONLY if it is inside the caller's freshness bound. */
+    private _cachedWithin(staleLimitMs: number): CachedPosition | null {
+        if (!this._lastPosition) return null;
+        const age = Date.now() - this._lastPosition.receivedAt;
+        return age < staleLimitMs ? this._lastPosition : null;
+    }
+
     /**
-     * One-shot position fetch. Uses cached position if fresh (<staleLimitMs),
-     * otherwise falls back to getCurrentPosition with timeout.
+     * One-shot position fetch. Uses the cached position if it is inside
+     * staleLimitMs, otherwise asks the platform for a new one.
+     *
+     * FAILS CLOSED. Every path honours staleLimitMs — the two fallbacks used to
+     * `return this._lastPosition` unconditionally, handing back the very cache
+     * the age check had just rejected, with no bound on how old it was.
+     * `_lastPosition` is never cleared, only overwritten, so on a device that
+     * had a fix hours ago and has none now, a caller asking for a 15-second
+     * position got the hours-old one and no way to tell.
+     *
+     * That mattered most where it was worst: MobService asks with a 15s bound
+     * and marks the result as the man-overboard position, so a stale fix sends
+     * the search to the wrong water. AnchorWatchService asks with 5s to set the
+     * anchor, which is the datum every drag alarm is measured against.
+     *
+     * Returning null is safe and is what callers already expect — MobService
+     * logs "Cannot activate MOB — no GPS fix available" and refuses,
+     * AnchorWatchService throws rather than drop an anchor it cannot locate.
+     * A caller that genuinely wants best-effort should pass a larger bound and
+     * say so, rather than have every caller silently get one.
      */
     async getFreshPosition(staleLimitMs: number = 30_000, timeoutSec: number = 15): Promise<CachedPosition | null> {
-        // Try cached first
-        if (this._lastPosition) {
-            const age = Date.now() - this._lastPosition.receivedAt;
-            if (age < staleLimitMs) return this._lastPosition;
-        }
+        const cached = this._cachedWithin(staleLimitMs);
+        if (cached) return cached;
 
-        if (!this.isNativeSupported()) return this._lastPosition;
+        if (!this.isNativeSupported()) return this._cachedWithin(staleLimitMs);
 
         // Fallback to on-demand fetch
         try {
@@ -277,8 +299,9 @@ class BgGeoManagerClass {
             return this._locationToCache(loc);
         } catch (e) {
             log.warn('getFreshPosition failed:', String(e));
-            // If getCurrentPosition fails, return stale cache as last resort
-            return this._lastPosition;
+            // Last resort is still BOUNDED: a fix outside the caller's window is
+            // not a fallback, it is wrong data wearing a fresh timestamp.
+            return this._cachedWithin(staleLimitMs);
         }
     }
 
