@@ -187,15 +187,63 @@ function freshInitialState(): LogPageState {
     };
 }
 
+/**
+ * View state that survives the Log page unmounting — MODULE scope, because the
+ * page unmounts on every tab-bounce and instance state dies with it
+ * ([[lesson_session_guards_module_scope]]). Shane, mid-voyage 2026-08-01:
+ * "when I come back to that page, I literally have to start all over again."
+ * Tabbing to the chart and back lost the open track map, the stats sheet, the
+ * open voyage, every expand and the search filter.
+ *
+ * Deliberately EXCLUDED: entries/summaries (data — reloaded fresh so a stale
+ * copy is never rendered), confirm dialogs (stop-voyage, delete), actionSheet
+ * and editEntry (mid-action state that must not fire on a page the user has
+ * left and re-entered), and loading flags.
+ */
+interface LogViewMemo {
+    scopeKey: string;
+    generation: number;
+    selectedVoyageId: string | null;
+    expandedVoyages: string[];
+    showTrackMap: boolean;
+    showStats: boolean;
+    filters: LogPageState['filters'];
+}
+let logViewMemo: LogViewMemo | null = null;
+
+/** Test-only: the memo outlives component instances by design, so specs must
+ *  start clean. */
+export function resetLogViewMemoForTest(): void {
+    logViewMemo = null;
+}
+
+function seededInitialState(scope: AuthIdentityScope): LogPageState {
+    const fresh = freshInitialState();
+    const memo = logViewMemo;
+    if (!memo || memo.scopeKey !== scope.key || memo.generation !== scope.generation) return fresh;
+    return {
+        ...fresh,
+        selectedVoyageId: memo.selectedVoyageId,
+        expandedVoyages: new Set(memo.expandedVoyages),
+        showTrackMap: memo.showTrackMap,
+        showStats: memo.showStats,
+        filters: { ...memo.filters, types: [...memo.filters.types] },
+    };
+}
+
 function logPageReducer(state: LogPageState, action: LogPageAction): LogPageState {
     switch (action.type) {
         case 'RESET_IDENTITY':
             return freshInitialState();
         case 'LOAD_DATA': {
             // Preserve user's expand/collapse state during polls.
-            // Only auto-expand active voyage on FIRST load (when entries are empty).
+            // Only auto-expand active voyage on FIRST load (when entries are
+            // empty) — and only when nothing is expanded yet: after a
+            // tab-bounce the first load runs again, and without the size guard
+            // it REPLACED the restored expand/collapse set with just the
+            // active voyage, quietly undoing the view-memo restore.
             const expandedVoyages =
-                action.currentVoyageId && state.entries.length === 0
+                action.currentVoyageId && state.entries.length === 0 && state.expandedVoyages.size === 0
                     ? new Set([action.currentVoyageId])
                     : state.expandedVoyages;
             return {
@@ -315,7 +363,7 @@ function groupEntriesByVoyage(entries: ShipLogEntry[]) {
 
 export function useLogPageState() {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
-    const [storedState, rawDispatch] = useReducer(logPageReducer, initialState);
+    const [storedState, rawDispatch] = useReducer(logPageReducer, identityScope, seededInitialState);
     const stateOwnerRef = useRef(identityScope);
     const stateBelongsToCurrentIdentity =
         stateOwnerRef.current.key === identityScope.key &&
@@ -336,9 +384,44 @@ export function useLogPageState() {
     const { settings } = useSettings();
 
     useEffect(() => {
+        // Reset ONLY on a real identity change. This effect used to fire
+        // RESET_IDENTITY unconditionally — including on plain mount — which
+        // wiped the reducer state on every tab-bounce back to the Log page and
+        // would also have destroyed the view-memo seed the moment it was
+        // applied. Comparing scopes keeps the account boundary exactly as
+        // strict (a changed key/generation still resets synchronously-rendered
+        // state via stateBelongsToCurrentIdentity, then durably here) while a
+        // same-identity remount keeps what the skipper had open. StrictMode's
+        // effect replay sees an unchanged scope and is a no-op.
+        const previous = stateOwnerRef.current;
+        const changed = previous.key !== identityScope.key || previous.generation !== identityScope.generation;
         stateOwnerRef.current = identityScope;
+        if (!changed) return;
+        logViewMemo = null; // the memo belonged to the old account
         rawDispatch({ type: 'RESET_IDENTITY' });
     }, [identityScope]);
+
+    // Bank the view state on every change, so the NEXT mount can restore it.
+    // Cheap (a handful of scalars + two small arrays); never banks data.
+    useEffect(() => {
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        logViewMemo = {
+            scopeKey: identityScope.key,
+            generation: identityScope.generation,
+            selectedVoyageId: storedState.selectedVoyageId,
+            expandedVoyages: Array.from(storedState.expandedVoyages),
+            showTrackMap: storedState.showTrackMap,
+            showStats: storedState.showStats,
+            filters: { ...storedState.filters, types: [...storedState.filters.types] },
+        };
+    }, [
+        identityScope,
+        storedState.selectedVoyageId,
+        storedState.expandedVoyages,
+        storedState.showTrackMap,
+        storedState.showStats,
+        storedState.filters,
+    ]);
 
     // ── Archive state (separate from main state to avoid re-renders on every poll) ──
     const [archivedVoyages, setArchivedVoyages] = useState<ReturnType<typeof groupEntriesByVoyage>>([]);

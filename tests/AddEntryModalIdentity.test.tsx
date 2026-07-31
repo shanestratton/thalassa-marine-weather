@@ -37,6 +37,7 @@ vi.mock('../components/Toast', () => ({
     toast: {
         success: mocks.toastSuccess,
         error: mocks.toastError,
+        info: vi.fn(),
     },
 }));
 
@@ -44,7 +45,7 @@ vi.mock('../hooks/useAccessibility', () => ({
     useFocusTrap: () => ({ current: null }),
 }));
 
-import { AddEntryModal } from '../components/AddEntryModal';
+import { AddEntryModal, resetAddEntryDraftForTest } from '../components/AddEntryModal';
 
 describe('AddEntryModal account boundary', () => {
     beforeEach(() => {
@@ -116,6 +117,42 @@ describe('AddEntryModal account boundary', () => {
 
         view.rerender(<AddEntryModal isOpen={false} onClose={onClose} onSuccess={vi.fn()} />);
         view.rerender(<AddEntryModal isOpen onClose={onClose} onSuccess={vi.fn()} />);
+        expect(screen.getByPlaceholderText(/Course change/)).toHaveValue('');
+    });
+});
+
+describe('AddEntryModal draft survival — navigation preserves, dismissal discards', () => {
+    beforeEach(() => {
+        resetAddEntryDraftForTest();
+        setAuthIdentityScope('account-a');
+    });
+
+    it('restores a half-written entry after the page unmounts and the modal reopens', async () => {
+        // Tabbing to the chart mid-composition unmounts the whole Log page —
+        // the draft used to die with it ("I literally have to start all over
+        // again", Shane mid-voyage 2026-08-01).
+        const first = render(<AddEntryModal isOpen onClose={vi.fn()} onSuccess={vi.fn()} />);
+        fireEvent.change(screen.getByPlaceholderText(/Course change/), {
+            target: { value: 'Passing the Measured Mile beacons, 12 kts over ground' },
+        });
+        first.unmount(); // tab-bounce: no close transition, just gone
+
+        render(<AddEntryModal isOpen onClose={vi.fn()} onSuccess={vi.fn()} />);
+        expect(screen.getByPlaceholderText(/Course change/)).toHaveValue(
+            'Passing the Measured Mile beacons, 12 kts over ground',
+        );
+    });
+
+    it('an explicit close DISCARDS the draft — a deliberate dismissal means start fresh', async () => {
+        const onClose = vi.fn();
+        const view = render(<AddEntryModal isOpen onClose={onClose} onSuccess={vi.fn()} />);
+        fireEvent.change(screen.getByPlaceholderText(/Course change/), {
+            target: { value: 'text the skipper chose to abandon' },
+        });
+        // The parent closes the modal (Cancel/Escape/backdrop all end here).
+        view.rerender(<AddEntryModal isOpen={false} onClose={onClose} onSuccess={vi.fn()} />);
+        view.rerender(<AddEntryModal isOpen onClose={onClose} onSuccess={vi.fn()} />);
+
         expect(screen.getByPlaceholderText(/Course change/)).toHaveValue('');
     });
 });
