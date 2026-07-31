@@ -1537,7 +1537,19 @@ export function notifySavedRoutesChanged(scope: AuthIdentityScope = getAuthIdent
 // draft change or a chart install/update (registry version bump) drops the
 // lot; otherwise a remount re-grades nothing.
 
-const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v1';
+/**
+ * BUMP THIS WHENEVER GRADING SEMANTICS OR VERDICT COPY CHANGE.
+ *
+ * The stamp below guards draft and chart-registry changes, and nothing else —
+ * so a code change that makes the SAME leg grade differently is invisible to it
+ * and the old verdict is replayed forever. That is not hypothetical: after long
+ * legs started subdividing, devices kept showing "leg too long, drop a pin
+ * midway" from cache, on a build where that string no longer existed anywhere.
+ *
+ * v2 (2026-08-01): long-leg subdivision, the gate-checks-unavailable caution,
+ * and the reworded too-long copy.
+ */
+export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v2';
 /** A working route is tens of legs; 500 covers several routes' churn
  *  without letting localStorage bloat. Insertion order ≈ age — the tail
  *  (newest) survives the cap. */

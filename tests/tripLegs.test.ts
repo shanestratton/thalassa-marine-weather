@@ -26,6 +26,7 @@ import {
     attachSavedTraceTombstoneLinks,
     getSavedTraceTombstones,
     persistLegVerdicts,
+    LEG_VERDICTS_KEY,
     hydrateLegVerdicts,
 } from '../services/routeTracer';
 import { authScopedStorageKey } from '../services/authIdentityScope';
@@ -288,7 +289,7 @@ describe('leg-verdict persistence (remount cold-cache fix, 2026-07-17)', () => {
         expect(back.size).toBe(500);
         expect(back.has('k619')).toBe(true); // newest kept
         expect(back.has('k0')).toBe(false); // oldest culled
-        localStorage.setItem(authScopedStorageKey('thalassa_leg_verdicts_v1'), '{corrupt');
+        localStorage.setItem(authScopedStorageKey(LEG_VERDICTS_KEY), '{corrupt');
         expect(hydrateLegVerdicts(2.4, false, 7)).toBeNull();
     });
 });

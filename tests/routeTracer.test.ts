@@ -35,8 +35,11 @@ import {
     MAX_LEG_SUBDIVISIONS,
     MAX_DEPTH_GRID_SPAN_M,
     clusterKeepsDepthGrid,
+    persistLegVerdicts,
+    hydrateLegVerdicts,
     type TracerContext,
 } from '../services/routeTracer';
+import { authScopedStorageKey } from '../services/authIdentityScope';
 
 const poly = (w: number, s: number, e: number, n: number, props: Record<string, unknown> = {}) => ({
     type: 'Feature' as const,
@@ -225,6 +228,67 @@ describe('routeTracer — sub-leg verdict merge', () => {
             v(),
         ]);
         expect(merged?.grade).toBe('clear');
+    });
+});
+
+describe('routeTracer — persisted verdicts survive only their own schema', () => {
+    // Verdicts are banked to localStorage and replayed on the next mount. The
+    // stamp guards draft and chart-registry changes and NOTHING else, so a code
+    // change that makes the same leg grade differently is invisible to it.
+    // Shipped consequence: after long legs started subdividing, devices kept
+    // showing "leg too long, drop a pin midway" from cache, on a build where
+    // that string existed nowhere in the bundle. The storage KEY carries the
+    // grading-semantics version, and bumping it is what retires stale verdicts.
+
+    it('does not replay verdicts written under an older schema version', () => {
+        localStorage.clear();
+        // Exactly the shape AND key the old build wrote. The key is auth-scoped
+        // — my first version of this test wrote the bare key, so it passed even
+        // with the bug restored. Checked, and fixed.
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_leg_verdicts_v1'),
+            JSON.stringify({
+                draftM: 2.4,
+                draftAssumed: false,
+                encVersion: 7,
+                entries: [
+                    [
+                        'stale',
+                        {
+                            grade: 'caution',
+                            issues: [
+                                { severity: 'caution', message: 'depth unchecked — leg too long, drop a pin midway' },
+                            ],
+                            minDepthM: null,
+                            minAt: null,
+                            needsTide: false,
+                            nudge: null,
+                            nudgeTo: null,
+                        },
+                    ],
+                ],
+            }),
+        );
+
+        expect(hydrateLegVerdicts(2.4, false, 7)).toBeNull();
+        localStorage.clear();
+    });
+
+    it('still replays verdicts written by THIS version, on an unchanged keel and chart set', () => {
+        localStorage.clear();
+        const cache = new Map([
+            [
+                'leg-1',
+                { grade: 'clear', issues: [], minDepthM: 9, minAt: null, needsTide: false, nudge: null, nudgeTo: null },
+            ],
+        ]);
+        persistLegVerdicts(cache as never, 2.4, false, 7);
+
+        expect(hydrateLegVerdicts(2.4, false, 7)?.get('leg-1')?.grade).toBe('clear');
+        // ...and not across a draft or chart change.
+        expect(hydrateLegVerdicts(2.9, false, 7)).toBeNull();
+        expect(hydrateLegVerdicts(2.4, false, 8)).toBeNull();
+        localStorage.clear();
     });
 });
 

@@ -368,13 +368,23 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                         if (seq !== tracerSeqRef.current) return;
                         if (built.status === 'ready') {
                             ctx = built.ctx;
-                            // Same rule as marks-only: a window that lost its
-                            // gate marks to a failed fetch must NOT be held.
-                            // Holding it would let one network blip strip gate
-                            // checking from every later cluster that reuses it,
-                            // turning a transient failure into a session-long
-                            // one. Not holding costs a rebuild and retries.
-                            if (!built.ctx.gateChecksUnavailable) tracerCtxHold(built.ctx);
+                            // Two reasons NOT to hold this window.
+                            //
+                            // 1. Gate marks missing: holding it would let one
+                            //    network blip strip gate checking from every
+                            //    later cluster that reuses it, turning a
+                            //    transient failure into a session-long one.
+                            // 2. It only covers PIECES of a subdivided leg. Each
+                            //    piece has its own window by construction and the
+                            //    next piece is a different patch of water, so a
+                            //    hold almost never hits — while a held grid is
+                            //    ~20 MB at the cell cap and the LRU keeps 3.
+                            //    Subdividing turned one grid-LESS window into N
+                            //    grid-bearing ones, on a surface with a
+                            //    documented jetsam history; there is no reason to
+                            //    keep those alive past their one use.
+                            const holdsAWholeLeg = cluster.some((l) => l.key === l.parentKey);
+                            if (!built.ctx.gateChecksUnavailable && holdsAWholeLeg) tracerCtxHold(built.ctx);
                         } else if (built.status === 'marksonly') {
                             // One genuinely long leg — grade marks with this
                             // ctx but DON'T hold it: a grid-less window must
