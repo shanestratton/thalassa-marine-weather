@@ -109,8 +109,18 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
         let subline = '';
 
         if (!hasRain) {
-            headline = rainSummary || 'No Rain Expected';
-            subline = 'Next 60 minutes';
+            // A no-rain verdict must state the window it actually checked —
+            // IN THE HEADLINE, because the subline is computed but never
+            // rendered anywhere. Rainbow.ai (Skipper tier) sees 4 hours ahead;
+            // WeatherKit only 60 minutes — so two devices on different sources
+            // can honestly disagree ("Rain in 183 min" vs nothing: rain at
+            // T+3h is invisible to a 60-minute window). The old bare
+            // "No Rain Expected" made that horizon difference look like a data
+            // bug (Shane, 2026-08-01, iPhone vs iPad). A provider summary, when
+            // present, already names its own window — keep it.
+            const windowLabel = source === 'rainbow' ? 'next 4 hours' : 'next 60 min';
+            headline = rainSummary || `No rain expected ${windowLabel}`;
+            subline = source === 'rainbow' ? 'Next 4 hours' : 'Next 60 minutes';
         } else if (isCurrentlyRaining && firstDryAfterRain > 0) {
             headline = `Rain stopping in ${firstDryAfterRain} min`;
             subline = getIntensityLabel(workingData[0].intensity);
@@ -142,7 +152,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
             peakIdx,
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, rainSummary, tick]); // tick forces re-evaluation every 60s
+    }, [data, rainSummary, source, tick]); // tick forces re-evaluation every 60s
 
     const openModal = useCallback(() => {
         if (data && data.length > 0) {
