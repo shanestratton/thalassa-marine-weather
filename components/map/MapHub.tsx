@@ -134,6 +134,7 @@ import {
     healTripChain,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
+    splitLegForDepthGrid,
     type TraceLegVerdict,
     type TracerContext,
     type SavedTrace,
@@ -927,6 +928,54 @@ export const MapHub: React.FC<MapHubProps> = ({
         },
         [flashTraceFeedback, lastAutoNameRef, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
     );
+    /**
+     * The check-points a long leg is ALREADY being graded at, per leg.
+     *
+     * Derived, never stored: the grading pass cuts over-long legs with the same
+     * pure function, so this is exactly where the checks happen — it cannot
+     * drift from what was verified. Empty for every leg on a normal route.
+     */
+    const legSplitPoints = useMemo(() => {
+        const out: Array<{ afterIndex: number; points: { lat: number; lon: number }[] }> = [];
+        for (let i = 1; i < capturedCoords.length; i++) {
+            const mids = splitLegForDepthGrid(capturedCoords[i - 1], capturedCoords[i]);
+            if (mids.length > 0) out.push({ afterIndex: i - 1, points: mids });
+        }
+        return out;
+    }, [capturedCoords]);
+    const splitPointCount = useMemo(() => legSplitPoints.reduce((n, s) => n + s.points.length, 0), [legSplitPoints]);
+
+    /**
+     * Turn those check-points into real, editable waypoints — the opt-in half
+     * of the long-leg fix (Shane 2026-08-01: verification happens by itself,
+     * the pins only appear when he asks).
+     *
+     * Splices LAST leg first so earlier indices stay valid mid-loop — the same
+     * ordering fixLegOnGrid uses. The points sit on each leg's own line, so the
+     * route's shape is unchanged; what changes is that they now save, export
+     * and follow with it. Verdicts re-grade because the leg keys change.
+     */
+    const materialiseSplitWaypoints = useCallback(() => {
+        if (legSplitPoints.length === 0) return;
+        triggerHaptic('light');
+        setCapturedCoords((prev) => {
+            let next = prev;
+            for (const { afterIndex, points } of [...legSplitPoints].reverse()) {
+                if (afterIndex + 1 > next.length) continue; // trace changed under us
+                next = [
+                    ...next.slice(0, afterIndex + 1),
+                    ...points.map((p) => ({ ...p })),
+                    ...next.slice(afterIndex + 1),
+                ];
+            }
+            return next;
+        });
+        clearTraceSelection();
+        flashTraceFeedback(
+            `Added ${splitPointCount} waypoint${splitPointCount === 1 ? '' : 's'} — the legs were already checked here`,
+        );
+    }, [legSplitPoints, splitPointCount, clearTraceSelection, flashTraceFeedback, setCapturedCoords]);
+
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
         // No name, no save (Shane 2026-07-15) — the date-stamped fallback
@@ -4458,6 +4507,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 ⇄
                                             </button>
                                         </div>
+                                        {/* Long legs are cut into grid-sized pieces and depth-checked
+                                            automatically — this only offers to make those check-points
+                                            into real waypoints, for export or a chartplotter. It is
+                                            deliberately opt-in: inserted pins stay put when their
+                                            parent is dragged, which would silently dogleg the route. */}
+                                        {splitPointCount > 0 && (
+                                            <div className="border-t border-white/10 px-3 py-2">
+                                                <button
+                                                    onClick={materialiseSplitWaypoints}
+                                                    className="w-full rounded-lg bg-teal-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-teal-300 active:scale-95"
+                                                >
+                                                    📍 Add {splitPointCount} check waypoint
+                                                    {splitPointCount === 1 ? '' : 's'}
+                                                </button>
+                                                <p className="px-0.5 pt-1 text-[10px] leading-snug text-gray-400">
+                                                    Long legs are already checked at these points. Adding them puts them
+                                                    in the saved route.
+                                                </p>
+                                            </div>
+                                        )}
                                         {capturedCoords.length >= 2 && (
                                             <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
                                                 <button
