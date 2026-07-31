@@ -47,6 +47,7 @@ import {
     traceBbox,
     traceBboxPadded,
     bboxMaxSpanM,
+    clusterKeepsDepthGrid,
     tideWindowLabelFor,
     persistLegVerdicts,
     hydrateLegVerdicts,
@@ -231,15 +232,24 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             let cur: typeof pending = [];
             for (const leg of pending) {
                 const probe = [...cur, leg];
-                if (
-                    cur.length > 0 &&
-                    bboxMaxSpanM(
-                        traceBbox(
-                            probe.flatMap((l) => [l.a, l.b]),
-                            0,
-                        ),
-                    ) > TRACE_CLUSTER_SPAN_M
-                ) {
+                const pts = probe.flatMap((l) => [l.a, l.b]);
+                // TWO bounds, and the second is the one that was missing.
+                //
+                // TRACE_CLUSTER_SPAN_M caps BUILD COST and is measured on the
+                // tight bbox. But the window that actually gets built is the
+                // PADDED one, and buildTracerContext tests THAT against
+                // MAX_DEPTH_GRID_SPAN_M before deciding whether to build a
+                // depth grid at all. Since traceBboxPadded pads by 25% of the
+                // larger DEGREE span, and a degree of longitude shrinks with
+                // cos(lat), a cluster that passes the tight test can still pad
+                // past the grid ceiling — measured at ~40.1 km at Tasmania and
+                // ~48.1 km at 60°N on ordinary corner geometry that reads only
+                // ~23 km tight. The window then returns marks-only and every
+                // leg in it is stamped "depth unchecked" and CACHED that way.
+                // Bounding the padded span too makes the cluster loop agree
+                // with the test it is feeding.
+                const tooCostly = bboxMaxSpanM(traceBbox(pts, 0)) > TRACE_CLUSTER_SPAN_M;
+                if (cur.length > 0 && (tooCostly || !clusterKeepsDepthGrid(pts))) {
                     clusters.push(cur);
                     cur = [leg];
                 } else {

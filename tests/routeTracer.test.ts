@@ -28,6 +28,13 @@ import {
     saveTrace,
     deleteTrace,
     snapTraceTapToLead,
+    splitLegForDepthGrid,
+    mergeSubLegVerdicts,
+    traceBboxPadded,
+    bboxMaxSpanM,
+    MAX_LEG_SUBDIVISIONS,
+    MAX_DEPTH_GRID_SPAN_M,
+    clusterKeepsDepthGrid,
     type TracerContext,
 } from '../services/routeTracer';
 
@@ -83,6 +90,142 @@ beforeAll(() => {
         bbox: BBOX,
         resM: 10,
     };
+});
+
+describe('routeTracer — long-leg subdivision', () => {
+    const north = (from: { lat: number; lon: number }, km: number) => ({ lat: from.lat + km / 111.32, lon: from.lon });
+    const east = (from: { lat: number; lon: number }, km: number) => ({
+        lat: from.lat,
+        lon: from.lon + km / (111.32 * Math.cos((from.lat * Math.PI) / 180)),
+    });
+
+    /** The property the whole feature rests on. */
+    const everyPieceFits = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => {
+        const pts = [a, ...splitLegForDepthGrid(a, b), b];
+        return pts
+            .slice(0, -1)
+            .every((p, i) => bboxMaxSpanM(traceBboxPadded([p, pts[i + 1]])) <= MAX_DEPTH_GRID_SPAN_M);
+    };
+
+    it('leaves a short leg alone — no split, no cost', () => {
+        const a = { lat: -27.2, lon: 153.1 };
+        expect(splitLegForDepthGrid(a, north(a, 5))).toEqual([]);
+    });
+
+    it('splits a leg that cannot fit the depth grid whole', () => {
+        const a = { lat: -27.2, lon: 153.1 };
+        const b = north(a, 60);
+        expect(bboxMaxSpanM(traceBboxPadded([a, b]))).toBeGreaterThan(MAX_DEPTH_GRID_SPAN_M);
+
+        const mids = splitLegForDepthGrid(a, b);
+        expect(mids.length).toBeGreaterThan(0);
+        expect(everyPieceFits(a, b)).toBe(true);
+    });
+
+    it('the split points lie ON the original line — the route is not moved', () => {
+        const a = { lat: -27.2, lon: 153.1 };
+        const b = { lat: -27.8, lon: 153.6 };
+        for (const m of splitLegForDepthGrid(a, b)) {
+            // Cross product of (b-a) and (m-a) is zero for a collinear point.
+            const cross = (b.lat - a.lat) * (m.lon - a.lon) - (b.lon - a.lon) * (m.lat - a.lat);
+            expect(Math.abs(cross)).toBeLessThan(1e-12);
+        }
+    });
+
+    it('every piece fits at any latitude and on any bearing', () => {
+        // traceBboxPadded pads by 25% of the larger DEGREE span, and a degree of
+        // longitude shrinks with cos(lat), so what fits at Brisbane need not fit
+        // in Tasmania or the North Sea. Deriving the count by MEASURING each
+        // candidate piece rather than dividing by a constant distance is what
+        // makes this hold everywhere.
+        for (const lat of [-27, -42, -45, 50, 60, 70]) {
+            const a = { lat, lon: 153.1 };
+            for (const b of [north(a, 60), east(a, 60), north(east(a, 45), 45), { lat: lat + 0.4, lon: 153.6 }]) {
+                expect(everyPieceFits(a, b), `failed at lat ${lat}`).toBe(true);
+            }
+        }
+    });
+
+    it('clusterKeepsDepthGrid catches the window the TIGHT cost bound waves through', () => {
+        // The real defect is not in the split, it is in how the grading hook
+        // packs legs into one window. Its loop bounded the TIGHT bbox by
+        // TRACE_CLUSTER_SPAN_M (24 km), while buildTracerContext tests the
+        // PADDED bbox against MAX_DEPTH_GRID_SPAN_M (40 km). An L of two 23 km
+        // arms reads 23,000 m tight — inside the cost bound — and pads to
+        // 40,891 m at 50°N and 46,000 m at 60°N. The window silently lost its
+        // depth grid and every leg in it was cached "depth unchecked".
+        const TIGHT_BOUND = 24_000;
+        const lShape = (lat: number, armKm: number) => {
+            const a = { lat, lon: 153.1 };
+            const corner = east(a, armKm);
+            return [a, corner, north(corner, armKm)];
+        };
+
+        // The overflow cases: legal on cost, illegal on grid. The old single
+        // bound accepted these; the predicate must reject them.
+        for (const lat of [50, 60]) {
+            const pts = lShape(lat, 23);
+            expect(bboxMaxSpanM(traceBbox(pts, 0)), `lat ${lat} should pass the cost bound`).toBeLessThanOrEqual(
+                TIGHT_BOUND,
+            );
+            expect(clusterKeepsDepthGrid(pts), `lat ${lat} must be rejected — it pads past the ceiling`).toBe(false);
+        }
+
+        // And it must not over-reject: the same shape at home waters is fine.
+        expect(clusterKeepsDepthGrid(lShape(-27, 23))).toBe(true);
+        expect(clusterKeepsDepthGrid(lShape(-42, 23))).toBe(true);
+    });
+
+    it('declines rather than lying when even the maximum split cannot fit', () => {
+        const a = { lat: -27.2, lon: 153.1 };
+        const b = north(a, 40_000 * MAX_LEG_SUBDIVISIONS);
+        expect(splitLegForDepthGrid(a, b)).toEqual([]);
+    });
+});
+
+describe('routeTracer — sub-leg verdict merge', () => {
+    const v = (over: Partial<ReturnType<typeof validateTraceLeg>> = {}) => ({
+        grade: 'clear' as const,
+        issues: [] as { severity: 'danger' | 'caution' | 'info'; message: string }[],
+        minDepthM: null as number | null,
+        minAt: null,
+        needsTide: false,
+        nudge: null,
+        nudgeTo: null,
+        ...over,
+    });
+
+    it('the worst piece decides the leg', () => {
+        const merged = mergeSubLegVerdicts([
+            v(),
+            v({ grade: 'danger', issues: [{ severity: 'danger', message: 'crosses charted land' }] }),
+            v(),
+        ]);
+        expect(merged?.grade).toBe('danger');
+    });
+
+    it('reports the SHALLOWEST sounding across the whole leg', () => {
+        const merged = mergeSubLegVerdicts([v({ minDepthM: 9 }), v({ minDepthM: 2.1 }), v({ minDepthM: 5 })]);
+        expect(merged?.minDepthM).toBe(2.1);
+    });
+
+    it('any piece needing tide makes the leg need tide', () => {
+        expect(mergeSubLegVerdicts([v(), v({ needsTide: true })])?.needsTide).toBe(true);
+    });
+
+    it('an unchecked piece is never hidden behind clear siblings', () => {
+        const merged = mergeSubLegVerdicts([v(), null, v()]);
+        expect(merged?.grade).toBe('caution');
+        expect(merged?.issues.map((i) => i.message)).toContain('part of this leg could not be checked');
+    });
+
+    it("'info' confirmations do not escalate a clear leg", () => {
+        const merged = mergeSubLegVerdicts([
+            v({ issues: [{ severity: 'info', message: 'correct side (IALA-A)' }] }),
+            v(),
+        ]);
+        expect(merged?.grade).toBe('clear');
+    });
 });
 
 describe('routeTracer — gate-check honesty', () => {
