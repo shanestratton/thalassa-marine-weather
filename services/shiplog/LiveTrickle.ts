@@ -222,10 +222,18 @@ async function doTick(session: TrickleSession): Promise<boolean> {
         const user = await getCurrentUser();
         if (!sessionIsCurrent(session) || !user || user.id !== session.ownerUserId) return false;
 
-        const [{ useSettingsStore: store }, { mayPublish }] = await Promise.all([
+        const [{ useSettingsStore: store, refreshSkipperClaim }, { mayPublish }] = await Promise.all([
             import('../../stores/settingsStore'),
             import('../skipperDevice'),
         ]);
+        if (!sessionIsCurrent(session)) return false;
+        // Re-check publishing authority against the CLOUD before every push
+        // (throttled to 60 s inside). Without this the gate below read only the
+        // local claim, which no code path ever refreshed mid-session — so a
+        // takeover on the other device never reached this one and BOTH kept
+        // publishing, the exact dual-source failure the claim exists to stop.
+        // Offline: refresh no-ops and the local claim stands (fail-open at sea).
+        await refreshSkipperClaim();
         if (!sessionIsCurrent(session)) return false;
         const claim = store.getState().settings.skipperDevice ?? null;
         if (!mayPublish(claim)) return false;

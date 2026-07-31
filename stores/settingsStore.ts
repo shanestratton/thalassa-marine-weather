@@ -1068,6 +1068,62 @@ export function writeSettingsMirror(s: UserSettings, scope: AuthIdentityScope = 
     }
 }
 
+/**
+ * Pull JUST the skipper-device claim from the cloud and apply it locally.
+ *
+ * The claim is exclusive publishing authority, but it rides in user_settings —
+ * and pullFromCloud runs ONCE per sign-in generation (_setUserId's
+ * _lastCloudPullGeneration gate). Nothing ever re-pulled mid-session, so when
+ * Shane's iPad claimed, his iPhone never heard: both devices kept their own
+ * local claim, both showed "This Device", and both PUBLISHED — the dual-source
+ * bug the claim exists to prevent (skipperDevice.ts header). The displacement
+ * banner in App.tsx watches the local claim, so it could never fire either.
+ *
+ * Applied WITHOUT an upload echo: setState + mirror + Preferences, never
+ * queueSettingsSync — echoing the cloud value back would bump claimedAt races
+ * and make two devices ping-pong writes.
+ *
+ * Failure mode is deliberate: offline/error keeps the LOCAL claim. At sea with
+ * no signal a device that believes it holds the claim keeps publishing —
+ * consistent with mayPublish's fail-open design. Exclusivity is enforced when
+ * connectivity exists, which is the only time publishing works anyway.
+ */
+let _lastClaimRefreshMs = 0;
+export async function refreshSkipperClaim(opts: { maxAgeMs?: number } = {}): Promise<void> {
+    const maxAgeMs = opts.maxAgeMs ?? 60_000;
+    const scope = getAuthIdentityScope();
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+    if (_hydratedScopeKey !== scope.key) return; // never race the boot load
+    const now = Date.now();
+    if (now - _lastClaimRefreshMs < maxAgeMs) return;
+    _lastClaimRefreshMs = now;
+    try {
+        const { data, error } = await supabase
+            .from('user_settings')
+            .select('settings->skipperDevice')
+            .eq('user_id', scope.userId)
+            .maybeSingle();
+        if (error || !isAuthIdentityScopeCurrent(scope) || _hydratedScopeKey !== scope.key) return;
+        // PostgREST returns JSON null for a released claim — normalise to
+        // undefined, which is what the optional type field actually means.
+        const cloudClaim =
+            (data as { skipperDevice?: UserSettings['skipperDevice'] | null } | null)?.skipperDevice ?? undefined;
+        const local = useSettingsStore.getState().settings;
+        const same =
+            local.skipperDevice?.deviceId === cloudClaim?.deviceId &&
+            local.skipperDevice?.claimedAt === cloudClaim?.claimedAt;
+        if (same) return;
+        const updated = { ...local, skipperDevice: cloudClaim };
+        useSettingsStore.setState({ settings: updated });
+        // Persist BOTH stores or a cold boot resurrects the stale claim from
+        // Preferences and this device silently believes it publishes again.
+        writeSettingsMirror(updated, scope);
+        await writeSettingsToPreferences(scope, updated);
+    } catch {
+        /* offline — the local claim stands, see the header comment */
+    }
+}
+
 function removeSettingsMirror(scope: AuthIdentityScope): void {
     try {
         localStorage.removeItem(settingsMirrorKey(scope));

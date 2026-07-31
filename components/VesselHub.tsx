@@ -22,6 +22,7 @@ import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
+import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
 import { triggerHaptic } from '../utils/system';
 import { convertLength } from '../utils/units';
@@ -1275,6 +1276,15 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
             ? 'This device publishes the boat’s position to your public page.'
             : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
         : 'No device claimed yet — any signed-in device can publish.';
+
+    // The claim rides in user_settings, which is pulled from the cloud ONCE per
+    // sign-in — so without this, a claim made on the other device is invisible
+    // here until a cold restart, and BOTH devices read "This Device" (Shane,
+    // 2026-08-01, iPhone + iPad). Refresh whenever the card appears; maxAgeMs 0
+    // because the skipper is looking at exactly this answer right now.
+    useEffect(() => {
+        void refreshSkipperClaim({ maxAgeMs: 0 });
+    }, []);
     const actionLabel = claimHeld ? 'Release — let another device take it' : 'Press to make this the primary device';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;

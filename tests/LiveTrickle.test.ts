@@ -18,6 +18,8 @@ const mockState: {
     settings: Record<string, unknown>;
     queue: Record<string, unknown>[];
     prefs: Map<string, string>;
+    /** What the mocked refreshSkipperClaim does when the tick calls it. */
+    claimRefresh?: () => void;
 } = {
     impl: null,
     user: { id: 'user-1' },
@@ -40,6 +42,13 @@ vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: {
         getState: () => ({ settings: mockState.settings }),
     },
+    // The tick refreshes the claim from the cloud before gating on it. The
+    // mock mirrors the real semantics: it may MUTATE settings.skipperDevice
+    // (a takeover made on another device landing here), and it must never
+    // throw the gate off when offline (real impl swallows errors).
+    refreshSkipperClaim: vi.fn(async () => {
+        mockState.claimRefresh?.();
+    }),
 }));
 
 vi.mock('../services/shiplog/OfflineQueue', () => ({
@@ -141,6 +150,7 @@ beforeEach(() => {
     mockState.settings = { liveTrackShare: true };
     mockState.queue = [];
     mockState.prefs.clear();
+    mockState.claimRefresh = undefined;
 });
 
 afterEach(async () => {
@@ -251,6 +261,33 @@ describe('LiveTrickle', () => {
     it('is gated on the liveTrackShare setting', async () => {
         const { calls } = installSupabase();
         mockState.settings = { liveTrackShare: false };
+        mockState.queue = [point(0)];
+        startLiveTrickle('voyage-1');
+        noteLiveTrickleHeartbeat();
+        await flush();
+        await new Promise((r) => setTimeout(r, 20));
+        expect(calls).toHaveLength(0);
+    });
+
+    it('a takeover on ANOTHER device stops publishing here within one tick', async () => {
+        // The claim rides in user_settings, which is pulled once per sign-in —
+        // so the tick must re-check the cloud itself. Shane's real case
+        // (2026-08-01): iPhone + iPad both claimed, both showed "This Device",
+        // both published. The refresh lands the other device's claim into the
+        // store BEFORE the mayPublish gate reads it; this asserts the ordering.
+        const { calls } = installSupabase();
+        mockState.settings = { liveTrackShare: true }; // no local claim → fail-open would publish
+        mockState.claimRefresh = () => {
+            // Cloud says the OTHER device holds the claim.
+            mockState.settings = {
+                ...mockState.settings,
+                skipperDevice: {
+                    deviceId: 'dev-other-device',
+                    deviceName: 'iPad · beef',
+                    claimedAt: new Date().toISOString(),
+                },
+            };
+        };
         mockState.queue = [point(0)];
         startLiveTrickle('voyage-1');
         noteLiveTrickleHeartbeat();
