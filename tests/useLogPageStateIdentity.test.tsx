@@ -93,7 +93,7 @@ vi.mock('../services/ShipLogService', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { useLogPageState } from '../hooks/useLogPageState';
+import { useLogPageState, resetLogViewMemoForTest } from '../hooks/useLogPageState';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -139,6 +139,7 @@ const entryA = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    resetLogViewMemoForTest();
     mocks.account = 'a';
     setAuthIdentityScope('account-a');
     mocks.initialize.mockResolvedValue(undefined);
@@ -273,5 +274,51 @@ describe('useLogPageState identity boundary', () => {
         act(() => staleUndo());
         expect(result.current.state.summaries).toEqual([]);
         expect(mocks.toastSuccess).not.toHaveBeenCalledWith('Voyage restored');
+    });
+});
+
+describe('useLogPageState view memo — a tab-bounce keeps what the skipper had open', () => {
+    it('restores the open voyage, expands, sheets and filters on a same-identity remount', async () => {
+        // "When I come back to that page, I literally have to start all over
+        // again" (Shane, mid-voyage 2026-08-01). The Log page unmounts on
+        // every tab-bounce; the view state now survives at module scope.
+        const first = renderHook(() => useLogPageState());
+        await waitFor(() => expect(first.result.current.state.loading).toBe(false));
+
+        act(() => {
+            first.result.current.dispatch({ type: 'SELECT_VOYAGE', voyageId: 'voyage-a' });
+            first.result.current.dispatch({ type: 'SHOW_TRACK_MAP', show: true });
+            first.result.current.dispatch({ type: 'SET_FILTERS', filters: { types: ['manual'], searchQuery: 'reef' } });
+        });
+        first.unmount(); // tab away…
+
+        const second = renderHook(() => useLogPageState()); // …and back
+        expect(second.result.current.state.selectedVoyageId).toBe('voyage-a');
+        expect(second.result.current.state.showTrackMap).toBe(true);
+        expect(second.result.current.state.filters).toEqual({ types: ['manual'], searchQuery: 'reef' });
+
+        // And the first data load must not clobber the restored expands with
+        // its auto-expand-active-voyage default.
+        await waitFor(() => expect(second.result.current.state.loading).toBe(false));
+        expect(second.result.current.state.selectedVoyageId).toBe('voyage-a');
+        second.unmount();
+    });
+
+    it('an identity CHANGE still resets to a clean slate — the boundary my restore must not weaken', async () => {
+        const first = renderHook(() => useLogPageState());
+        await waitFor(() => expect(first.result.current.state.loading).toBe(false));
+        act(() => {
+            first.result.current.dispatch({ type: 'SELECT_VOYAGE', voyageId: 'voyage-a' });
+        });
+        first.unmount();
+
+        mocks.account = 'b';
+        act(() => {
+            setAuthIdentityScope('account-b');
+        });
+        const second = renderHook(() => useLogPageState());
+        expect(second.result.current.state.selectedVoyageId).toBeNull();
+        expect(second.result.current.state.showTrackMap).toBe(false);
+        second.unmount();
     });
 });

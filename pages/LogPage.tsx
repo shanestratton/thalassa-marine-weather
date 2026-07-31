@@ -140,11 +140,23 @@ const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 const promptedFollowVoyages = new Set<string>();
 const confirmedFollowVoyages = new Set<string>();
 
+/**
+ * Same module-scope pattern for the two page-local view toggles that were
+ * resetting on every tab-bounce ("I literally have to start all over again",
+ * Shane mid-voyage 2026-08-01). The reducer-owned view state has its own memo
+ * in useLogPageState; these two live here because they never joined the
+ * reducer. Cleared on identity change alongside the prompt guards.
+ */
+let liveMapExpandedMemo = false;
+let showArchivedMemo = false;
+
 /** Test-only: the guards outlive component instances BY DESIGN, which also
  *  makes them outlive test cases — each spec must start unprompted. */
 export function resetFollowPromptGuardsForTest(): void {
     promptedFollowVoyages.clear();
     confirmedFollowVoyages.clear();
+    liveMapExpandedMemo = false;
+    showArchivedMemo = false;
 }
 
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
@@ -401,7 +413,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setFollowPromptVoyageId(vid);
     }, [identityScope, state.isTracking, state.currentVoyageId, plannedSummaries.length]);
     const [showMenu, setShowMenu] = useState(false);
-    const [showArchived, setShowArchived] = useState(false);
+    const [showArchived, setShowArchived] = useState(() => showArchivedMemo);
 
     // Stable identity for the TrackMapViewer prop — the old inline
     // .filter() minted a new array every render, defeating the viewer's
@@ -574,7 +586,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
     // Live mini-map expansion — tap the little map to blow it up to a
     // fullscreen live view (stats stay overlaid), tap again to shrink.
-    const [liveMapExpanded, setLiveMapExpanded] = useState(false);
+    const [liveMapExpanded, setLiveMapExpanded] = useState(() => liveMapExpandedMemo);
     const liveMapTitleId = React.useId();
     const expandLiveMapRef = useRef<HTMLButtonElement>(null);
     const shrinkLiveMapRef = useRef<HTMLButtonElement>(null);
@@ -593,8 +605,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setLiveMapExpanded(true);
     }, [identityScope]);
     useEffect(() => {
-        if (!state.isTracking) setLiveMapExpanded(false);
-    }, [state.isTracking]);
+        // Close the live map when tracking genuinely STOPS — but not on the
+        // remount window. Fresh reducer state reads isTracking=false until the
+        // first LOAD_DATA lands, so gating on the raw flag closed the restored
+        // map on every tab-bounce back to the page, right before the load
+        // proved tracking was still on. `loading` distinguishes "not tracking"
+        // from "don't know yet".
+        if (!state.isTracking && !state.loading) setLiveMapExpanded(false);
+    }, [state.isTracking, state.loading]);
+    // Bank the toggles for the next mount (module memos — see their header).
+    useEffect(() => {
+        liveMapExpandedMemo = liveMapExpanded;
+    }, [liveMapExpanded]);
+    useEffect(() => {
+        showArchivedMemo = showArchived;
+    }, [showArchived]);
 
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);

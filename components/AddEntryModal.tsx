@@ -70,6 +70,32 @@ interface AddEntryModalProps {
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
+/**
+ * Draft that survives the Log page unmounting — MODULE scope. Tabbing to the
+ * chart mid-composition (routine on a boat: check the channel, come back)
+ * unmounted the whole page and the half-written deck-log entry died with it
+ * ("I literally have to start all over again", Shane mid-voyage 2026-08-01).
+ *
+ * Lifecycle: banked on every keystroke while OPEN; restored when the modal
+ * next opens under the same identity; DISCARDED on explicit close (Cancel,
+ * Escape, backdrop, save) — a deliberate close means "start fresh", only
+ * navigation preserves. Unmount runs no close transition, which is exactly
+ * the distinction React's effect semantics give for free.
+ */
+let addEntryDraftMemo: {
+    scopeKey: string;
+    generation: number;
+    notes: string;
+    waypointName: string;
+    isWaypoint: boolean;
+    eventCategory: EventCategory;
+} | null = null;
+
+/** Test-only: the draft outlives instances by design; specs start clean. */
+export function resetAddEntryDraftForTest(): void {
+    addEntryDraftMemo = null;
+}
+
 export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onSuccess, selectedVoyageId }) => {
     const [notes, setNotes] = useState('');
     const [waypointName, setWaypointName] = useState('');
@@ -106,8 +132,54 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
         });
     }, []);
 
+    // Restore a navigation-preserved draft when the modal OPENS; discard the
+    // memo on a real open→close transition (deliberate dismissal). The
+    // transition ref matters: the close-cleanup effect below also runs on
+    // plain mount with isOpen=false, and clearing the memo there would wipe
+    // the draft on every Log page remount — before it could ever restore.
+    // Initialised FALSE, not isOpen: before mount the modal wasn't open, so a
+    // component that mounts already-open still counts as an open transition
+    // and restores. Seeding with isOpen made that case invisible.
+    const prevOpenRef = useRef(false);
+    useEffect(() => {
+        const wasOpen = prevOpenRef.current;
+        prevOpenRef.current = isOpen;
+        if (isOpen && !wasOpen) {
+            const memo = addEntryDraftMemo;
+            if (
+                memo &&
+                memo.scopeKey === identityScope.key &&
+                memo.generation === identityScope.generation &&
+                memo.notes.trim() !== ''
+            ) {
+                setNotes(memo.notes);
+                setWaypointName(memo.waypointName);
+                setIsWaypoint(memo.isWaypoint);
+                setEventCategory(memo.eventCategory);
+                toast.info('Draft restored');
+            }
+        } else if (!isOpen && wasOpen) {
+            addEntryDraftMemo = null;
+        }
+    }, [isOpen, identityScope]);
+
+    // Bank the draft while open — only while open, or the close-cleanup's
+    // field clearing would bank empties over the draft it just preserved.
+    useEffect(() => {
+        if (!isOpen) return;
+        addEntryDraftMemo = {
+            scopeKey: identityScope.key,
+            generation: identityScope.generation,
+            notes,
+            waypointName,
+            isWaypoint,
+            eventCategory,
+        };
+    }, [isOpen, identityScope, notes, waypointName, isWaypoint, eventCategory]);
+
     useEffect(() => {
         if (isOpen && openOwner && !isAuthIdentityScopeCurrent(openOwner)) {
+            addEntryDraftMemo = null; // never carry a draft across accounts
             setNotes('');
             setWaypointName('');
             setIsWaypoint(false);
