@@ -13,6 +13,7 @@
 
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { supabase, supabaseUrl } from './supabase';
+import { createLogger } from '../utils/createLogger';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -26,6 +27,24 @@ const MAX_SIZE_PX = 512;
 const JPEG_QUALITY = 0.8;
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB after compression
 const PROFILES_TABLE = 'chat_profiles';
+const log = createLogger('ProfilePhoto');
+
+/**
+ * The columns clients may SELECT from chat_profiles — NOT a style preference.
+ *
+ * 20260730130000_chat_profiles_column_grants.sql revoked the table-level
+ * SELECT and re-granted an explicit column list so `stripe_account_id` (a
+ * leftover from the retired Marketplace, zero client readers) stops being
+ * readable by every signed-in user. PostgreSQL evaluates a `t.*` target list
+ * as "SELECT on every column", so PostgREST's `select=*` — which emits
+ * `"public"."chat_profiles".*` — now fails 42501 for anon AND authenticated.
+ * Verified against production: `select=*` → 401/42501, this list → 200.
+ *
+ * MUST mirror the GRANT in that migration. A column added to the table is
+ * invisible to clients until it is added BOTH there and here.
+ */
+const PROFILE_COLUMNS =
+    'user_id, display_name, avatar_url, bio, vessel_name, vessel_type, home_port, looking_for_love, created_at, updated_at';
 
 // --- TYPES ---
 
@@ -438,8 +457,17 @@ export const getProfile = async (userId: string): Promise<ChatProfile | null> =>
     // Check cache first
     const cached = avatarCache.get(userId);
 
-    const { data } = await supabase.from(PROFILES_TABLE).select('*').eq('user_id', userId).single();
+    const { data, error } = await supabase.from(PROFILES_TABLE).select(PROFILE_COLUMNS).eq('user_id', userId).single();
     if (!isAuthIdentityScopeCurrent(identity)) return null;
+
+    // PGRST116 = "no rows", the ordinary not-yet-created-a-profile case, which
+    // the cache fallback below handles. Anything else is a real failure and was
+    // previously swallowed by an unbound `error`: a grant/RLS change returned
+    // null here, the editor rendered blank, and a subsequent save wrote those
+    // blanks back over the user's real profile.
+    if (error && error.code !== 'PGRST116') {
+        log.warn(`chat profile read failed (${error.code ?? 'no code'}): ${error.message}`);
+    }
 
     if (data) {
         const profile = data as ChatProfile;
