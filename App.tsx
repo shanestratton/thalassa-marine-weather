@@ -311,6 +311,36 @@ const App: React.FC = () => {
         return unsub;
     }, []);
 
+    // One-shot ShipLog resume at BOOT — the relaunch black hole fix
+    // (sail-day audit 2026-08-01). ShipLogService.initialize() is what
+    // reconciles a persisted mid-voyage tracking state, resumes the SAME
+    // voyage in place, re-arms the live trickle AND starts the offline-queue
+    // upload retry — and its only caller was the Log page mount. So if the
+    // app died under way (jetsam, webview reload, force-quit, reboot),
+    // NOTHING recorded or uploaded on relaunch until Shane happened to open
+    // the Log page; the 26 July voyage's public track went dark exactly this
+    // way (at-stop upload stuck in the queue with no retry armed). Same
+    // getState/subscribe pattern as the saved-routes pull above; initialize()
+    // is idempotent and scope-guarded, so the Log page's own call stays
+    // harmless. Deferred 4 s to stay out of the boot window (z10-boot audit).
+    useEffect(() => {
+        let armed = false;
+        const arm = () => {
+            if (armed) return;
+            armed = true;
+            setTimeout(() => {
+                void import('./services/ShipLogService')
+                    .then(({ ShipLogService }) => ShipLogService.initialize())
+                    .catch(() => {});
+            }, 4000);
+        };
+        if (useAuthStore.getState().user) arm();
+        const unsub = useAuthStore.subscribe((s) => {
+            if (s.user) arm();
+        });
+        return unsub;
+    }, []);
+
     // One-shot anchor-watch share restore. A device that joined a shared
     // anchor watch persists the session; restoring it here on app startup
     // means a backgrounded/closed FOLLOWER auto-reconnects to the host

@@ -374,7 +374,7 @@ vi.mock('../hooks/useLogPageState', () => ({
     }),
 }));
 
-import { LogPage } from '../pages/LogPage';
+import { LogPage, resetFollowPromptGuardsForTest } from '../pages/LogPage';
 
 describe('LogPage', () => {
     afterEach(() => {
@@ -382,6 +382,8 @@ describe('LogPage', () => {
     });
 
     beforeEach(() => {
+        resetFollowPromptGuardsForTest();
+
         vi.clearAllMocks();
         for (const key of Object.keys(logPageStateOverrides.state)) delete logPageStateOverrides.state[key];
         for (const key of Object.keys(logPageStateOverrides.hook)) delete logPageStateOverrides.hook[key];
@@ -839,6 +841,38 @@ describe('LogPage', () => {
         );
 
         expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+    });
+
+    it('asks ONCE per voyage — a remount mid-voyage must not re-open the sheet', async () => {
+        // The guard used to be a component-scoped ref, so every tab-bounce back
+        // to the Log page re-opened the sheet — and dismissing that re-prompt
+        // called stopFollowing() and silently killed the cockpit route line
+        // mid-passage (sail-day audit 2026-08-01; the module-scope-guards
+        // lesson shipped again). Module-scope Sets survive the remount.
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+
+        const first = render(<LogPage />);
+        expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+        first.unmount(); // tab away mid-voyage…
+
+        render(<LogPage />); // …and back
+        await new Promise((r) => setTimeout(r, 50));
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
     });
 
     it('clears a previously followed route when the skipper chooses Just recording', async () => {
