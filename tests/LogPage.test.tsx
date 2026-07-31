@@ -44,6 +44,7 @@ const followRouteMock = vi.hoisted(() => {
 
 const fetchVoyageAsTrackMock = vi.hoisted(() => vi.fn());
 const publishFollowedRouteMock = vi.hoisted(() => vi.fn());
+const clearFollowedRouteMock = vi.hoisted(() => vi.fn(async () => true));
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -87,6 +88,7 @@ vi.mock('../services/shiplog/RoutesAndTracks', () => ({
 
 vi.mock('../services/shiplog/publishFollowedRoute', () => ({
     publishFollowedRoute: publishFollowedRouteMock,
+    clearFollowedRoute: clearFollowedRouteMock,
 }));
 
 vi.mock('../utils/lazyRetry', () => ({
@@ -843,12 +845,12 @@ describe('LogPage', () => {
         expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
     });
 
-    it('asks ONCE per voyage — a remount mid-voyage must not re-open the sheet', async () => {
-        // The guard used to be a component-scoped ref, so every tab-bounce back
-        // to the Log page re-opened the sheet — and dismissing that re-prompt
-        // called stopFollowing() and silently killed the cockpit route line
-        // mid-passage (sail-day audit 2026-08-01; the module-scope-guards
-        // lesson shipped again). Module-scope Sets survive the remount.
+    it('a DISMISSED voyage stays dismissed across remounts — but an unanswered sheet re-asks', async () => {
+        // Guards key on the ANSWER, not on having shown the sheet (hardening
+        // 2026-08-01): marking at show time meant a deep-link/notification
+        // navigation while the sheet was up forfeited the question for the
+        // whole voyage. And the guards are module-scope because instance refs
+        // die on tab-bounce (lesson_session_guards_module_scope).
         Object.assign(logPageStateOverrides.state, {
             isTracking: true,
             currentVoyageId: 'active-voyage',
@@ -866,11 +868,20 @@ describe('LogPage', () => {
             ],
         });
 
+        // Unanswered unmount: the question comes back.
         const first = render(<LogPage />);
         expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
-        first.unmount(); // tab away mid-voyage…
+        first.unmount();
+        const second = render(<LogPage />);
+        expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
 
-        render(<LogPage />); // …and back
+        // Explicit dismissal: recorded durably, never asked again this voyage.
+        fireEvent.click(screen.getByRole('button', { name: 'Just recording' }));
+        await waitFor(() =>
+            expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument(),
+        );
+        second.unmount();
+        render(<LogPage />);
         await new Promise((r) => setTimeout(r, 50));
         expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
     });
@@ -909,7 +920,11 @@ describe('LogPage', () => {
         expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
     });
 
-    it('does not publish a cast-off choice when its local route geometry cannot be loaded', async () => {
+    it('still publishes the public link when the local geometry cannot be loaded', async () => {
+        // Finding A (hardening 2026-08-01): the ~200-byte link write used to
+        // be gated behind the heavy geometry fetch, so marginal signal that
+        // timed out the fetch also silently forfeited the publish. The two are
+        // now decoupled: the publish races the geometry and wins on its own.
         Object.assign(logPageStateOverrides.state, {
             isTracking: true,
             currentVoyageId: 'active-voyage',
@@ -927,18 +942,54 @@ describe('LogPage', () => {
             ],
         });
         fetchVoyageAsTrackMock.mockResolvedValue(null);
+        publishFollowedRouteMock.mockResolvedValue('linked');
 
         render(<LogPage />);
         fireEvent.click(await screen.findByRole('button', { name: 'Follow route missing-planned-voyage' }));
 
-        await waitFor(() => expect(fetchVoyageAsTrackMock).toHaveBeenCalledWith('missing-planned-voyage'));
+        await waitFor(() => expect(publishFollowedRouteMock).toHaveBeenCalledWith('missing-planned-voyage'));
+        // No local line — the geometry genuinely failed…
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
-        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        // …but the public question is answered, so the sheet closes.
+        await waitFor(() =>
+            expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument(),
+        );
+    });
+
+    it('keeps the sheet open when BOTH the geometry and the publish fail', async () => {
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'missing-planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        fetchVoyageAsTrackMock.mockResolvedValue(null);
+        publishFollowedRouteMock.mockResolvedValue('error');
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Follow route missing-planned-voyage' }));
+
+        await waitFor(() => expect(publishFollowedRouteMock).toHaveBeenCalled());
+        expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
         expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
     });
 
     it('unlocks a stalled cast-off prompt and ignores geometry that arrives after the deadline', async () => {
         vi.useFakeTimers();
+        // Publish must fail too: since finding A's fix, a successful publish
+        // legitimately closes the sheet even when the geometry stalls, so the
+        // stranded-modal path this test pins needs BOTH halves down.
+        publishFollowedRouteMock.mockResolvedValue('error');
         let resolveRoute!: (route: {
             id: string;
             label: string;
@@ -983,7 +1034,9 @@ describe('LogPage', () => {
         });
 
         expect(screen.getByRole('button', { name: 'Just recording' })).toBeEnabled();
-        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        // The publish is DELIBERATELY already in flight — it races the
+        // geometry rather than waiting behind it (finding A).
+        expect(publishFollowedRouteMock).toHaveBeenCalledTimes(1);
 
         await act(async () => {
             resolveRoute({
@@ -1004,7 +1057,7 @@ describe('LogPage', () => {
         });
 
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
-        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        expect(publishFollowedRouteMock).toHaveBeenCalledTimes(1); // still just the pick-time call
     });
 
     it('starts local follow mode when a route is chosen from the Log cast-off prompt', async () => {

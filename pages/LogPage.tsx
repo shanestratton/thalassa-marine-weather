@@ -61,7 +61,7 @@ import { ImportSheet } from './log/ImportSheet';
 import { ShareSheet } from './log/ShareSheet';
 import { ShareFormSheet } from './log/ShareFormSheet';
 import { StatsSheet } from './log/StatsSheet';
-import { publishFollowedRoute } from '../services/shiplog/publishFollowedRoute';
+import { publishFollowedRoute, clearFollowedRoute } from '../services/shiplog/publishFollowedRoute';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -124,21 +124,24 @@ const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscrib
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
 /**
- * Once-per-voyage guards for the cast-off "Following a route?" sheet —
- * MODULE scope, not refs. The Log page unmounts on every tab-bounce and a
- * ref-based guard dies with the instance ([[lesson_session_guards_module_scope]]
- * — this is that lesson's exact failure, shipped again): the sheet re-opened on
- * every remount while tracking, and dismissing the RE-prompt (Escape, backdrop,
- * "Just recording") called stopFollowing() and silently killed the cockpit
- * route line mid-passage.
+ * ANSWER-keyed guards for the cast-off "Following a route?" sheet — MODULE
+ * scope, not refs ([[lesson_session_guards_module_scope]]): the page unmounts
+ * on every tab-bounce and instance guards let the sheet re-prompt mid-voyage,
+ * where dismissing it killed the cockpit route line.
  *
- * `promptedFollowVoyages`  — tracked-voyage ids the sheet has been shown for.
- * `confirmedFollowVoyages` — tracked-voyage ids where the skipper PICKED a
- * route; a later dismissal must not undo a follow they explicitly chose.
- * Session-lifetime is correct: a genuine new voyage has a new id.
+ * Keyed on the ANSWER, not on having shown the sheet (hardening 2026-08-01):
+ * marking at show time meant an unmount without an answer — deep link,
+ * notification tap — forfeited the question for the whole voyage. Now an
+ * unanswered sheet legitimately re-asks on the next visit; an answered one
+ * stays suppressed.
+ *
+ * `confirmedFollowVoyages` — the skipper PICKED a route (here, via the
+ * DeparturePrompts banner whose link event we listen for, or inferred from a
+ * follow that started after cast-off). Dismissal must never undo these.
+ * `dismissedFollowVoyages` — the skipper explicitly chose "Just recording".
  */
-const promptedFollowVoyages = new Set<string>();
 const confirmedFollowVoyages = new Set<string>();
+const dismissedFollowVoyages = new Set<string>();
 
 /**
  * Same module-scope pattern for the two page-local view toggles that were
@@ -153,8 +156,8 @@ let showArchivedMemo = false;
 /** Test-only: the guards outlive component instances BY DESIGN, which also
  *  makes them outlive test cases — each spec must start unprompted. */
 export function resetFollowPromptGuardsForTest(): void {
-    promptedFollowVoyages.clear();
     confirmedFollowVoyages.clear();
+    dismissedFollowVoyages.clear();
     liveMapExpandedMemo = false;
     showArchivedMemo = false;
 }
@@ -242,25 +245,37 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // to the active voyage (setVoyagePlanLink); "Just recording" skips it.
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
     const [followPromptLoadingId, setFollowPromptLoadingId] = React.useState<string | null>(null);
+    /** Snapshot of the pickable routes taken when the sheet OPENS — the live
+     *  list reshuffles as entries land and the ⇄ fold re-picks direction,
+     *  which flipped rows under the skipper's thumb (hardening 2026-08-01). */
+    const [followPromptChoices, setFollowPromptChoices] = React.useState<
+        ReturnType<typeof collapseReversedRoutes<VoyageSummary>>
+    >([]);
     const followSelectionGenerationRef = React.useRef(0);
     const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
     const dismissFollowPrompt = React.useCallback(() => {
         if (followPromptLoadingId !== null) return;
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         // "Just recording" (including Escape/backdrop dismissal) is an
-        // explicit no-route choice for this cast-off. Clear any route that
-        // was already active before tracking began so it cannot continue to
-        // appear on the Log maps contrary to that choice.
+        // explicit no-route choice for this cast-off — recorded durably so the
+        // sheet never re-asks this voyage, and applied to BOTH surfaces:
+        // the local chart line AND the public link. The public half used to be
+        // skipped, so a link written seconds earlier by the DeparturePrompts
+        // banner kept showing punters a route the skipper just declined
+        // (hardening 2026-08-01, finding D).
         //
         // UNLESS the skipper already PICKED a route for this voyage: then this
         // dismissal is just closing a re-shown sheet, and stopping the follow
-        // would kill the cockpit line they explicitly chose. (The public
-        // voyage_plan_links link was never cleared by dismissal either way —
-        // this makes the local line consistent with that.)
+        // or clearing the link would kill the choice they explicitly made.
         followSelectionGenerationRef.current += 1;
-        const confirmed = followPromptVoyageId !== null && confirmedFollowVoyages.has(followPromptVoyageId);
+        const promptVid = followPromptVoyageId;
+        const confirmed = promptVid !== null && confirmedFollowVoyages.has(promptVid);
+        if (promptVid && !confirmed) dismissedFollowVoyages.add(promptVid);
         const follow = useFollowRouteStore.getState();
         if (follow.isFollowing && !confirmed) follow.stopFollowing();
+        // Durable-intent clear: retried on reconnect, and a no-op when no link
+        // row exists (the common case).
+        if (!confirmed) void clearFollowedRoute();
         setFollowPromptVoyageId(null);
     }, [followPromptLoadingId, followPromptVoyageId, identityScope]);
     const followPromptDialogRef = useFocusTrap<HTMLDivElement>(followPromptVoyageId !== null, {
@@ -407,11 +422,64 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
         if (!state.isTracking || !vid) return;
-        if (promptedFollowVoyages.has(vid)) return; // already asked this voyage — survives remounts
+        if (followPromptVoyageId !== null) return; // already open
+        if (confirmedFollowVoyages.has(vid) || dismissedFollowVoyages.has(vid)) return; // answered
         if (plannedSummaries.length === 0) return; // nothing to follow
-        promptedFollowVoyages.add(vid);
+
+        // The question may have been answered OUTSIDE this component — the
+        // DeparturePrompts banner at the helm, or a follow that survived a
+        // webview reload (the follow store persists 7 days; these module Sets
+        // do not survive the process). A follow that STARTED after this
+        // voyage began was chosen in this voyage's context: treat it as
+        // confirmed rather than re-ask, because dismissing the re-ask used to
+        // kill that restored line mid-passage (hardening 2026-08-01).
+        const follow = useFollowRouteStore.getState();
+        if (follow.isFollowing && follow.startedAt) {
+            const voyageStartMs = (() => {
+                const summary = (state.summaries ?? []).find((v) => v.voyageId === vid);
+                if (summary?.startedAt) return new Date(summary.startedAt).getTime();
+                const firstEntry = state.entries.find((e) => e.voyageId === vid);
+                return firstEntry ? new Date(firstEntry.timestamp).getTime() : null;
+            })();
+            if (voyageStartMs !== null && new Date(follow.startedAt).getTime() >= voyageStartMs) {
+                confirmedFollowVoyages.add(vid);
+                return;
+            }
+        }
+
+        // Freeze the choice list at open. The live list reshuffles as data
+        // lands (the ⇄ fold re-picks direction when the first fix arrives),
+        // which flipped rows under the skipper's thumb.
+        setFollowPromptChoices(plannedChoices);
         setFollowPromptVoyageId(vid);
-    }, [identityScope, state.isTracking, state.currentVoyageId, plannedSummaries.length]);
+        // NOT marked "asked" here — only an ANSWER (pick or explicit
+        // dismissal) suppresses future prompts. An unmount mid-question
+        // legitimately re-asks on the next visit.
+    }, [
+        identityScope,
+        state.isTracking,
+        state.currentVoyageId,
+        state.summaries,
+        state.entries,
+        plannedSummaries.length,
+        plannedChoices,
+        followPromptVoyageId,
+    ]);
+
+    // The banner (or any other door) answering the question retires this
+    // sheet's claim to it: record the confirm and close if we're open on the
+    // same voyage. publishFollowedRoute dispatches this event on success, and
+    // the sheet's own pick dispatches it optimistically.
+    React.useEffect(() => {
+        const onLinkChanged = (e: Event) => {
+            const vid = (e as CustomEvent<{ voyageId?: string }>).detail?.voyageId;
+            if (!vid) return;
+            confirmedFollowVoyages.add(vid);
+            setFollowPromptVoyageId((open) => (open === vid ? null : open));
+        };
+        window.addEventListener('thalassa:voyage-plan-link-changed', onLinkChanged);
+        return () => window.removeEventListener('thalassa:voyage-plan-link-changed', onLinkChanged);
+    }, []);
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(() => showArchivedMemo);
 
@@ -822,8 +890,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setFollowPromptVoyageId(null);
         setFollowPromptLoadingId(null);
         // Account boundary: prompt suppression must not leak across identities.
-        promptedFollowVoyages.clear();
         confirmedFollowVoyages.clear();
+        dismissedFollowVoyages.clear();
         setShowMenu(false);
         setShowArchived(false);
         setGpsOverlayDismissedFor(null);
@@ -1976,7 +2044,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                             </div>
                             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                                {plannedChoices.map(({ summary: s, reversible }) => (
+                                {followPromptChoices.map(({ summary: s, reversible }) => (
                                     <FollowRouteChoice
                                         key={s.voyageId}
                                         summary={s}
@@ -1986,52 +2054,90 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         onPick={() => {
                                             const actionScope = identityScope;
                                             if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                            const promptVid = followPromptVoyageId;
                                             setFollowPromptLoadingId(s.voyageId);
                                             void (async () => {
                                                 try {
+                                                    // DECOUPLED (hardening 2026-08-01, finding A):
+                                                    // the ~200-byte public link write used to be
+                                                    // gated behind the heavy geometry fetch — on
+                                                    // marginal signal the fetch timed out and the
+                                                    // link, which would have succeeded, was never
+                                                    // attempted. They answer different questions
+                                                    // (draw here vs publish there), so the publish
+                                                    // starts NOW and races the geometry.
+                                                    const publishPromise = Promise.resolve(
+                                                        publishFollowedRoute(s.voyageId),
+                                                    ).catch((error) => {
+                                                        log.warn('publish followed route failed:', error);
+                                                        return 'error' as const;
+                                                    });
+                                                    const answered = () => {
+                                                        // The question is answered — record it
+                                                        // (dismissal must not undo it) and retire
+                                                        // the banner NOW, not when the in-flight
+                                                        // write lands: the banner must not race it
+                                                        // and overwrite an explicit pick with a
+                                                        // suggestion.
+                                                        if (promptVid) confirmedFollowVoyages.add(promptVid);
+                                                        try {
+                                                            window.dispatchEvent(
+                                                                new CustomEvent('thalassa:voyage-plan-link-changed', {
+                                                                    detail: { voyageId: promptVid ?? undefined },
+                                                                }),
+                                                            );
+                                                        } catch {
+                                                            /* non-DOM host */
+                                                        }
+                                                        setFollowPromptLoadingId(null);
+                                                        setFollowPromptVoyageId(null);
+                                                    };
+
                                                     const started = await followPlannedRouteLocally(s);
                                                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                    if (!started) {
-                                                        toast.error(
-                                                            'Couldn’t load this saved route — please try again',
-                                                        );
+
+                                                    if (started) {
+                                                        // Cockpit line is live — close immediately
+                                                        // (old behaviour kept); the publish reports
+                                                        // itself when it settles.
+                                                        answered();
+                                                        void publishPromise.then((result) => {
+                                                            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                            if (result === 'linked') {
+                                                                toast.success(
+                                                                    'Your public page now follows this route',
+                                                                );
+                                                            } else if (result === 'queued') {
+                                                                toast.info(
+                                                                    'Following — your public page will update when signal returns',
+                                                                );
+                                                            } else if (result === 'not-tracking') {
+                                                                toast.info(
+                                                                    'Following locally — start tracking to update your public page',
+                                                                );
+                                                            } else {
+                                                                toast.error(
+                                                                    'Following locally — couldn’t update your public page',
+                                                                );
+                                                            }
+                                                        });
                                                         return;
                                                     }
 
-                                                    // Local follow mode is the cockpit-critical
-                                                    // action. Close immediately once its exact
-                                                    // geometry is active; public-page publication
-                                                    // may continue in the background without
-                                                    // trapping the modal behind a slow network.
-                                                    // Record the explicit pick so a later dismissal
-                                                    // of a re-shown sheet can't stopFollowing() the
-                                                    // route the skipper chose.
-                                                    if (followPromptVoyageId)
-                                                        confirmedFollowVoyages.add(followPromptVoyageId);
-                                                    setFollowPromptLoadingId(null);
-                                                    setFollowPromptVoyageId(null);
-                                                    try {
-                                                        const result = await publishFollowedRoute(s.voyageId);
-                                                        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                        if (result === 'linked') {
-                                                            toast.success('Your public page now follows this route');
-                                                        } else if (result === 'not-tracking') {
-                                                            toast.info(
-                                                                'Following locally — start tracking to update your public page',
-                                                            );
-                                                        } else {
-                                                            toast.error(
-                                                                'Following locally — couldn’t update your public page',
-                                                            );
-                                                        }
-                                                    } catch (error) {
-                                                        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                        log.warn(
-                                                            'Followed locally but could not publish route:',
-                                                            error,
+                                                    // Geometry failed — but the publish was already
+                                                    // racing. If IT landed (or queued durably), the
+                                                    // public half of the question is answered; only
+                                                    // when both fail does the sheet stay open.
+                                                    const publishResult = await publishPromise;
+                                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                    if (publishResult === 'linked' || publishResult === 'queued') {
+                                                        answered();
+                                                        toast.info(
+                                                            'Your public page follows this route — couldn’t draw it here, open it from saved routes to retry',
                                                         );
+                                                    } else {
                                                         toast.error(
-                                                            'Following locally — couldn’t update your public page',
+                                                            'Couldn’t load this saved route — please try again',
                                                         );
                                                     }
                                                 } finally {

@@ -14,10 +14,13 @@
  * has to import the other — no circular dependency.
  */
 import { ShipLogService } from '../ShipLogService';
-import { VoyageLogService } from '../VoyageLogService';
+import { setPlanLinkWithRetry } from './planLinkIntent';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../authIdentityScope';
 
-export type PublishFollowResult = 'linked' | 'not-tracking' | 'error';
+/** 'queued' = the write didn't land NOW but the intent is durably recorded and
+ *  will retry on reconnect — callers should say "will keep trying", not treat
+ *  it as loss. 'error' remains for the cases where nothing was recorded. */
+export type PublishFollowResult = 'linked' | 'queued' | 'not-tracking' | 'error';
 
 export async function publishFollowedRoute(planVoyageId: string): Promise<PublishFollowResult> {
     const scope = getAuthIdentityScope();
@@ -27,8 +30,12 @@ export async function publishFollowedRoute(planVoyageId: string): Promise<Publis
     const currentVoyageId = ShipLogService.getCurrentVoyageId();
     if (!status.isTracking || !currentVoyageId) return 'not-tracking';
     const immutableTrackingVoyageId = currentVoyageId;
-    const ok = await VoyageLogService.setVoyagePlanLink(immutableTrackingVoyageId, immutablePlanVoyageId);
+    // Durable-intent write: bounded attempt now, automatic retry on the
+    // 'online' event / delayed timer if it fails (hardening 2026-08-01 —
+    // this used to be a single unbounded call whose failure was forgotten).
+    const ok = await setPlanLinkWithRetry(immutableTrackingVoyageId, immutablePlanVoyageId);
     if (!isAuthIdentityScopeCurrent(scope)) return 'error';
+    if (!ok) return 'queued';
     if (ok) {
         // Announce the link so DeparturePrompts can retire its own suggestion.
         // That banner decides whether to arm from a ONE-SHOT read of the links
@@ -46,11 +53,12 @@ export async function publishFollowedRoute(planVoyageId: string): Promise<Publis
             /* non-DOM host — the re-read guard in DeparturePrompts still holds */
         }
     }
-    return ok ? 'linked' : 'error';
+    return 'linked';
 }
 
 /** Clear the public followed-route link for the current voyage (stop showing
- *  any route). No-op when not tracking. */
+ *  any route). No-op when not tracking. Durable: a failed clear is queued and
+ *  retried, so "Just recording" can't silently leave a declined route public. */
 export async function clearFollowedRoute(): Promise<boolean> {
     const scope = getAuthIdentityScope();
     if (!isAuthIdentityScopeCurrent(scope)) return false;
@@ -58,6 +66,6 @@ export async function clearFollowedRoute(): Promise<boolean> {
     const currentVoyageId = ShipLogService.getCurrentVoyageId();
     if (!status.isTracking || !currentVoyageId) return false;
     const immutableTrackingVoyageId = currentVoyageId;
-    const cleared = await VoyageLogService.setVoyagePlanLink(immutableTrackingVoyageId, null);
+    const cleared = await setPlanLinkWithRetry(immutableTrackingVoyageId, null);
     return isAuthIdentityScopeCurrent(scope) && cleared;
 }
