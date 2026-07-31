@@ -169,8 +169,11 @@ export const TRACER_BBOX_PAD_DEG = 0.02;
  *  worker is safe, unlike the parked martinez glaze clip. */
 const MAX_GRID_CELLS = 1_000_000;
 /** Above this bbox span the depth grid is skipped (marks-only verdicts) —
- *  an unbounded grid over a long trace was an ~800 MB jetsam kill. */
-const MAX_DEPTH_GRID_SPAN_M = 40_000;
+ *  an unbounded grid over a long trace was an ~800 MB jetsam kill.
+ *  EXPORTED because the grading hook's cluster loop must bound the padded span
+ *  by the SAME number it is measured against here; when the two disagreed, a
+ *  cluster that looked fine tight padded past this and lost its grid. */
+export const MAX_DEPTH_GRID_SPAN_M = 40_000;
 /** Above this we refuse the context outright — even feature loading (every
  *  intersecting ENC cell + the OSM overlay) is unbounded at that scale. */
 const MAX_TRACE_SPAN_M = 80_000;
@@ -235,6 +238,122 @@ export function traceBboxPadded(points: readonly TracePoint[]): [number, number,
     const tight = traceBbox(points, 0);
     const pad = Math.max(TRACER_BBOX_PAD_DEG, 0.25 * Math.max(tight[2] - tight[0], tight[3] - tight[1]));
     return [tight[0] - pad, tight[1] - pad, tight[2] + pad, tight[3] + pad];
+}
+
+/**
+ * Hard ceiling on how many pieces one leg may be graded in. Eight sub-legs of
+ * ~26 km covers a ~200 km leg — past that the honest answer is that the window
+ * sweep costs more than the skipper will wait for.
+ */
+export const MAX_LEG_SUBDIVISIONS = 8;
+
+/**
+ * Will a window built around these points still get a depth grid?
+ *
+ * The grading hook packs pending legs into windows under a TIGHT-bbox cost
+ * bound, but the window actually built is the PADDED one, and that is what
+ * decides whether a depth grid exists at all. The two bounds disagree, because
+ * traceBboxPadded pads by 25% of the larger DEGREE span while a degree of
+ * longitude shrinks with cos(lat). Measured: an L of two 23 km arms reads
+ * 23,000 m tight — comfortably inside the 24 km cost bound — and pads to
+ * 40,891 m at 50°N and 46,000 m at 60°N, over the 40 km ceiling. The window
+ * then silently returns marks-only and every leg in it is stamped
+ * "depth unchecked" and cached that way.
+ *
+ * Exported so the hook and the test bind to the same predicate rather than two
+ * hand-copied inequalities.
+ */
+export function clusterKeepsDepthGrid(points: readonly TracePoint[]): boolean {
+    return bboxMaxSpanM(traceBboxPadded(points)) <= MAX_DEPTH_GRID_SPAN_M;
+}
+
+/**
+ * Intermediate points that cut a→b into pieces each small enough to get a REAL
+ * depth grid. Returns [] when the leg already fits (the common case) or when
+ * even MAX_LEG_SUBDIVISIONS pieces cannot fit it.
+ *
+ * The count is derived by MEASURING the padded bbox of each candidate piece
+ * rather than dividing by a constant distance, and that is the whole point.
+ * traceBboxPadded's pad is 25% of the larger DEGREE span, and a degree of
+ * longitude shrinks with cos(lat) — so a fixed "split at 11.5 km" rule holds at
+ * Brisbane and silently fails in Tasmania, where ordinary geometry pads past
+ * the 40 km ceiling and the sub-legs come back marks-only anyway. Measuring
+ * makes the guarantee latitude-correct by construction: if this returns points,
+ * every resulting piece provably fits, at any latitude and on any bearing.
+ *
+ * The pieces lie ON the a→b line, so the route's geometry is unchanged — this
+ * buys verification of the line the skipper already drew, it does not move it.
+ */
+export function splitLegForDepthGrid(a: TracePoint, b: TracePoint): TracePoint[] {
+    const fits = (pieces: number): boolean => {
+        for (let i = 0; i < pieces; i++) {
+            const p0 = lerpPoint(a, b, i / pieces);
+            const p1 = lerpPoint(a, b, (i + 1) / pieces);
+            if (bboxMaxSpanM(traceBboxPadded([p0, p1])) > MAX_DEPTH_GRID_SPAN_M) return false;
+        }
+        return true;
+    };
+
+    if (fits(1)) return []; // already gradable whole — no split needed
+    for (let n = 2; n <= MAX_LEG_SUBDIVISIONS; n++) {
+        if (!fits(n)) continue;
+        const out: TracePoint[] = [];
+        for (let i = 1; i < n; i++) out.push(lerpPoint(a, b, i / n));
+        return out;
+    }
+    return []; // genuinely too long — caller keeps the honest "too long" verdict
+}
+
+function lerpPoint(a: TracePoint, b: TracePoint, t: number): TracePoint {
+    return { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+}
+
+/**
+ * Fold the verdicts of a subdivided leg back into the ONE verdict its row
+ * renders. Fail-safe on every axis: the worst grade wins, the shallowest sounding
+ * wins, any piece needing tide makes the leg need tide, and every issue is kept.
+ *
+ * A null piece means that window never produced a verdict, so the leg has an
+ * unchecked stretch and must not read clear — see the caller, which keeps such a
+ * merge volatile rather than banking it.
+ */
+export function mergeSubLegVerdicts(parts: readonly (TraceLegVerdict | null)[]): TraceLegVerdict | null {
+    if (parts.length === 0) return null;
+    const good = parts.filter((p): p is TraceLegVerdict => p !== null);
+    if (good.length === 0) return null;
+
+    const issues: TraceIssue[] = good.flatMap((p) => p.issues);
+    if (good.length !== parts.length) {
+        issues.push({ severity: 'caution', message: 'part of this leg could not be checked' });
+    }
+
+    let minDepthM: number | null = null;
+    let minAt: LatLon | null = null;
+    for (const p of good) {
+        if (p.minDepthM !== null && (minDepthM === null || p.minDepthM < minDepthM)) {
+            minDepthM = p.minDepthM;
+            minAt = p.minAt;
+        }
+    }
+
+    // Mirrors validateTraceLeg: 'info' is a green confirmation and must not
+    // escalate, so only a real caution does.
+    const grade: TraceGrade = issues.some((i) => i.severity === 'danger')
+        ? 'danger'
+        : issues.some((i) => i.severity === 'caution')
+          ? 'caution'
+          : 'clear';
+
+    const worst = good.find((p) => p.grade === grade) ?? good[0];
+    return {
+        grade,
+        issues,
+        minDepthM,
+        minAt,
+        needsTide: good.some((p) => p.needsTide),
+        nudge: worst.nudge,
+        nudgeTo: worst.nudgeTo,
+    };
 }
 
 /** Grid resolution for a bbox: as fine as the cell budget allows, floor 6 m.
