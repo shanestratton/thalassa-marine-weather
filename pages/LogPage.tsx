@@ -123,6 +123,30 @@ const _AnchorIcon = ({ className }: { className?: string }) => (
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
+/**
+ * Once-per-voyage guards for the cast-off "Following a route?" sheet —
+ * MODULE scope, not refs. The Log page unmounts on every tab-bounce and a
+ * ref-based guard dies with the instance ([[lesson_session_guards_module_scope]]
+ * — this is that lesson's exact failure, shipped again): the sheet re-opened on
+ * every remount while tracking, and dismissing the RE-prompt (Escape, backdrop,
+ * "Just recording") called stopFollowing() and silently killed the cockpit
+ * route line mid-passage.
+ *
+ * `promptedFollowVoyages`  — tracked-voyage ids the sheet has been shown for.
+ * `confirmedFollowVoyages` — tracked-voyage ids where the skipper PICKED a
+ * route; a later dismissal must not undo a follow they explicitly chose.
+ * Session-lifetime is correct: a genuine new voyage has a new id.
+ */
+const promptedFollowVoyages = new Set<string>();
+const confirmedFollowVoyages = new Set<string>();
+
+/** Test-only: the guards outlive component instances BY DESIGN, which also
+ *  makes them outlive test cases — each spec must start unprompted. */
+export function resetFollowPromptGuardsForTest(): void {
+    promptedFollowVoyages.clear();
+    confirmedFollowVoyages.clear();
+}
+
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const [pageStateScope, setPageStateScope] = useState(identityScope);
@@ -204,10 +228,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // When a fresh voyage starts and the skipper has suggested routes saved,
     // ask which (if any) to broadcast on the public page. Publishing is tied
     // to the active voyage (setVoyagePlanLink); "Just recording" skips it.
-    // One prompt per voyage — a ref so re-renders don't re-open it.
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
     const [followPromptLoadingId, setFollowPromptLoadingId] = React.useState<string | null>(null);
-    const followPromptedRef = React.useRef<string | null>(null);
     const followSelectionGenerationRef = React.useRef(0);
     const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
     const dismissFollowPrompt = React.useCallback(() => {
@@ -217,11 +239,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // explicit no-route choice for this cast-off. Clear any route that
         // was already active before tracking began so it cannot continue to
         // appear on the Log maps contrary to that choice.
+        //
+        // UNLESS the skipper already PICKED a route for this voyage: then this
+        // dismissal is just closing a re-shown sheet, and stopping the follow
+        // would kill the cockpit line they explicitly chose. (The public
+        // voyage_plan_links link was never cleared by dismissal either way —
+        // this makes the local line consistent with that.)
         followSelectionGenerationRef.current += 1;
+        const confirmed = followPromptVoyageId !== null && confirmedFollowVoyages.has(followPromptVoyageId);
         const follow = useFollowRouteStore.getState();
-        if (follow.isFollowing) follow.stopFollowing();
+        if (follow.isFollowing && !confirmed) follow.stopFollowing();
         setFollowPromptVoyageId(null);
-    }, [followPromptLoadingId, identityScope]);
+    }, [followPromptLoadingId, followPromptVoyageId, identityScope]);
     const followPromptDialogRef = useFocusTrap<HTMLDivElement>(followPromptVoyageId !== null, {
         initialFocusRef: followPromptDismissRef,
         onEscape: dismissFollowPrompt,
@@ -366,9 +395,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
         if (!state.isTracking || !vid) return;
-        if (followPromptedRef.current === vid) return; // already asked this voyage
+        if (promptedFollowVoyages.has(vid)) return; // already asked this voyage — survives remounts
         if (plannedSummaries.length === 0) return; // nothing to follow
-        followPromptedRef.current = vid;
+        promptedFollowVoyages.add(vid);
         setFollowPromptVoyageId(vid);
     }, [identityScope, state.isTracking, state.currentVoyageId, plannedSummaries.length]);
     const [showMenu, setShowMenu] = useState(false);
@@ -767,7 +796,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setPageStateScope(identityScope);
         setFollowPromptVoyageId(null);
         setFollowPromptLoadingId(null);
-        followPromptedRef.current = null;
+        // Account boundary: prompt suppression must not leak across identities.
+        promptedFollowVoyages.clear();
+        confirmedFollowVoyages.clear();
         setShowMenu(false);
         setShowArchived(false);
         setGpsOverlayDismissedFor(null);
@@ -1947,6 +1978,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     // geometry is active; public-page publication
                                                     // may continue in the background without
                                                     // trapping the modal behind a slow network.
+                                                    // Record the explicit pick so a later dismissal
+                                                    // of a re-shown sheet can't stopFollowing() the
+                                                    // route the skipper chose.
+                                                    if (followPromptVoyageId)
+                                                        confirmedFollowVoyages.add(followPromptVoyageId);
                                                     setFollowPromptLoadingId(null);
                                                     setFollowPromptVoyageId(null);
                                                     try {
