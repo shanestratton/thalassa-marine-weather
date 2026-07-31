@@ -1294,9 +1294,17 @@ class ShipLogServiceClass {
         // state flip below stops mattering at all.
         useFollowRouteStore.getState().stopFollowing();
         if (previousVoyageId) {
-            void VoyageLogService.setVoyagePlanLink(previousVoyageId, null).catch((error) => {
-                log.warn('[ShipLog] public followed-route link not cleared:', error);
-            });
+            // Durable-intent clear (hardening 2026-08-01): the direct one-shot
+            // delete meant an offline stop at the anchorage left the ENDED
+            // passage still publishing its route/destination/ETA until some
+            // later successful write. The ledger records the clear intent and
+            // retries on reconnect; last-intent-per-voyage wins, so a queued
+            // link write from cast-off can never resurrect after this.
+            void import('./shiplog/planLinkIntent')
+                .then(({ setPlanLinkWithRetry }) => setPlanLinkWithRetry(previousVoyageId, null))
+                .catch((error) => {
+                    log.warn('[ShipLog] public followed-route link not cleared:', error);
+                });
         }
 
         this.scheduler.stop();
