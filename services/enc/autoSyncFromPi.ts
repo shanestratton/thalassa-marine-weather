@@ -41,6 +41,29 @@ let inFlight: Promise<void> | null = null;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 
 /**
+ * True while the skipper is plotting a route.
+ *
+ * Pulling up to 20 cells is a background convenience; the tracer is not. From
+ * Shane's device log, mid-plot: `blobCache=15 cells/44.8MB` — 93% of the 48 MB
+ * cap, which EncCellStore documents as ~3× that once parsed, so ~134 MB
+ * resident — with `autoSyncFromPi pulling OC-61-351824 (4/20)` and an OSM
+ * overlay fetch running against it. The webview was being reclaimed, which
+ * reloads it, and uiStore seeds currentView from bootView at module scope, so
+ * the skipper lands back on the dashboard looking like a crash.
+ *
+ * Same reasoning as the 10 s boot deferral above (z10-boot audit #8): the sync
+ * is not urgent, so it waits for calm water rather than competing with the
+ * surface the user is actually using. Skipping does NOT consume the throttle
+ * slot, so the next poll after Done runs normally.
+ */
+let tracerActive = false;
+if (typeof window !== 'undefined') {
+    window.addEventListener('thalassa:tracer-active', (e) => {
+        tracerActive = (e as CustomEvent<{ active?: boolean }>).detail?.active === true;
+    });
+}
+
+/**
  * Kick off auto-sync now AND set up a periodic poll. Idempotent — calling
  * twice (MapHub re-mounts, app resume) just reuses the existing poller.
  * Capacitor pauses JS timers when backgrounded, so the poll naturally
@@ -63,6 +86,13 @@ export function startAutoSyncPolling(): void {
 export async function autoSyncFromPiIfPossible(): Promise<void> {
     // Coalesce concurrent calls
     if (inFlight) return inFlight;
+    // Defer while the skipper is plotting — see `tracerActive`. Checked BEFORE
+    // lastAttemptMs is stamped, so a deferral does not burn the throttle slot
+    // and the first poll after Done proceeds normally.
+    if (tracerActive) {
+        log.warn('auto-sync deferred — route plotting in progress');
+        return;
+    }
     // Throttle: skip if we ran very recently
     const now = Date.now();
     if (now - lastAttemptMs < AUTO_SYNC_MIN_INTERVAL_MS) return;
