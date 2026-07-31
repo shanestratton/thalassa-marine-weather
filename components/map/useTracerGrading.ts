@@ -48,6 +48,8 @@ import {
     traceBboxPadded,
     bboxMaxSpanM,
     clusterKeepsDepthGrid,
+    splitLegForDepthGrid,
+    mergeSubLegVerdicts,
     tideWindowLabelFor,
     persistLegVerdicts,
     hydrateLegVerdicts,
@@ -223,14 +225,55 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
         }
 
         void (async () => {
-            // Cluster the ungraded legs (in trace order) into span-bounded
+            // ── Subdivide the legs that cannot fit a depth grid whole ────────
+            // A leg longer than the grid budget used to be graded marks-only
+            // and told the skipper "drop a pin midway" — the app asking the
+            // user to do the work it could do itself. Instead we cut it into
+            // pieces that DO fit, grade each, and fold them back into the one
+            // verdict its row renders. The pieces lie on the leg's own line, so
+            // nothing about the route changes; only whether it gets checked.
+            const units: Array<{
+                a: { lat: number; lon: number };
+                b: { lat: number; lon: number };
+                key: string;
+                parentKey: string;
+                lastLeg: boolean;
+            }> = [];
+            /** parent leg key → how many pieces it was cut into (1 = whole). */
+            const pieceCount = new Map<string, number>();
+            for (const leg of pending) {
+                const isLast = leg.key.endsWith('|last');
+                const mids = splitLegForDepthGrid(leg.a, leg.b);
+                if (mids.length === 0) {
+                    units.push({ a: leg.a, b: leg.b, key: leg.key, parentKey: leg.key, lastLeg: isLast });
+                    pieceCount.set(leg.key, 1);
+                    continue;
+                }
+                const pts = [leg.a, ...mids, leg.b];
+                for (let i = 0; i + 1 < pts.length; i++) {
+                    units.push({
+                        a: pts[i],
+                        b: pts[i + 1],
+                        key: `${leg.key}#${i}`,
+                        parentKey: leg.key,
+                        // Only the FINAL piece of the FINAL leg is the last leg.
+                        // ownsSoloApproach hands a mark to the next leg unless
+                        // lastLeg is set, so marking every piece last would make
+                        // each one claim marks its successor owns.
+                        lastLeg: isLast && i === pts.length - 2,
+                    });
+                }
+                pieceCount.set(leg.key, pts.length - 1);
+            }
+
+            // Cluster the ungraded pieces (in trace order) into span-bounded
             // build windows. The common cases — appended pin, nudged pin,
             // inserted pin — are ONE tiny cluster around the touched legs;
             // a loaded 60 km trace grades window-by-window with real depth
             // everywhere instead of a whole-trace marks-only bail.
-            const clusters: Array<typeof pending> = [];
-            let cur: typeof pending = [];
-            for (const leg of pending) {
+            const clusters: Array<typeof units> = [];
+            let cur: typeof units = [];
+            for (const leg of units) {
                 const probe = [...cur, leg];
                 const pts = probe.flatMap((l) => [l.a, l.b]);
                 // TWO bounds, and the second is the one that was missing.
@@ -269,6 +312,44 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             });
             let failStatus: 'toolarge' | 'nochart' | null = null;
             let sawMarksOnly = false;
+
+            // Piece verdicts live here until every piece of their leg is in.
+            // A half-graded leg must stay `null` (renders "checking…") rather
+            // than fold early — folding with a missing piece would emit
+            // "part of this leg could not be checked" for a piece that is
+            // merely not done yet, which is a lie in the alarming direction.
+            const pieceVerdicts = new Map<string, TraceLegVerdict>();
+            /** Pieces whose verdict must not be banked (see foldReadyLegs). */
+            const volatilePieces = new Set<string>();
+
+            const recordPiece = (key: string, verdict: TraceLegVerdict, isVolatile: boolean): void => {
+                pieceVerdicts.set(key, verdict);
+                if (isVolatile) volatilePieces.add(key);
+            };
+
+            /**
+             * Fold every leg whose pieces are all graded into its single verdict.
+             * A leg goes to the VOLATILE failMap if ANY of its pieces was
+             * volatile — one unbankable piece makes the whole leg unbankable,
+             * or a reload would show a leg as fully checked when part of it was
+             * a retryable failure.
+             */
+            const foldReadyLegs = (): void => {
+                for (const leg of pending) {
+                    if (cache.has(leg.key) || failMap.has(leg.key)) continue;
+                    const n = pieceCount.get(leg.key) ?? 1;
+                    const keys = n === 1 ? [leg.key] : Array.from({ length: n }, (_, i) => `${leg.key}#${i}`);
+                    if (!keys.every((k) => pieceVerdicts.has(k))) continue; // still grading
+
+                    const merged =
+                        n === 1
+                            ? (pieceVerdicts.get(leg.key) ?? null)
+                            : mergeSubLegVerdicts(keys.map((k) => pieceVerdicts.get(k) ?? null));
+                    if (!merged) continue;
+                    if (keys.some((k) => volatilePieces.has(k))) failMap.set(leg.key, merged);
+                    else cache.set(leg.key, merged);
+                }
+            };
             for (const cluster of clusters) {
                 if (seq !== tracerSeqRef.current) return; // a newer pin superseded this pass
                 const pts = cluster.flatMap((l) => [l.a, l.b]);
@@ -301,11 +382,15 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                             ctx = built.ctx;
                             sawMarksOnly = true;
                         } else if (built.status === 'toolarge') {
-                            // Pure geometry (>80 km leg) — durable verdict;
-                            // splitting the leg changes its key and re-grades.
+                            // A piece is built to fit, so reaching here means
+                            // splitLegForDepthGrid declined — the leg really is
+                            // beyond what MAX_LEG_SUBDIVISIONS can cover. Pure
+                            // geometry, so durable; adding a pin changes the
+                            // leg's key and re-grades.
                             failStatus = 'toolarge';
                             for (const l of cluster)
-                                cache.set(l.key, cautionVerdict('depth unchecked — leg too long, drop a pin midway'));
+                                recordPiece(l.key, cautionVerdict('too long to check — add a waypoint'), false);
+                            foldReadyLegs();
                             publish();
                             continue;
                         } else {
@@ -314,7 +399,8 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                             // pass so charts appearing mid-session heal it.
                             failStatus = 'nochart';
                             for (const l of cluster)
-                                failMap.set(l.key, cautionVerdict('no ENC chart here — depth unchecked'));
+                                recordPiece(l.key, cautionVerdict('no ENC chart here — depth unchecked'), true);
+                            foldReadyLegs();
                             publish();
                             continue;
                         }
@@ -323,23 +409,25 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                         log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
                         failStatus = 'nochart';
                         for (const l of cluster)
-                            failMap.set(l.key, cautionVerdict('chart load failed — depth unchecked, will retry'));
+                            recordPiece(l.key, cautionVerdict('chart load failed — depth unchecked, will retry'), true);
+                        foldReadyLegs();
                         publish();
                         continue;
                     }
                 }
                 for (const l of cluster) {
-                    const verdict = validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.key.endsWith('|last') });
+                    const verdict = validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.lastLeg });
                     // A window whose marker fetch threw was never gate-checked,
                     // so its verdict is provisional in exactly the way a
                     // 'nochart' one is — VOLATILE, so the next pass retries and
                     // a transient blip cannot poison the session. Banking it to
                     // localStorage would durably record an unchecked leg as
-                    // checked, and :219 would then short-circuit to 'ready' on
-                    // the next mount and show a clean strip.
-                    if (ctx.gateChecksUnavailable) failMap.set(l.key, verdict);
-                    else cache.set(l.key, verdict);
+                    // checked, and the `pending.length === 0` short-circuit
+                    // would then read 'ready' on the next mount and show a
+                    // clean strip.
+                    recordPiece(l.key, verdict, ctx.gateChecksUnavailable);
                 }
+                foldReadyLegs();
                 publish();
             }
             if (seq !== tracerSeqRef.current) return;

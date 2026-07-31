@@ -805,10 +805,12 @@ export function validateTraceLeg(
             }
         }
     } else {
-        // Marks-only context: this LEG outgrew the depth-grid budget (the
-        // window is per-cluster now, so only a genuinely huge single leg
-        // lands here) — dropping a mid pin splits it into checkable halves.
-        issues.push({ severity: 'caution', message: 'depth unchecked — leg too long, drop a pin midway' });
+        // Marks-only context. Long legs are now cut into grid-sized pieces by
+        // splitLegForDepthGrid before grading, so reaching here means the leg
+        // outgrew even MAX_LEG_SUBDIVISIONS pieces — genuinely beyond what the
+        // tracer can check, not merely "you should have dropped a pin". The
+        // old copy told the skipper to do work the app now does itself.
+        issues.push({ severity: 'caution', message: 'depth unchecked — leg too long to check' });
     }
 
     let needsTide = false;
