@@ -3411,6 +3411,16 @@ export interface TracerLayerBundle {
     /** Accepted port/stbd gate pairs (regional file + folded ENC laterals) —
      *  the tracer checks each traced leg THREADS these, not passes outside. */
     gatePairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }>;
+    /**
+     * True when this window EXPECTED gate pairs but the marker fetch threw, so
+     * `gatePairs` is empty for a reason that has nothing to do with the water.
+     *
+     * Without this the failure is indistinguishable from "no gates here": a leg
+     * that was never gate-checked graded CLEAR and was banked to localStorage
+     * as though it had been checked, so a reload showed a clean strip. An empty
+     * `gatePairs` is only trustworthy when this is false.
+     */
+    gateChecksUnavailable: boolean;
 }
 
 /**
@@ -3600,6 +3610,7 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
 
     // ── Regional markers + folded ENC laterals → gate pairs (returned, not injected) ──
     let gatePairs: TracerLayerBundle['gatePairs'] = [];
+    let gateChecksUnavailable = false;
     const swCorner = { lat: minLat, lon: minLon };
     const neCorner = { lat: maxLat, lon: maxLon };
     const regionalMarkersUrl = await pickRegionalMarkersUrl(swCorner, neCorner);
@@ -3621,6 +3632,11 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
             gatePairs = acceptedPairs;
             osmRegionalHazards = hazards as { geometry?: { coordinates?: [number, number] } }[];
         } catch (err) {
+            // NOT recoverable-by-silence. Every leg in this window is about to
+            // be graded with zero gate pairs, which reads identically to "this
+            // water has no gates" — so the verdict must be marked untrustworthy
+            // rather than banked. See TracerLayerBundle.gateChecksUnavailable.
+            gateChecksUnavailable = true;
             log.warn(
                 `[tracer] regional markers failed (no gate checks): ${err instanceof Error ? err.message : String(err)}`,
             );
@@ -3671,5 +3687,5 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
         log.warn(`[tracer] NtM zone injection failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    return { merged, cellsUsed, gatePairs };
+    return { merged, cellsUsed, gatePairs, gateChecksUnavailable };
 }

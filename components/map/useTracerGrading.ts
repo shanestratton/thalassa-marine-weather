@@ -277,7 +277,13 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                         if (seq !== tracerSeqRef.current) return;
                         if (built.status === 'ready') {
                             ctx = built.ctx;
-                            tracerCtxHold(built.ctx);
+                            // Same rule as marks-only: a window that lost its
+                            // gate marks to a failed fetch must NOT be held.
+                            // Holding it would let one network blip strip gate
+                            // checking from every later cluster that reuses it,
+                            // turning a transient failure into a session-long
+                            // one. Not holding costs a rebuild and retries.
+                            if (!built.ctx.gateChecksUnavailable) tracerCtxHold(built.ctx);
                         } else if (built.status === 'marksonly') {
                             // One genuinely long leg — grade marks with this
                             // ctx but DON'T hold it: a grid-less window must
@@ -313,7 +319,16 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                     }
                 }
                 for (const l of cluster) {
-                    cache.set(l.key, validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.key.endsWith('|last') }));
+                    const verdict = validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.key.endsWith('|last') });
+                    // A window whose marker fetch threw was never gate-checked,
+                    // so its verdict is provisional in exactly the way a
+                    // 'nochart' one is — VOLATILE, so the next pass retries and
+                    // a transient blip cannot poison the session. Banking it to
+                    // localStorage would durably record an unchecked leg as
+                    // checked, and :219 would then short-circuit to 'ready' on
+                    // the next mount and show a clean strip.
+                    if (ctx.gateChecksUnavailable) failMap.set(l.key, verdict);
+                    else cache.set(l.key, verdict);
                 }
                 publish();
             }

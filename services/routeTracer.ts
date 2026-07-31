@@ -124,6 +124,10 @@ export interface TracerContext {
     /** True when the vessel profile has no usable draft and verdicts were
      *  graded against the 2.5 m fallback — clear legs downgrade to caution. */
     draftAssumed: boolean;
+    /** True when the regional-marker fetch for this window threw, so gatePairs
+     *  is empty for a network reason rather than a charted one. Verdicts graded
+     *  under it are NOT gate-checked and must never be durably cached. */
+    gateChecksUnavailable: boolean;
     /** Grid coverage bbox [W,S,E,N] — pins outside need a context rebuild. */
     bbox: [number, number, number, number];
     resM: number;
@@ -254,6 +258,9 @@ export function tracerContextFromLayers(
     draftM: number,
     opts: {
         draftAssumed?: boolean;
+        /** See TracerContext.gateChecksUnavailable — the marker fetch threw, so
+         *  an empty gatePairs means "not checked", not "no gates here". */
+        gateChecksUnavailable?: boolean;
         skipGrid?: boolean;
         /** Grid built off-thread by buildTracerContext (navGrid worker). When
          *  present it's used verbatim; absent = build synchronously here (the
@@ -298,6 +305,7 @@ export function tracerContextFromLayers(
         canalLanes,
         draftM,
         draftAssumed: opts.draftAssumed ?? false,
+        gateChecksUnavailable: opts.gateChecksUnavailable ?? false,
         bbox,
         resM,
     };
@@ -422,11 +430,12 @@ async function buildTracerContextInner(
         : await buildNavGridAsync(bundle.merged, bbox, tracerResolutionM(bbox), draftM, DEFAULT_TIDE_SAFETY_M, 60);
     const ctx = tracerContextFromLayers(bundle.merged, bundle.gatePairs, bbox, draftM, {
         draftAssumed: opts.draftAssumed,
+        gateChecksUnavailable: bundle.gateChecksUnavailable,
         skipGrid,
         prebuiltGrid: grid,
     });
     log.warn(
-        `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,
+        `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,
     );
     return { status: skipGrid ? 'marksonly' : 'ready', ctx };
 }
@@ -959,6 +968,17 @@ export function validateTraceLeg(
                 }
             }
         }
+    }
+
+    // Gate honesty: when the marker fetch threw, ctx.gatePairs is empty for a
+    // NETWORK reason, so the threading check above silently found nothing to
+    // check. That reads exactly like "this water has no gates" — and a leg that
+    // could have been a wrong-side DANGER comes back clear. Say so.
+    // Unconditional (not gated on issues.length): an already-cautioned leg can
+    // still be hiding a wrong-side pass, and on a danger leg this is a no-op
+    // because danger already wins the grade.
+    if (ctx.gateChecksUnavailable) {
+        issues.push({ severity: 'caution', message: 'channel marks unchecked — mark data did not load' });
     }
 
     // Draft honesty: a "clear" graded against the 2.5 m FALLBACK draft is not

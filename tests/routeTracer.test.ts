@@ -79,9 +79,45 @@ beforeAll(() => {
         canalLanes: [],
         draftM: DRAFT_M,
         draftAssumed: false,
+        gateChecksUnavailable: false,
         bbox: BBOX,
         resM: 10,
     };
+});
+
+describe('routeTracer — gate-check honesty', () => {
+    // The regional nav-marker fetch can throw (offline, Supabase down, deadline).
+    // ctx.gatePairs is then EMPTY for a network reason, which is indistinguishable
+    // from "this water has no gates" — so a leg that could be a wrong-side pass
+    // graded CLEAR, and useTracerGrading banked it to localStorage as though it
+    // had been checked. gateChecksUnavailable is what makes the two cases differ.
+
+    it('a leg graded without gate marks is never clear — it says the marks are unchecked', () => {
+        const ctx = { ...baseCtx, gateChecksUnavailable: true };
+        const v = validateTraceLeg({ lat: -27.005, lon: 153.002 }, { lat: -27.005, lon: 153.008 }, ctx);
+
+        expect(v.grade).toBe('caution');
+        expect(v.issues.map((i) => i.message)).toContain('channel marks unchecked — mark data did not load');
+    });
+
+    it('the SAME leg is clear when the marks genuinely loaded and found nothing', () => {
+        // Identical water, identical empty gatePairs — the only difference is
+        // that the fetch succeeded. This is the pair that proves the flag is
+        // carrying real information rather than just cautioning everything.
+        const v = validateTraceLeg({ lat: -27.005, lon: 153.002 }, { lat: -27.005, lon: 153.008 }, baseCtx);
+
+        expect(v.grade).toBe('clear');
+        expect(v.issues.filter((i) => i.message.includes('marks unchecked'))).toHaveLength(0);
+    });
+
+    it('does not mask a real danger — an unchecked leg over land still reads danger', () => {
+        const ctx = { ...baseCtx, gateChecksUnavailable: true };
+        // Straight through the island in LNDARE.
+        const v = validateTraceLeg({ lat: -27.01, lon: 153.021 }, { lat: -27.006, lon: 153.021 }, ctx);
+
+        expect(v.grade).toBe('danger');
+        expect(v.issues.some((i) => i.severity === 'danger')).toBe(true);
+    });
 });
 
 describe('routeTracer — depth grading (P1)', () => {
