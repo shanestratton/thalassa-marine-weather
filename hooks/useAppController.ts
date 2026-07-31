@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('useAppController');
@@ -87,6 +87,26 @@ export const useAppController = () => {
     const { settings, updateSettings } = useSettings();
     const { setPage, isOffline, currentView } = useUI();
     const authedUser = useAuthStore((s) => s.user);
+
+    /**
+     * currentView read at FIRE time, not render time.
+     *
+     * The boot effect below paints the dashboard when there is no weather yet.
+     * That is a first-open concern, but its deps include `authedUser`, and
+     * authStore stores Supabase's `session.user` object verbatim — a FRESH
+     * object on every auth event, TOKEN_REFRESHED included. Supabase refreshes
+     * on a timer and on app resume, so the effect re-fires mid-session with no
+     * change in who is signed in. If weather happened to be null right then
+     * (a failed refresh, a fetch still in flight, a cache-version wipe) it
+     * called setPage('dashboard') and yanked the skipper off whatever they were
+     * doing — which is what "the planning screen crashes back to the Glass
+     * page" was. Not a crash: a navigation.
+     *
+     * A ref, not a dep: depping on currentView would re-run this effect on
+     * every navigation, which is exactly what it must not do.
+     */
+    const currentViewRef = useRef(currentView);
+    currentViewRef.current = currentView;
     const authChecked = useAuthStore((s) => s.authChecked);
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
 
@@ -150,7 +170,11 @@ export const useAppController = () => {
                 // Fast path — flag means we've done this dance before.
                 if (!cancelled) setShowOnboardingForScope(actionScope, false);
                 if (!weatherData && !loading && settings.defaultLocation) {
-                    setPage('dashboard');
+                    // Steer the page only if the skipper is still ON the
+                    // dashboard. The weather fetch below must still run — it is
+                    // the useful half — but navigating someone off the chart
+                    // mid-route-plan never is. See currentViewRef.
+                    if (currentViewRef.current === 'dashboard') setPage('dashboard');
                     // Pass the saved coords if we have them —
                     // prevents the weather orchestrator from
                     // forward-geocoding and picking a wrong match
@@ -241,7 +265,11 @@ export const useAppController = () => {
                         // isFetching guard prevents duplicate concurrent
                         // calls, so dropping !loading here is safe.
                         if (!weatherData && settings.defaultLocation) {
-                            setPage('dashboard');
+                            // Same rule as the fast path — and this branch is
+                            // the more dangerous of the two, because it
+                            // deliberately dropped the !loading guard, so it
+                            // fires while a fetch is still in flight.
+                            if (currentViewRef.current === 'dashboard') setPage('dashboard');
                             fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
                         }
                         return;
