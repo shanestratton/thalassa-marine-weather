@@ -77,7 +77,13 @@ export function getDeviceId(): string {
     }
 }
 
-/** Best-effort friendly name, editable later. */
+/** Best-effort friendly name, editable later.
+ *
+ *  The default must read correctly ON THE OTHER DEVICE — it is shown in
+ *  "<name> is publishing" when someone else holds the claim. The old default
+ *  was "This iPhone/iPad", so the takeover card on Shane's iPhone said
+ *  "This iPhone/iPad is publishing" about his IPAD, which reads as "this
+ *  device". The short id suffix makes two same-model devices tellable apart. */
 export function getDeviceName(): string {
     try {
         const saved = localStorage.getItem(DEVICE_NAME_KEY);
@@ -85,10 +91,11 @@ export function getDeviceName(): string {
     } catch {
         /* fall through to the derived default */
     }
+    const suffix = getDeviceId().slice(-4);
     const platform = Capacitor.getPlatform();
-    if (platform === 'ios') return 'This iPhone/iPad';
-    if (platform === 'android') return 'This Android device';
-    return 'This browser';
+    if (platform === 'ios') return `iPhone/iPad · ${suffix}`;
+    if (platform === 'android') return `Android device · ${suffix}`;
+    return `Browser · ${suffix}`;
 }
 
 export function setDeviceName(name: string): void {
