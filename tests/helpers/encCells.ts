@@ -9,10 +9,13 @@
  * CI since they were written.
  *
  * tests/fixtures/newport-enc-cells.json.gz holds the two cells they read
- * (OC-61-10ENB5 and OC-61-10RCS5), trimmed to ONLY the five layers they touch:
- * BCNLAT, BOYLAT, DEPARE, DRGARE, LNDARE. That is 1.65 MB of JSON, 370 KB
- * gzipped — against the 13 MB of corridor fixtures already committed here, a
- * small price for making the reef tests real.
+ * (OC-61-10ENB5 and OC-61-10RCS5) with ALL their layers — 25 and 14
+ * respectively, 3.6 MB of JSON, 735 KB gzipped. An earlier draft of this
+ * comment claimed a five-layer trim at 1.65 MB / 370 KB; that was the plan,
+ * not the artefact. Do NOT trim it to five layers: newportPinkenba.repro reads
+ * RECTRC, NAVLNE and FAIRWY, and newportMedialAxis reads more again, so a trim
+ * would leave those suites asserting over empty layers — silently green,
+ * exactly the failure the fixtures were added to end.
  *
  * The fixture keeps the exact shape of the live
  * `/api/enc/installed/<id>/data` response, so refreshing it is a straight
@@ -20,7 +23,7 @@
  *
  *   curl -s http://calypso.local:3001/api/enc/installed/OC-61-10ENB5/data -o /tmp/enb5.json
  *   curl -s http://calypso.local:3001/api/enc/installed/OC-61-10RCS5/data -o /tmp/rcs5.json
- *   # then keep only the five layers above and gzip to
+ *   # then wrap both, UNTRIMMED, as {cells:[{cellId,layers},…]} and gzip to
  *   # tests/fixtures/newport-enc-cells.json.gz
  *
  * These are DERIVED extracts of licensed AU chart data, consistent with the

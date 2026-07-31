@@ -484,9 +484,15 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
             //
             // WHY THIS PASSAGE CURRENTLY REFUSES (investigated 2026-07-31, and
             // it is NOT a router defect):
-            //   The Gold Coast Broadwater is charted with LNDARE overlapping
-            //   DEPARE across its whole width — 893 of 893 sampled points in
-            //   the corridor are in BOTH layers. buildNavGrid blocks LNDARE
+            //   The Gold Coast Broadwater is charted with LNDARE covering the
+            //   whole corridor — re-sampled from the Pi 2026-07-31 over cells
+            //   051031/051032/351824/10COG5/351924: of 893 points on the direct
+            //   line, 893 are inside LNDARE and 538 are also inside DEPARE.
+            //   (An earlier revision of this comment said 893 of 893 were in
+            //   BOTH layers. That figure was wrong; the overlap is 538. The
+            //   mechanism is unchanged — and the load-bearing number, 893/893
+            //   inside LNDARE, is what actually blocks the corridor.)
+            //   buildNavGrid blocks LNDARE
             //   cells, and the two rescues that would reopen them are
             //   deliberately narrow: the wetConflict branch is conflict-scoped
             //   (navGrid.ts — broadening it regressed the Tangalooma golden
