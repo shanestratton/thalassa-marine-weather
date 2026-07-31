@@ -52,7 +52,7 @@
  * Run: NODE_OPTIONS="--max-old-space-size=8192" npx vitest run tests/repro/newportPinkenba.repro.test.ts
  */
 
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { Feature, FeatureCollection, LineString, MultiPolygon, Polygon, Position } from 'geojson';
 import { pointInGeometry, geometryBbox } from '../../services/engine/geometry';
@@ -67,9 +67,10 @@ import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
 import { encCell, osmOverlay, seQldNavMarkers } from '../helpers/encCells';
 
-// This harness routes on the REAL ENC pulled live from the boat's chart server
-// (calypso.local). It is a DIAGNOSTIC, not a CI gate — when the Pi is unreachable
-// (CI, another machine) the whole suite skips cleanly rather than failing.
+// This harness routes on the REAL ENC, but from committed fixtures rather than
+// the boat's chart server — so it RUNS IN CI as a real gate. It used to skip
+// whenever calypso.local was unreachable, which on a CI runner is always, so its
+// land-crossing assertions reported PASSED while executing nothing.
 
 // ── Route under test ────────────────────────────────────────────────
 const NEWPORT = { lat: -27.2141, lon: 153.0877 };
@@ -420,6 +421,27 @@ let osmCanal: Feature[];
 let osmCoastline: Feature[];
 
 beforeAll(() => {
+    // The regional nav-marker file is normally pulled from Supabase public
+    // storage at run time. a2220720 committed it as a fixture but never wired
+    // it up, so line 504 still hit the network: on a CI runner that means the
+    // gate-pairing half of this suite depended on an external service being up,
+    // which is the exact dependency the fixtures were added to remove.
+    // Stub the ONE url and delegate everything else, so fetchRegionalMarkers
+    // runs its real parse/cluster/pair pipeline over the real bytes.
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+        if (url === REGIONAL_MARKERS_URL) {
+            return Promise.resolve(
+                new Response(JSON.stringify(seQldNavMarkers()), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                }),
+            );
+        }
+        return realFetch(input, init);
+    });
+
     cells = CELLS.map((c) => encCell(c.id) as RawCell);
     const allRectrc = cells.flatMap((c) => c.layers['RECTRC']?.features ?? []);
     rectrcChain = buildRectrcRiverChain(allRectrc as Feature[]);
