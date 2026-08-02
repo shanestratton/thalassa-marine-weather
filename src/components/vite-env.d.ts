@@ -9,7 +9,6 @@ interface ImportMetaEnv {
     readonly VITE_SUPABASE_URL: string;
     readonly VITE_SUPABASE_KEY: string;
     readonly VITE_SUPABASE_ANON_KEY?: string;
-    readonly VITE_TRANSISTOR_LICENSE_KEY: string;
     readonly VITE_DISTANCE_TOOLS_KEY: string;
     readonly VITE_OWM_API_KEY: string;
     readonly VITE_SENTRY_DSN: string;

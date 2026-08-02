@@ -102,10 +102,25 @@ public class AppleMusicPlugin: CAPPlugin {
     // path (or two pre-warm waves) from racing the same query.
     private var artworkInFlight: Set<String> = []
 
+    // ── Cache confinement ─────────────────────────────────────────
+    // Every cache above is mutated from unstructured Task{} closures that
+    // run on the global concurrent executor (nowPlaying's 1-2 s poll,
+    // prewarmArtwork's fire-and-forget loop, searchCatalogSongs,
+    // addSongToPlaylist). Swift Set/Dictionary are not thread-safe, so
+    // overlapping mutation was an intermittent EXC_BAD_ACCESS /
+    // "Simultaneous accesses" trap — the whole app dying mid-passage
+    // because album art was being cached (audit 2026-08-02). ALL cache
+    // access now goes through this serial queue; the sync hops are
+    // sub-microsecond, and check-then-act pairs (in-flight claims) are
+    // single closures so they are atomic, not just data-race-free.
+    private let cacheQueue = DispatchQueue(label: "com.thalassa.applemusic.caches")
+
     @available(iOS 15.0, *)
     private func cachePlaylist(id: String, name: String, tracks: [Track]) {
-        hydratedTrackCache[id] = tracks
-        hydratedNameCache[id] = name
+        cacheQueue.sync {
+            hydratedTrackCache[id] = tracks
+            hydratedNameCache[id] = name
+        }
     }
 
     // ── Audio-session hygiene ─────────────────────────────────────
@@ -355,10 +370,19 @@ public class AppleMusicPlugin: CAPPlugin {
             guard let self = self else { return }
             for entry in candidates {
                 let cacheKey = "\(entry.title)|\(entry.artist)"
-                if self.artworkDataUrlCache[cacheKey] != nil { continue }
-                if self.artworkInFlight.contains(cacheKey) { continue }
-                self.artworkInFlight.insert(cacheKey)
-                defer { self.artworkInFlight.remove(cacheKey) }
+                // Atomic check-then-claim — the old three separate accesses
+                // let two prewarm waves both pass the checks and race the
+                // same query, the exact thing this set exists to prevent.
+                let claimed: Bool = self.cacheQueue.sync {
+                    if self.artworkDataUrlCache[cacheKey] != nil { return false }
+                    if self.artworkInFlight.contains(cacheKey) { return false }
+                    self.artworkInFlight.insert(cacheKey)
+                    return true
+                }
+                if !claimed { continue }
+                defer {
+                    self.cacheQueue.sync { _ = self.artworkInFlight.remove(cacheKey) }
+                }
                 do {
                     let term = entry.artist.isEmpty ? entry.title : "\(entry.title) \(entry.artist)"
                     var req = MusicCatalogSearchRequest(term: term, types: [Song.self])
@@ -377,11 +401,13 @@ public class AppleMusicPlugin: CAPPlugin {
                     if let match = matched,
                        let url = match.artwork?.url(width: 400, height: 400),
                        !url.absoluteString.hasPrefix("musicKit://") {
-                        self.artworkDataUrlCache[cacheKey] = url.absoluteString
-                        self.artworkCacheOrder.append(cacheKey)
-                        while self.artworkCacheOrder.count > self.maxArtworkCache {
-                            let oldest = self.artworkCacheOrder.removeFirst()
-                            self.artworkDataUrlCache.removeValue(forKey: oldest)
+                        self.cacheQueue.sync {
+                            self.artworkDataUrlCache[cacheKey] = url.absoluteString
+                            self.artworkCacheOrder.append(cacheKey)
+                            while self.artworkCacheOrder.count > self.maxArtworkCache {
+                                let oldest = self.artworkCacheOrder.removeFirst()
+                                self.artworkDataUrlCache.removeValue(forKey: oldest)
+                            }
                         }
                     }
                 } catch {
@@ -410,11 +436,13 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @available(iOS 15.0, *)
     private func cachedPlaylist(id: String) -> (name: String, tracks: [Track])? {
-        guard let tracks = hydratedTrackCache[id] as? [Track],
-              let name = hydratedNameCache[id] else {
-            return nil
+        cacheQueue.sync {
+            guard let tracks = hydratedTrackCache[id] as? [Track],
+                  let name = hydratedNameCache[id] else {
+                return nil
+            }
+            return (name, tracks)
         }
-        return (name, tracks)
     }
 
     // MARK: - Authorization
@@ -1243,8 +1271,10 @@ public class AppleMusicPlugin: CAPPlugin {
                     NSLog("[AppleMusic] added '\(song.title)' to playlist '\(playlist.name)'")
                     // Invalidate cache for this playlist so a subsequent
                     // sheet open re-fetches the freshly-extended track list.
-                    self.hydratedTrackCache.removeValue(forKey: playlist.id.rawValue)
-                    self.hydratedNameCache.removeValue(forKey: playlist.id.rawValue)
+                    self.cacheQueue.sync {
+                        self.hydratedTrackCache.removeValue(forKey: playlist.id.rawValue)
+                        self.hydratedNameCache.removeValue(forKey: playlist.id.rawValue)
+                    }
                     await MainActor.run {
                         call.resolve([
                             "status": "ok",
@@ -1295,8 +1325,10 @@ public class AppleMusicPlugin: CAPPlugin {
                 let resp = try await req.response()
                 let songs = Array(resp.songs)
                 // Cache each Song under its id for later add operations.
-                for song in songs {
-                    self.catalogSongCache[song.id.rawValue] = song
+                self.cacheQueue.sync {
+                    for song in songs {
+                        self.catalogSongCache[song.id.rawValue] = song
+                    }
                 }
                 let payload: [[String: Any]] = songs.map { song in
                     var item: [String: Any] = [
@@ -1353,7 +1385,7 @@ public class AppleMusicPlugin: CAPPlugin {
         }
         Task {
             do {
-                guard let song = self.catalogSongCache[songId] as? Song else {
+                guard let song = self.cacheQueue.sync(execute: { self.catalogSongCache[songId] as? Song }) else {
                     await MainActor.run {
                         call.resolve([
                             "status": "song_not_in_cache",
@@ -1392,8 +1424,10 @@ public class AppleMusicPlugin: CAPPlugin {
                 do {
                     try await self.restAddSongToPlaylist(songId: songId, playlistId: playlistId)
                     NSLog("[AppleMusic] REST add '\(song.title)' → '\(playlist.name)' succeeded")
-                    self.hydratedTrackCache.removeValue(forKey: playlistId)
-                    self.hydratedNameCache.removeValue(forKey: playlistId)
+                    self.cacheQueue.sync {
+                        self.hydratedTrackCache.removeValue(forKey: playlistId)
+                        self.hydratedNameCache.removeValue(forKey: playlistId)
+                    }
                     await MainActor.run {
                         call.resolve([
                             "status": "ok",
@@ -1412,8 +1446,10 @@ public class AppleMusicPlugin: CAPPlugin {
                 do {
                     try await MusicLibrary.shared.add(song, to: playlist)
                     NSLog("[AppleMusic] native add fallback succeeded for '\(song.title)' → '\(playlist.name)'")
-                    self.hydratedTrackCache.removeValue(forKey: playlistId)
-                    self.hydratedNameCache.removeValue(forKey: playlistId)
+                    self.cacheQueue.sync {
+                        self.hydratedTrackCache.removeValue(forKey: playlistId)
+                        self.hydratedNameCache.removeValue(forKey: playlistId)
+                    }
                     await MainActor.run {
                         call.resolve([
                             "status": "ok",
@@ -1775,18 +1811,33 @@ public class AppleMusicPlugin: CAPPlugin {
                 let isLibraryArtwork = artworkUrl.hasPrefix("musicKit://") || artworkUrl.isEmpty
                 if isLibraryArtwork {
                     let cacheKey = "\(title)|\(artist)"
-                    if !title.isEmpty, let cached = self.artworkDataUrlCache[cacheKey] {
-                        artworkUrl = cached
+                    // ONE atomic read-or-claim on the cache queue. The old
+                    // separate cached/in-flight/insert accesses could
+                    // interleave with a prewarm wave on another pool thread.
+                    // outcome: 0 = no title, 1 = cached hit, 2 = a search is
+                    // already in flight, 3 = we claimed the search.
+                    var cachedHit = ""
+                    let outcome: Int = self.cacheQueue.sync {
+                        if title.isEmpty { return 0 }
+                        if let cached = self.artworkDataUrlCache[cacheKey] {
+                            cachedHit = cached
+                            return 1
+                        }
+                        if self.artworkInFlight.contains(cacheKey) { return 2 }
+                        self.artworkInFlight.insert(cacheKey)
+                        return 3
+                    }
+                    if outcome == 1 {
+                        artworkUrl = cachedHit
                         artworkSource = "cached"
-                    } else if !title.isEmpty && self.artworkInFlight.contains(cacheKey) {
+                    } else if outcome == 2 {
                         // A pre-warm search is already in flight for this
                         // track — short-poll back later instead of firing
                         // a duplicate request. JS will pick up the cached
                         // URL on its next 1s poll.
                         artworkUrl = ""
                         artworkSource = "in-flight"
-                    } else if !title.isEmpty {
-                        self.artworkInFlight.insert(cacheKey)
+                    } else if outcome == 3 {
                         // 1) Catalog search → public mzstatic URL
                         var resolved = ""
                         do {
@@ -1830,11 +1881,13 @@ public class AppleMusicPlugin: CAPPlugin {
                         }
 
                         if !resolved.isEmpty {
-                            self.artworkDataUrlCache[cacheKey] = resolved
-                            self.artworkCacheOrder.append(cacheKey)
-                            while self.artworkCacheOrder.count > self.maxArtworkCache {
-                                let oldest = self.artworkCacheOrder.removeFirst()
-                                self.artworkDataUrlCache.removeValue(forKey: oldest)
+                            self.cacheQueue.sync {
+                                self.artworkDataUrlCache[cacheKey] = resolved
+                                self.artworkCacheOrder.append(cacheKey)
+                                while self.artworkCacheOrder.count > self.maxArtworkCache {
+                                    let oldest = self.artworkCacheOrder.removeFirst()
+                                    self.artworkDataUrlCache.removeValue(forKey: oldest)
+                                }
                             }
                             artworkUrl = resolved
                         } else {
@@ -1847,7 +1900,7 @@ public class AppleMusicPlugin: CAPPlugin {
                         // slot so the next poll (or next track sharing
                         // this title|artist) doesn't false-positive on
                         // the in-flight check.
-                        self.artworkInFlight.remove(cacheKey)
+                        self.cacheQueue.sync { _ = self.artworkInFlight.remove(cacheKey) }
                     } else {
                         // No title to search with. Fall back to monogram.
                         artworkUrl = ""

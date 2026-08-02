@@ -127,7 +127,6 @@ export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
 
 // ------- CONSTANTS -------
 
-const _TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
 const GPS_INTERVAL_MS = 3000; // High-frequency GPS when watching
 const HISTORY_MAX_POINTS = 500; // Max position trail points
 const _JITTER_WINDOW = 5; // Default moving average window (adaptive via GpsPrecision)

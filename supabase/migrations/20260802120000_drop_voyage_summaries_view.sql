@@ -1,0 +1,16 @@
+-- Drop the RLS-bypassing voyage_summaries view (audit 2026-08-02).
+--
+-- 20260201_ship_log_table.sql created `voyage_summaries` over the original
+-- ship_log table (singular — abandoned since the move to ship_logs) and
+-- GRANTed SELECT to every authenticated user. The view has no
+-- security_invoker, so it executes with the view OWNER's privileges: all
+-- four ship_log RLS policies (auth.uid() = user_id) are bypassed for reads
+-- through it, and any signed-in account could pull every user's voyage
+-- start/end times, distances and speeds — a per-account log of when each
+-- boat was underway. The 20260730120000 policy sweep could not catch it
+-- because pg_policies enumerates tables, never views.
+--
+-- Nothing in the app reads this view: the Log page uses the
+-- get_voyage_summaries(boolean) RPC, which reads ship_logs (plural) and was
+-- locked down with REVOKE/GRANT when it shipped.
+DROP VIEW IF EXISTS public.voyage_summaries;

@@ -3129,14 +3129,19 @@ export const MapHub: React.FC<MapHubProps> = ({
         // decision, not a continuation, and selectInGroup makes that one tap.
         const newlyOn = [...on].find((k) => !prev.has(k)) as WeatherLayer | undefined;
         if (!newlyOn) return;
-        // EXCEPT when the wind+pressure overlay pair is forming. Since
-        // pressure left the atmosphere exclusion group (2026-08-02), isobars
-        // STACK on wind — adding one on top of the other enriches the view
-        // the skipper is already reading, and yanking the camera to the
-        // newcomer's synoptic frame would throw that view away.
-        const windUp = on.has('wind') || on.has('velocity');
+        // EXCEPT when a pressure overlay pair is forming. Since pressure
+        // left the atmosphere exclusion group (2026-08-02), isobars STACK on
+        // ANY host layer — wind, rain, clouds, temperature — and
+        // useWeatherLayers renders the clean contour overlay whenever
+        // pressure shares the map. Adding isobars on top of a layer the
+        // skipper is already reading enriches that view; yanking the camera
+        // to pressure's z2 synoptic frame would throw it away. The host test
+        // reads the FULL selection (userLayers), not `on` — `on` is filtered
+        // to framed layers and clouds/temperature aren't framed, so a
+        // clouds-hosted overlay looked like pressure-solo through it
+        // (audit 2026-08-02).
         const pairForming =
-            (newlyOn === 'pressure' && windUp) ||
+            (newlyOn === 'pressure' && weather.userLayers.size > 1) ||
             ((newlyOn === 'wind' || newlyOn === 'velocity') && on.has('pressure'));
         if (pairForming) return;
         const zoom = LAYER_FRAME_ZOOM[newlyOn];

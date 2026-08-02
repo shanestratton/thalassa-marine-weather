@@ -138,6 +138,12 @@ class NmeaListenerServiceClass {
     stop() {
         this.enabled = false;
         this.tcpReadLoop = false;
+        // stop() is the public off-switch (NmeaPage Disconnect, Smart Polars
+        // toggle) — it must also disarm the parked-retry tripwire, or an
+        // explicit disable issued after a park gets silently undone by the
+        // next app foreground (audit 2026-08-02). The give-up path re-sets
+        // the flag AFTER calling stop(), so legitimate parking still works.
+        this.parkedAfterGiveUp = false;
         this.firstAttemptTime = null;
         this.reconnectAttempts = 0;
         this.lastError = null;
@@ -367,6 +373,15 @@ class NmeaListenerServiceClass {
     private scheduleReconnect() {
         if (!this.enabled || this.reconnectTimer) return;
 
+        // The give-up clock arms when a reconnect cycle BEGINS. start() also
+        // arms it, but successful connects null it ('reset give-up timer on
+        // success') and the transport-loss paths (TCP read-loop exit,
+        // ws.onclose) jump straight here — so after the first successful
+        // connection of a session the 5-minute park could never fire again,
+        // and the service hammered TcpSocket.connect every ≤30 s forever
+        // once the phone left boat Wi-Fi (audit 2026-08-02).
+        if (!this.firstAttemptTime) this.firstAttemptTime = Date.now();
+
         // Park after 5 minutes of continuous failed attempts. This used to be
         // a PERMANENT give-up (stop(), enabled=false, nothing ever retried),
         // which silently killed a mux-fed Bad Elf / MFD feed until the
@@ -375,10 +390,14 @@ class NmeaListenerServiceClass {
         // parked state that retries once on the next app foreground —
         // start() re-arms the give-up clock, so a still-dead network parks
         // again after another 5 minutes instead of looping hot.
+        //
+        // The flag is set AFTER stop() because stop() clears it: stop() is
+        // also the user's off-switch and must disarm the retry, while this
+        // path is the one caller that wants it armed.
         if (this.firstAttemptTime && Date.now() - this.firstAttemptTime > RECONNECT_GIVE_UP_MS) {
             log.warn('Parking NMEA reconnects after 5 minutes of failures — will retry on next app foreground');
-            this.parkedAfterGiveUp = true;
             this.stop();
+            this.parkedAfterGiveUp = true;
             return;
         }
 

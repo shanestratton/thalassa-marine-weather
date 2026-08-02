@@ -49,6 +49,7 @@ import {
 import { voyageHasRecordedFix } from '../services/shiplog/helpers';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
+import { VoyageLogService } from '../services/VoyageLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
@@ -256,6 +257,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         ReturnType<typeof collapseReversedRoutes<VoyageSummary>>
     >([]);
     const followSelectionGenerationRef = React.useRef(0);
+    /** One-shot guard for the pre-open "is this voyage already linked?"
+     *  server check — instance-scoped ON PURPOSE (unlike the module Sets):
+     *  an unmount mid-question re-asks, so a remount must re-check too. */
+    const followLinkPrecheckRef = React.useRef<string | null>(null);
     const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
     const dismissFollowPrompt = React.useCallback(() => {
         if (followPromptLoadingId !== null) return;
@@ -460,6 +465,35 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // NOT marked "asked" here — only an ANSWER (pick or explicit
         // dismissal) suppresses future prompts. An unmount mid-question
         // legitimately re-asks on the next visit.
+
+        // CONCURRENTLY, ask the server whether this question was already
+        // answered somewhere this component couldn't see (audit 2026-08-02).
+        // The 'voyage-plan-link-changed' event can't cover the cross-page or
+        // cross-session case — the Settings retro-link picker dispatches it,
+        // but LogPage is unmounted while Settings is open, and the module
+        // Sets die with the process. A voyage linked in Settings the night
+        // before therefore looked "unanswered" here, the sheet re-asked, and
+        // "Just recording" durably ERASED that link. An existing link IS the
+        // answer: record the confirm and close the sheet. Deliberately NOT a
+        // pre-open gate — the question must appear instantly (Shane
+        // 2026-08-02: the wait before the question was the whole complaint),
+        // and offline this check simply fails while the sheet works as
+        // before. One-shot per voyage (the ref) because this effect re-fires
+        // on every entries poll tick; instance-scoped so a remount re-checks.
+        if (followLinkPrecheckRef.current !== vid) {
+            followLinkPrecheckRef.current = vid;
+            void (async () => {
+                try {
+                    const links = await VoyageLogService.getPlanLinks();
+                    if (!isAuthIdentityScopeCurrent(identityScope)) return;
+                    if (!links.has(vid)) return;
+                    confirmedFollowVoyages.add(vid);
+                    setFollowPromptVoyageId((open) => (open === vid ? null : open));
+                } catch {
+                    /* offline — the sheet stays up; asking beats never asking */
+                }
+            })();
+        }
     }, [
         identityScope,
         state.isTracking,
@@ -614,7 +648,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // silently don't record while the skipper thinks they do). Shows while
     // tracking with no trustworthy recorded fix; clears ITSELF on first fix;
     // manual dismiss drops back to the header badge for this voyage only.
-    const [gpsOverlayDismissedFor, setGpsOverlayDismissedFor] = useState<string | null>(null);
+    // THREE-VALUED on purpose (audit 2026-08-02): `undefined` = never
+    // dismissed, a voyage id = dismissed for that voyage, `null` = dismissed
+    // during the startPending window before the voyage id existed. The old
+    // two-valued version initialised to null, so during startPending the
+    // guard compared null !== (undefined ?? null) — false — and the
+    // paint-at-the-tap branch below was DEAD: the takeover never showed until
+    // LOAD_DATA landed, which is exactly the sunlight-glare window it was
+    // built for.
+    const [gpsOverlayDismissedFor, setGpsOverlayDismissedFor] = useState<string | null | undefined>(undefined);
     // `|| state.startPending` is what makes this paint at the TAP. currentVoyageId
     // arrives only with LOAD_DATA, which is chained after startTracking()
     // resolves — GPS init plus a network load — so the slider used to vanish
@@ -660,6 +702,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // and the offline queue it reads can be drained by a sync before the
     // merge ever sees a point.
     //
+    // A manual dismiss during the startPending window stores `null` (no id
+    // yet). Key it to the voyage the moment LOAD_DATA delivers one — without
+    // this, the id's arrival flips the comparison back open and the takeover
+    // re-appears seconds after the skipper dismissed it.
+    useEffect(() => {
+        if (gpsOverlayDismissedFor === null && state.currentVoyageId) {
+            setGpsOverlayDismissedFor(state.currentVoyageId);
+        }
+    }, [gpsOverlayDismissedFor, state.currentVoyageId]);
+
     // Rather than guess which, bound it. The overlay is informational —
     // capture starts on GPS lock regardless, as its own docstring says — so a
     // full-screen block that outlives a plausible acquisition is strictly
@@ -966,7 +1018,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         dismissedFollowVoyages.clear();
         setShowMenu(false);
         setShowArchived(false);
-        setGpsOverlayDismissedFor(null);
+        setGpsOverlayDismissedFor(undefined);
         setEngineRunningState(undefined);
         setNudgeDismiss(null);
         setLiveMapExpanded(false);
