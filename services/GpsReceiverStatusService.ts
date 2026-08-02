@@ -233,11 +233,19 @@ export function resolveGpsReceiverStatus(input: GpsReceiverStatusInput): GpsRece
         };
     }
 
+    // "iPhone GPS in use" was a claim, not an observation. This branch is
+    // reached whenever nothing else matched — including when the location
+    // engine is not running at all and NOTHING is supplying position. Saying
+    // the phone is in use then is exactly the class of confident-but-unfounded
+    // status this file's header exists to prevent, and it would also mask a
+    // connected accessory that has simply not produced its first fix yet.
+    // `native.source.hasLocation` is the honest discriminator: it is true only
+    // once a fix has actually been delivered this session.
     return {
         active: false,
         kind: 'phone',
         label: 'GPS Receiver',
-        detail: 'iPhone GPS in use',
+        detail: native.source.hasLocation ? 'iPhone GPS in use' : 'No position yet — nothing is supplying a fix',
         isNmea: false,
         satellites: null,
         hdop: null,

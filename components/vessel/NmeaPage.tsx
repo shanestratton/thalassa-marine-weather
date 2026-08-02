@@ -23,6 +23,7 @@ import {
 } from '../../services/nmea/gatewayScan';
 import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
+import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
 
 import { PageHeader } from '../ui/PageHeader';
 import { FormField } from '../ui/FormField';
@@ -111,6 +112,33 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
     const isConnected = connStatus === 'connected';
     const isConnecting = connStatus === 'connecting' || connStatus === 'error';
+
+    // ── Position source ────────────────────────────────────────────────
+    // Shane, 2026-08-02, with a Bad Elf GPS Pro+ paired: "there is no mention
+    // of it anywhere in the app." He was right, and not because the detection
+    // was missing — the whole chain exists — but because its ONLY consumer was
+    // the system-status FAB, which returns null when nothing else is active
+    // (SystemStatusButton.tsx:733). Bad Elf paired, no track running, no anchor
+    // watch: activeCount 0, no FAB, and not one pixel in Thalassa naming a GPS
+    // receiver. This page is where a skipper looks to ask "where is my data
+    // coming from", so the answer lives here permanently.
+    const [receiver, setReceiver] = useState<GpsReceiverStatus>(() => GpsReceiverStatusService.getStatus());
+    useEffect(() => {
+        let disposed = false;
+        const refresh = () => {
+            void GpsReceiverStatusService.refresh().then((r) => {
+                if (!disposed) setReceiver(r);
+            });
+        };
+        refresh();
+        // refresh() reads a cache and enumerates accessories; it never starts
+        // location services, so polling here costs no battery.
+        const id = setInterval(refresh, 5000);
+        return () => {
+            disposed = true;
+            clearInterval(id);
+        };
+    }, []);
 
     // ── Gateway scan ────────────────────────────────────────────────────
     const [subnet, setSubnet] = useState(() => localStorage.getItem('nmea_scan_subnet') || '');
@@ -255,6 +283,42 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     className="flex-1 px-4 min-h-0 overflow-y-auto"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
+                    {/* ═══ POSITION SOURCE ═══
+                        Always rendered — including when the answer is just
+                        "iPhone GPS". A skipper with a receiver plugged in
+                        needs to see whether the app is using it, and silence
+                        is the one answer that helps nobody. */}
+                    <div className="shrink-0 mb-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                        <div className="mb-2 text-[11px] font-black uppercase tracking-widest text-gray-400">
+                            Position source
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <span
+                                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                                    receiver.kind === 'ios-accessory'
+                                        ? 'bg-emerald-400'
+                                        : receiver.kind === 'vessel-nmea'
+                                          ? 'bg-sky-400'
+                                          : receiver.kind === 'precision-location'
+                                            ? 'bg-violet-400'
+                                            : 'bg-slate-500'
+                                }`}
+                            />
+                            <div className="min-w-0 flex-1">
+                                <div className="truncate text-[14px] font-bold text-white">
+                                    {receiver.deviceName ?? receiver.label}
+                                </div>
+                                <div className="text-[11px] leading-snug text-gray-400">{receiver.detail}</div>
+                            </div>
+                        </div>
+                        {receiver.kind === 'phone' && (
+                            <p className="mt-2 text-[10px] leading-snug text-gray-500">
+                                An MFi receiver (Bad Elf and similar) feeds iOS system-wide — it appears here once it
+                                supplies a fix, with no setup needed.
+                            </p>
+                        )}
+                    </div>
+
                     {/* ═══ CONNECTION CARD ═══ */}
                     <div
                         className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${

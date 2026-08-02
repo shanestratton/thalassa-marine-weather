@@ -210,4 +210,28 @@ describe('GpsReceiverStatusService resolver', () => {
             }),
         ).toBe('Bad Elf GPS Pro');
     });
+
+    it('does not claim the phone is supplying a fix when nothing has produced one', () => {
+        // The fallback branch is reached whenever nothing else matched —
+        // INCLUDING when the location engine is not running at all. Saying
+        // "iPhone GPS in use" there was a claim, not an observation, and it
+        // masked a connected accessory that had simply not produced its first
+        // fix yet (Shane, 2026-08-02: "no mention of it anywhere in the app").
+        const status = resolveGpsReceiverStatus(input());
+        expect(status.kind).toBe('phone');
+        expect(status.detail).toBe('No position yet — nothing is supplying a fix');
+    });
+
+    it('says the phone IS in use once a fix has actually been delivered', () => {
+        const status = resolveGpsReceiverStatus(
+            input({
+                native: {
+                    source: { hasLocation: true, timestampMs: NOW - 2_000, externalAccessory: false, simulated: false },
+                    accessories: [],
+                },
+            }),
+        );
+        expect(status.kind).toBe('phone');
+        expect(status.detail).toBe('iPhone GPS in use');
+    });
 });
