@@ -28,8 +28,7 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
 import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
-import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
-import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../hooks/useGpsHealth';
+import { useGpsHealth, gpsHealthMessage } from '../hooks/useGpsHealth';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { OverlayPortal } from '../components/ui/OverlayPortal';
@@ -632,98 +631,27 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
     /** "1:23" — what the skipper reads to know whether waiting is still sane. */
     const gpsWaitLabel = `${Math.floor(gpsWaitSec / 60)}:${String(gpsWaitSec % 60).padStart(2, '0')}`;
-    /** Past a minute a clear-sky cold start has had its chance. */
-    const gpsOverdue = gpsWaitSec >= 60;
-    /** The one line every surface shows under the headline. */
-    const gpsSubline = gpsBlocked
-        ? gpsBlocked.detail
-        : gpsOverdue
-          ? `Still searching ${gpsWaitLabel} — nothing recorded yet`
-          : 'Recording starts at the first clean fix';
-    /** The one headline every surface shows. */
+    /** The headline the header badge shows: elapsed clock, or the named
+     *  OS-level blocker when waiting cannot help. */
     const gpsHeadline = gpsBlocked ? gpsBlocked.title : `Acquiring GPS fix… ${gpsWaitLabel}`;
 
-    // Full-screen "Acquiring GPS fix…" takeover (Shane 2026-07-03: the tiny
-    // header badge is invisible in sunlight — the first minutes of a track
-    // silently don't record while the skipper thinks they do). Shows while
-    // tracking with no trustworthy recorded fix; clears ITSELF on first fix;
-    // manual dismiss drops back to the header badge for this voyage only.
-    // THREE-VALUED on purpose (audit 2026-08-02): `undefined` = never
-    // dismissed, a voyage id = dismissed for that voyage, `null` = dismissed
-    // during the startPending window before the voyage id existed. The old
-    // two-valued version initialised to null, so during startPending the
-    // guard compared null !== (undefined ?? null) — false — and the
-    // paint-at-the-tap branch below was DEAD: the takeover never showed until
-    // LOAD_DATA landed, which is exactly the sunlight-glare window it was
-    // built for.
-    const [gpsOverlayDismissedFor, setGpsOverlayDismissedFor] = useState<string | null | undefined>(undefined);
-    // `|| state.startPending` is what makes this paint at the TAP. currentVoyageId
-    // arrives only with LOAD_DATA, which is chained after startTracking()
-    // resolves — GPS init plus a network load — so the slider used to vanish
-    // and nothing replace it for those seconds. Perceived speed is speed, and
-    // this is presentation only: nothing about when recording starts, or which
-    // voyage it starts against, depends on this flag.
-    // THE QUESTION COMES BEFORE THE WAIT (Shane 2026-08-02: "ask which track
-    // we would like to link BEFORE the acquiring GPS message — sometimes that
-    // can be 20-30 seconds"). Linking needs no GPS fix at all —
-    // publishFollowedRoute wants only a voyage id, and collapseReversedRoutes
-    // tolerates fix=null — but this takeover renders in the CRITICAL overlay
-    // band (z 2147483000) and sat on top of the already-open follow sheet at
-    // z-[10055]: the skipper stared at a spinner while the question waited,
-    // invisible, behind it. So the takeover YIELDS while the follow question
-    // is open or imminent for this voyage (planned routes exist and it hasn't
-    // been answered); the header badge and top banner keep telling the
-    // acquiring story meanwhile. It returns the moment the question is
-    // answered, and still clears on the first recorded fix as before.
-    const followQuestionPending =
-        plannedSummaries.length > 0 &&
-        (followPromptVoyageId !== null ||
-            (state.startPending && !state.currentVoyageId) ||
-            (state.isTracking &&
-                !!state.currentVoyageId &&
-                !confirmedFollowVoyages.has(state.currentVoyageId) &&
-                !dismissedFollowVoyages.has(state.currentVoyageId)));
-    const gpsOverlayOpen =
-        state.isTracking &&
-        !hasRecordedFix &&
-        (!!state.currentVoyageId || state.startPending) &&
-        !followQuestionPending &&
-        gpsOverlayDismissedFor !== (state.currentVoyageId ?? null);
-
-    // SAFETY VALVE — this takeover must never be able to stick (Shane
-    // 2026-07-29: "that gps acquiring message, sometimes never goes away").
-    //
-    // It closes only when voyageHasRecordedFix() sees a plausible point for
-    // state.currentVoyageId in state.entries. Two things can starve that
-    // forever: refreshActiveVoyage merges entries keyed on
-    // ShipLogService.getCurrentVoyageId() read LIVE (useLogPageState.ts:529)
-    // while this tests the id captured into state at last load, so a
-    // stop/start without a reload leaves them pointing at different voyages;
-    // and the offline queue it reads can be drained by a sync before the
-    // merge ever sees a point.
-    //
-    // A manual dismiss during the startPending window stores `null` (no id
-    // yet). Key it to the voyage the moment LOAD_DATA delivers one — without
-    // this, the id's arrival flips the comparison back open and the takeover
-    // re-appears seconds after the skipper dismissed it.
-    useEffect(() => {
-        if (gpsOverlayDismissedFor === null && state.currentVoyageId) {
-            setGpsOverlayDismissedFor(state.currentVoyageId);
-        }
-    }, [gpsOverlayDismissedFor, state.currentVoyageId]);
-
-    // Rather than guess which, bound it. The overlay is informational —
-    // capture starts on GPS lock regardless, as its own docstring says — so a
-    // full-screen block that outlives a plausible acquisition is strictly
-    // worse than the header badge it falls back to. Two minutes is well past
-    // the ~65 s cold-start fast-lock budget.
-    useEffect(() => {
-        if (!gpsOverlayOpen) return;
-        const voyageId = state.currentVoyageId;
-        if (!voyageId) return;
-        const timer = window.setTimeout(() => setGpsOverlayDismissedFor(voyageId), 120_000);
-        return () => window.clearTimeout(timer);
-    }, [gpsOverlayOpen, state.currentVoyageId]);
+    // ── The OTHER acquiring surfaces are GONE (Shane 2026-08-03) ──
+    // The full-screen GpsAcquiringOverlay takeover, the floating top banner,
+    // and the two live-map veils were all removed: "remove the large full
+    // screen acquiring gps fix, as well as the smaller background one. i
+    // would like to just keep the green one that is just below the heading."
+    // The header badge above is now the ONE acquiring surface, and it keeps
+    // the honest story: gpsHeadline carries the elapsed clock and, when the
+    // OS is the blocker (denied / services off), the named cause via
+    // gpsBlocked. History for whoever wonders why the takeover ever existed:
+    // built 2026-07-03 (badge invisible in cockpit sunlight while the first
+    // minutes silently didn't record), grew a 120 s safety valve 2026-07-29
+    // ("sometimes never goes away"), learned to yield to the follow-route
+    // sheet 2026-08-02 ("ask which track BEFORE the acquiring message") —
+    // and that ordering dance is precisely why one badge beats four layers.
+    // NOTE: the banner's "Fix" button (deep link to Settings when location
+    // permission is denied) went with it; the badge still names the cause,
+    // and the GPS disclaimer modal remains the actionable door.
 
     // ── Departure prompt (share-live?) MOVED OUT ─────
     // The "share this voyage live?" nudge lives in a global, always-mounted
@@ -1018,7 +946,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         dismissedFollowVoyages.clear();
         setShowMenu(false);
         setShowArchived(false);
-        setGpsOverlayDismissedFor(undefined);
         setEngineRunningState(undefined);
         setNudgeDismiss(null);
         setLiveMapExpanded(false);
@@ -1543,19 +1470,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         </svg>
                                                     </button>
                                                 )}
-                                                {!hasRecordedFix && (
-                                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
-                                                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                                                        <span
-                                                            className={`text-[11px] font-bold uppercase tracking-widest ${gpsBlocked ? 'text-red-300' : 'text-amber-300/90'}`}
-                                                        >
-                                                            {gpsHeadline}
-                                                        </span>
-                                                        <span className="max-w-[16rem] px-2 text-center text-[10px] leading-snug text-white/40">
-                                                            {gpsSubline}
-                                                        </span>
-                                                    </div>
-                                                )}
                                             </div>
 
                                             {/* ── Fullscreen live map — tap map (or chevron) to shrink ──
@@ -1629,20 +1543,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                             />
                                                         </svg>
                                                     </button>
-
-                                                    {!hasRecordedFix && (
-                                                        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-2 bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
-                                                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                                                            <span
-                                                                className={`text-[11px] font-bold uppercase tracking-widest ${gpsBlocked ? 'text-red-300' : 'text-amber-300/90'}`}
-                                                            >
-                                                                {gpsHeadline}
-                                                            </span>
-                                                            <span className="max-w-[16rem] px-2 text-center text-[10px] leading-snug text-white/40">
-                                                                {gpsSubline}
-                                                            </span>
-                                                        </div>
-                                                    )}
                                                 </OverlayPortal>
                                             )}
                                         </div>
@@ -1921,58 +1821,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 </div>
             )}
 
-            {/* ── Acquiring-GPS modal toast ──
-                A just-started voyage records nothing until the first clean
-                fix lands, so a full-width banner makes the wait visible
-                instead of the easy-to-miss inline chips. Shows whenever
-                we're tracking but have no real recorded position yet, and
-                auto-dismisses the instant a fix arrives (hasRecordedFix
-                flips). z above the fullscreen maps; pointer-events-none so
-                it never blocks the Stop button underneath. */}
-            {isTracking && !hasRecordedFix && (
-                <div
-                    className="fixed inset-x-0 z-[10000] flex justify-center px-4 pointer-events-none animate-in fade-in slide-in-from-top-4 duration-300"
-                    style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
-                    role="status"
-                    aria-live="polite"
-                >
-                    <div
-                        className={`w-full max-w-sm flex items-center gap-3 rounded-2xl bg-slate-900/95 border shadow-2xl shadow-black/40 px-4 py-3 backdrop-blur-md ${
-                            gpsBlocked ? 'border-red-400/40' : 'border-amber-400/30'
-                        }`}
-                    >
-                        <span className="relative flex h-3 w-3 shrink-0">
-                            {!gpsBlocked && (
-                                <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
-                            )}
-                            <span
-                                className={`relative inline-flex h-3 w-3 rounded-full ${gpsBlocked ? 'bg-red-400' : 'bg-amber-400'}`}
-                            />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                            <div
-                                className={`text-[13px] font-bold uppercase tracking-widest ${gpsBlocked ? 'text-red-300' : 'text-amber-300'}`}
-                            >
-                                {gpsHeadline}
-                            </div>
-                            <div className="text-[11px] text-white/50 leading-snug">{gpsSubline}</div>
-                        </div>
-                        {/* The banner is pointer-events-none so it never blocks
-                            the Stop button underneath — but a fix the skipper
-                            CAN apply has to be tappable, so re-enable events on
-                            just this control. */}
-                        {gpsBlocked && gpsHealth?.actionable && (
-                            <button
-                                onClick={openDeviceSettings}
-                                className="pointer-events-auto shrink-0 rounded-lg bg-sky-500/90 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white active:scale-95"
-                            >
-                                Fix
-                            </button>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* ── Propulsion mismatch nudge ──
                 Bottom banner (above the Stop controls) that appears only
                 when the declared engine state and the live estimate
@@ -2028,10 +1876,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Empty-track tidy announcement — big friendly modal with a
                 5 s countdown ring, replaces the plain toast. */}
             <EmptyTrackRemovedModal count={emptyPruneNotice} onClose={clearEmptyPruneNotice} />
-            <GpsAcquiringOverlay
-                open={gpsOverlayOpen}
-                onDismiss={() => setGpsOverlayDismissedFor(state.currentVoyageId ?? null)}
-            />
 
             {/* The share-live departure prompt renders globally from
                 <DeparturePrompts/> in App.tsx — see the note where its

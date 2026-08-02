@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { AnchorAlarmOverlay } from '../components/anchor-watch/AnchorAlarmOverlay';
 import { ProcessOverlay } from '../components/ProcessOverlay';
 import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
-import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
 import type { AnchorWatchSnapshot } from '../services/AnchorWatchService';
 
 const alarmSnapshot: AnchorWatchSnapshot = {
@@ -70,43 +69,9 @@ describe('blocking overlay focus lifecycle', () => {
         expect(opener).toHaveFocus();
     });
 
-    it('lets the skipper background GPS acquisition with Escape and restores focus', () => {
-        const onDismiss = vi.fn();
-        const { rerender } = render(
-            <>
-                <button>Start tracking</button>
-                <GpsAcquiringOverlay open={false} onDismiss={onDismiss} />
-            </>,
-        );
-        const opener = screen.getByRole('button', { name: 'Start tracking' });
-        opener.focus();
-
-        rerender(
-            <>
-                <button>Start tracking</button>
-                <GpsAcquiringOverlay open onDismiss={onDismiss} />
-            </>,
-        );
-
-        const dialog = screen.getByRole('alertdialog', { name: 'Acquiring GPS fix…' });
-        const dismiss = screen.getByRole('button', { name: 'Keep waiting in background' });
-        const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="critical"]');
-        expect(dialog).toContainElement(dismiss);
-        expect(overlay?.parentElement).toBe(document.body);
-        expect(overlay?.style.zIndex).toBe('2147483000');
-        expect(dismiss).toHaveFocus();
-
-        fireEvent.keyDown(dismiss, { key: 'Escape' });
-        expect(onDismiss).toHaveBeenCalledOnce();
-
-        rerender(
-            <>
-                <button>Start tracking</button>
-                <GpsAcquiringOverlay open={false} onDismiss={onDismiss} />
-            </>,
-        );
-        expect(opener).toHaveFocus();
-    });
+    // The GpsAcquiringOverlay takeover was removed 2026-08-03 (Shane: only
+    // the Log header badge tells the acquiring story now) — its Escape /
+    // focus-restore case went with it.
 
     it('contains the empty-track announcement and supports its existing dismiss action', () => {
         const onClose = vi.fn();
