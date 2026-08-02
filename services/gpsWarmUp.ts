@@ -72,6 +72,19 @@ export async function warmUpGps(): Promise<void> {
 
         await BgGeoManager.requestStart();
 
+        // At the steady 1 m distance filter a boat on a mooring emits almost
+        // nothing on iOS, so a warm-up without this would hold the engine open
+        // and still get no fix — the same trap that made "acquiring" hang.
+        //
+        // AWAITED for its token, and restored on release. distanceFilter 0 is
+        // maximum battery, and the engine is shared: if any other consumer
+        // holds a lease when the warm-up lets go (the Glass page does), the
+        // engine keeps running — at 0 — for the rest of the session. The token
+        // makes the restore a no-op if someone else has since set the mode
+        // deliberately, so casting off mid-warm-up cannot cancel the ship's
+        // log's own fast-lock.
+        const samplingToken = await BgGeoManager.setSamplingMode('fastlock').catch(() => null);
+
         // Rule 2 — exactly one release, whichever exit fires first.
         let released = false;
         const release = (why: string) => {
@@ -80,14 +93,12 @@ export async function warmUpGps(): Promise<void> {
             clearTimeout(timer);
             unsubscribe?.();
             window.removeEventListener('visibilitychange', onHidden);
+            if (samplingToken !== null) {
+                void BgGeoManager.restoreSamplingModeIfCurrent(samplingToken, 'default').catch(() => {});
+            }
             void BgGeoManager.requestStop();
             log.warn(`GPS warm-up released (${why})`);
         };
-
-        // At the steady 1 m distance filter a boat on a mooring emits almost
-        // nothing on iOS, so a warm-up without this would hold the engine open
-        // and still get no fix — the same trap that made "acquiring" hang.
-        void BgGeoManager.setSamplingMode('fastlock').catch(() => {});
 
         const timer = setTimeout(() => release('time box'), WARM_UP_MS);
 

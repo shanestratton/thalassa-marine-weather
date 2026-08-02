@@ -16,7 +16,8 @@ const h = vi.hoisted(() => ({
     getLastPosition: vi.fn(),
     requestStart: vi.fn(async () => {}),
     requestStop: vi.fn(async () => {}),
-    setSamplingMode: vi.fn(async () => {}),
+    setSamplingMode: vi.fn(async () => 7),
+    restoreSamplingModeIfCurrent: vi.fn(async () => {}),
     locationCb: null as null | ((p: { accuracy?: number }) => void),
     unsubscribe: vi.fn(),
 }));
@@ -28,6 +29,7 @@ vi.mock('../services/BgGeoManager', () => ({
         requestStart: h.requestStart,
         requestStop: h.requestStop,
         setSamplingMode: h.setSamplingMode,
+        restoreSamplingModeIfCurrent: h.restoreSamplingModeIfCurrent,
         subscribeLocation: (cb: (p: { accuracy?: number }) => void) => {
             h.locationCb = cb;
             return h.unsubscribe;
@@ -149,5 +151,26 @@ describe('warmUpGps — costs nothing when there is nothing to gain', () => {
     it('asks for fast-lock — at the 1 m filter a moored boat emits nothing', async () => {
         await warmUpGps();
         expect(h.setSamplingMode).toHaveBeenCalledWith('fastlock');
+    });
+
+    it('PUTS THE ENGINE BACK on release — distanceFilter 0 is maximum battery', async () => {
+        // The engine is shared. If any other consumer still holds a lease when
+        // the warm-up lets go (the Glass page does), the engine keeps running —
+        // and without this it would run at distanceFilter 0 for the rest of the
+        // session, flattening the phone mid-passage.
+        await warmUpGps();
+        h.locationCb?.({ accuracy: 9 });
+        expect(h.restoreSamplingModeIfCurrent).toHaveBeenCalledWith(7, 'default');
+    });
+
+    it('restores through a TOKEN, so casting off mid-warm-up is not overridden', async () => {
+        // Token semantics live in BgGeoManager (a no-op when someone else has
+        // since set the mode). What this pins is that the warm-up passes the
+        // token it was given rather than blindly forcing 'default' — which
+        // would cancel the ship's log fast-lock and restore the original hang.
+        await warmUpGps();
+        h.locationCb?.({ accuracy: 9 });
+        const [token] = h.restoreSamplingModeIfCurrent.mock.calls[0] as [number, string];
+        expect(token).toBe(await h.setSamplingMode.mock.results[0].value);
     });
 });
