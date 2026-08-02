@@ -514,6 +514,10 @@ export function useWeatherLayers(
      *  GFS cycle is 4h old, this is the sub-frame that represents "+4h of
      *  model forecast" — i.e. the model's prediction for right now. */
     const pressureNowIdxRef = useRef(0);
+    /** True while isobars ride another layer (wind, rain…) instead of owning
+     *  the chart as the standalone synoptic view. Read by applyFrame so a
+     *  freshly-created heatmap layer starts hidden in overlay mode. */
+    const pressureOverlayModeRef = useRef(false);
     const playRafRef = useRef<number | null>(null);
     const lastFrameTimeRef = useRef(0);
 
@@ -552,6 +556,11 @@ export function useWeatherLayers(
                         id: 'pressure-heatmap-layer',
                         type: 'raster',
                         source: 'pressure-heatmap',
+                        // Born hidden in overlay mode: the heatmap belongs to
+                        // the standalone synoptic chart only, and this layer
+                        // is often first created by a scrub AFTER the mode
+                        // was decided.
+                        layout: { visibility: pressureOverlayModeRef.current ? 'none' : 'visible' },
                         // A little more field contrast gives the chart a
                         // clearer low/high story while keeping the basemap
                         // and the navigation layers readable.
@@ -562,7 +571,13 @@ export function useWeatherLayers(
                             'raster-fade-duration': 0,
                         },
                     },
-                    map.getLayer('isobar-lines') ? 'isobar-lines' : undefined,
+                    // Beneath the whole contour stack — the shadow layer is
+                    // its new bottom.
+                    map.getLayer('isobar-shadow')
+                        ? 'isobar-shadow'
+                        : map.getLayer('isobar-lines')
+                          ? 'isobar-lines'
+                          : undefined,
                 );
             }
         }
@@ -735,6 +750,36 @@ export function useWeatherLayers(
         if (activeLayers.has('pressure')) applyFrame(forecastHour);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [forecastHour, activeKey, applyFrame]);
+
+    // ── Wind + pressure overlay: ONE timeline ──
+    // When isobars ride the wind layer, the wind scrubber is the single time
+    // authority and the isobar frame follows it. Both timelines are anchored
+    // to wall-clock Now (windNowIdx / pressureNowIdx), so the mapping is
+    // "hours from now" translated into pressure sub-frames and clamped to the
+    // coverage the pressure grid actually has.
+    useEffect(() => {
+        if (!activeLayers.has('pressure')) return;
+        if (!activeLayers.has('wind') && !activeLayers.has('velocity')) return;
+        const grid = cachedGridRef.current;
+        const frameCount = cachedFramesRef.current.length;
+        if (!grid || frameCount === 0) return;
+        const offs = windForecastHours;
+        if (offs.length === 0) return;
+
+        // windHour is fractional during playback — interpolate its offset.
+        const i0 = Math.max(0, Math.min(Math.floor(windHour), offs.length - 1));
+        const i1 = Math.min(i0 + 1, offs.length - 1);
+        const t = Math.max(0, Math.min(windHour - i0, 1));
+        const windOffset = (offs[i0] ?? 0) * (1 - t) + (offs[i1] ?? 0) * t;
+        const hoursFromNow = windOffset - (offs[windNowIdx] ?? 0);
+
+        const stepHours = grid.subFrameStepHours || 1;
+        const target = pressureNowIdxRef.current + hoursFromNow / stepHours;
+        const idx = Math.max(0, Math.min(Math.round(target), frameCount - 1));
+        if (idx !== forecastHourRef.current) setForecastHour(idx);
+        // framesReady re-fires this once the background precompute lands.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [windHour, windNowIdx, windForecastHours, activeKey, framesReady, pressureFrameStepHours]);
 
     // ── Wind scrubber: update GL engine on hour change ──
     useEffect(() => {
@@ -1213,6 +1258,11 @@ export function useWeatherLayers(
             const newNowIdx = computePressureNowIndex(grid);
             pressureNowIdxRef.current = newNowIdx;
 
+            // In the wind+pressure overlay the wind timeline is the single
+            // time authority (see the sync effect above) — advancing the
+            // isobar frame here would fight it.
+            if (activeLayers.has('wind') || activeLayers.has('velocity')) return;
+
             // Skip auto-advance if user manually scrubbed within the last 5 min
             const manualAge = Date.now() - pressureUserScrubbedTimeRef.current;
             const MANUAL_COOLDOWN_MS = 5 * 60 * 1000;
@@ -1241,16 +1291,20 @@ export function useWeatherLayers(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
 
-        if (hasPressureLayer) {
-            // Pressure/synoptic — only makes sense at synoptic scale, so the
-            // ceiling stays tight. The FLOOR is pressure's own framing zoom
-            // (2.0), NOT the AU+NZ fit: this floor and MapHub's framing ease
-            // are two halves of one decision, and when they disagreed the
-            // floor silently won. Mapbox clamps easeTo at call time, so the
-            // old `max(ausNzMin, 3)` swallowed the 2.0 ease and tapping the
-            // pressure FAB landed at 3 — indistinguishable from the framing
-            // never firing (Shane 2026-07-23). Derived, so they cannot drift
-            // apart again.
+        if (hasPressureLayer && layerCount === 1) {
+            // STANDALONE pressure/synoptic — only makes sense at synoptic
+            // scale, so the ceiling stays tight. The FLOOR is pressure's own
+            // framing zoom (2.0), NOT the AU+NZ fit: this floor and MapHub's
+            // framing ease are two halves of one decision, and when they
+            // disagreed the floor silently won. Mapbox clamps easeTo at call
+            // time, so the old `max(ausNzMin, 3)` swallowed the 2.0 ease and
+            // tapping the pressure FAB landed at 3 — indistinguishable from
+            // the framing never firing (Shane 2026-07-23). Derived, so they
+            // cannot drift apart again.
+            //
+            // Solo only: as an overlay on wind (or any other layer) pressure
+            // must not steal the host layer's zoom range — clamping a z10
+            // wind view to z7 because isobars were added yanked the camera.
             map.setMinZoom(LAYER_FRAME_ZOOM.pressure ?? 2);
             map.setMaxZoom(7);
             map.setMaxBounds(undefined!);
@@ -1259,7 +1313,13 @@ export function useWeatherLayers(
             // while still allowing the chart to reach wind's authoritative
             // opening frame on a wide tablet/desktop canvas. Max stays at
             // standard tile depth.
-            map.setMinZoom(Math.min(ausNzMin, LAYER_FRAME_ZOOM.wind ?? 3));
+            //
+            // With the isobar overlay riding wind, the floor drops to
+            // pressure's 2.0 — isobars are a synoptic read and the user must
+            // be able to pinch out for the whole-ocean picture — while wind's
+            // full tile depth stays available.
+            const windFloor = Math.min(ausNzMin, LAYER_FRAME_ZOOM.wind ?? 3);
+            map.setMinZoom(hasPressureLayer ? Math.min(windFloor, LAYER_FRAME_ZOOM.pressure ?? 2) : windFloor);
             map.setMaxZoom(18);
             map.setMaxBounds(undefined!);
         } else {
@@ -1431,6 +1491,7 @@ export function useWeatherLayers(
             isobarFetchedAtRef.current = 0;
             cachedGridRef.current = null;
             cachedFramesRef.current = [];
+            pressureOverlayModeRef.current = false;
             setPressureFrameStepHours(1);
             setPressureSource(null);
         }
@@ -1561,13 +1622,19 @@ export function useWeatherLayers(
 
         // ── Pressure / Isobars ──
         if (activeLayers.has('pressure')) {
+            // Solo = the full standalone synoptic chart (heatmap, barbs,
+            // charcoal land). Sharing the map with ANY other layer = the
+            // clean isobar overlay: contours + H/L centres only, riding the
+            // host layer's look (the Windy-style wind+isobar combo).
+            const pressureOverlay = activeLayers.size > 1;
+            pressureOverlayModeRef.current = pressureOverlay;
             initIsobarLayers(map);
 
-            showIsobarLayers(map, savedLandFillColorsRef.current);
+            showIsobarLayers(map, savedLandFillColorsRef.current, pressureOverlay);
             updateIsobars(map);
 
-            // ── Coastal Vignette Glow ──
-            if (!map.getLayer('coastal-vignette') && map.getSource('composite')) {
+            // ── Coastal Vignette Glow ── (standalone chart only)
+            if (!pressureOverlay && !map.getLayer('coastal-vignette') && map.getSource('composite')) {
                 map.addLayer({
                     id: 'coastal-vignette',
                     type: 'line',

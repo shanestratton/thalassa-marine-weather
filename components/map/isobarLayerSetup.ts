@@ -14,10 +14,25 @@ const log = createLogger('IsobarLayers');
  * IDs of all isobar-related layers for hide/show toggling.
  */
 export const ISOBAR_LAYER_IDS = [
+    'isobar-shadow',
     'isobar-lines',
     'isobar-major-lines',
     'isobar-labels',
     'isobar-center-labels',
+    'wind-barb-layer',
+    'circulation-arrow-layer',
+    'pressure-heatmap-layer',
+    'coastal-vignette',
+] as const;
+
+/**
+ * The parts of the pressure chart that only belong to the STANDALONE synoptic
+ * view. When isobars ride on top of another layer (wind, rain…) these stay
+ * hidden: the pressure heatmap would fight the wind ramp for the same pixels,
+ * the barbs duplicate the particle field, and the vignette/land treatment is
+ * a full-chart look, not an overlay's.
+ */
+export const SYNOPTIC_ONLY_LAYER_IDS = [
     'wind-barb-layer',
     'circulation-arrow-layer',
     'pressure-heatmap-layer',
@@ -38,17 +53,15 @@ function hideMovementTrackLayers(map: mapboxgl.Map) {
 }
 
 /**
- * Hide all isobar layers and restore land fill colors.
+ * Undo the synoptic chart's basemap treatment: restore land fills and label
+ * opacity. Shared by full teardown (hideIsobarLayers) and by the overlay
+ * presentation, which keeps the contours but must hand the basemap back.
  */
-export function hideIsobarLayers(
+function restoreBasemapTreatment(
     map: mapboxgl.Map,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     savedLandColors: Map<string, any>,
 ) {
-    for (const id of ISOBAR_LAYER_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
-    }
-    hideMovementTrackLayers(map);
     // Restore land fill colors
     for (const [layerId, color] of savedLandColors) {
         try {
@@ -76,18 +89,53 @@ export function hideIsobarLayers(
 }
 
 /**
- * Show all isobar layers and desaturate landmasses.
+ * Hide all isobar layers and restore land fill colors.
  */
-export function showIsobarLayers(
+export function hideIsobarLayers(
     map: mapboxgl.Map,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     savedLandColors: Map<string, any>,
 ) {
     for (const id of ISOBAR_LAYER_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    }
+    hideMovementTrackLayers(map);
+    restoreBasemapTreatment(map, savedLandColors);
+}
+
+/**
+ * Show the isobar layers in one of two presentations:
+ *
+ *  - `overlay = false` (standalone synoptic chart): every layer including the
+ *    pressure heatmap, wind barbs and circulation arrows; landmasses
+ *    desaturated to charcoal and basemap labels ghosted so the field reads
+ *    like a proper surface analysis.
+ *  - `overlay = true` (isobars riding another layer, e.g. wind): ONLY the
+ *    contour lines, inline labels and H/L centres. The basemap keeps its
+ *    normal treatment — the host layer owns the look of the chart.
+ */
+export function showIsobarLayers(
+    map: mapboxgl.Map,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    savedLandColors: Map<string, any>,
+    overlay = false,
+) {
+    const synopticOnly = new Set<string>(SYNOPTIC_ONLY_LAYER_IDS);
+    for (const id of ISOBAR_LAYER_IDS) {
+        if (!map.getLayer(id)) continue;
+        const visible = overlay && synopticOnly.has(id) ? 'none' : 'visible';
+        map.setLayoutProperty(id, 'visibility', visible);
     }
     // These remain hidden even while the rest of the pressure chart is shown.
     hideMovementTrackLayers(map);
+
+    if (overlay) {
+        // A previous standalone activation may have left the charcoal land —
+        // hand the basemap back before the host layer paints over it.
+        restoreBasemapTreatment(map, savedLandColors);
+        return;
+    }
+
     // Desaturate landmasses to charcoal + ghost labels to 30% — guarded
     // because getStyle() throws before style load completes.
     if (!map.isStyleLoaded()) return;
@@ -196,6 +244,56 @@ function createCirculationArrowIcon(map: mapboxgl.Map) {
 }
 
 /**
+ * H/L centre badges: a soft radial glow in the centre's hue around a dark
+ * glass disc with a thin ring. Drawn at 2× and registered with pixelRatio 2
+ * so the disc renders 48pt on screen and stays crisp on retina.
+ *
+ * Windy marks its centres with bare letters that vanish over a busy field;
+ * the disc guarantees contrast over every background this app has — white ENC
+ * water, near-black satellite, and the full wind ramp in between.
+ */
+function createPressureCenterBadge(map: mapboxgl.Map, name: string, r: number, g: number, b: number) {
+    if (map.hasImage(name)) return;
+    const size = 96;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const c = size / 2;
+
+    // Outer glow — fades to nothing at the badge edge.
+    const glow = ctx.createRadialGradient(c, c, 10, c, c, c);
+    glow.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.34)`);
+    glow.addColorStop(0.55, `rgba(${r}, ${g}, ${b}, 0.12)`);
+    glow.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, size, size);
+
+    // Glass disc.
+    ctx.beginPath();
+    ctx.arc(c, c, 34, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(8, 16, 30, 0.62)';
+    ctx.fill();
+
+    // Ring.
+    ctx.beginPath();
+    ctx.arc(c, c, 34, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.85)`;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    const data = ctx.getImageData(0, 0, size, size);
+    map.addImage(name, { width: size, height: size, data: new Uint8Array(data.data.buffer) }, { pixelRatio: 2 });
+}
+
+function createPressureCenterBadges(map: mapboxgl.Map) {
+    // Hues match the H/L letter colours below (coral high, ice-blue low).
+    createPressureCenterBadge(map, 'pressure-badge-h', 240, 150, 128);
+    createPressureCenterBadge(map, 'pressure-badge-l', 138, 200, 240);
+}
+
+/**
  * Initialize all isobar-related Mapbox sources and layers.
  * Call this once when the pressure layer is first activated.
  */
@@ -216,16 +314,44 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         data: { type: 'FeatureCollection', features: [] },
     });
 
+    // A dark blurred under-stroke beneath EVERY contour. This is what keeps
+    // the bright lines legible when they ride the wind heatmap: over the
+    // yellow/green mid-range of the wind ramp a bare white line washes out
+    // (Windy's does exactly that), while a shadowed one stays crisp on every
+    // background from white ENC water to near-black satellite.
+    map.addLayer({
+        id: 'isobar-shadow',
+        type: 'line',
+        source: 'isobar-contours',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': 'rgba(3, 9, 20, 0.42)',
+            'line-blur': 2,
+            'line-width': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                2,
+                ['case', ['get', 'isMajor'], 2.6, 1.9],
+                5,
+                ['case', ['get', 'isMajor'], 3.6, 2.6],
+                8,
+                ['case', ['get', 'isMajor'], 4.6, 3.4],
+            ],
+        },
+    });
+
     map.addLayer({
         id: 'isobar-lines',
         type: 'line',
         source: 'isobar-contours',
         filter: ['==', ['get', 'isMajor'], false],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             // 4 hPa detail remains visible, but yields to the 8 hPa rhythm.
-            'line-color': 'rgba(220, 235, 247, 0.72)',
-            'line-width': 1.05,
-            'line-opacity': 0.86,
+            'line-color': 'rgba(222, 236, 248, 0.68)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.8, 5, 1.05, 8, 1.4],
+            'line-opacity': 0.9,
         },
     });
 
@@ -234,11 +360,12 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         type: 'line',
         source: 'isobar-contours',
         filter: ['==', ['get', 'isMajor'], true],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             // Major contours are deliberately brighter rather than wider by
             // much, keeping the synoptic chart confident but not garish.
-            'line-color': 'rgba(250, 253, 255, 0.92)',
-            'line-width': 1.6,
+            'line-color': 'rgba(252, 254, 255, 0.96)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 5, 1.9, 8, 2.4],
             'line-opacity': 0.98,
         },
     });
@@ -251,25 +378,44 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         layout: {
             'symbol-placement': 'line',
             'text-field': ['get', 'label'],
-            'text-size': 12,
+            'text-size': ['interpolate', ['linear'], ['zoom'], 2, 10.5, 6, 12.5],
             'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-            'symbol-spacing': 500,
+            'text-letter-spacing': 0.04,
+            'symbol-spacing': 440,
+            // Reject placements on tight bends so the value always sits on a
+            // calm stretch of the line instead of kinking around a trough.
+            'text-max-angle': 30,
             'text-keep-upright': true,
         },
         paint: {
-            'text-color': '#f0f6fb',
-            'text-halo-color': 'rgba(8, 18, 34, 0.82)',
-            'text-halo-width': 1.9,
+            'text-color': '#f2f7fc',
+            'text-halo-color': 'rgba(6, 14, 28, 0.88)',
+            'text-halo-width': 2.1,
         },
     });
 
+    createPressureCenterBadges(map);
     map.addLayer({
         id: 'isobar-center-labels',
         type: 'symbol',
         source: 'isobar-centers',
         layout: {
-            'text-field': ['get', 'label'],
-            'text-size': 17,
+            'icon-image': ['match', ['get', 'type'], 'H', 'pressure-badge-h', 'pressure-badge-l'],
+            'icon-allow-overlap': true,
+            // Two-scale stack inside the badge: the big letter carries the
+            // paint colour below; the hPa value beneath it overrides to a
+            // quiet neutral so the number informs without shouting.
+            'text-field': [
+                'format',
+                ['get', 'type'],
+                { 'font-scale': 1.25 },
+                '\n',
+                {},
+                ['to-string', ['get', 'pressure']],
+                { 'font-scale': 0.62, 'text-color': '#d9e5f2' },
+            ],
+            'text-size': 15,
+            'text-line-height': 1.15,
             'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
             // Centres are deliberately capped at three highs and lows, so
             // they should win over a nearby ordinary contour label.
@@ -278,10 +424,12 @@ export function initIsobarLayers(map: mapboxgl.Map) {
             'text-padding': 4,
         },
         paint: {
-            'text-color': ['match', ['get', 'type'], 'H', '#f0b3a3', 'L', '#a7daf0', '#dce6ef'],
-            'text-halo-color': 'rgba(10, 15, 30, 0.85)',
-            'text-halo-width': 2,
-            'text-opacity': 0.96,
+            'text-color': ['match', ['get', 'type'], 'H', '#ffc0a9', 'L', '#a9dcff', '#dce6ef'],
+            // The disc supplies the contrast now — keep only a whisper of halo
+            // for the pixels that overhang it.
+            'text-halo-color': 'rgba(6, 12, 26, 0.55)',
+            'text-halo-width': 1.1,
+            'text-opacity': 0.98,
         },
     });
 

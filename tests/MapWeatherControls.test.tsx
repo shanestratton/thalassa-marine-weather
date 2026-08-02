@@ -126,6 +126,24 @@ describe('MapWeatherControls', () => {
         expect(screen.queryByText('+72h')).not.toBeInTheDocument();
     });
 
+    it('keeps the wind timeline when isobars overlay the wind layer', () => {
+        // Wind + pressure is the synoptic overlay: ONE scrubber (wind's), the
+        // isobar frame follows it inside useWeatherLayers. The LegendDock
+        // used for other layer pairs must not replace the timeline here.
+        render(
+            <MapWeatherControls
+                weather={weather({ activeLayers: new Set(['wind', 'pressure']) })}
+                visible
+                embedded={false}
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByRole('button', { name: 'Wind layer' })).toBeInTheDocument();
+        expect(screen.getByText('Now')).toBeInTheDocument();
+    });
+
     it('uses the pressure grid time step rather than stretching every pressure timeline over 12 hours', () => {
         render(
             <MapWeatherControls

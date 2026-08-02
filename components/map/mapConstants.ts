@@ -103,8 +103,16 @@ export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst', 'ch
 export const PARKED_SEA_LAYERS: WeatherLayer[] = ['waves', 'seaice', 'mld'];
 export const isParkedLayer = (k: WeatherLayer): boolean => PARKED_SEA_LAYERS.includes(k);
 
-/** Atmosphere layers — mutual exclusion within group */
-export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 'temperature', 'clouds', 'pressure'];
+/**
+ * Atmosphere layers — mutual exclusion within group.
+ *
+ * 'pressure' left this group 2026-08-02: isobars are a line overlay, not a
+ * field, so they STACK on wind/rain instead of replacing them (the
+ * Windy-style wind+isobar synoptic read). Its radial-menu item is a plain
+ * toggle now; removing it from this list is what stops selecting wind/rain
+ * from switching the isobars off.
+ */
+export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 'temperature', 'clouds'];
 
 /**
  * The framing zoom each forecast overlay claims when switched on.

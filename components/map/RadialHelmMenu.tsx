@@ -371,12 +371,14 @@ function buildCategories(
                     group: ATMOSPHERE_LAYERS,
                 },
                 {
+                    // Plain toggle, NOT groupExclusive: isobars are a line
+                    // overlay that stacks on wind/rain (pressure is no longer
+                    // in ATMOSPHERE_LAYERS either — both halves matter, or
+                    // selecting wind would still switch the isobars off).
                     id: 'pressure',
                     label: 'Pressure',
                     icon: <PressureIcon />,
                     layerKey: 'pressure',
-                    groupExclusive: true,
-                    group: ATMOSPHERE_LAYERS,
                 },
                 {
                     id: 'clouds',
