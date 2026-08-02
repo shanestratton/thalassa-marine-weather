@@ -75,6 +75,7 @@ public class AlarmAudioPlugin: CAPPlugin {
             guard let self = self else { return }
 
             self.stopToneLoop()
+            self.restoreSystemVolume()
             self.restoreAudioSession()
             self.isPlaying = false
 
@@ -168,25 +169,73 @@ public class AlarmAudioPlugin: CAPPlugin {
 
     // MARK: - Volume Override
 
+    /**
+     * Retained while the alarm is live. A detached MPVolumeView's slider is
+     * never synced to the system volume service, so the old implementation —
+     * create one in a local, read+write its slider synchronously, let the
+     * whole view deallocate — changed nothing: the alarm played at whatever
+     * the hardware volume was, i.e. a silent alarm on a phone turned down
+     * for the night, the exact failure this plugin's header calls useless
+     * (audit 2026-08-02). The view must live in the window and get a beat to
+     * sync before a slider write actually moves system volume; it stays
+     * attached until stopAlarm so the restore write works the same way.
+     */
+    private var volumeView: MPVolumeView?
+
     private func setSystemVolumeToMax() {
-        // Use MPVolumeView to programmatically set volume to max
-        // This is the only Apple-approved way to change system volume
+        // MPVolumeView's slider is the only Apple-approved way to change
+        // system volume programmatically.
         DispatchQueue.main.async {
-            if let volumeView = self.findVolumeSlider() {
-                self.previousVolume = volumeView.value
-                volumeView.value = 1.0
+            // Remember what the skipper had BEFORE the alarm — read from the
+            // session, which is always accurate, not from a fresh slider,
+            // which reads 0 until it syncs.
+            self.previousVolume = AVAudioSession.sharedInstance().outputVolume
+
+            let keyWindow = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first { $0.isKeyWindow }
+            guard let window = keyWindow else {
+                print("[AlarmAudio] No key window — alarm plays at current hardware volume")
+                return
+            }
+            let view = MPVolumeView(frame: CGRect(x: -2000, y: -2000, width: 1, height: 1))
+            view.clipsToBounds = true
+            window.addSubview(view)
+            self.volumeView = view
+
+            // The slider subview appears and syncs asynchronously — writing
+            // in the same tick is exactly the old no-op. 0.2 s is
+            // imperceptible against the 1.5 s alarm cadence.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if let slider = view.subviews.compactMap({ $0 as? UISlider }).first {
+                    slider.value = 1.0
+                    print("[AlarmAudio] System volume raised to max (was \(self.previousVolume ?? -1))")
+                } else {
+                    print("[AlarmAudio] Volume slider unavailable — alarm plays at current hardware volume")
+                }
             }
         }
     }
 
-    private func findVolumeSlider() -> UISlider? {
-        // MPVolumeView contains a UISlider for system volume
-        let volumeView = MPVolumeView(frame: .zero)
-        for view in volumeView.subviews {
-            if let slider = view as? UISlider {
-                return slider
+    /**
+     * Hand the volume back. The old code saved previousVolume and then never
+     * used it — on any device where the max-write did land, the sailor's
+     * phone stayed at full volume forever after the alarm stopped.
+     */
+    private func restoreSystemVolume() {
+        DispatchQueue.main.async {
+            let view = self.volumeView
+            defer {
+                view?.removeFromSuperview()
+                self.volumeView = nil
+            }
+            guard let previous = self.previousVolume else { return }
+            self.previousVolume = nil
+            if let slider = view?.subviews.compactMap({ $0 as? UISlider }).first {
+                slider.value = previous
+                print("[AlarmAudio] System volume restored to \(previous)")
             }
         }
-        return nil
     }
 }

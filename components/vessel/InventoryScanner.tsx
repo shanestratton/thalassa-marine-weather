@@ -150,6 +150,21 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             for (const track of streamRef.current.getTracks()) track.stop();
             streamRef.current = null;
         }
+        // The INLINE scanner's stream + 500 ms detect interval too — this is
+        // the unmount cleanup's only teardown, and since the sole production
+        // mount uses startInManualMode, the inline path is the only web
+        // camera actually exercised. Cancel/save/tab-away all unmount without
+        // closeInlineScanner(), leaving the camera indicator lit and the
+        // interval firing at a null video ref for the session (audit
+        // 2026-08-02).
+        if (inlineScanRef.current) {
+            clearInterval(inlineScanRef.current);
+            inlineScanRef.current = null;
+        }
+        if (inlineStreamRef.current) {
+            for (const track of inlineStreamRef.current.getTracks()) track.stop();
+            inlineStreamRef.current = null;
+        }
     };
 
     // ── Inline scanner for manual mode ──

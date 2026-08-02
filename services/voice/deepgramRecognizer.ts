@@ -559,6 +559,8 @@ export async function prewarmWorkletAsset(): Promise<boolean> {
 let prewarmedWebSocket: WebSocket | null = null;
 let prewarmedWsKeepAlive: ReturnType<typeof setInterval> | null = null;
 let prewarmedWsReady = false;
+/** In-flight prewarm, so overlapping callers share one socket (see below). */
+let prewarmingPromise: Promise<boolean> | null = null;
 let prewarmedWsSampleRate = 0;
 
 /**
@@ -616,6 +618,23 @@ export async function prewarmDeepgramWebSocket(): Promise<boolean> {
     if (prewarmedWebSocket && prewarmedWebSocket.readyState === WebSocket.OPEN && prewarmedWsReady) {
         return true;
     }
+    // In-flight de-dupe (audit 2026-08-02): the completed-prewarm guard above
+    // cannot see a handshake still in progress — the module slot stays null
+    // until UpstreamOpen — so a console close→reopen (or rearm racing the
+    // mount effect) opened TWO sockets. The later UpstreamOpen overwrote the
+    // slots and the earlier socket was orphaned WITH its 5 s keepalive still
+    // ticking: unreachable by releasePrewarmedWebSocket, holding a paid
+    // Deepgram upstream session over cellular until app relaunch.
+    if (prewarmingPromise) return prewarmingPromise;
+    prewarmingPromise = openPrewarmWebSocket();
+    try {
+        return await prewarmingPromise;
+    } finally {
+        prewarmingPromise = null;
+    }
+}
+
+async function openPrewarmWebSocket(): Promise<boolean> {
     releasePrewarmedWebSocket();
     if (!DEEPGRAM_PROXY_URL) return false;
 
@@ -661,6 +680,10 @@ export async function prewarmDeepgramWebSocket(): Promise<boolean> {
                     // Remove this prewarm listener — once claimed, the
                     // recognizer attaches its own message handler.
                     ws.removeEventListener('message', onMessage);
+                    // Belt to the in-flight guard: if anything claimed the
+                    // slot while we handshook, release it rather than orphan
+                    // it and its keepalive.
+                    if (prewarmedWebSocket && prewarmedWebSocket !== ws) releasePrewarmedWebSocket();
                     prewarmedWebSocket = ws;
                     prewarmedWsReady = true;
                     prewarmedWsSampleRate = PREWARM_ASSUMED_SAMPLE_RATE;

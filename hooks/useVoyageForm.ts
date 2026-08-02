@@ -898,7 +898,18 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         try {
                             const { enhanceVoyagePlanWithIsochrone } = await import('../services/isochroneEnhancer');
                             if (!operationIsCurrent()) return;
-                            const isoResult = await enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, departureDate);
+                            // JS-side bound, like every sibling step: the
+                            // enhancer's internal AbortSignal.timeout is a
+                            // silent no-op under CapacitorHttp (native default
+                            // 600 s), and it also awaits several unbounded
+                            // fetches (bathymetry, waves, OSCAR, cyclone) — a
+                            // stalled socket on marine LTE wedged the whole
+                            // pipeline for up to 10 minutes (audit 2026-08-02).
+                            const isoResult = await withTimeout(
+                                enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, departureDate),
+                                null,
+                                45_000,
+                            );
                             if (!operationIsCurrent()) return;
                             if (isoResult) {
                                 enhancedPlan = isoResult;
@@ -926,10 +937,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         try {
                             const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                             if (!operationIsCurrent()) return;
-                            const weatherEnhancedPlan = await enhanceVoyagePlanWithWeather(
+                            // Same CapacitorHttp no-op-AbortSignal exposure as
+                            // the isochrone step — fall back to the unenhanced
+                            // plan rather than wedge (audit 2026-08-02).
+                            const weatherEnhancedPlan = await withTimeout(
+                                enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate),
                                 enhancedPlan,
-                                vessel,
-                                departureDate,
+                                120_000,
                             );
                             if (!operationIsCurrent()) return;
                             enhancedPlan = weatherEnhancedPlan;

@@ -30,6 +30,11 @@ export const FORBIDDEN_CLIENT_SECRET_NAMES = [
     'VITE_SPOONACULAR_KEY',
     'VITE_STORMGLASS_API_KEY',
     'VITE_STRIPE_SECRET_KEY',
+    // The Transistorsoft licence lives ONLY in Info.plist (TSLocationManager
+    // reads it natively). A VITE_ copy served no code path — two dead
+    // underscore-prefixed reads inlined the 66-char key into the public
+    // bundle for nothing (audit 2026-08-02).
+    'VITE_TRANSISTOR_LICENSE_KEY',
     'VITE_WEATHERKIT_PRIVATE_KEY',
     'VITE_WORLDTIDES_API_KEY',
     'VITE_WORLD_TIDES_API_KEY',

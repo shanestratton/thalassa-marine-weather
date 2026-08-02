@@ -606,10 +606,20 @@ export function useWeatherLayers(
 
         let idx = 1; // Start from frame 1 — frame 0 is already done
         const KEYFRAME_INTERVAL = 3;
+        const FRAMES_PER_CHUNK = 3;
         const computeBatch = () => {
-            // Process all remaining frames in one batch — the global grid is small
-            // enough that this completes in <200ms on modern phones
-            const batchEnd = Math.min(idx + total, total);
+            // REAL chunks. `Math.min(idx + total, total)` always equalled
+            // total, so all remaining frames computed in ONE synchronous
+            // block and the setTimeout chaining below was dead code. That was
+            // accepted when the grid had 13 frames ("completes in <200ms");
+            // the 42h extension made it 22 frames — measured ~0.5s of
+            // contouring plus the keyframe heatmap canvas/JPEG work, i.e. a
+            // visible freeze of gestures and wind particles on combo
+            // formation, recurring on every 30-minute grid refresh (audit
+            // 2026-08-02). Three frames per tick keeps each block inside a
+            // frame budget; framesReady already reports incremental progress
+            // and the wind-sync effect re-fires on it.
+            const batchEnd = Math.min(idx + FRAMES_PER_CHUNK, total);
             for (let h = idx; h < batchEnd; h++) {
                 const isKeyframe = h % KEYFRAME_INTERVAL === 0 || h === total - 1;
                 cachedFramesRef.current[h] = generateIsobarsFromGrid(grid, h, !isKeyframe);
@@ -714,11 +724,21 @@ export function useWeatherLayers(
         [applyFrame, precomputeFrames, computePressureNowIndex],
     );
 
-    // Isobar playback RAF
+    // Isobar playback RAF. Gated on the layer being active AND standalone:
+    // the Baro timeline (the only pause control) is replaced by the wind
+    // scrubber in the wind+pressure combo, so a playback started standalone
+    // would otherwise keep time-lapsing the isobars every 350 ms with no
+    // control left anywhere to stop it, fighting the wind→pressure sync
+    // effect tick for tick (audit 2026-08-02).
     useEffect(() => {
-        if (!isPlaying) {
+        const comboActive = activeLayers.has('wind') || activeLayers.has('velocity');
+        const standalonePressure = activeLayers.has('pressure') && !comboActive;
+        if (!isPlaying || !standalonePressure) {
             if (playRafRef.current) cancelAnimationFrame(playRafRef.current);
             playRafRef.current = null;
+            // Drop the flag too, so the timeline doesn't resume playing by
+            // surprise when the layer combination changes back.
+            if (isPlaying && !standalonePressure) setIsPlaying(false);
             return;
         }
         const animate = (timestamp: number) => {
@@ -743,7 +763,8 @@ export function useWeatherLayers(
         return () => {
             if (playRafRef.current) cancelAnimationFrame(playRafRef.current);
         };
-    }, [isPlaying]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isPlaying, activeKey]);
 
     // Apply isobar frame on hour change
     useEffect(() => {
@@ -776,10 +797,21 @@ export function useWeatherLayers(
         const stepHours = grid.subFrameStepHours || 1;
         const target = pressureNowIdxRef.current + hoursFromNow / stepHours;
         const idx = Math.max(0, Math.min(Math.round(target), frameCount - 1));
-        if (idx !== forecastHourRef.current) setForecastHour(idx);
+        if (idx !== forecastHourRef.current) {
+            setForecastHour(idx);
+        } else if (cachedFramesRef.current[idx]) {
+            // Same index, but the frame data may have JUST landed: on combo
+            // formation this effect fires from framesReady while the target
+            // frame is still uncomputed, forecastHour gets set, the
+            // apply-on-hour-change effect no-ops on the missing frame — and
+            // when the precompute batch finally delivers it, nothing
+            // repainted, leaving the isobars showing "now" under a +30h wind
+            // label (audit 2026-08-02). Re-applying is a cheap setData.
+            applyFrame(idx);
+        }
         // framesReady re-fires this once the background precompute lands.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [windHour, windNowIdx, windForecastHours, activeKey, framesReady, pressureFrameStepHours]);
+    }, [windHour, windNowIdx, windForecastHours, activeKey, framesReady, pressureFrameStepHours, applyFrame]);
 
     // ── Wind scrubber: update GL engine on hour change ──
     useEffect(() => {

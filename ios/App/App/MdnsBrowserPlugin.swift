@@ -40,31 +40,45 @@ public class MdnsBrowserPlugin: CAPPlugin, NetServiceBrowserDelegate, NetService
     private var didFinish = false
 
     @objc func browse(_ call: CAPPluginCall) {
-        // Defensive: kill any in-flight browse before starting a new one.
-        cleanup()
+        // ON MAIN, deliberately (audit 2026-08-02). Capacitor invokes plugin
+        // methods on its background bridge queue, and NetServiceBrowser
+        // schedules its delegate callbacks on the CURRENT thread's run loop —
+        // a GCD pool thread whose run loop is never pumped. Created there,
+        // didFind/didNotSearch never fired and every browse resolved the
+        // empty timeout array: the method could not work, ever. Main's run
+        // loop always pumps, and this also serialises all state access with
+        // finishBrowse's main-queue timeout.
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else {
+                call.resolve(["services": []])
+                return
+            }
+            // Defensive: kill any in-flight browse before starting a new one.
+            self.cleanup()
 
-        let serviceType = call.getString("serviceType") ?? "_thalassa-cache._tcp"
-        let domain = call.getString("domain") ?? "local."
-        let timeoutMs = call.getDouble("timeoutMs") ?? 3000
+            let serviceType = call.getString("serviceType") ?? "_thalassa-cache._tcp"
+            let domain = call.getString("domain") ?? "local."
+            let timeoutMs = call.getDouble("timeoutMs") ?? 3000
 
-        pendingCall = call
-        resolved = []
-        pendingServices = []
-        didFinish = false
+            self.pendingCall = call
+            self.resolved = []
+            self.pendingServices = []
+            self.didFinish = false
 
-        let b = NetServiceBrowser()
-        b.delegate = self
-        // includesPeerToPeer: false — we only want devices on the local LAN
-        // (the boat's WiFi), not Bluetooth/AWDL peers.
-        b.includesPeerToPeer = false
-        b.searchForServices(ofType: serviceType, inDomain: domain)
-        browser = b
+            let b = NetServiceBrowser()
+            b.delegate = self
+            // includesPeerToPeer: false — we only want devices on the local LAN
+            // (the boat's WiFi), not Bluetooth/AWDL peers.
+            b.includesPeerToPeer = false
+            b.searchForServices(ofType: serviceType, inDomain: domain)
+            self.browser = b
 
-        // Stop after timeout no matter what — even if no results came in.
-        // Empty array is a valid result; the JS side falls back to the
-        // hostname list if so.
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeoutMs / 1000) { [weak self] in
-            self?.finishBrowse()
+            // Stop after timeout no matter what — even if no results came in.
+            // Empty array is a valid result; the JS side falls back to the
+            // hostname list if so.
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutMs / 1000) { [weak self] in
+                self?.finishBrowse()
+            }
         }
     }
 

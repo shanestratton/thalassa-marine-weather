@@ -18,14 +18,24 @@
 	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Thalassa uses Apple Music to let Calypso, your AI first mate, search and play music, show your playlists, and—only when you ask—create playlists or add tracks to them. Thalassa never deletes or changes your music without your request.</string>
+	<!-- audio = anchor-alarm tones + Apple Music playback; location =
+	     voyage tracking; fetch = diary outbox drain (BGAppRefreshTask via
+	     TSBackgroundFetch — requires the BGTaskSchedulerPermittedIdentifiers
+	     below or iOS never registers the task and background fetch silently
+	     cannot fire). 'processing' removed 2026-08-02: no BGProcessingTask
+	     is ever scheduled (no BackgroundFetch.scheduleTask call anywhere),
+	     and an undefended declared mode is App-Review bait. A duplicate
+	     'audio' entry was also removed. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
 		<string>location</string>
 		<string>fetch</string>
 		<string>remote-notification</string>
-		<string>processing</string>
-		<string>audio</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.transistorsoft.fetch</string>
 	</array>
 	<!-- Bad Elf MFi protocol declaration (Shane 2026-08-02: "add the plist
 	     key, chance the app review"). Without this, EAAccessoryManager's
@@ -107,9 +117,16 @@
 	<false/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+    <!-- Scoped from NSAllowsArbitraryLoads (audit 2026-08-02): the blanket
+	     exception was scaffold debris, and the only plaintext endpoints the
+	     app ever fetches are LAN/.local/numeric-IP hosts (calypso.local,
+	     10.0.0.1 Bosun AP, 192.168.x, the 100.x tailnet IP) — all of which
+	     ATS exempts by default, with NSAllowsLocalNetworking kept as the
+	     explicit belt. Every internet host now gets full ATS enforcement,
+	     and the App Review arbitrary-loads justification question goes away. -->
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
+        <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
 	<key>NSBonjourServices</key>

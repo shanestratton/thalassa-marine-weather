@@ -31,6 +31,7 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
+import { setPlanLinkWithRetry } from '../../services/shiplog/planLinkIntent';
 
 // Crew-on-someone-else's-boat surface: each entry represents a boat the
 // current user is crew on (NOT the owner), plus their personal voyage-log
@@ -86,7 +87,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     const mountedRef = useRef(true);
     const copyTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
     const operationEpochRef = useRef(0);
-    const planLinksRef = useRef<Map<string, string>>(new Map());
 
     const clearCopyTimers = useCallback(() => {
         for (const timer of copyTimersRef.current) clearTimeout(timer);
@@ -195,7 +195,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         setPlanRoutes([]);
         setPlanLinks(new Map());
         setLinkPickerFor(null);
-        planLinksRef.current = new Map();
 
         void Promise.all([VoyageLogService.getConfig(), loadCrewBoats(scope)])
             .then(([nextConfig, nextCrewBoats]) => {
@@ -313,30 +312,39 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
 
             setLinkPickerFor(null);
             triggerHaptic('light');
-            const prev = planLinksRef.current.get(immutableVoyageId) ?? null;
             setPlanLinks((current) => {
                 const next = new Map(current);
                 if (immutablePlanId) next.set(immutableVoyageId, immutablePlanId);
                 else next.delete(immutableVoyageId);
                 return next;
             });
-            const ok = await VoyageLogService.setVoyagePlanLink(immutableVoyageId, immutablePlanId);
+            // Through the durable intent ledger, not a bare write (audit
+            // 2026-08-02): a direct write here bypassed last-intent-wins, so
+            // a stale intent queued by an earlier sheet pick could later
+            // flush OVER this deliberate choice. `false` now means "queued,
+            // will keep trying" — keep the optimistic UI rather than revert.
+            const ok = await setPlanLinkWithRetry(immutableVoyageId, immutablePlanId);
             if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
-            if (!ok) {
-                setPlanLinks((current) => {
-                    const next = new Map(current);
-                    if (prev) next.set(immutableVoyageId, prev);
-                    else next.delete(immutableVoyageId);
-                    return next;
-                });
-                toast.error(VoyageLogService.lastError ?? 'Could not update the link — check signal');
+            if (ok) {
+                // Tell every other door this question has been answered —
+                // most importantly the Log page's cast-off sheet, whose
+                // "Just recording" dismissal used to durably CLEAR a link it
+                // never knew about, erasing the choice made here.
+                try {
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:voyage-plan-link-changed', {
+                            detail: { voyageId: immutableVoyageId },
+                        }),
+                    );
+                } catch {
+                    /* non-DOM host */
+                }
+            } else {
+                toast.error(VoyageLogService.lastError ?? 'Link queued — will keep trying when signal returns');
             }
         },
         [identityScope, operationIsCurrent],
     );
-    // Ref mirror so handlePlanLink's revert reads the latest map without
-    // re-creating the callback per change.
-    planLinksRef.current = planLinks;
 
     // Auto-fit the public URL hero text to its container — start at
     // 22px and shrink one px at a time until the whole link fits on

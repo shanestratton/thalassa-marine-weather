@@ -189,7 +189,13 @@ Deno.serve(async (req: Request) => {
         return json({ error: 'Method not allowed' }, 405);
     }
 
-    const caller = await requireAuthenticatedOrPublicQuota(req, 'voyage_log', 360, 120, 3600, true);
+    // Public bucket 600/hr per IP hash (was 120): the official page polls
+    // every 60 s, so 120 was barely 2 tabs' worth — one household NAT (or a
+    // marina's guest Wi-Fi, or carrier CGNAT) following one boat exhausted
+    // the bucket and the family got "Request quota exceeded" while the boat
+    // was at sea (audit 2026-08-02). 600 covers ~10 worst-case tabs behind
+    // one IP while still bounding a scraper to 10 req/min sustained.
+    const caller = await requireAuthenticatedOrPublicQuota(req, 'voyage_log', 360, 600, 3600, true);
     if (caller instanceof Response) return withCors(caller, corsHeaders);
 
     try {

@@ -111,7 +111,15 @@ export default function ThalassaDashboard() {
             }
             const message = e instanceof VoyageLogError ? e.message : 'Something went wrong loading this voyage log.';
             // Don't blow away good data on a failed background refresh.
-            setState((prev) => (prev.status === 'ready' && !showSpinner ? prev : { status: 'error', message }));
+            // For 429 specifically, keep good data even on a foreground
+            // trip-switch: quota exhaustion is transient (shared-IP viewers
+            // draining the anon bucket), and the map already on screen beats
+            // a "quota exceeded" error card while the boat is at sea
+            // (audit 2026-08-02).
+            const isQuota = e instanceof VoyageLogError && e.status === 429;
+            setState((prev) =>
+                prev.status === 'ready' && (!showSpinner || isQuota) ? prev : { status: 'error', message },
+            );
         } finally {
             if (requestId === requestSequence.current) setIsTripLoading(false);
         }

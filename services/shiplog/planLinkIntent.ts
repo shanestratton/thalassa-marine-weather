@@ -80,8 +80,15 @@ function scheduleRetry(): void {
  * Apply every recorded intent. Success removes the intent; failure keeps it
  * and schedules another pass. Safe to call any time; coalesces concurrent
  * callers.
+ *
+ * Also arms the online-event listener: the ledger survives process death,
+ * but until 2026-08-02 nothing re-armed the listener or flushed after a
+ * relaunch — an intent queued in a dead spot sat orphaned forever if the
+ * next session started online (the 'online' event never fires when you were
+ * never offline). ShipLogService.initialize() now calls this at boot.
  */
 export async function flushPlanLinkIntents(): Promise<void> {
+    armListeners();
     if (flushing) return;
     flushing = true;
     const scope = getAuthIdentityScope();

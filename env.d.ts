@@ -10,8 +10,6 @@ declare namespace NodeJS {
         SUPABASE_KEY?: string;
         // Maps
         MAPBOX_ACCESS_TOKEN?: string;
-        // Background Geolocation
-        VITE_TRANSISTOR_LICENSE_KEY?: string;
     }
 }
 

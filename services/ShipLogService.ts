@@ -42,6 +42,7 @@ import {
     suspendTrackingStateForIdentityChange,
     type TrackingState,
 } from './shiplog/TrackingStateStore';
+import { flushPlanLinkIntents } from './shiplog/planLinkIntent';
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
 import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
 import { ShoreZoneResolver } from './shiplog/ShoreZoneResolver';
@@ -610,6 +611,15 @@ class ShipLogServiceClass {
                     log.warn('initial queue sync failed (will retry):', e),
                 );
             }
+
+            // Flush plan-link intents a previous process left behind. The
+            // ledger is durable but its retry timer and online listener died
+            // with the old process, and a session that starts online never
+            // fires 'online' — so without this, a link/clear queued in a dead
+            // spot stayed orphaned forever (audit 2026-08-02). Unconditional:
+            // intents are single tiny writes and last-intent-wins, safe even
+            // mid-voyage.
+            void flushPlanLinkIntents().catch((e) => log.warn('plan-link intent flush failed (will retry):', e));
 
             this.registerLifecycleHandlers();
             if (isAuthIdentityScopeCurrent(scope)) this.initializedGeneration = scope.generation;
