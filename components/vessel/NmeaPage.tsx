@@ -15,7 +15,7 @@ import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
 import { AisHubService, type AisHubStats } from '../../services/AisHubService';
 import { discoverGateways, type GatewayCandidate, type ScanPhase } from '../../services/nmea/gatewayScan';
-import { nativeTcpProbe, detectLocalSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
+import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 
 import { PageHeader } from '../ui/PageHeader';
@@ -115,16 +115,22 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const [scanHits, setScanHits] = useState<GatewayCandidate[]>([]);
     const stopScanRef = useRef(false);
 
-    // Prefill the network from this device's own address where the platform
-    // allows it — one less thing to know at the helm.
+    // Work out the network ourselves — WebRTC if iOS allows it, else by
+    // finding the router. The skipper should never have to go and read an IP
+    // off another screen just to start a scan.
+    const [detectingSubnet, setDetectingSubnet] = useState(false);
     useEffect(() => {
         if (subnet) return;
         let cancelled = false;
-        void detectLocalSubnetPrefix()
-            .then((prefix) => {
-                if (!cancelled && prefix) setSubnet(prefix);
+        setDetectingSubnet(true);
+        void detectSubnetPrefix({ shouldStop: () => cancelled })
+            .then((found) => {
+                if (!cancelled && found) setSubnet(found.prefix);
             })
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => {
+                if (!cancelled) setDetectingSubnet(false);
+            });
         return () => {
             cancelled = true;
         };
@@ -336,7 +342,9 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                             <div className="mt-0.5 text-[11px] leading-snug text-gray-500">
                                                 {scanning
                                                     ? scanPhaseLabel(scanPhase)
-                                                    : 'Scans your boat’s network for the gateway.'}
+                                                    : detectingSubnet
+                                                      ? 'Finding your network…'
+                                                      : 'Scans your boat’s network for the gateway.'}
                                             </div>
                                         </div>
                                         <button
