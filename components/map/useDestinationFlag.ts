@@ -5,8 +5,9 @@
  *
  * Three render states (matches the user's mental model):
  *   1. Voyage active with destinationCoordinates → flag + chip
- *   2. Voyage active but no destination set      → no flag, route line
- *      from useFollowRouteMapbox is enough to show direction of travel
+ *   2. Voyage active but no destination set      → nothing extra (the
+ *      follow-route line left this chart 2026-08-03 — OBS stays
+ *      uncluttered; the Log and public pages draw the route)
  *   3. No active voyage                          → nothing
  *
  * Always co-renders with useVesselTracker (which always shows the

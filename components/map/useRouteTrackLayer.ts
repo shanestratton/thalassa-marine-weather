@@ -29,11 +29,10 @@ const VARIANT_STYLE: Record<
     { color: string; glowColor: string; dasharray: number[] | null; startLabel: string; endLabel: string }
 > = {
     route: {
-        // Violet (purple-500) — distinct from the active follow-route's
-        // sky-blue so the user never confuses "I'm sailing this right
-        // now" with "I'm reviewing a saved plan". Three semantically
-        // separated colours total on the chart:
-        //   sky-blue  = active live voyage (useFollowRouteMapbox)
+        // Violet (purple-500) — distinct from the sky-blue the active
+        // follow-route line used while it lived on this chart (removed
+        // 2026-08-03, OBS stays uncluttered; sky-blue remains the live
+        // voyage colour on the Log and public pages). Chart colours:
         //   violet    = saved planned route (this layer)
         //   amber     = recorded track (useRouteTrackLayer track variant)
         color: '#a855f7',

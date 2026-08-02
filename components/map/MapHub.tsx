@@ -185,7 +185,6 @@ import {
 const IMAGERY_SCRUB_OWNED: ReadonlySet<string> = new Set([ENC_VEC_LAYERS.LNDARE_ISLET]);
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
-import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
@@ -2544,20 +2543,21 @@ export const MapHub: React.FC<MapHubProps> = ({
         setCapturedCoords,
     ]);
 
-    // Follow Route overlay — renders the followed planned route on the map
-    // Suppressed during passage planning to avoid visual conflict
-    // (both use dashed sky-blue lines, causing confusion), and while the
-    // TRACER is open (Shane 2026-07-09 "remove all of the spaghetti":
-    // saved routes, sailed tracks, follow-route and dest flag were all
-    // painting over the marks he was trying to thread — the tracer's
-    // chart is for the trace and the marks, nothing else).
-    useFollowRouteMapbox(mapRef, mapReady && !planningSurface);
+    // Follow Route overlay — REMOVED from this chart entirely (Shane
+    // 2026-08-03: "on the obs page, can we ensure that the route does not
+    // show up"). It was already suppressed on Plan and in the tracer
+    // (2026-07-09 "remove all of the spaghetti"), which made OBS its only
+    // remaining surface — and OBS stays uncluttered. The followed route
+    // still renders where it earns its keep: the Log page's live map and
+    // the public voyage page. useFollowRouteMapbox died with this call;
+    // follow-route STATE is untouched (publishing, leg grading and the
+    // destination flag below all still read it).
 
     // Destination flag — pulsing green flag at the active voyage's
     // destination, with a live distance + bearing chip from the user's
-    // current GPS. Hidden when no voyage is active. Sits on top of the
-    // follow-route line so the user gets the full "I am here, going
-    // there" picture from one glance at the chart.
+    // current GPS. Hidden when no voyage is active. Deliberately KEPT on
+    // OBS after the follow-route line was removed: one flag is the
+    // glanceable "going there" without the spaghetti.
     useDestinationFlag(mapRef, mapReady && !planningSurface);
 
     // Routes (planned) and Tracks (sailed) chart layers. Both come
