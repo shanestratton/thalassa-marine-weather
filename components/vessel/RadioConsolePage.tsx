@@ -11,6 +11,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GpsService, type GpsPosition } from '../../services/GpsService';
+import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../../hooks/useGpsHealth';
 import { MobService } from '../../services/MobService';
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
@@ -238,16 +239,29 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
         if (mobActive && dscMode === 'distress') setNatureOfDistress('mob');
     }, [mobActive, dscMode]);
 
+    // Why there is no position, when the OS already knows. The DSC/MOB screen
+    // is the least acceptable place in the app for a spinner that cannot say
+    // "you have not granted location access".
+    const gpsHealth = useGpsHealth();
+    const gpsBlocked = gpsHealth && !gpsHealth.usable ? gpsHealthMessage(gpsHealth.reason) : null;
+
     // Poll GPS every 3 seconds
     useEffect(() => {
         let active = true;
         const poll = () => {
             GpsService.getCurrentPosition({ staleLimitMs: 10_000, timeoutSec: 8 })
                 .then((pos) => {
-                    if (active) {
-                        setPosition(pos);
-                        setGpsError(false);
-                    }
+                    if (!active) return;
+                    setPosition(pos);
+                    // NULL IS THE FAILURE SIGNAL HERE, not a rejection.
+                    // getCurrentPosition never rejects — both its native and web
+                    // paths swallow everything and resolve null (GpsService.ts)
+                    // — so gpsError was permanently false and the "No Fix" chip
+                    // below was unreachable dead code. On the screen used to
+                    // read a position onto a VHF distress or MOB call, that is
+                    // the last place a pulsing "Acquiring…" should be allowed to
+                    // stand in for "we do not have your position".
+                    setGpsError(pos === null);
                 })
                 .catch(() => {
                     if (active) setGpsError(true);
@@ -475,7 +489,11 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                         </div>
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center gap-3 py-8 text-slate-500">
+                    <div
+                        className={`flex flex-col items-center justify-center gap-3 py-8 ${
+                            gpsBlocked ? 'text-red-400' : 'text-slate-500'
+                        }`}
+                    >
                         <svg
                             width="32"
                             height="32"
@@ -483,7 +501,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                             fill="none"
                             stroke="currentColor"
                             strokeWidth={1.5}
-                            className="animate-pulse"
+                            className={gpsBlocked ? '' : 'animate-pulse'}
                         >
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                             <path
@@ -492,7 +510,27 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                                 d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
                             />
                         </svg>
-                        <span className="text-[13px] font-bold tracking-wider uppercase">Acquiring GPS Fix…</span>
+                        {/* On the screen a skipper reads a position off for a
+                            VHF distress or MOB call, "no position" must never
+                            be dressed as "nearly there". */}
+                        <span className="text-[13px] font-bold tracking-wider uppercase">
+                            {gpsBlocked ? gpsBlocked.title : 'Acquiring GPS Fix…'}
+                        </span>
+                        {gpsBlocked && (
+                            <>
+                                <span className="max-w-xs px-4 text-center text-[11px] font-medium normal-case leading-snug text-slate-400">
+                                    {gpsBlocked.detail} Read your position from the chartplotter before transmitting.
+                                </span>
+                                {gpsHealth?.actionable && (
+                                    <button
+                                        onClick={openDeviceSettings}
+                                        className="rounded-lg bg-sky-500/90 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white active:scale-95"
+                                    >
+                                        Open Settings
+                                    </button>
+                                )}
+                            </>
+                        )}
                     </div>
                 )}
             </div>
