@@ -3125,10 +3125,20 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (planningSurface) return;
         // Fire only for a layer that NEWLY appears. Comparing sets (rather
         // than a single boolean) also catches a SWITCH between two framed
-        // layers — picking pressure while wind is up is a fresh framing
+        // layers — e.g. rain to wind via selectInGroup is a fresh framing
         // decision, not a continuation, and selectInGroup makes that one tap.
         const newlyOn = [...on].find((k) => !prev.has(k)) as WeatherLayer | undefined;
         if (!newlyOn) return;
+        // EXCEPT when the wind+pressure overlay pair is forming. Since
+        // pressure left the atmosphere exclusion group (2026-08-02), isobars
+        // STACK on wind — adding one on top of the other enriches the view
+        // the skipper is already reading, and yanking the camera to the
+        // newcomer's synoptic frame would throw that view away.
+        const windUp = on.has('wind') || on.has('velocity');
+        const pairForming =
+            (newlyOn === 'pressure' && windUp) ||
+            ((newlyOn === 'wind' || newlyOn === 'velocity') && on.has('pressure'));
+        if (pairForming) return;
         const zoom = LAYER_FRAME_ZOOM[newlyOn];
         if (zoom === undefined) return;
         const m = mapRef.current;

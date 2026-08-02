@@ -86,13 +86,20 @@ export function MapWeatherControls({
         activeWeatherLayers.length === 2 &&
         activeWeatherLayers.includes('wind') &&
         activeWeatherLayers.includes('rain');
+    // Wind + pressure is the synoptic overlay: isobars ride the wind field
+    // and FOLLOW the wind timeline (useWeatherLayers syncs the isobar frame
+    // to windHour). One scrubber, the wind one — not the LegendDock.
+    const isWindPressureCombo =
+        activeWeatherLayers.length === 2 &&
+        activeWeatherLayers.includes('wind') &&
+        activeWeatherLayers.includes('pressure');
     const currentRainFrame = weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showRainViewerAttribution =
         weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'radar';
     const rainIsLoading = Boolean(weather.rainLoading || weather.rainImageLoading);
 
     let content: React.ReactNode = null;
-    if (showTimeline && activeWeatherLayers.length >= 2 && !isWindRainCombo) {
+    if (showTimeline && activeWeatherLayers.length >= 2 && !isWindRainCombo && !isWindPressureCombo) {
         content = <LegendDock layers={activeWeatherLayers} embedded={embedded} />;
     } else if (showTimeline && isWindRainCombo) {
         if (weather.rainReady && !rainIsLoading && weather.rainFrameCount > 1) {
@@ -144,7 +151,10 @@ export function MapWeatherControls({
     }
 
     if (showTimeline && content === null && activeWeatherLayers.length > 0) {
-        const activeLayer = activeWeatherLayers[0];
+        // weatherKeys lists 'pressure' first, so in the wind+pressure combo
+        // the wind timeline must be picked explicitly — pressure has no
+        // scrubber of its own there, it follows windHour.
+        const activeLayer = isWindPressureCombo ? 'wind' : activeWeatherLayers[0];
         if (activeLayer) {
             let frameIndex = 0;
             let totalFrames = 1;

@@ -28,10 +28,10 @@ interface PressureGrid {
      *  clock time instead of forecast hour 0. */
     refTime: string | null;
     /** Forecast-hour offsets for the keyframes BEFORE interpolation, e.g.
-     *  [0,3,6,9,12]. Combined with INTERP_STEPS=3 this gives 0,1,2,3,...,12
+     *  [0,6,12,…,42]. Combined with INTERP_STEPS=3 this gives 0,2,4,…,42
      *  sub-frames. Used to turn an age-in-hours into an index. */
     keyframeFhrs: number[];
-    /** Hours per sub-frame after interpolation (1h for the GFS 3h/3-step case). */
+    /** Hours per sub-frame after interpolation (2h for the GFS 6h/3-step case). */
     subFrameStepHours: number;
     /** The actual source behind the chart. Emergency fallback data must never
      *  be visually indistinguishable from the primary GFS grid. */
@@ -82,8 +82,12 @@ const log = createLogger('isobars');
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || '';
 
-// Forecast hours: 3h intervals over 12h = 5 frames
-const GRIB_FORECAST_HOURS = [0, 3, 6, 9, 12];
+// Forecast hours: 6h intervals over 42h = 8 keyframes — the edge function's
+// maximum (parseForecastHours caps at 8 items). With INTERP_STEPS=3 this
+// yields 22 sub-frames at 2h steps, so the isobars can follow the wind
+// layer's 48h scrubber across nearly its whole range instead of freezing at
+// +12h. GFS 1p00 publishes 3-hourly, so 6h spacing is a clean subset.
+const GRIB_FORECAST_HOURS = [0, 6, 12, 18, 24, 30, 36, 42];
 
 interface GfsGridResponse {
     frames: number[][][]; // [frameIdx][row_S_to_N][col_W_to_E] in hPa
@@ -204,7 +208,7 @@ async function fetchPressureGridGfs(
         const _allHourlyWindDir: number[][][] = frames.map(() => emptyGrid);
 
         // ── Interpolate between GRIB frames for smooth animation ──
-        // Five 3-hour GFS keyframes produce 13 hourly frames (0…12h).
+        // Eight 6-hour GFS keyframes produce 22 two-hourly frames (0…42h).
         const INTERP_STEPS = 3;
         const interpPressure: number[][][] = [];
 
@@ -244,7 +248,7 @@ async function fetchPressureGridGfs(
             totalHours: interpTotal,
             refTime: data.refTime ?? null,
             keyframeFhrs,
-            // 3h keyframes, 3 interpolation steps → 1h per sub-frame.
+            // 6h keyframes, 3 interpolation steps → 2h per sub-frame.
             subFrameStepHours: keyframeStepHours / INTERP_STEPS,
             source: 'gfs',
         };
