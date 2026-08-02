@@ -103,7 +103,6 @@ import {
 // no cycle. (publishFollowedRoute DOES, which is why the public link is
 // cleared through VoyageLogService directly rather than through it.)
 import { useFollowRouteStore } from '../stores/followRouteStore';
-import { VoyageLogService } from './VoyageLogService';
 
 const log = createLogger('ShipLog');
 
@@ -841,12 +840,14 @@ class ShipLogServiceClass {
         /**
          * "This voyage was just created — treat it as a cold departure."
          *
-         * EXPLICIT, because it cannot be inferred. The helm's Cast Off mints a
-         * voyage and then passes its id as `continueVoyageId` (CastOffPanel),
-         * which is indistinguishable from resuming a passage already under way.
-         * Callers that mint know; nobody downstream can.
+         * RETAINED FOR THE CALL SIGNATURE, no longer read. It existed to tell
+         * a mint apart from a resume so fast-lock could be armed only on the
+         * former; fast-lock is now armed on the first-fix GATE instead, which
+         * answers that question directly and stays correct for resumes and
+         * WebView reloads too. CastOffPanel still passes `true` and is welcome
+         * to — removing the parameter would be a signature change for no gain.
          */
-        freshDeparture: boolean = false,
+        _freshDeparture: boolean = false,
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         if (this.trackingState.isTracking) {
@@ -887,22 +888,19 @@ class ShipLogServiceClass {
         } else {
             voyageId = `voyage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         }
-        // GENUINELY new voyage = the mint branch above. Resume (JS-context
-        // reload, continueVoyageId) and autoStart-resume must NOT re-arm
-        // fast-lock 30+ min into a passage — that would re-spike sampling
-        // mid-voyage (the disturbance the 60-min precision auto-shutoff
-        // removal was meant to kill).
+        // WHY FAST-LOCK EXISTS AT ALL (kept from the 2026-07-28 work, because
+        // the reasoning outlived the condition it was written for): at the dock
+        // distanceFilter stays at 1 m, a stationary boat never travels 1 m, so
+        // the GPS emits almost nothing and the first-fix consistency gate
+        // starves waiting for a corroborating second fix that cannot arrive.
+        // That was Shane's "takes a very long time" — never the satellite lock.
         //
-        // `freshDeparture` is the missing case, and it was the big one. The
-        // helm's Cast Off — the way a passage ACTUALLY begins — mints a voyage
-        // and passes its id as `continueVoyageId`, so this read false there and
-        // fast-lock never armed on the one path that needs it most. At the dock
-        // that matters enormously: distanceFilter stays at 1 m, a stationary
-        // boat never travels 1 m, so the GPS emits almost nothing and the
-        // first-fix consistency gate starves waiting for a corroborating second
-        // fix that cannot arrive. That is Shane's "takes a very long time"
-        // (2026-07-28) — not the satellite lock, which was fine all along.
-        const isNewVoyage = freshDeparture || (!continueVoyageId && !(resume && this.trackingState.currentVoyageId));
+        // This used to be decided by an `isNewVoyage` predicate that tried to
+        // enumerate which starts deserved a re-spike (mint vs resume vs the
+        // helm's Cast Off, which passes its fresh id as `continueVoyageId` and
+        // so read FALSE on the one path that needed it most). The gate itself
+        // answers the question directly and cannot drift out of sync with it —
+        // see the arm site below.
 
         // Bind the selected vessel ONCE at cast-off. Do not look this up
         // again from the currently selected fleet profile after a track has
@@ -1008,7 +1006,15 @@ class ShipLogServiceClass {
         // "Acquiring GPS fix…" banner clears sooner. Reverts to the
         // steady 1 m filter after FAST_LOCK_MS. On resume / mid-voyage
         // reload we stay at the steady mode (no re-spike).
-        if (this.isNative && isNewVoyage) {
+        // Arm on the GATE, not on newness. GpsSubscriptionManager.start()
+        // resets its first-fix bookkeeping on EVERY start and this service
+        // clears trackGpsGateOpen alongside it, so a resume — or a WebView
+        // reload mid-voyage, which happens — re-closes the gate with exactly
+        // the same stationary-vessel problem and, under the old condition, no
+        // mitigation at all. The original intent ("no re-spike mid-voyage")
+        // is preserved: once the gate is open this is false and we stay at the
+        // steady filter.
+        if (this.isNative && !this.trackGpsGateOpen) {
             this.armFastLock(voyageId, scope, sessionState);
         } else {
             BgGeoManager.setSamplingMode('default').catch((e) => {
@@ -1197,16 +1203,41 @@ class ShipLogServiceClass {
         BgGeoManager.setSamplingMode('fastlock').catch((e) => {
             log.warn('failed to enter fast-lock sampling on track start:', e);
         });
-        this.fastLockTimeoutId = setTimeout(() => {
+        const revert = () => {
             this.fastLockTimeoutId = undefined;
             if (this.fastLockArmedForVoyageId !== voyageId) return;
-            if (this.ownerIsCurrent(scope, state) && state.isTracking && state.currentVoyageId === voyageId) {
-                BgGeoManager.setSamplingMode('default').catch((e) => {
-                    log.warn('fast-lock revert failed:', e);
-                });
+            if (!this.ownerIsCurrent(scope, state) || !state.isTracking || state.currentVoyageId !== voyageId) {
+                this.fastLockArmedForVoyageId = undefined;
+                return;
             }
+
+            // THE FIX FOR "acquiring GPS fix… for hours" (Shane 2026-08-02).
+            //
+            // This timer used to revert unconditionally, and on a vessel that
+            // is not moving that closed the only door to a first fix. iOS has
+            // no fix-rate lever but distanceFilter, so back at the steady 1 m
+            // filter a boat on a mooring emits almost no onLocation events.
+            // The first-fix gate needs TWO fixes within 15 s to agree before
+            // ANY point is persisted, so it never closed its pair, nothing was
+            // recorded, and every surface keyed on "has a recorded fix" span
+            // forever. The accuracy ceiling only relaxes at 60 s and this timer
+            // fired at 65 s — a five-second window in which the whole thing had
+            // to succeed.
+            //
+            // settleFastLock (called from onTrackOpened) is the correct exit
+            // and already gate-aware. Until the gate opens, staying in
+            // fast-lock is the entire point of fast-lock: keep sampling.
+            if (!this.trackGpsGateOpen) {
+                this.fastLockTimeoutId = setTimeout(revert, FAST_LOCK_MS);
+                return;
+            }
+
+            BgGeoManager.setSamplingMode('default').catch((e) => {
+                log.warn('fast-lock revert failed:', e);
+            });
             this.fastLockArmedForVoyageId = undefined;
-        }, FAST_LOCK_MS);
+        };
+        this.fastLockTimeoutId = setTimeout(revert, FAST_LOCK_MS);
     }
 
     /**

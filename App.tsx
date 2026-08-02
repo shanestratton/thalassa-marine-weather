@@ -228,6 +228,19 @@ const App: React.FC = () => {
             if (cancelled) return;
             void import('./services/BgGeoManager')
                 .then(({ BgGeoManager }) => BgGeoManager.ensureReady())
+                .then(() => {
+                    if (cancelled) return;
+                    // Then actually GO AND GET A FIX (Shane 2026-08-02: "most
+                    // apps don't even need to wait... maybe we could do the
+                    // warm up as soon as we kick the app off"). ensureReady
+                    // only configures — it starts no tracking — so before this
+                    // every cold start began its satellite hunt at the moment
+                    // of need, and the first thing that started GPS at all was
+                    // the Glass's own lease, itself behind a weather fetch.
+                    // warmUpGps bails without prompting when permission is not
+                    // already granted, so a first-ever launch is unaffected.
+                    return import('./services/gpsWarmUp').then(({ warmUpGps }) => warmUpGps());
+                })
                 .catch(() => {
                     /* no native plugin (web), or engine unavailable — startTracking retries */
                 });

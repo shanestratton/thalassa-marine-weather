@@ -210,6 +210,41 @@ class BgGeoManagerClass {
      * Calling `setConfig` on a running BgGeo session applies live,
      * no restart needed.
      */
+    /**
+     * Can this device actually produce a fix right now, and if not, WHY?
+     *
+     * Reads the OS provider state WITHOUT prompting — `getProviderState()` is a
+     * query, not a request — which is what lets the launch warm-up decide
+     * whether to start the engine without raising an iOS permission dialog on a
+     * first-ever launch, before onboarding has explained itself.
+     *
+     * It also exists so the app can stop showing a spinner over a permission
+     * problem it already knows about: `status` is CLLocationManager's
+     * authorization enum (0 notDetermined, 1/2 restricted/denied, 3 always,
+     * 4 whenInUse) and `enabled` is device-wide Location Services.
+     */
+    async getGpsHealth(): Promise<{
+        usable: boolean;
+        reason: 'ok' | 'not-determined' | 'denied' | 'services-off' | 'no-gps' | 'unknown';
+    }> {
+        if (!this.isNativeSupported()) return { usable: false, reason: 'unknown' };
+        try {
+            await this.ensureReady();
+            const state = await BackgroundGeolocation.getProviderState();
+            if (!state.enabled) return { usable: false, reason: 'services-off' };
+            if (state.status === 0) return { usable: false, reason: 'not-determined' };
+            if (state.status === 1 || state.status === 2) return { usable: false, reason: 'denied' };
+            // An MFi receiver (Bad Elf GPS Pro+ and friends) feeds Core Location
+            // system-wide, so it presents here exactly like the internal chip —
+            // there is deliberately nothing receiver-specific to check.
+            if (!state.gps) return { usable: false, reason: 'no-gps' };
+            return { usable: true, reason: 'ok' };
+        } catch (e) {
+            log.warn('getProviderState failed:', String(e));
+            return { usable: false, reason: 'unknown' };
+        }
+    }
+
     async setSamplingMode(mode: 'default' | 'precision' | 'fastlock'): Promise<void> {
         if (!this.isNativeSupported()) return;
         try {
