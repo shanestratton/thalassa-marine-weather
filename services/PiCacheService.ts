@@ -14,6 +14,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { LocationStore } from '../stores/LocationStore';
 import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
+import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('PiCacheService');
@@ -442,7 +443,13 @@ class PiCacheServiceImpl {
                     });
                     ok = res.data?.status === 'ok' && res.data?.service === 'thalassa-pi-cache';
                 } catch {
-                    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+                    // AbortSignal is a no-op under the CapacitorHttp fetch
+                    // patch (see utils/deadline.ts) — bound the awaiter too.
+                    const res = await withDeadline(
+                        fetch(url, { signal: AbortSignal.timeout(2000) }),
+                        2500,
+                        'pi-cache /health',
+                    );
                     const data = await res.json();
                     ok = data?.status === 'ok' && data?.service === 'thalassa-pi-cache';
                 }
@@ -544,9 +551,14 @@ class PiCacheServiceImpl {
                 });
                 data = res.data;
             } catch {
-                const res = await fetch(`${this.baseUrl}/status`, {
-                    signal: AbortSignal.timeout(2000),
-                });
+                // AbortSignal is a no-op under the CapacitorHttp fetch patch
+                // (see utils/deadline.ts) — bound the awaiter too, or a
+                // black-holed Pi pins checkHealth for the native 600 s default.
+                const res = await withDeadline(
+                    fetch(`${this.baseUrl}/status`, { signal: AbortSignal.timeout(2000) }),
+                    2500,
+                    'pi-cache /status',
+                );
                 data = await res.json();
             }
 

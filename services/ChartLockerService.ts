@@ -1848,13 +1848,11 @@ class ChartLockerServiceImpl {
      * Returns file names, sizes, and URIs for charts waiting to be uploaded.
      *
      * Note on log noise: Capacitor's Filesystem plugin native side logs at
-     * error-level both when readdir misses (fresh install, dir not created
-     * yet) AND when mkdir races (dir already exists — even with
-     * recursive:true). There's no mutually-no-op way to probe-then-read via
-     * the public API, so we just accept one of the two errors gets logged
-     * once per app session and let the TS catch handle the outcome
-     * gracefully. Choosing readdir-miss: fires at most once per fresh
-     * install, never on subsequent launches.
+     * error-level when readdir misses. The dir is only created when a chart
+     * is actually downloaded, so on a device with zero local charts the miss
+     * used to fire on EVERY boot (and again after iOS purges Caches). The
+     * catch now creates the dir best-effort, so the miss self-heals: it logs
+     * once, then subsequent boots readdir an empty dir silently.
      */
     async getLocalCharts(): Promise<Array<{ name: string; size: number; uri: string }>> {
         try {
@@ -1884,7 +1882,13 @@ class ChartLockerServiceImpl {
 
             return charts;
         } catch {
-            // Directory doesn't exist yet — no downloads
+            // Directory doesn't exist yet — no downloads. Create it so the
+            // next boot's readdir succeeds silently (see doc comment above).
+            await Filesystem.mkdir({
+                path: 'chart_downloads',
+                directory: Directory.Cache,
+                recursive: true,
+            }).catch(() => {});
             return [];
         }
     }

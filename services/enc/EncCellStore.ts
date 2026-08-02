@@ -44,17 +44,36 @@ function relPath(cellId: string): string {
  * write rather than at app-init time so we don't pay the cost when
  * no ENCs are imported.
  */
-async function ensureDir(): Promise<void> {
-    try {
-        await Filesystem.mkdir({ path: ENC_GEOJSON_DIR, directory: DIRECTORY, recursive: true });
-    } catch (err) {
-        // Capacitor throws if the dir already exists — swallow.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!/exist/i.test(msg)) {
-            log.warn('ensureDir failed', err);
-            throw err;
-        }
+let dirEnsured: Promise<void> | null = null;
+
+function ensureDir(): Promise<void> {
+    // Memoized + stat-probed: the iOS Filesystem plugin logs the
+    // already-exists mkdir rejection NATIVELY (OS-PLUG-FILE-0010) before JS
+    // can catch it, and saveCellGeoJSON runs once per cell — a 20-cell Pi
+    // sync used to print 20 error lines. stat succeeds silently when the
+    // dir exists, so mkdir only runs when it's genuinely missing.
+    if (!dirEnsured) {
+        dirEnsured = (async () => {
+            try {
+                await Filesystem.stat({ path: ENC_GEOJSON_DIR, directory: DIRECTORY });
+                return;
+            } catch {
+                /* missing — create below */
+            }
+            try {
+                await Filesystem.mkdir({ path: ENC_GEOJSON_DIR, directory: DIRECTORY, recursive: true });
+            } catch (err) {
+                // Lost a create race — swallow; anything else is real.
+                const msg = err instanceof Error ? err.message : String(err);
+                if (!/exist/i.test(msg)) {
+                    log.warn('ensureDir failed', err);
+                    dirEnsured = null; // retry on the next save
+                    throw err;
+                }
+            }
+        })();
     }
+    return dirEnsured;
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -390,6 +409,7 @@ export async function deleteCellGeoJSON(cellId: string): Promise<void> {
 export async function clearAllGeoJSON(): Promise<void> {
     blobCache.clear();
     blobCacheBytes = 0;
+    dirEnsured = null; // rmdir below deletes the dir — next save must recreate it
     try {
         await Filesystem.rmdir({
             path: ENC_GEOJSON_DIR,
