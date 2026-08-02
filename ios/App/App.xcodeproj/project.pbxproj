@@ -32,6 +32,8 @@
 		AA000012AAAA001200000001 /* LightningPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000012AAAA001200000002 /* LightningPlugin.m */; };
 		AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */; };
 		AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */; };
+		AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */; };
+		AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,20 +90,12 @@
 		AA000012AAAA001200000002 /* LightningPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LightningPlugin.m; sourceTree = "<group>"; };
 		AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MdnsBrowserPlugin.swift; sourceTree = "<group>"; };
 		AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MdnsBrowserPlugin.m; sourceTree = "<group>"; };
+		AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityPlugin.swift; sourceTree = "<group>"; };
+		AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WatchConnectivityPlugin.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A5CCB72E2F98653B00778C68 /* ThalassaWatch Watch App */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = "ThalassaWatch Watch App";
-			sourceTree = "<group>";
-		};
+		A5CCB72E2F98653B00778C68 /* ThalassaWatch Watch App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "ThalassaWatch Watch App"; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -164,6 +158,8 @@
 				AA000012AAAA001200000002 /* LightningPlugin.m */,
 				AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */,
 				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
+				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
+				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -244,7 +240,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
@@ -384,6 +380,8 @@
 				AA000012AAAA001200000001 /* LightningPlugin.m in Sources */,
 				AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */,
 				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,
+				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
+				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

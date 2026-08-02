@@ -465,8 +465,21 @@ export function useTracerTraceLayer({
         // was there for: once they exist, layersUp() is true and styledata
         // stops triggering work, so the ~8 Hz self-feeding loop of 2026-07-15
         // does not come back.
+        // styledata fires synchronously INSIDE Mapbox's render frame — after
+        // the style's per-frame layout recalculate and before symbol
+        // placement. addLayer('symbol') in that window inserts a layer whose
+        // `layout` is still unevaluated, and placement crashes the frame with
+        // "undefined is not an object (evaluating 'S.layout.get')". One
+        // macrotask moves the add outside the frame; the next frame
+        // recalculates before it places. layersUp() gates on both sides keep
+        // the anti-churn property above intact.
+        let healTimer: number | null = null;
         const heal = (): void => {
-            if (!layersUp()) sync();
+            if (layersUp() || healTimer !== null) return;
+            healTimer = window.setTimeout(() => {
+                healTimer = null;
+                if (!layersUp()) sync();
+            }, 0);
         };
         map.on('styledata', heal);
         // First-paint retry: if the style wasn't ready at effect time, poll
@@ -482,6 +495,7 @@ export function useTracerTraceLayer({
             : null;
         return () => {
             map.off('styledata', heal);
+            if (healTimer !== null) window.clearTimeout(healTimer);
             if (firstTry !== null) window.clearInterval(firstTry);
         };
         // mapRef is named only to satisfy exhaustive-deps, which can no

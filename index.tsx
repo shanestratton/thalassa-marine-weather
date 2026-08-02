@@ -17,15 +17,18 @@ import { writeScopedNativeDiagnostic } from './services/nativeDiagnostic';
 // because console.error from WKWebView does NOT appear in Xcode's native console.
 // Web sessions never need the native bridge, so keep it out of their startup
 // dependency graph. Native diagnostics still initialize before the app shell.
-const nativePreferencesPromise = Capacitor.isNativePlatform()
-    ? import('@capacitor/preferences').then(({ Preferences }) => Preferences)
-    : null;
+// Resolve with the MODULE NAMESPACE, never the plugin proxy itself: the
+// Capacitor proxy turns every property access — including `.then` — into a
+// native method call, so a promise resolved with the naked plugin tries to
+// call Preferences.then() natively (UNIMPLEMENTED, unhandled rejection) and
+// never settles, killing every diagnostic chained on it.
+const nativePreferencesPromise = Capacitor.isNativePlatform() ? import('@capacitor/preferences') : null;
 
 const setNativePreference = (key: string, value: string): void => {
     if (!nativePreferencesPromise) return;
     const scope = getAuthIdentityScope();
     void nativePreferencesPromise
-        .then((preferences) => writeScopedNativeDiagnostic(preferences, key, value, scope))
+        .then(({ Preferences }) => writeScopedNativeDiagnostic(Preferences, key, value, scope))
         .catch(() => {});
 };
 
@@ -36,8 +39,8 @@ if (nativePreferencesPromise) {
     );
     setNativePreference('BOOT_DIAG', `index.tsx loaded at ${new Date().toISOString()}`);
     void nativePreferencesPromise
-        .then(async (preferences) => {
-            const { value } = await preferences.get({ key: 'signalk_host' });
+        .then(async ({ Preferences }) => {
+            const { value } = await Preferences.get({ key: 'signalk_host' });
             // Preserve the boot diagnostic without writing a private LAN host.
             setNativePreference('BOOT_SK_HOST', `configured=${Boolean(value)}`);
         })

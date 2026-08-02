@@ -29,6 +29,12 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('BgGeo');
 
+// Android-only interval keys. iOS TSGeolocationConfig has no such properties
+// and logs "received undefined key" for each on every ready()/setConfig() —
+// iOS stays distance-driven either way, so send them only where they exist.
+const ANDROID_INTERVAL_KEYS =
+    Capacitor.getPlatform() === 'android' ? { locationUpdateInterval: 3000, fastestLocationUpdateInterval: 3000 } : {};
+
 // ---------- TYPES ----------
 
 export interface CachedPosition {
@@ -315,8 +321,7 @@ class BgGeoManagerClass {
                     // Android honours these values. iOS remains distance-driven;
                     // the voyage sampler records each eligible iOS fix no more
                     // often than its active geographic profile permits.
-                    locationUpdateInterval: 3000,
-                    fastestLocationUpdateInterval: 3000,
+                    ...ANDROID_INTERVAL_KEYS,
                 },
             });
             log.info(`GPS sampling → ${mode.toUpperCase()} (distanceFilter ${mode === 'fastlock' ? 0 : 1})`);
@@ -462,9 +467,31 @@ class BgGeoManagerClass {
                     // setSamplingMode(). iOS is distance-driven; its available
                     // fixes feed the same app-level geographic sampler.
                     distanceFilter: 1,
-                    locationUpdateInterval: 3000,
-                    fastestLocationUpdateInterval: 3000,
+                    ...ANDROID_INTERVAL_KEYS,
 
+                    // Geofencing. geofenceModeHighAccuracy is Android-only
+                    // (forces location-based fencing over the low-power
+                    // hardware geofence API — the anchor swing-radius case).
+                    // TSGeolocationConfig.h has no such iOS property; iOS
+                    // fence accuracy comes from CoreLocation region
+                    // monitoring plus geofenceProximityRadius, which IS a
+                    // real iOS property.
+                    geofenceProximityRadius: 5000,
+                    geofenceInitialTriggerEntry: false,
+                    ...(Capacitor.getPlatform() === 'android' ? { geofenceModeHighAccuracy: true } : {}),
+
+                    // iOS-specific — CRITICAL for background GPS
+                    activityType: ActivityType.OtherNavigation,
+                    showsBackgroundLocationIndicator: true,
+                    // iOS: Request 'WhenInUse' first — iOS will auto-promote to
+                    // 'Always' via its provisional flow when background tracking
+                    // starts. Requesting 'Always' directly in ready() blocks the
+                    // main thread with a synchronous
+                    // CLLocationManager.authorizationStatus check.
+                    locationAuthorizationRequest: 'WhenInUse',
+                },
+
+                activity: {
                     // NEVER auto-stop — vessel may be anchored, and anchor
                     // watch NEEDS fixes precisely when the device reads as
                     // stationary. `stopTimeout: 0` said the opposite of what
@@ -477,31 +504,13 @@ class BgGeoManagerClass {
                     // keep location on regardless of the motion API; battery
                     // is governed by this manager's ref-counted leases, which
                     // already stop the engine when nothing needs it.
+                    //
+                    // v9 home is THIS group (TSActivityConfig on iOS,
+                    // ActivityConfig in the JS types). It previously sat
+                    // under `geolocation`, where iOS rejected it as an
+                    // undefined key — so the never-auto-stop fix was
+                    // silently not applied on iOS.
                     disableStopDetection: true,
-
-                    // Geofencing — high-accuracy mode is REQUIRED for the
-                    // 20–50 m anchor swing-radius use case. Without this
-                    // flag, iOS may fall back to the low-power Significant
-                    // Location Changes API (~500 m resolution) for fence
-                    // checks, which means a vessel can drift 500 m
-                    // off-anchor before the EXIT event fires. Set to true
-                    // 2026-05-17 as part of the anchor-watch reliability
-                    // pass; battery cost is acceptable because the watch
-                    // is only ever armed when the user explicitly drops
-                    // anchor (not during normal sailing).
-                    geofenceProximityRadius: 5000,
-                    geofenceInitialTriggerEntry: false,
-                    geofenceModeHighAccuracy: true,
-
-                    // iOS-specific — CRITICAL for background GPS
-                    activityType: ActivityType.OtherNavigation,
-                    showsBackgroundLocationIndicator: true,
-                    // iOS: Request 'WhenInUse' first — iOS will auto-promote to
-                    // 'Always' via its provisional flow when background tracking
-                    // starts. Requesting 'Always' directly in ready() blocks the
-                    // main thread with a synchronous
-                    // CLLocationManager.authorizationStatus check.
-                    locationAuthorizationRequest: 'WhenInUse',
                 },
 
                 app: {
