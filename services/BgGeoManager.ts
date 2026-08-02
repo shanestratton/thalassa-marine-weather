@@ -42,6 +42,19 @@ export interface CachedPosition {
     receivedAt: number; // epoch-ms — when WE received it (for staleness checks)
 }
 
+/**
+ * Why the device can or cannot produce a fix. `reason` is what the UI shows
+ * instead of an eternal spinner — a permission denial and a cold start look
+ * identical to a skipper, and only one of them is worth waiting for.
+ */
+export type GpsHealthReason = 'ok' | 'not-determined' | 'denied' | 'services-off' | 'no-gps' | 'unknown';
+export interface GpsHealth {
+    usable: boolean;
+    reason: GpsHealthReason;
+    /** True when the skipper can fix this in iOS Settings. */
+    actionable: boolean;
+}
+
 export type LocationCallback = (pos: CachedPosition) => void;
 export type GeofenceCallback = (event: { identifier: string; action: string; location: Location }) => void;
 export type HeartbeatCallback = (event: { location: Location }) => void;
@@ -69,6 +82,10 @@ class BgGeoManagerClass {
     private geofenceListeners = new Set<GeofenceCallback>();
     private heartbeatListeners = new Set<HeartbeatCallback>();
     private activityListeners = new Set<ActivityCallback>();
+    private healthListeners = new Set<(h: GpsHealth) => void>();
+    /** Last known provider health, seeded at ready() and kept current by
+     *  onProviderChange. Null until the first read. */
+    private _lastHealth: GpsHealth | null = null;
 
     // ---- PUBLIC API ----
 
@@ -238,26 +255,42 @@ class BgGeoManagerClass {
      * authorization enum (0 notDetermined, 1/2 restricted/denied, 3 always,
      * 4 whenInUse) and `enabled` is device-wide Location Services.
      */
-    async getGpsHealth(): Promise<{
-        usable: boolean;
-        reason: 'ok' | 'not-determined' | 'denied' | 'services-off' | 'no-gps' | 'unknown';
-    }> {
-        if (!this.isNativeSupported()) return { usable: false, reason: 'unknown' };
+    async getGpsHealth(): Promise<GpsHealth> {
+        if (!this.isNativeSupported()) return { usable: false, reason: 'unknown', actionable: false };
         try {
             await this.ensureReady();
-            const state = await BackgroundGeolocation.getProviderState();
-            if (!state.enabled) return { usable: false, reason: 'services-off' };
-            if (state.status === 0) return { usable: false, reason: 'not-determined' };
-            if (state.status === 1 || state.status === 2) return { usable: false, reason: 'denied' };
-            // An MFi receiver (Bad Elf GPS Pro+ and friends) feeds Core Location
-            // system-wide, so it presents here exactly like the internal chip —
-            // there is deliberately nothing receiver-specific to check.
-            if (!state.gps) return { usable: false, reason: 'no-gps' };
-            return { usable: true, reason: 'ok' };
+            const health = this._healthFromProviderState(await BackgroundGeolocation.getProviderState());
+            this._lastHealth = health;
+            return health;
         } catch (e) {
             log.warn('getProviderState failed:', String(e));
-            return { usable: false, reason: 'unknown' };
+            return { usable: false, reason: 'unknown', actionable: false };
         }
+    }
+
+    /** Synchronous last-known health — null before the first read. */
+    getLastGpsHealth(): GpsHealth | null {
+        return this._lastHealth;
+    }
+
+    /** Live authorization/provider changes. Fires whenever the OS revokes
+     *  permission or Location Services is switched off mid-session. */
+    subscribeGpsHealth(cb: (h: GpsHealth) => void): () => void {
+        this.healthListeners.add(cb);
+        return () => this.healthListeners.delete(cb);
+    }
+
+    private _healthFromProviderState(state: { enabled: boolean; status: number; gps: boolean }): GpsHealth {
+        // `status` is CLLocationManager's authorization enum: 0 notDetermined,
+        // 1 restricted, 2 denied, 3 always, 4 whenInUse.
+        if (!state.enabled) return { usable: false, reason: 'services-off', actionable: true };
+        if (state.status === 0) return { usable: false, reason: 'not-determined', actionable: true };
+        if (state.status === 1 || state.status === 2) return { usable: false, reason: 'denied', actionable: true };
+        // An MFi receiver (Bad Elf GPS Pro+ and friends) feeds Core Location
+        // system-wide, so it presents here exactly like the internal chip —
+        // there is deliberately nothing receiver-specific to check.
+        if (!state.gps) return { usable: false, reason: 'no-gps', actionable: false };
+        return { usable: true, reason: 'ok', actionable: false };
     }
 
     /**
@@ -553,6 +586,25 @@ class BgGeoManagerClass {
             });
         });
         this.coreSubscriptions.push(actSub);
+
+        // Provider/authorization changes — the ONLY way the app learns that
+        // permission was revoked or Location Services switched off while it was
+        // running. Without this the UI has no signal at all and a denial is
+        // indistinguishable from "still acquiring", which is what let a spinner
+        // run for hours over a problem the OS had already decided.
+        const provSub = BackgroundGeolocation.onProviderChange((event) => {
+            const health = this._healthFromProviderState(event);
+            this._lastHealth = health;
+            log.warn(`GPS provider changed → ${health.reason} (enabled=${event.enabled} status=${event.status})`);
+            this.healthListeners.forEach((cb) => {
+                try {
+                    cb(health);
+                } catch (e) {
+                    log.warn('listener error:', e);
+                }
+            });
+        });
+        this.coreSubscriptions.push(provSub);
     }
 
     private _locationToCache(loc: Location): CachedPosition {
