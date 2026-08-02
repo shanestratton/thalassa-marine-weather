@@ -785,9 +785,16 @@ export function useLogPageState() {
     // which is what made starting a track freeze the page.
 
     // STILL ACQUIRING? Drives the poll cadence below. Same predicate the
-    // "Acquiring GPS fix…" overlay uses, imported rather than re-written so the
-    // two cannot disagree about when the track is open.
-    const stillAcquiring = !voyageHasRecordedFix(state.entries, state.currentVoyageId);
+    // Log page's acquiring badge uses, imported rather than re-written so the
+    // two cannot disagree about when the track is open. LIVE voyage-id
+    // fallback (audit follow-up 2026-08-03): state.currentVoyageId only
+    // arrives with LOAD_DATA's Supabase round-trip — on dead boat comms this
+    // predicate would otherwise burst-poll at 1 s forever over a voyage that
+    // is recording fine.
+    const stillAcquiring = !voyageHasRecordedFix(
+        state.entries,
+        state.currentVoyageId ?? ShipLogService.getCurrentVoyageId(),
+    );
 
     useEffect(() => {
         if (!state.isTracking) return;
