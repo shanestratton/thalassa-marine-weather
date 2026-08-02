@@ -57,6 +57,8 @@ class BgGeoManagerClass {
     private ready = false;
     private readyPromise: Promise<void> | null = null; // Prevent duplicate ready() calls
     private startCount = 0; // Ref-count for start/stop balancing
+    /** Bumped on every sampling-mode change; see setSamplingMode's token. */
+    private samplingModeGeneration = 0;
 
     // Cached position from the continuous onLocation stream
     private _lastPosition: CachedPosition | null = null;
@@ -245,8 +247,22 @@ class BgGeoManagerClass {
         }
     }
 
-    async setSamplingMode(mode: 'default' | 'precision' | 'fastlock'): Promise<void> {
-        if (!this.isNativeSupported()) return;
+    /**
+     * Set the sampling mode and return a TOKEN identifying this particular
+     * change, for use with restoreSamplingModeIfCurrent.
+     *
+     * Sampling mode is global to one shared engine but is set by several
+     * independent owners (the launch warm-up, the ship's log cold start, the
+     * precision toggle). Without a token a late "put it back" from one owner
+     * silently cancels a mode another owner has since set deliberately — and
+     * the specific collision that matters is cheap to hit: warm up at launch,
+     * cast off within 45 s, and the warm-up's release would drop the engine
+     * out of the fast-lock the ship's log had just armed, restoring the exact
+     * stationary-vessel hang fixed in 00579bf2.
+     */
+    async setSamplingMode(mode: 'default' | 'precision' | 'fastlock'): Promise<number> {
+        const token = ++this.samplingModeGeneration;
+        if (!this.isNativeSupported()) return token;
         try {
             await this.ensureReady();
             await BackgroundGeolocation.setConfig({
@@ -263,6 +279,16 @@ class BgGeoManagerClass {
         } catch (e) {
             log.warn('setSamplingMode failed (engine may not be running):', e);
         }
+        return token;
+    }
+
+    /**
+     * Undo a sampling-mode change ONLY if nothing else has changed it since.
+     * A no-op when another owner has taken over — see setSamplingMode.
+     */
+    async restoreSamplingModeIfCurrent(token: number, mode: 'default' | 'precision' | 'fastlock'): Promise<void> {
+        if (token !== this.samplingModeGeneration) return;
+        await this.setSamplingMode(mode);
     }
 
     // ---- SUBSCRIBE HELPERS ----
