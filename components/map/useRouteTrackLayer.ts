@@ -69,7 +69,15 @@ export function useRouteTrackLayer({ mapRef, mapReady, variant, selected }: Args
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
+        // The z-order re-assert armed below — cleanup must detach it or
+        // every route pick leaks one idle listener for the map's lifetime.
+        let idleHandler: (() => void) | null = null;
+
         const cleanup = () => {
+            if (idleHandler) {
+                map.off('idle', idleHandler);
+                idleHandler = null;
+            }
             try {
                 if (map.getLayer(lineId)) map.removeLayer(lineId);
             } catch {
@@ -116,41 +124,65 @@ export function useRouteTrackLayer({ mapRef, mapReady, variant, selected }: Args
 
         const style = VARIANT_STYLE[variant];
 
-        // Insert beneath the first symbol layer so labels remain on top.
-        const styleLayers = map.getStyle()?.layers ?? [];
-        const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
-
+        // NO beforeId, and a z-order OWNER (field bug 2026-08-03: "the
+        // tracks are just flashing on the screen, then they disappear —
+        // the start and finish points are there though"). The old
+        // insert-beneath-the-first-symbol-layer anchor was computed at
+        // pick time, and every ENC cell and weather layer that mounts
+        // asynchronously afterwards inserts ABOVE that anchor — so the
+        // line drew once and was then entombed, while the DOM endpoint
+        // markers floated on happily above the canvas. Same disease the
+        // tracer had ("waypoints but no line between them"); same cure:
+        // add at the top of the style, then re-assert on every map idle
+        // with ZERO writes at steady state so promotion can never feed a
+        // repaint→idle loop.
+        //
         // Glow underlay — soft halo so the line stays visible against
         // busy basemaps (satellite, weather rasters).
-        map.addLayer(
-            {
-                id: glowId,
-                type: 'line',
-                source: sourceId,
-                paint: {
-                    'line-color': style.glowColor,
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 4, 6, 10, 14, 16, 20],
-                    'line-blur': 4,
-                    'line-opacity': 0.85,
-                },
+        map.addLayer({
+            id: glowId,
+            type: 'line',
+            source: sourceId,
+            paint: {
+                'line-color': style.glowColor,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 6, 10, 14, 16, 20],
+                'line-blur': 4,
+                'line-opacity': 0.85,
             },
-            beforeId,
-        );
+        });
         // Main line.
-        map.addLayer(
-            {
-                id: lineId,
-                type: 'line',
-                source: sourceId,
-                paint: {
-                    'line-color': style.color,
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.6, 10, 3.2, 16, 4.8],
-                    'line-opacity': 0.95,
-                    ...(style.dasharray ? { 'line-dasharray': style.dasharray } : {}),
-                },
+        map.addLayer({
+            id: lineId,
+            type: 'line',
+            source: sourceId,
+            paint: {
+                'line-color': style.color,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.6, 10, 3.2, 16, 4.8],
+                'line-opacity': 0.95,
+                ...(style.dasharray ? { 'line-dasharray': style.dasharray } : {}),
             },
-            beforeId,
-        );
+        });
+
+        // Re-assert on idle: late ENC/imagery mounts land on top of the
+        // style and bury the line. Only write when actually buried — a
+        // clean pass makes zero style mutations, which is what lets this
+        // listener stay armed for the whole selection without looping.
+        const ensureOnTop = () => {
+            try {
+                const order = (map.getStyle()?.layers ?? []).map((l) => l.id);
+                const lineAt = order.indexOf(lineId);
+                if (lineAt < 0) return;
+                const buriedBy = order.slice(lineAt + 1).filter((id) => id !== glowId && id !== lineId);
+                if (buriedBy.length === 0) return;
+                map.moveLayer(glowId);
+                map.moveLayer(lineId);
+            } catch {
+                /* style mid-swap — the next idle heals */
+            }
+        };
+        ensureOnTop();
+        map.on('idle', ensureOnTop);
+        idleHandler = ensureOnTop;
 
         // Endpoint dots — small labelled circles at A and B so the user
         // can read direction at a glance even when the line is dashed.
