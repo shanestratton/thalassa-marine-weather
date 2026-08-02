@@ -1,17 +1,11 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const departurePromptMocks = vi.hoisted(() => ({
     updateSettings: vi.fn(),
     markLiveTrickleFreshStart: vi.fn(),
-    getPlanLinks: vi.fn(),
-    setVoyagePlanLink: vi.fn(),
-    fetchRoutesAndTracks: vi.fn(),
-    suggestPlanForDeparture: vi.fn(),
-    startFollowing: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
 }));
@@ -29,35 +23,14 @@ vi.mock('../services/ShipLogService', () => ({
         getTrackingStatus: vi.fn(() => ({ isTracking: true })),
         getCurrentVoyageId: vi.fn(() => 'voyage-a'),
         onTrackingStateChange: vi.fn(() => vi.fn()),
-        getOfflineEntries: vi.fn().mockResolvedValue([{ voyageId: 'voyage-a', latitude: -27.47, longitude: 153.03 }]),
     },
 }));
 
 vi.mock('../services/VoyageLogService', () => ({
     VoyageLogService: {
         getConfig: vi.fn().mockResolvedValue({ enabled: true }),
-        getPlanLinks: departurePromptMocks.getPlanLinks,
-        setVoyagePlanLink: departurePromptMocks.setVoyagePlanLink,
         lastError: null,
     },
-}));
-
-vi.mock('../services/shiplog/RoutesAndTracks', () => ({
-    fetchRoutesAndTracks: departurePromptMocks.fetchRoutesAndTracks,
-}));
-
-vi.mock('../services/shiplog/planMatcher', () => ({
-    suggestPlanForDeparture: departurePromptMocks.suggestPlanForDeparture,
-}));
-
-vi.mock('../stores/followRouteStore', () => ({
-    useFollowRouteStore: {
-        getState: () => ({ startFollowing: departurePromptMocks.startFollowing }),
-    },
-}));
-
-vi.mock('../services/shiplog/TrackingStateStore', () => ({
-    getLastPosition: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../services/shiplog/LiveTrickle', () => ({
@@ -82,10 +55,6 @@ beforeEach(() => {
     setAuthIdentityScope('account-a');
     departurePromptMocks.updateSettings.mockResolvedValue(undefined);
     departurePromptMocks.markLiveTrickleFreshStart.mockResolvedValue(undefined);
-    departurePromptMocks.getPlanLinks.mockResolvedValue(new Map());
-    departurePromptMocks.setVoyagePlanLink.mockResolvedValue(true);
-    departurePromptMocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [], tracks: [] });
-    departurePromptMocks.suggestPlanForDeparture.mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -111,86 +80,25 @@ describe('DeparturePrompts identity handoff', () => {
         expect(departurePromptMocks.toastSuccess).not.toHaveBeenCalled();
     });
 
-    it('starts local follow mode with the selected passage exact geometry before linking it publicly', async () => {
-        const route: RouteOrTrack = {
-            id: 'planned-moreton',
-            label: 'Manly → Moreton Island',
-            sublabel: 'Saved passage',
-            points: [
-                { lat: -27.455, lon: 153.19 },
-                { lat: -27.31, lon: 153.28 },
-                { lat: -27.17, lon: 153.38 },
-            ],
-            bbox: [153.19, -27.455, 153.38, -27.17],
-            timestamp: Date.parse('2026-07-25T00:00:00.000Z'),
-            distanceNm: 23.4,
-            durationHours: 4.5,
-            isLocal: false,
-            kind: 'sea',
-        };
-        departurePromptMocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [route], tracks: [] });
-        departurePromptMocks.suggestPlanForDeparture.mockReturnValue(route);
-
+    it('never shows the superseded "Link passage" suggestion banner', async () => {
+        // TOMBSTONE (removed 2026-08-02). The "Sailing <plan>? / Link passage"
+        // banner duplicated the cast-off "Following a route?" sheet: its
+        // nearest-departure heuristic reliably guessed the FIRST row of the
+        // list the skipper had just answered, and it re-asked the question
+        // after the sheet closed. The sheet owns the question now; a missed
+        // voyage is retro-linked from Settings → Voyage Log. This component
+        // asks exactly one thing at departure: share live or keep private.
         render(<DeparturePrompts />);
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Keep private' }));
-        fireEvent.click(await screen.findByRole('button', { name: 'Link passage' }));
+        await screen.findByRole('button', { name: 'Share live' });
+        expect(screen.queryByRole('button', { name: 'Link passage' })).not.toBeInTheDocument();
+        expect(screen.queryByText(/^Sailing /)).not.toBeInTheDocument();
 
-        await waitFor(() => expect(departurePromptMocks.startFollowing).toHaveBeenCalledTimes(1));
-        const [followPlan, followedVoyageId, exactPoints] = departurePromptMocks.startFollowing.mock.calls[0];
-        expect(followedVoyageId).toBe(route.id);
-        expect(exactPoints).toEqual(route.points);
-        expect(followPlan).toMatchObject({
-            origin: 'Manly',
-            destination: 'Moreton Island',
-            routeGeoJSON: {
-                geometry: {
-                    coordinates: route.points.map((point) => [point.lon, point.lat]),
-                },
-            },
+        // Answering the one kept question must not reveal a second one.
+        fireEvent.click(screen.getByRole('button', { name: 'Keep private' }));
+        await act(async () => {
+            await Promise.resolve();
         });
-        await waitFor(() => expect(departurePromptMocks.setVoyagePlanLink).toHaveBeenCalledWith('voyage-a', route.id));
-    });
-
-    it('never overwrites a link the skipper already made', async () => {
-        // THE BUG. This banner arms from a ONE-SHOT `links.has(vid)` read taken
-        // when the departure fix resolves, and used to write without looking
-        // again. The follow sheet sits above it at z-[10055], so the ordinary
-        // sequence is: sheet opens, snapshot taken with no link yet, skipper
-        // picks a route, sheet closes, banner appears still offering the plan
-        // the matcher guessed — and because that heuristic takes the departure
-        // nearest to now, over a newest-first list, its guess is reliably the
-        // FIRST ROW the skipper was just looking at.
-        const suggested: RouteOrTrack = {
-            id: 'planned-newest',
-            label: 'Newport → Scarborough',
-            sublabel: 'Saved passage',
-            points: [
-                { lat: -27.2, lon: 153.1 },
-                { lat: -27.19, lon: 153.11 },
-            ],
-            bbox: [153.1, -27.2, 153.11, -27.19],
-            timestamp: Date.parse('2026-07-28T00:00:00.000Z'),
-            distanceNm: 1,
-            durationHours: 0.2,
-            isLocal: false,
-            kind: 'sea',
-        };
-        departurePromptMocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [suggested], tracks: [] });
-        departurePromptMocks.suggestPlanForDeparture.mockReturnValue(suggested);
-
-        render(<DeparturePrompts />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Keep private' }));
-        const link = await screen.findByRole('button', { name: 'Link passage' });
-
-        // The skipper's own pick lands between the banner arming and the tap.
-        departurePromptMocks.getPlanLinks.mockResolvedValue(new Map([['voyage-a', 'planned-chosen-by-skipper']]));
-
-        fireEvent.click(link);
-
-        await waitFor(() => expect(departurePromptMocks.getPlanLinks).toHaveBeenCalled());
-        // A suggestion must never outrank a choice.
-        expect(departurePromptMocks.setVoyagePlanLink).not.toHaveBeenCalledWith('voyage-a', suggested.id);
-        expect(departurePromptMocks.startFollowing).not.toHaveBeenCalled();
+        expect(screen.queryByRole('button', { name: 'Link passage' })).not.toBeInTheDocument();
     });
 });

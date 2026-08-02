@@ -37,12 +37,9 @@ export async function publishFollowedRoute(planVoyageId: string): Promise<Publis
     if (!isAuthIdentityScopeCurrent(scope)) return 'error';
     if (!ok) return 'queued';
     if (ok) {
-        // Announce the link so DeparturePrompts can retire its own suggestion.
-        // That banner decides whether to arm from a ONE-SHOT read of the links
-        // table taken when the departure fix resolves, and never re-checks — so
-        // a skipper who picks a route in the follow sheet after that snapshot
-        // finds the banner still offering a different plan, hidden behind the
-        // sheet until it closes.
+        // Announce the link so every other door on this question stays in
+        // step: the Log page's follow sheet records the confirm and closes if
+        // it is open on the same voyage (LogPage's link-changed listener).
         try {
             window.dispatchEvent(
                 new CustomEvent('thalassa:voyage-plan-link-changed', {
@@ -50,7 +47,7 @@ export async function publishFollowedRoute(planVoyageId: string): Promise<Publis
                 }),
             );
         } catch {
-            /* non-DOM host — the re-read guard in DeparturePrompts still holds */
+            /* non-DOM host — listeners simply miss one optimistic close */
         }
     }
     return 'linked';

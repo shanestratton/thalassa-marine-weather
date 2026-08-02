@@ -136,8 +136,8 @@ const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
  * unanswered sheet legitimately re-asks on the next visit; an answered one
  * stays suppressed.
  *
- * `confirmedFollowVoyages` — the skipper PICKED a route (here, via the
- * DeparturePrompts banner whose link event we listen for, or inferred from a
+ * `confirmedFollowVoyages` — the skipper PICKED a route (via the sheet's own
+ * pick, the link-changed event another door dispatches, or inferred from a
  * follow that started after cast-off). Dismissal must never undo these.
  * `dismissedFollowVoyages` — the skipper explicitly chose "Just recording".
  */
@@ -264,9 +264,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // explicit no-route choice for this cast-off — recorded durably so the
         // sheet never re-asks this voyage, and applied to BOTH surfaces:
         // the local chart line AND the public link. The public half used to be
-        // skipped, so a link written seconds earlier by the DeparturePrompts
-        // banner kept showing punters a route the skipper just declined
-        // (hardening 2026-08-01, finding D).
+        // skipped, so a link row written seconds earlier by another door (in
+        // that era, the since-removed DeparturePrompts suggestion banner) kept
+        // showing punters a route the skipper just declined (hardening
+        // 2026-08-01, finding D).
         //
         // UNLESS the skipper already PICKED a route for this voyage: then this
         // dismissal is just closing a re-shown sheet, and stopping the follow
@@ -430,8 +431,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (confirmedFollowVoyages.has(vid) || dismissedFollowVoyages.has(vid)) return; // answered
         if (plannedSummaries.length === 0) return; // nothing to follow
 
-        // The question may have been answered OUTSIDE this component — the
-        // DeparturePrompts banner at the helm, or a follow that survived a
+        // The question may have been answered OUTSIDE this component — e.g.
+        // the Settings retro-link picker, or a follow that survived a
         // webview reload (the follow store persists 7 days; these module Sets
         // do not survive the process). A follow that STARTED after this
         // voyage began was chosen in this voyage's context: treat it as
@@ -470,10 +471,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         followPromptVoyageId,
     ]);
 
-    // The banner (or any other door) answering the question retires this
-    // sheet's claim to it: record the confirm and close if we're open on the
-    // same voyage. publishFollowedRoute dispatches this event on success, and
-    // the sheet's own pick dispatches it optimistically.
+    // Any other door answering the question (the Settings retro-link picker,
+    // or a second device) retires this sheet's claim to it: record the
+    // confirm and close if we're open on the same voyage. publishFollowedRoute
+    // dispatches this event on success, and the sheet's own pick dispatches
+    // it optimistically.
     React.useEffect(() => {
         const onLinkChanged = (e: Event) => {
             const vid = (e as CustomEvent<{ voyageId?: string }>).detail?.voyageId;
@@ -619,10 +621,31 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // and nothing replace it for those seconds. Perceived speed is speed, and
     // this is presentation only: nothing about when recording starts, or which
     // voyage it starts against, depends on this flag.
+    // THE QUESTION COMES BEFORE THE WAIT (Shane 2026-08-02: "ask which track
+    // we would like to link BEFORE the acquiring GPS message — sometimes that
+    // can be 20-30 seconds"). Linking needs no GPS fix at all —
+    // publishFollowedRoute wants only a voyage id, and collapseReversedRoutes
+    // tolerates fix=null — but this takeover renders in the CRITICAL overlay
+    // band (z 2147483000) and sat on top of the already-open follow sheet at
+    // z-[10055]: the skipper stared at a spinner while the question waited,
+    // invisible, behind it. So the takeover YIELDS while the follow question
+    // is open or imminent for this voyage (planned routes exist and it hasn't
+    // been answered); the header badge and top banner keep telling the
+    // acquiring story meanwhile. It returns the moment the question is
+    // answered, and still clears on the first recorded fix as before.
+    const followQuestionPending =
+        plannedSummaries.length > 0 &&
+        (followPromptVoyageId !== null ||
+            (state.startPending && !state.currentVoyageId) ||
+            (state.isTracking &&
+                !!state.currentVoyageId &&
+                !confirmedFollowVoyages.has(state.currentVoyageId) &&
+                !dismissedFollowVoyages.has(state.currentVoyageId)));
     const gpsOverlayOpen =
         state.isTracking &&
         !hasRecordedFix &&
         (!!state.currentVoyageId || state.startPending) &&
+        !followQuestionPending &&
         gpsOverlayDismissedFor !== (state.currentVoyageId ?? null);
 
     // SAFETY VALVE — this takeover must never be able to stick (Shane
@@ -650,12 +673,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return () => window.clearTimeout(timer);
     }, [gpsOverlayOpen, state.currentVoyageId]);
 
-    // ── Departure prompts (share-live? / link-a-plan?) MOVED OUT ─────
-    // These two "at departure" nudges now live in a global, always-mounted
+    // ── Departure prompt (share-live?) MOVED OUT ─────
+    // The "share this voyage live?" nudge lives in a global, always-mounted
     // <DeparturePrompts/> (App.tsx), driven by ShipLogService's tracking
-    // listener. They used to be here, but the app mounts one view at a time
+    // listener. It used to be here, but the app mounts one view at a time
     // and a voyage is cast off from the helm — so LogPage wasn't mounted and
-    // neither prompt ever fired (Shane 2026-07-05). See DeparturePrompts.tsx.
+    // the prompt never fired (Shane 2026-07-05). Its sibling, the
+    // "link-a-plan?" suggestion banner, was removed 2026-08-02 — the
+    // cast-off follow sheet below owns that question outright.
 
     // Engine on/off — user-declared while tracking, stamped onto track
     // points for the sail/motor split. Mirrors ShipLogService's sticky
@@ -1956,9 +1981,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 onDismiss={() => setGpsOverlayDismissedFor(state.currentVoyageId ?? null)}
             />
 
-            {/* Departure prompts (share-live? / link-a-plan?) now render
-                globally from <DeparturePrompts/> in App.tsx — see the note
-                where their effects used to live. */}
+            {/* The share-live departure prompt renders globally from
+                <DeparturePrompts/> in App.tsx — see the note where its
+                effect used to live. */}
 
             {/* Toast Notifications */}
             <toast.ToastContainer />

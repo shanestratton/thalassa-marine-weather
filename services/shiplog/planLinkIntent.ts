@@ -1,8 +1,9 @@
 /**
  * planLinkIntent — durable intent ledger for the public followed-route link.
  *
- * voyage_plan_links had FIVE writers (cast-off sheet, DeparturePrompts banner,
- * plan-card button, Settings picker, the stop-tracking clear) and NOT ONE
+ * voyage_plan_links had FIVE writers (cast-off sheet, the since-removed
+ * DeparturePrompts banner, plan-card button, Settings picker, the
+ * stop-tracking clear) and NOT ONE
  * retry: every write was a single unbounded network call whose failure was
  * toast-and-forget (hardening review 2026-08-01, findings C/22/26). Cast off in
  * a marina wifi shadow and the public page silently never showed the route;

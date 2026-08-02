@@ -57,11 +57,35 @@ export interface GpsReceiverStatusInput {
         active: boolean;
         avgAccuracy: number | null;
     };
+    /** Service-remembered timestamp of the newest fix iOS attributed to an
+     *  external accessory this session. Lets the row survive the quiet spells
+     *  a moored boat's distance filter creates, instead of flapping to
+     *  "iPhone GPS" 30 s after the last emitted fix. Optional so the pure
+     *  resolver stays drop-in for existing callers/tests. */
+    accessoryMemory?: {
+        lastAccessoryFixMs: number | null;
+    };
 }
 
 // A Core Location cache older than this can still prove an accessory was used
 // *then*, but not that it is supplying the position now.
 const ACCESSORY_SOURCE_FRESH_MS = 30_000;
+
+/**
+ * How long a previously-verified accessory fix keeps the receiver row lit
+ * after fixes stop flowing (Shane 2026-08-02: "sometimes the app sees it,
+ * and sometimes it doesn't").
+ *
+ * The 30 s freshness window alone made the row FLAP on a moored boat: the
+ * location engine's 1 m distance filter means a stationary vessel emits
+ * almost nothing, the cached fix ages past 30 s, and the row decayed to
+ * "iPhone GPS" while the Bad Elf was still the phone's active source. The
+ * grace keeps the truthful middle state — "connected, last accessory fix
+ * Xm ago" — and is cancelled EARLY the moment a newer fix arrives that iOS
+ * attributes to the internal GPS, because that is positive evidence the
+ * accessory stopped supplying (unplugged / powered off / out of range).
+ */
+const ACCESSORY_SOURCE_GRACE_MS = 10 * 60_000;
 
 const GPS_ACCESSORY_TOKENS = [
     'bad elf',
@@ -161,31 +185,56 @@ export function resolveGpsReceiverStatus(input: GpsReceiverStatusInput): GpsRece
         native.source.simulated !== true &&
         sourceAgeMs !== null &&
         sourceAgeMs <= ACCESSORY_SOURCE_FRESH_MS;
+
+    // Grace window: the accessory verifiably supplied a fix recently, and no
+    // newer fix has been attributed to the internal GPS since. A stationary
+    // boat's distance filter can silence the feed for minutes at a time —
+    // silence is not evidence the receiver went away, but a newer internal
+    // fix is.
+    const memoryFixMs = input.accessoryMemory?.lastAccessoryFixMs ?? null;
+    const memoryAgeMs = memoryFixMs === null ? null : Math.max(0, now - memoryFixMs);
+    const supersededByInternalFix =
+        memoryFixMs !== null &&
+        native.source.hasLocation &&
+        !native.source.externalAccessory &&
+        native.source.timestampMs !== null &&
+        native.source.timestampMs > memoryFixMs;
+    const accessoryRecentlySupplied =
+        !accessoryIsSupplyingLocation &&
+        memoryAgeMs !== null &&
+        memoryAgeMs <= ACCESSORY_SOURCE_GRACE_MS &&
+        !supersededByInternalFix;
+
     const likelyGpsAccessories = native.accessories.filter(isLikelyGpsAccessory);
     // It is safe to bind the sole available MFi accessory to a verified
     // external location. With multiple accessories, never guess which one
     // iOS selected to supply Core Location.
-    const identifiedAccessory = accessoryIsSupplyingLocation
-        ? likelyGpsAccessories.length === 1
-            ? likelyGpsAccessories[0]
-            : native.accessories.length === 1
-              ? native.accessories[0]
-              : null
-        : (likelyGpsAccessories[0] ?? null);
+    const identifiedAccessory =
+        accessoryIsSupplyingLocation || accessoryRecentlySupplied
+            ? likelyGpsAccessories.length === 1
+                ? likelyGpsAccessories[0]
+                : native.accessories.length === 1
+                  ? native.accessories[0]
+                  : null
+            : (likelyGpsAccessories[0] ?? null);
     const deviceName = identifiedAccessory ? formatGpsAccessoryName(identifiedAccessory) : null;
 
-    if (accessoryIsSupplyingLocation || identifiedAccessory) {
+    if (accessoryIsSupplyingLocation || accessoryRecentlySupplied || identifiedAccessory) {
         const baseDetail = accessoryIsSupplyingLocation
             ? sourceAgeMs && sourceAgeMs > 4_000
                 ? `Connected to iPhone · Supplying position (${formatAge(sourceAgeMs)} ago)`
                 : 'Connected to iPhone · Supplying position'
-            : 'Connected to iPhone · iPhone GPS currently in use';
+            : accessoryRecentlySupplied
+              ? `Connected to iPhone · Last accessory fix ${formatAge(memoryAgeMs ?? 0)} ago`
+              : 'Connected to iPhone · iPhone GPS currently in use';
         return {
             active: true,
             kind: 'ios-accessory',
             label: deviceName ?? 'External GPS',
             detail:
-                !deviceName && native.accessories.length > 1 && accessoryIsSupplyingLocation
+                !deviceName &&
+                native.accessories.length > 1 &&
+                (accessoryIsSupplyingLocation || accessoryRecentlySupplied)
                     ? `${baseDetail} · Multiple accessories connected`
                     : baseDetail,
             isNmea: false,
@@ -258,6 +307,10 @@ export function resolveGpsReceiverStatus(input: GpsReceiverStatusInput): GpsRece
 class GpsReceiverStatusServiceClass {
     private nativeInfo: NativeGpsReceiverInfo = EMPTY_NATIVE_INFO;
     private refreshing: Promise<GpsReceiverStatus> | null = null;
+    /** Newest fix iOS attributed to an external accessory this session —
+     *  the grace-window memory behind `accessoryMemory` (see the resolver).
+     *  Cleared the moment a NEWER fix arrives from the internal GPS. */
+    private lastAccessoryFixMs: number | null = null;
 
     getStatus(now = Date.now()): GpsReceiverStatus {
         const nmeaState = NmeaStore.getState();
@@ -278,6 +331,7 @@ class GpsReceiverStatusServiceClass {
                     ? Math.round(GpsPrecision.getAverageAccuracy() * 10) / 10
                     : null,
             },
+            accessoryMemory: { lastAccessoryFixMs: this.lastAccessoryFixMs },
         });
     }
 
@@ -286,6 +340,18 @@ class GpsReceiverStatusServiceClass {
         if (this.refreshing) return this.refreshing;
         this.refreshing = (async () => {
             this.nativeInfo = await BackgroundLocationService.getGpsReceiverInfo();
+            const source = this.nativeInfo.source;
+            if (source.hasLocation && source.timestampMs !== null && source.simulated !== true) {
+                if (source.externalAccessory) {
+                    this.lastAccessoryFixMs = Math.max(this.lastAccessoryFixMs ?? 0, source.timestampMs);
+                } else if (this.lastAccessoryFixMs !== null && source.timestampMs > this.lastAccessoryFixMs) {
+                    // Positive evidence the accessory stopped supplying: iOS
+                    // produced a newer fix WITHOUT it. Drop the grace memory
+                    // so the row decays honestly instead of claiming a
+                    // receiver that was unplugged.
+                    this.lastAccessoryFixMs = null;
+                }
+            }
             return this.getStatus();
         })();
         try {

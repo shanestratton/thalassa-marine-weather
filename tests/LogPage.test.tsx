@@ -828,6 +828,44 @@ describe('LogPage', () => {
         expect(opener).toHaveFocus();
     });
 
+    it('asks the follow question BEFORE the acquiring-GPS takeover, which returns once answered', () => {
+        // Shane 2026-08-02: "ask which track we would like to link BEFORE the
+        // acquiring GPS message — sometimes that can be 20-30 seconds."
+        // Linking needs no fix; the sheet used to sit already-open but
+        // invisible behind the critical-band takeover (z 2147483000 vs
+        // z-[10055]) until the first recorded fix let it through.
+        const view = () => <LogPage />;
+        const { rerender } = render(view());
+
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [], // no recorded fix yet — the takeover's open condition
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        rerender(view());
+
+        // The question is up; the takeover yields to it.
+        expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+        // Answering brings the acquiring story back (still no fix recorded).
+        fireEvent.click(screen.getByRole('button', { name: 'Just recording' }));
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+        expect(screen.getByRole('alertdialog', { name: 'Acquiring GPS fix…' })).toBeInTheDocument();
+    });
+
     it('keeps the cast-off route prompt open through React StrictMode effect replay', async () => {
         Object.assign(logPageStateOverrides.state, {
             isTracking: true,
