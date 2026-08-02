@@ -47,8 +47,15 @@ export async function nativeTcpProbe(host: string, port: number, timeoutMs: numb
         // from a router's admin page.
         let sample = '';
         try {
+            // `timeout` is SECONDS and defaults to 10 in the plugin. Without
+            // it, every open-but-quiet port blocks the plugin's serial native
+            // bridge for ten seconds — the JS deadline below only stops US
+            // waiting, it cannot cancel the native read — and a sweep across a
+            // subnet of silent devices would queue behind them. 1 s is the
+            // floor the API allows and still comfortably longer than the
+            // 600 ms window we actually wait.
             const read = await withDeadline(
-                TcpSocket.read({ client: result.client, expectLen: 256 }),
+                TcpSocket.read({ client: result.client, expectLen: 256, timeout: 1 }),
                 READ_WINDOW_MS,
                 `read ${host}:${port}`,
             );

@@ -14,7 +14,13 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
 import { AisHubService, type AisHubStats } from '../../services/AisHubService';
-import { discoverGateways, type GatewayCandidate, type ScanPhase } from '../../services/nmea/gatewayScan';
+import {
+    discoverGateways,
+    subnetPrefixOf,
+    isPrivateIpv4,
+    type GatewayCandidate,
+    type ScanPhase,
+} from '../../services/nmea/gatewayScan';
 import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 
@@ -109,7 +115,8 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // ── Gateway scan ────────────────────────────────────────────────────
     const [subnet, setSubnet] = useState(() => localStorage.getItem('nmea_scan_subnet') || '');
     const [scanning, setScanning] = useState(false);
-    const [scanDone, setScanDone] = useState(false);
+    /** WHY the sweep ended — an empty network field is not "nothing found". */
+    const [scanOutcome, setScanOutcome] = useState<null | 'complete' | 'stopped' | 'invalid-network'>(null);
     const [scanPhase, setScanPhase] = useState<ScanPhase>('default-ports');
     const [scanProgress, setScanProgress] = useState(0);
     const [scanHits, setScanHits] = useState<GatewayCandidate[]>([]);
@@ -141,10 +148,25 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
         setScanning(false);
     }, []);
 
+    // The app unmounts pages on every tab switch, so without this a sweep the
+    // skipper walked away from keeps running invisibly — holding the plugin's
+    // serial native bridge and racing whatever the next page wants to do with
+    // it. There is no way to reach the Stop button once the page is gone.
+    useEffect(() => {
+        return () => {
+            stopScanRef.current = true;
+        };
+    }, []);
+
     const startScan = useCallback(() => {
         const prefix = subnet.trim().endsWith('.') ? subnet.trim() : `${subnet.trim()}.`;
-        if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.$/.test(prefix)) {
-            setScanDone(true);
+        // Use the validators that already exist and are already tested, rather
+        // than a looser regex that accepts 999.1.1. and would then sweep 254
+        // addresses that cannot exist. isPrivateIpv4 also keeps a mistyped
+        // public range from being scanned.
+        const canonical = subnetPrefixOf(`${prefix}1`);
+        if (!canonical || !isPrivateIpv4(`${canonical}1`)) {
+            setScanOutcome('invalid-network');
             setScanHits([]);
             return;
         }
@@ -152,7 +174,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
         triggerHaptic('medium');
         stopScanRef.current = false;
         setScanning(true);
-        setScanDone(false);
+        setScanOutcome(null);
         setScanHits([]);
         setScanProgress(0);
         setScanPhase('default-ports');
@@ -172,7 +194,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
             .catch((e) => log.warn('gateway scan failed:', e))
             .finally(() => {
                 setScanning(false);
-                setScanDone(true);
+                setScanOutcome(stopScanRef.current ? 'stopped' : 'complete');
             });
     }, [subnet]);
 
@@ -187,7 +209,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
             localStorage.setItem('nmea_device', hit.profileId);
         }
         setScanHits([]);
-        setScanDone(false);
+        setScanOutcome(null);
     }, []);
 
     const handleConnect = useCallback(() => {
@@ -413,7 +435,18 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                         </div>
                                     )}
 
-                                    {scanDone && scanHits.length === 0 && (
+                                    {scanOutcome === 'invalid-network' && (
+                                        <p className="mt-2 text-[11px] leading-snug text-amber-300/80">
+                                            That doesn’t look like a local network address. It should be three numbers,
+                                            like <span className="font-mono">192.168.1.</span>
+                                        </p>
+                                    )}
+                                    {scanOutcome === 'stopped' && scanHits.length === 0 && (
+                                        <p className="mt-2 text-[11px] leading-snug text-gray-400">
+                                            Stopped — nothing found before you stopped it.
+                                        </p>
+                                    )}
+                                    {scanOutcome === 'complete' && scanHits.length === 0 && (
                                         <p className="mt-2 text-[11px] leading-snug text-amber-300/80">
                                             Nothing found on {subnet}x. Check you’re on the boat’s Wi-Fi, confirm the
                                             network above, and make sure the gateway is powered.

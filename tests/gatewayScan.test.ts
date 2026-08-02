@@ -34,7 +34,7 @@ const probeFrom = (listeners: Record<string, string>): ScanProbe => {
 };
 
 const YDWG_RAW = '16:29:27.082 R 09F8017F 50 C3 B8 13 47 D8 2B C6\n16:29:27.104 R 09F8027F 00 2F 30 76 41 9F C6 0C';
-const NMEA_0183 = '$GPRMC,062725.00,A,2712.4998,S,15305.2500,E,5.4,182.1,020826,11.5,E*7A\r\n';
+const NMEA_0183 = '$GPRMC,062725.00,A,2712.4998,S,15305.2500,E,5.4,182.1,020826,11.5,E*7E\r\n';
 const AIS = '!AIVDM,1,1,,B,177KQJ5000G?tO`K>RA1wUbN0TKH,0*5C\r\n';
 
 describe('looksLikeNmea — what earns a "confirmed"', () => {
@@ -42,8 +42,23 @@ describe('looksLikeNmea — what earns a "confirmed"', () => {
         expect(looksLikeNmea(NMEA_0183)).toBe(true);
         expect(looksLikeNmea(AIS)).toBe(true);
         expect(looksLikeNmea(YDWG_RAW)).toBe(true);
-        expect(looksLikeNmea('$PCDIN,01F119,00000000,0F,FFFF7FFF*21')).toBe(true);
+        expect(looksLikeNmea('$PCDIN,01F119,00000000,0F,FFFF7FFF*29')).toBe(true);
         expect(looksLikeNmea('A173321.107 23FF7 1F513 012F3070')).toBe(true);
+    });
+
+    it('REJECTS other boat kit that happens to share the shape', () => {
+        // Every one of these matched the old shape-only rule and would have
+        // earned the emerald "live data" dot on some other box entirely.
+        expect(looksLikeNmea('!ERROR,pump overtemp')).toBe(false);
+        expect(looksLikeNmea('$ALARM,bilge high')).toBe(false);
+        expect(looksLikeNmea('$TOTAL,1240,kWh')).toBe(false);
+    });
+
+    it('requires the checksum to VERIFY, not merely to be present', () => {
+        const good = '$GPGLL,2712.4998,S,15305.2500,E,062725.00,A,A*7F';
+        const bad = good.slice(0, -2) + '00';
+        expect(looksLikeNmea(good)).toBe(true);
+        expect(looksLikeNmea(bad)).toBe(false);
     });
 
     it('is not fooled by things that merely contain a dollar sign', () => {

@@ -1261,7 +1261,21 @@ class ShipLogServiceClass {
             clearTimeout(this.fastLockTimeoutId);
             this.fastLockTimeoutId = undefined;
         }
+        // Put the sampling mode back if WE armed it. setSamplingMode writes the
+        // plugin's PERSISTENT config, so it outlives both the timer and the
+        // engine: pauseTracking clears fast-lock and returns, and without this
+        // distanceFilter 0 stayed latched for whatever ran next — typically
+        // tonight's anchor watch, which is armed for hours and whose own
+        // comment says the 1 m filter is what stops stationary GPS jitter from
+        // generating fixes at anchor. stopTracking (:1392) already restores;
+        // pause and identity-change did not.
+        const wasArmed = this.fastLockArmedForVoyageId !== undefined;
         this.fastLockArmedForVoyageId = undefined;
+        if (wasArmed) {
+            void BgGeoManager.setSamplingMode('default').catch(() => {
+                /* engine may not be running — ready() re-applies the default */
+            });
+        }
     }
 
     async pauseTracking(): Promise<void> {
