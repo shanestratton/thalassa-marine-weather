@@ -234,4 +234,59 @@ describe('GpsReceiverStatusService resolver', () => {
         expect(status.kind).toBe('phone');
         expect(status.detail).toBe('iPhone GPS in use');
     });
+
+    it('holds the accessory row through a quiet spell instead of flapping to phone', () => {
+        // THE MOORED-BOAT FLAP (Shane 2026-08-02: "sometimes the app sees it,
+        // and sometimes it doesn't"). The location engine's distance filter
+        // means a stationary vessel emits almost nothing, so the cached
+        // accessory fix ages past the 30 s freshness window while the Bad Elf
+        // is still the phone's active source. With the grace memory the row
+        // stays lit and says how old the last accessory fix is.
+        const status = resolveGpsReceiverStatus(
+            input({
+                native: {
+                    source: {
+                        hasLocation: true,
+                        timestampMs: NOW - 120_000,
+                        externalAccessory: true,
+                        simulated: false,
+                    },
+                    accessories: [],
+                },
+                accessoryMemory: { lastAccessoryFixMs: NOW - 120_000 },
+            }),
+        );
+
+        expect(status).toMatchObject({ active: true, kind: 'ios-accessory', label: 'External GPS' });
+        expect(status.detail).toBe('Connected to iPhone · Last accessory fix 2m ago');
+    });
+
+    it('drops the grace the moment a newer fix comes from the internal GPS', () => {
+        // Silence is not evidence the receiver went away — but a newer fix
+        // WITHOUT it is. Unplug the Bad Elf, walk down the dock, and the row
+        // must decay to phone rather than claim hardware for ten minutes.
+        const status = resolveGpsReceiverStatus(
+            input({
+                native: {
+                    source: { hasLocation: true, timestampMs: NOW - 5_000, externalAccessory: false, simulated: false },
+                    accessories: [],
+                },
+                accessoryMemory: { lastAccessoryFixMs: NOW - 60_000 },
+            }),
+        );
+
+        expect(status.kind).toBe('phone');
+        expect(status.detail).toBe('iPhone GPS in use');
+    });
+
+    it('lets the grace expire after ten minutes of total silence', () => {
+        const status = resolveGpsReceiverStatus(
+            input({
+                accessoryMemory: { lastAccessoryFixMs: NOW - 11 * 60_000 },
+            }),
+        );
+
+        expect(status.kind).toBe('phone');
+        expect(status.detail).toBe('No position yet — nothing is supplying a fix');
+    });
 });

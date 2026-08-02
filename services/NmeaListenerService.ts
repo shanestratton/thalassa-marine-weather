@@ -91,6 +91,21 @@ class NmeaListenerServiceClass {
     private tcpLineBuffer = '';
     /** Last error message for UI display */
     private lastError: string | null = null;
+    /** The 5-minute give-up parked us — retry once on next app foreground. */
+    private parkedAfterGiveUp = false;
+
+    constructor() {
+        // Un-park on app foreground. The webview fires visibilitychange on
+        // Capacitor background/foreground transitions, and coming back to the
+        // app is exactly when the boat Wi-Fi is likely reachable again.
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden || !this.parkedAfterGiveUp || this.enabled) return;
+                log.warn('Retrying parked NMEA connection on app foreground');
+                this.start();
+            });
+        }
+    }
 
     // ── Public API ──
 
@@ -114,6 +129,7 @@ class NmeaListenerServiceClass {
     start() {
         if (this.enabled) return;
         this.enabled = true;
+        this.parkedAfterGiveUp = false;
         this.firstAttemptTime = Date.now();
         this.connect();
         this.startSampleTimer();
@@ -351,9 +367,17 @@ class NmeaListenerServiceClass {
     private scheduleReconnect() {
         if (!this.enabled || this.reconnectTimer) return;
 
-        // Give up after 5 minutes of continuous failed attempts
+        // Park after 5 minutes of continuous failed attempts. This used to be
+        // a PERMANENT give-up (stop(), enabled=false, nothing ever retried),
+        // which silently killed a mux-fed Bad Elf / MFD feed until the
+        // skipper manually reconnected: walk out of Wi-Fi range for six
+        // minutes and the feed was gone for the day. Now the give-up is a
+        // parked state that retries once on the next app foreground —
+        // start() re-arms the give-up clock, so a still-dead network parks
+        // again after another 5 minutes instead of looping hot.
         if (this.firstAttemptTime && Date.now() - this.firstAttemptTime > RECONNECT_GIVE_UP_MS) {
-            log.info('Giving up after 5 minutes of failed reconnects');
+            log.warn('Parking NMEA reconnects after 5 minutes of failures — will retry on next app foreground');
+            this.parkedAfterGiveUp = true;
             this.stop();
             return;
         }

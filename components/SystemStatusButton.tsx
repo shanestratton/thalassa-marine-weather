@@ -624,11 +624,23 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         refresh();
         const id = setInterval(refresh, 5_000);
 
+        // Refresh the instant the app comes back to the foreground. The poll
+        // is gated on document.hidden, so after a backgrounded stretch every
+        // receiver row could sit up to 5 s stale — long enough to read as
+        // "the app doesn't see my Bad Elf" when the skipper flips back to
+        // check. WKWebView fires visibilitychange on Capacitor app
+        // foreground/background, so this needs no native listener.
+        const onVisibility = () => {
+            if (!document.hidden) refresh();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+
         return () => {
             disposed = true;
             unsub();
             nmeaUnsub();
             clearInterval(id);
+            document.removeEventListener('visibilitychange', onVisibility);
         };
     }, []);
 

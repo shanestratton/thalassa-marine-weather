@@ -9,6 +9,25 @@
  */
 
 import { Capacitor, registerPlugin, PluginListenerHandle } from '@capacitor/core';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('BgLocation');
+
+/**
+ * Throttled failure logging for the receiver-info bridge. These calls run on
+ * a 5 s poll from the header status button, and their failures used to be
+ * swallowed whole (`.catch(() => empty)`) — a broken native bridge looked
+ * IDENTICAL to "no Bad Elf connected", which is half of "sometimes the app
+ * sees it, sometimes it doesn't" being undiagnosable from the field. warn()
+ * because log.info is silenced in production builds.
+ */
+const nativeFailureLastLogged = new Map<string, number>();
+function logReceiverInfoFailure(method: string, error: unknown): void {
+    const now = Date.now();
+    if (now - (nativeFailureLastLogged.get(method) ?? 0) < 60_000) return;
+    nativeFailureLastLogged.set(method, now);
+    log.warn(`${method} failed — GPS receiver row may show stale or phone-only state`, error);
+}
 
 /**
  * Provenance of the most recent location supplied by Core Location.
@@ -126,8 +145,14 @@ class BackgroundLocationServiceClass {
 
         try {
             const [sourceResult, accessoryResult] = await Promise.all([
-                BackgroundLocation.getActiveLocationSource().catch(() => EMPTY_ACTIVE_LOCATION_SOURCE),
-                BackgroundLocation.getConnectedAccessories().catch(() => ({ accessories: [] })),
+                BackgroundLocation.getActiveLocationSource().catch((error: unknown) => {
+                    logReceiverInfoFailure('getActiveLocationSource', error);
+                    return EMPTY_ACTIVE_LOCATION_SOURCE;
+                }),
+                BackgroundLocation.getConnectedAccessories().catch((error: unknown) => {
+                    logReceiverInfoFailure('getConnectedAccessories', error);
+                    return { accessories: [] };
+                }),
             ]);
             const source = {
                 hasLocation: sourceResult.hasLocation === true,
@@ -158,7 +183,8 @@ class BackgroundLocationServiceClass {
                 : [];
 
             return { source, accessories };
-        } catch {
+        } catch (error) {
+            logReceiverInfoFailure('getGpsReceiverInfo', error);
             return { source: EMPTY_ACTIVE_LOCATION_SOURCE, accessories: [] };
         }
     }
