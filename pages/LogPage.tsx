@@ -595,7 +595,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // Shared with the poll cadence in useLogPageState — one definition, so the
     // overlay and the poll that lets it notice cannot disagree.
     const hasRecordedFix = React.useMemo(
-        () => voyageHasRecordedFix(state.entries, state.currentVoyageId),
+        // LIVE voyage-id fallback (audit follow-up 2026-08-03):
+        // state.currentVoyageId is written only by LOAD_DATA, which awaits
+        // Supabase fetches — on dead boat comms it can starve indefinitely
+        // while the 1 s poll happily merges recorded entries keyed on the
+        // LIVE id. Without the fallback the badge claims "Acquiring GPS
+        // fix…" forever on a voyage that is recording perfectly.
+        () => voyageHasRecordedFix(state.entries, state.currentVoyageId ?? ShipLogService.getCurrentVoyageId()),
         [state.entries, state.currentVoyageId],
     );
 

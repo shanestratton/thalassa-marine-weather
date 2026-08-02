@@ -465,7 +465,19 @@ class BgGeoManagerClass {
                     locationUpdateInterval: 3000,
                     fastestLocationUpdateInterval: 3000,
 
-                    stopTimeout: 0, // NEVER auto-stop — vessel may be anchored
+                    // NEVER auto-stop — vessel may be anchored, and anchor
+                    // watch NEEDS fixes precisely when the device reads as
+                    // stationary. `stopTimeout: 0` said the opposite of what
+                    // it meant (audit follow-up 2026-08-03): stopTimeout is
+                    // the number of MINUTES to wait after motion-stop before
+                    // turning location OFF, so 0 = off IMMEDIATELY the moment
+                    // the motion API called a moored boat "still" — the
+                    // silent fix starvation behind days of stale-receiver
+                    // symptoms. disableStopDetection is the documented way to
+                    // keep location on regardless of the motion API; battery
+                    // is governed by this manager's ref-counted leases, which
+                    // already stop the engine when nothing needs it.
+                    disableStopDetection: true,
 
                     // Geofencing — high-accuracy mode is REQUIRED for the
                     // 20–50 m anchor swing-radius use case. Without this

@@ -480,6 +480,12 @@ export class GpsSubscriptionManager {
                 if (elapsedMs > FIRST_FIX_MAX_GAP_MS) {
                     // The held point is too old to prove a cold-start lock;
                     // start a fresh, bounded confirmation window instead.
+                    // WARN, because a starved stream loops here silently
+                    // forever (every fix >15 s apart restarts the window) —
+                    // this was the one first-fix path with no log line, and
+                    // an invisible infinite loop is how the 2026-08-03 wedge
+                    // stayed undiagnosed until a field console dump.
+                    log.warn(`GPS first-fix gate: held fix expired unconfirmed (Δ${elapsedMs}ms) — restarting window`);
                     this.pendingFirstFix = pos;
                     return;
                 }
