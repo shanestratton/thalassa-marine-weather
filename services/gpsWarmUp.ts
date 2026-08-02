@@ -59,6 +59,27 @@ export async function warmUpGps(): Promise<void> {
             return;
         }
 
+        // Rule 2, and the one that nearly cost a voyage: NEVER TOUCH AN ENGINE
+        // THAT IS ALREADY RUNNING.
+        //
+        // The engine survives app death (stopOnTerminate:false), but startCount
+        // is plain JS state that resets to 0 with the WebView. So after a
+        // mid-voyage reload or relaunch the engine is live while the ref-count
+        // believes nobody holds it: the warm-up would take 0→1, get a fix
+        // within a second or two because fixes are ALREADY flowing, and release
+        // 1→0 — calling stop() on a recording voyage. ShipLogService.initialize
+        // then reads isNativeTrackingEnabled() as its source of truth, sees
+        // false, and marks the voyage STOPPED with an end time. That is the
+        // relaunch black hole from 2da85a67, reopened by a convenience.
+        // It also drops the anchor watch's geofences.
+        //
+        // Skipping is the correct semantics regardless: fixes are already
+        // flowing, so there is nothing to warm up.
+        if (await BgGeoManager.isNativeTrackingEnabled()) {
+            log.warn('GPS warm-up skipped — engine already tracking');
+            return;
+        }
+
         // Already have something recent? Then there is nothing to warm up, and
         // holding the engine open would be pure battery. 120 s is generous on
         // purpose: this is the "is a fix ready" question, NOT a safety read.

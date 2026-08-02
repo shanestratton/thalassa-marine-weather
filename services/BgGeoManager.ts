@@ -127,7 +127,20 @@ class BgGeoManagerClass {
         await this.ensureReady();
         this.startCount++;
         if (this.startCount === 1) {
-            await BackgroundGeolocation.start();
+            try {
+                await BackgroundGeolocation.start();
+            } catch (e) {
+                // GIVE THE LEASE BACK. The count is incremented before this
+                // await, so a rejection here — permission revoked between a
+                // caller's check and its start, or the OS refusing — used to
+                // leave the count permanently at 1. Every later requestStop()
+                // then clamped at 1 and stop() was NEVER reached, so the engine
+                // and the iOS location indicator stayed on for the rest of the
+                // session after the skipper had explicitly stopped recording.
+                // The caller still sees the rejection and decides what to say.
+                this.startCount = Math.max(0, this.startCount - 1);
+                throw e;
+            }
             // REPLACES v8's `isMoving: true` in ready(). v9 removed isMoving
             // from Config and made it runtime state (State.isMoving), so
             // without this the engine starts STATIONARY and waits for motion

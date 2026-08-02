@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const h = vi.hoisted(() => ({
     getGpsHealth: vi.fn(),
     getLastPosition: vi.fn(),
+    isNativeTrackingEnabled: vi.fn(async () => false),
     requestStart: vi.fn(async () => {}),
     requestStop: vi.fn(async () => {}),
     setSamplingMode: vi.fn(async () => 7),
@@ -26,6 +27,7 @@ vi.mock('../services/BgGeoManager', () => ({
     BgGeoManager: {
         getGpsHealth: h.getGpsHealth,
         getLastPosition: h.getLastPosition,
+        isNativeTrackingEnabled: h.isNativeTrackingEnabled,
         requestStart: h.requestStart,
         requestStop: h.requestStop,
         setSamplingMode: h.setSamplingMode,
@@ -55,6 +57,7 @@ beforeEach(() => {
     setVisibility('visible');
     h.getGpsHealth.mockResolvedValue({ usable: true, reason: 'ok' });
     h.getLastPosition.mockReturnValue(null);
+    h.isNativeTrackingEnabled.mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -81,6 +84,23 @@ describe('warmUpGps — invariant 1: never prompt', () => {
     it('starts only when permission is already granted', async () => {
         await warmUpGps();
         expect(h.requestStart).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('warmUpGps — never touches an engine that is already running', () => {
+    it('does not take a lease when the engine is already tracking', async () => {
+        // THE CRITICAL ONE. The engine survives app death (stopOnTerminate
+        // false) but startCount is JS state that resets with the WebView. After
+        // a mid-voyage reload the engine is live while the ref-count thinks
+        // nobody holds it, so a warm-up would take 0->1, get a fix in a second
+        // because fixes are ALREADY flowing, release 1->0 and call stop() on a
+        // RECORDING voyage — which ShipLogService.initialize then reads as
+        // "not tracking" and marks the voyage stopped. The relaunch black hole,
+        // reopened by a convenience.
+        h.isNativeTrackingEnabled.mockResolvedValue(true);
+        await warmUpGps();
+        expect(h.requestStart).not.toHaveBeenCalled();
+        expect(h.requestStop).not.toHaveBeenCalled();
     });
 });
 
@@ -170,7 +190,7 @@ describe('warmUpGps — costs nothing when there is nothing to gain', () => {
         // would cancel the ship's log fast-lock and restore the original hang.
         await warmUpGps();
         h.locationCb?.({ accuracy: 9 });
-        const [token] = h.restoreSamplingModeIfCurrent.mock.calls[0] as [number, string];
+        const [token] = h.restoreSamplingModeIfCurrent.mock.calls[0] as unknown as [number, string];
         expect(token).toBe(await h.setSamplingMode.mock.results[0].value);
     });
 });

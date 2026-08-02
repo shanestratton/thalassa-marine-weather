@@ -104,8 +104,24 @@ export const DEEP_PORTS: PortSpec[] = [
 export function looksLikeNmea(sample: string): boolean {
     if (!sample) return false;
 
-    // NMEA 0183 / AIS: $AAXXX, or !AAXXX, — 2-char talker + 3-char sentence.
-    if (/[$!][A-Z]{2}[A-Z0-9]{3},/.test(sample)) return true;
+    // NMEA 0183 / AIS: a WHOLE sentence, on its own line, with a checksum that
+    // ACTUALLY VERIFIES.
+    //
+    // The shape alone is far too weak to hang a green "live data" badge on:
+    // `!ERROR,pump overtemp`, `$ALARM,bilge high` and `$TOTAL,1240,kWh` all
+    // match "$ + 5 chars + comma", and every one of them is a plausible thing
+    // for some other box on a boat's network to be emitting. Confirming the
+    // wrong host is the failure that costs the skipper most — they save it and
+    // then wonder why no instruments appear — so the checksum is the price of
+    // the emerald dot. Anything that only looks the part still gets offered,
+    // as 'likely'.
+    for (const line of sample.split(/[\r\n]+/)) {
+        const m = /^[$!]([A-Z]{2}[A-Z0-9]{3},[^*]*)\*([0-9A-F]{2})\s*$/.exec(line.trim());
+        if (!m) continue;
+        let xor = 0;
+        for (let i = 0; i < m[1].length; i++) xor ^= m[1].charCodeAt(i);
+        if (xor === parseInt(m[2], 16)) return true;
+    }
 
     // Yacht Devices / Actisense RAW: timestamp, direction, 29-bit CAN id, bytes.
     if (/\d{2}:\d{2}:\d{2}\.\d{3}\s+[RT]\s+[0-9A-F]{8}(\s+[0-9A-F]{2})+/i.test(sample)) return true;
