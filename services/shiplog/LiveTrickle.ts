@@ -50,6 +50,8 @@ interface TrickleSession {
     tickPromise: Promise<void> | null;
     pruned: boolean;
     intervalHandle: ReturnType<typeof setInterval> | null;
+    /** One warn per session when the skipper-device claim vetoes publishing. */
+    claimWarned?: boolean;
 }
 
 /** Why a live tail was deliberately made permanently ineligible to publish. */
@@ -236,7 +238,25 @@ async function doTick(session: TrickleSession): Promise<boolean> {
         await refreshSkipperClaim();
         if (!sessionIsCurrent(session)) return false;
         const claim = store.getState().settings.skipperDevice ?? null;
-        if (!mayPublish(claim)) return false;
+        if (!mayPublish(claim)) {
+            // The single-publisher veto is correct behaviour — but it was
+            // SILENT, and a skipper with live-share ON stared at an empty
+            // public page with no clue why (field mystery 2026-08-03: a
+            // stale claim from a previous install muted the trickle while
+            // every other part of the chain was healthy). One warn per
+            // session names the holder so the console answers instantly;
+            // the takeover card on the Vessel page is the fix.
+            if (!session.claimWarned) {
+                session.claimWarned = true;
+                log.warn(
+                    `live share is ON but this device does not hold the skipper claim — publishing suppressed. ` +
+                        `Claim holder: ${claim?.deviceName ?? 'unknown'} (since ${claim?.claimedAt ?? '?'}). ` +
+                        `Take over from the Vessel page to publish from this device.`,
+                );
+            }
+            return false;
+        }
+        session.claimWarned = false;
 
         const mark = await readMark(session);
         if (!sessionIsCurrent(session)) return false;
