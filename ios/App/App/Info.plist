@@ -27,6 +27,16 @@
 		<string>processing</string>
 		<string>audio</string>
 	</array>
+	<!-- Bad Elf MFi protocol declaration (Shane 2026-08-02: "add the plist
+	     key, chance the app review"). Without this, EAAccessoryManager's
+	     connectedAccessories never lists the receiver, so the app could only
+	     see the Bad Elf WHILE it was actively supplying the Core Location fix
+	     — never by name, and never while merely paired. App Review may ask
+	     for MFi vendor authorization for this string; that risk is accepted. -->
+	<key>UISupportedExternalAccessoryProtocols</key>
+	<array>
+		<string>com.bad-elf.gps</string>
+	</array>
 	<key>TSLocationManagerLicense</key>
 	<string>eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImlvcyIsImFwcF9pZCI6ImNvbS50aGFsYXNzYS53ZWF0aGVyIiwib3JkZXJfbnVtYmVyIjoxNTQyOSwicmVuZXdhbF91cmwiOiJodHRwczovL3Nob3AudHJhbnNpc3RvcnNvZnQuY29tL2NhcnQvMzkzNjcwNzEyMzYxOTk6MT9ub3RlPTEwMjYzIiwiY3VzdG9tZXJfaWQiOjkzMzksInByb2R1Y3QiOiJjYXBhY2l0b3ItYmFja2dyb3VuZC1nZW9sb2NhdGlvbiIsImtleV92ZXJzaW9uIjoxLCJhbGxvd2VkX3N1ZmZpeGVzIjpbIi5kZXYiLCIuZGV2ZWxvcG1lbnQiLCIuc3RhZ2luZyIsIi5zdGFnZSIsIi5xYSIsIi51YXQiLCIudGVzdCIsIi5kZWJ1ZyJdLCJtYXhfYnVpbGRfc3RhbXAiOjIwMjcwODI4LCJncmFjZV9idWlsZHMiOjAsImVudGl0bGVtZW50cyI6WyJjb3JlIl0sImlhdCI6MTc4NTIwMDQ1Mn0.BXOLcZYe8B3kzNJojLt4i1E_vIYvjAkLtprDNZpQK1N1yCXWwPCnXYNtGq2icZpm6vz0q3M5bl6EyqXZm_IyAg</string>
 	<key>CFBundleDevelopmentRegion</key>
