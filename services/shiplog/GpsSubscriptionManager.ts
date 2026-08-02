@@ -67,6 +67,20 @@ const FIRST_FIX_MAX_GAP_MS = 15_000;
 // noise, then allow actual travel implied by either reading's reported SOG.
 const FIRST_FIX_MIN_ENVELOPE_M = 25;
 const FIRST_FIX_ENVELOPE_PADDING_M = 10;
+// Consecutive non-monotonic corroborators that DEMOTE the held first fix
+// instead of waiting for one that outruns it. A re-stamped engine-start
+// replay — what the monotonic check exists for — is a burst of one or two
+// stale points. A PERSISTENT stream of fixes stamped behind the held fix
+// means the held fix's clock base is the outlier, not the stream: a Bad Elf
+// Pro+ supplies Core Location with fixes stamped from the RECEIVER's clock,
+// which can sit whole seconds behind a phone-clock-stamped fix. Field
+// failure 2026-08-03: the held (phone-stamped) fix outran every accessory
+// fix forever, the gate never opened, and the Log badge read "Acquiring GPS
+// fix…" indefinitely while the Bad Elf supplied perfect positions — the
+// non-positive delta could never trip the too-old restart, so the gate had
+// NO escape. Three in a row = skew, not replay; demote and let the
+// accessory stream corroborate itself (its own timestamps are ordered).
+const FIRST_FIX_SKEW_DEMOTE_COUNT = 3;
 
 // ── Cold-start accuracy ramp ────────────────────────────────────────
 // A freshly-woken GPS reports a large accuracy radius and the reported
@@ -208,6 +222,9 @@ export class GpsSubscriptionManager {
      * holds the newer one. Costs one sample (~5 s) at session start.
      */
     private pendingFirstFix: CachedPosition | null = null;
+    /** Consecutive corroborators rejected for non-monotonic timestamps —
+     *  the clock-skew demotion trigger (see FIRST_FIX_SKEW_DEMOTE_COUNT). */
+    private firstFixNonMonotonicCount = 0;
     private hasBufferedThisSession = false;
     private trackOpenedNotified = false;
 
@@ -237,6 +254,7 @@ export class GpsSubscriptionManager {
         this.lastBufferedZone = null;
         this.activeOptions = opts;
         this.pendingFirstFix = null;
+        this.firstFixNonMonotonicCount = 0;
         this.hasBufferedThisSession = false;
         this.trackOpenedNotified = false;
 
@@ -309,6 +327,7 @@ export class GpsSubscriptionManager {
                 const opensTrack = !this.hasBufferedThisSession;
                 this.hasBufferedThisSession = true;
                 this.pendingFirstFix = null;
+                this.firstFixNonMonotonicCount = 0;
                 if (opensTrack) this.notifyTrackOpened(opts);
                 this.bufferPlotPoint(cached, opts, opensTrack);
             }
@@ -437,10 +456,27 @@ export class GpsSubscriptionManager {
                 if (elapsedMs <= 0) {
                     // A backwards/duplicate timestamp cannot be safely
                     // replayed into a timestamp-sorted polyline. Keep the
-                    // original candidate and wait for a chronological fix.
-                    log.warn('GPS first-fix gate: ignoring non-monotonic corroborating timestamp');
+                    // original candidate and wait for a chronological fix —
+                    // but only for so long. If fix after fix arrives stamped
+                    // behind the held one, the held fix's clock base is the
+                    // suspect (external-receiver skew, 2026-08-03 Bad Elf
+                    // wedge) and holding it would jam the gate FOREVER: a
+                    // non-positive delta can never trip the too-old restart
+                    // below. Demote to the newest ARRIVAL — arrival order is
+                    // the one clock all sources share.
+                    this.firstFixNonMonotonicCount += 1;
+                    if (this.firstFixNonMonotonicCount >= FIRST_FIX_SKEW_DEMOTE_COUNT) {
+                        log.warn(
+                            `GPS first-fix gate: held fix outruns the whole stream (Δ${elapsedMs}ms) — demoting to newest arrival (clock-base skew)`,
+                        );
+                        this.pendingFirstFix = pos;
+                        this.firstFixNonMonotonicCount = 0;
+                        return;
+                    }
+                    log.warn(`GPS first-fix gate: ignoring non-monotonic corroborating timestamp (Δ${elapsedMs}ms)`);
                     return;
                 }
+                this.firstFixNonMonotonicCount = 0;
                 if (elapsedMs > FIRST_FIX_MAX_GAP_MS) {
                     // The held point is too old to prove a cold-start lock;
                     // start a fresh, bounded confirmation window instead.
