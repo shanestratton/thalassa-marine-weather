@@ -214,6 +214,41 @@ describe('GpsSubscriptionManager', () => {
             expect(trackBuffer.peek()!.latitude).toBeCloseTo(0.0001);
         });
 
+        it('escapes the Bad Elf clock-skew wedge: a stream stamped behind the held fix demotes it and opens', () => {
+            // Field failure 2026-08-03: the held first fix carried a phone
+            // clock timestamp; every Bad Elf Pro+ fix that followed was
+            // stamped seconds BEHIND it (receiver clock base). The
+            // non-monotonic branch rejected each one while KEEPING the held
+            // fix — and a non-positive delta can never trip the too-old
+            // restart — so the gate wedged forever: "Acquiring GPS fix…"
+            // indefinitely with a perfect receiver attached. Three
+            // consecutive non-monotonic corroborators must demote the held
+            // fix to the newest arrival, after which the accessory stream
+            // corroborates itself.
+            startMgr();
+            vi.advanceTimersByTime(5_001);
+            const phoneT = Date.now();
+            // Held first fix, phone clock base.
+            capturedLocationHandler!(makeFix({ timestamp: phoneT }));
+            expect(trackBuffer.length).toBe(0);
+            // Bad Elf stream: internally ordered at 1 Hz, clock 8 s behind.
+            const elfT = phoneT - 8_000;
+            for (let i = 0; i < 3; i++) {
+                capturedLocationHandler!(
+                    makeFix({ timestamp: elfT + i * 1_000, receivedAt: phoneT + (i + 1) * 1_000 }),
+                );
+            }
+            // Third rejection demotes the held fix to the newest accessory
+            // fix; nothing has been buffered yet.
+            expect(trackBuffer.length).toBe(0);
+            expect(onTrackOpened).not.toHaveBeenCalled();
+            // The next accessory fix is monotonic AGAINST ITS OWN STREAM and
+            // agrees spatially → the gate finally opens.
+            capturedLocationHandler!(makeFix({ timestamp: elfT + 3_000, receivedAt: phoneT + 4_000 }));
+            expect(trackBuffer.length).toBe(1);
+            expect(onTrackOpened).toHaveBeenCalledTimes(1);
+        });
+
         it('rejects wide-accuracy cold fixes until the chip settles, then opens on a tight pair', () => {
             startMgr();
             vi.advanceTimersByTime(5_001);
