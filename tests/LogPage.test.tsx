@@ -828,19 +828,21 @@ describe('LogPage', () => {
         expect(opener).toHaveFocus();
     });
 
-    it('asks the follow question BEFORE the acquiring-GPS takeover, which returns once answered', () => {
-        // Shane 2026-08-02: "ask which track we would like to link BEFORE the
-        // acquiring GPS message — sometimes that can be 20-30 seconds."
-        // Linking needs no fix; the sheet used to sit already-open but
-        // invisible behind the critical-band takeover (z 2147483000 vs
-        // z-[10055]) until the first recorded fix let it through.
+    it('never covers the follow question with an acquiring takeover — before OR after answering', () => {
+        // TOMBSTONE (Shane 2026-08-03: "remove the large full screen acquiring
+        // gps fix, as well as the smaller background one — just keep the green
+        // one below the heading"). The critical-band takeover used to bury the
+        // already-open follow sheet for the whole 20-30 s acquisition
+        // (2026-08-02 reorder made it yield); now it is gone entirely and the
+        // header badge is the one acquiring surface, so no alertdialog may
+        // ever appear at any point in the cast-off flow.
         const view = () => <LogPage />;
         const { rerender } = render(view());
 
         Object.assign(logPageStateOverrides.state, {
             isTracking: true,
             currentVoyageId: 'active-voyage',
-            entries: [], // no recorded fix yet — the takeover's open condition
+            entries: [], // no recorded fix yet — the old takeover's open condition
             summaries: [
                 {
                     voyageId: 'planned-voyage',
@@ -856,14 +858,14 @@ describe('LogPage', () => {
         });
         rerender(view());
 
-        // The question is up; the takeover yields to it.
         expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
         expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 
-        // Answering brings the acquiring story back (still no fix recorded).
         fireEvent.click(screen.getByRole('button', { name: 'Just recording' }));
         expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
-        expect(screen.getByRole('alertdialog', { name: 'Acquiring GPS fix…' })).toBeInTheDocument();
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+        // The badge still tells the acquiring story.
+        expect(screen.getAllByText(/Acquiring GPS fix… \d+:\d{2}/)).not.toHaveLength(0);
     });
 
     it('keeps the cast-off route prompt open through React StrictMode effect replay', async () => {
@@ -1193,14 +1195,15 @@ describe('LogPage — the acquiring surfaces tell the truth', () => {
             summaries: [],
         });
 
-    it('counts the wait on the banner — the surface the skipper actually stares at', async () => {
-        // Shane, 2026-08-02: "still have the exact same screen… over 1 minute".
-        // Hardening only the full-screen overlay changed nothing, because the
-        // page has FOUR other hard-coded "Acquiring GPS fix…" surfaces.
+    it('counts the wait on the header badge — the ONE remaining acquiring surface', async () => {
+        // Shane 2026-08-03: the takeover, top banner and both live-map veils
+        // are gone — "just keep the green one that is just below the heading".
+        // The badge inherits the honesty duties: it must carry the elapsed
+        // clock, and there must be EXACTLY one surface saying it.
         gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
         trackingNoFix();
         render(<LogPage />);
-        expect(await screen.findAllByText(/Acquiring GPS fix… \d+:\d{2}/)).not.toHaveLength(0);
+        expect(await screen.findAllByText(/Acquiring GPS fix… \d+:\d{2}/)).toHaveLength(1);
     });
 
     it('names a permission problem instead of claiming to be acquiring', async () => {
@@ -1210,8 +1213,8 @@ describe('LogPage — the acquiring surfaces tell the truth', () => {
 
         expect(await screen.findAllByText('Location access is off')).not.toHaveLength(0);
         expect(screen.queryByText(/Acquiring GPS fix…/)).not.toBeInTheDocument();
-        // …and a tappable way out, on a banner that is otherwise
-        // pointer-events-none so it cannot block the Stop button.
-        expect(screen.getByRole('button', { name: 'Fix' })).toBeInTheDocument();
+        // The banner's Fix deep-link went with the banner — the badge names
+        // the cause and the GPS disclaimer modal remains the actionable door.
+        expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
     });
 });
