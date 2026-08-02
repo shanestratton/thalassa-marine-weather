@@ -29,6 +29,7 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { UndoToast } from '../components/ui/UndoToast';
 import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
 import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
+import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../hooks/useGpsHealth';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { OverlayPortal } from '../components/ui/OverlayPortal';
@@ -141,6 +142,9 @@ const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
  * `dismissedFollowVoyages` — the skipper explicitly chose "Just recording".
  */
 const confirmedFollowVoyages = new Set<string>();
+/** voyageId → when this device started waiting for its first fix. Module
+ *  scope so the clock survives the tab-bounce that unmounts this page. */
+const acquiringSince = new Map<string, number>();
 const dismissedFollowVoyages = new Set<string>();
 
 /**
@@ -559,6 +563,49 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         () => voyageHasRecordedFix(state.entries, state.currentVoyageId),
         [state.entries, state.currentVoyageId],
     );
+
+    // ── ONE honest acquiring state, shared by ALL FOUR surfaces ──
+    // The top banner, the header badge and both map veils each rendered their
+    // own hard-coded "Acquiring GPS fix…" with no cause and no clock, so
+    // hardening only the full-screen overlay changed nothing the skipper
+    // actually looks at (Shane, 2026-08-02: "still have the exact same screen…
+    // it has been there for over 1 minute"). They now share one source.
+    const gpsHealth = useGpsHealth();
+    const gpsBlocked = gpsHealth && !gpsHealth.usable ? gpsHealthMessage(gpsHealth.reason) : null;
+
+    // Elapsed since this voyage started waiting. Module-scope so it survives
+    // the tab-bounce that unmounts this page, per
+    // [[lesson_session_guards_module_scope]] — a counter that resets every time
+    // the skipper checks the chart is exactly the lie it exists to prevent.
+    const [gpsWaitSec, setGpsWaitSec] = React.useState(0);
+    React.useEffect(() => {
+        const vid = state.currentVoyageId ?? null;
+        if (!state.isTracking || hasRecordedFix) {
+            if (vid) acquiringSince.delete(vid);
+            setGpsWaitSec(0);
+            return;
+        }
+        const key = vid ?? '__pending__';
+        if (!acquiringSince.has(key)) acquiringSince.set(key, Date.now());
+        const startedAt = acquiringSince.get(key) as number;
+        const tick = () => setGpsWaitSec(Math.floor((Date.now() - startedAt) / 1000));
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, [state.isTracking, state.currentVoyageId, hasRecordedFix]);
+
+    /** "1:23" — what the skipper reads to know whether waiting is still sane. */
+    const gpsWaitLabel = `${Math.floor(gpsWaitSec / 60)}:${String(gpsWaitSec % 60).padStart(2, '0')}`;
+    /** Past a minute a clear-sky cold start has had its chance. */
+    const gpsOverdue = gpsWaitSec >= 60;
+    /** The one line every surface shows under the headline. */
+    const gpsSubline = gpsBlocked
+        ? gpsBlocked.detail
+        : gpsOverdue
+          ? `Still searching ${gpsWaitLabel} — nothing recorded yet`
+          : 'Recording starts at the first clean fix';
+    /** The one headline every surface shows. */
+    const gpsHeadline = gpsBlocked ? gpsBlocked.title : `Acquiring GPS fix… ${gpsWaitLabel}`;
 
     // Full-screen "Acquiring GPS fix…" takeover (Shane 2026-07-03: the tiny
     // header badge is invisible in sunlight — the first minutes of a track
@@ -1017,7 +1064,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                   : 'text-red-400/80'
                                         }`}
                                     >
-                                        {gpsStatus === 'locked' && hasRecordedFix ? 'Recording' : 'Acquiring GPS fix…'}
+                                        {gpsStatus === 'locked' && hasRecordedFix ? 'Recording' : gpsHeadline}
                                     </span>
                                 </div>
                             ) : (
@@ -1422,11 +1469,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 {!hasRecordedFix && (
                                                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
                                                         <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                                                        <span className="text-[11px] font-bold text-amber-300/90 uppercase tracking-widest">
-                                                            Acquiring GPS fix…
+                                                        <span
+                                                            className={`text-[11px] font-bold uppercase tracking-widest ${gpsBlocked ? 'text-red-300' : 'text-amber-300/90'}`}
+                                                        >
+                                                            {gpsHeadline}
                                                         </span>
-                                                        <span className="text-[10px] text-white/40">
-                                                            Recording starts at the first clean fix
+                                                        <span className="max-w-[16rem] px-2 text-center text-[10px] leading-snug text-white/40">
+                                                            {gpsSubline}
                                                         </span>
                                                     </div>
                                                 )}
@@ -1507,11 +1556,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     {!hasRecordedFix && (
                                                         <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-2 bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
                                                             <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                                                            <span className="text-[11px] font-bold text-amber-300/90 uppercase tracking-widest">
-                                                                Acquiring GPS fix…
+                                                            <span
+                                                                className={`text-[11px] font-bold uppercase tracking-widest ${gpsBlocked ? 'text-red-300' : 'text-amber-300/90'}`}
+                                                            >
+                                                                {gpsHeadline}
                                                             </span>
-                                                            <span className="text-[10px] text-white/40">
-                                                                Recording starts at the first clean fix
+                                                            <span className="max-w-[16rem] px-2 text-center text-[10px] leading-snug text-white/40">
+                                                                {gpsSubline}
                                                             </span>
                                                         </div>
                                                     )}
@@ -1808,19 +1859,39 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     role="status"
                     aria-live="polite"
                 >
-                    <div className="w-full max-w-sm flex items-center gap-3 rounded-2xl bg-slate-900/95 border border-amber-400/30 shadow-2xl shadow-black/40 px-4 py-3 backdrop-blur-md">
+                    <div
+                        className={`w-full max-w-sm flex items-center gap-3 rounded-2xl bg-slate-900/95 border shadow-2xl shadow-black/40 px-4 py-3 backdrop-blur-md ${
+                            gpsBlocked ? 'border-red-400/40' : 'border-amber-400/30'
+                        }`}
+                    >
                         <span className="relative flex h-3 w-3 shrink-0">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
-                            <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-400" />
+                            {!gpsBlocked && (
+                                <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                            )}
+                            <span
+                                className={`relative inline-flex h-3 w-3 rounded-full ${gpsBlocked ? 'bg-red-400' : 'bg-amber-400'}`}
+                            />
                         </span>
-                        <div className="min-w-0">
-                            <div className="text-[13px] font-bold text-amber-300 uppercase tracking-widest">
-                                Acquiring GPS fix…
+                        <div className="min-w-0 flex-1">
+                            <div
+                                className={`text-[13px] font-bold uppercase tracking-widest ${gpsBlocked ? 'text-red-300' : 'text-amber-300'}`}
+                            >
+                                {gpsHeadline}
                             </div>
-                            <div className="text-[11px] text-white/50 leading-snug">
-                                Recording starts at the first clean fix
-                            </div>
+                            <div className="text-[11px] text-white/50 leading-snug">{gpsSubline}</div>
                         </div>
+                        {/* The banner is pointer-events-none so it never blocks
+                            the Stop button underneath — but a fix the skipper
+                            CAN apply has to be tappable, so re-enable events on
+                            just this control. */}
+                        {gpsBlocked && gpsHealth?.actionable && (
+                            <button
+                                onClick={openDeviceSettings}
+                                className="pointer-events-auto shrink-0 rounded-lg bg-sky-500/90 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white active:scale-95"
+                            >
+                                Fix
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

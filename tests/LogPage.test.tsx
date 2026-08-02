@@ -45,6 +45,9 @@ const followRouteMock = vi.hoisted(() => {
 const fetchVoyageAsTrackMock = vi.hoisted(() => vi.fn());
 const publishFollowedRouteMock = vi.hoisted(() => vi.fn());
 const clearFollowedRouteMock = vi.hoisted(() => vi.fn(async () => true));
+const gpsHealthMock = vi.hoisted(() => ({
+    value: null as null | { usable: boolean; reason: string; actionable: boolean },
+}));
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -89,6 +92,13 @@ vi.mock('../services/shiplog/RoutesAndTracks', () => ({
 vi.mock('../services/shiplog/publishFollowedRoute', () => ({
     publishFollowedRoute: publishFollowedRouteMock,
     clearFollowedRoute: clearFollowedRouteMock,
+}));
+
+vi.mock('../hooks/useGpsHealth', () => ({
+    useGpsHealth: () => gpsHealthMock.value,
+    gpsHealthMessage: (reason: string) =>
+        reason === 'denied' ? { title: 'Location access is off', detail: 'Nothing is being recorded.' } : null,
+    openDeviceSettings: vi.fn(),
 }));
 
 vi.mock('../utils/lazyRetry', () => ({
@@ -1133,5 +1143,37 @@ describe('LogPage', () => {
             resolvePublication('linked');
             await Promise.resolve();
         });
+    });
+});
+
+describe('LogPage — the acquiring surfaces tell the truth', () => {
+    const trackingNoFix = () =>
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [],
+            summaries: [],
+        });
+
+    it('counts the wait on the banner — the surface the skipper actually stares at', async () => {
+        // Shane, 2026-08-02: "still have the exact same screen… over 1 minute".
+        // Hardening only the full-screen overlay changed nothing, because the
+        // page has FOUR other hard-coded "Acquiring GPS fix…" surfaces.
+        gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
+        trackingNoFix();
+        render(<LogPage />);
+        expect(await screen.findAllByText(/Acquiring GPS fix… \d+:\d{2}/)).not.toHaveLength(0);
+    });
+
+    it('names a permission problem instead of claiming to be acquiring', async () => {
+        gpsHealthMock.value = { usable: false, reason: 'denied', actionable: true };
+        trackingNoFix();
+        render(<LogPage />);
+
+        expect(await screen.findAllByText('Location access is off')).not.toHaveLength(0);
+        expect(screen.queryByText(/Acquiring GPS fix…/)).not.toBeInTheDocument();
+        // …and a tappable way out, on a banner that is otherwise
+        // pointer-events-none so it cannot block the Stop button.
+        expect(screen.getByRole('button', { name: 'Fix' })).toBeInTheDocument();
     });
 });
