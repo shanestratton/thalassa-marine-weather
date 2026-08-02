@@ -75,15 +75,11 @@ export async function nativeTcpProbe(host: string, port: number, timeoutMs: numb
 }
 
 /**
- * Best guess at the /24 this device is on.
- *
- * There is no Capacitor API for the local IP, so this uses the WebRTC ICE
- * candidate trick. It is best-effort by nature: iOS hands out an mDNS
- * `.local` candidate instead of a real address when the page has no camera or
- * microphone permission, in which case this resolves null and the caller must
- * ask the skipper (iOS shows the address under Settings → Wi-Fi → ⓘ).
+ * The /24 this device is on, via WebRTC only. Best-effort by nature: iOS hands
+ * out an mDNS `.local` candidate instead of a real address, so this often
+ * resolves null — see detectSubnetPrefix for the fallback that does not.
  */
-export async function detectLocalSubnetPrefix(timeoutMs = 2000): Promise<string | null> {
+async function detectViaWebRtc(timeoutMs = 2000): Promise<string | null> {
     if (typeof RTCPeerConnection === 'undefined') return null;
     let pc: RTCPeerConnection | null = null;
     try {
@@ -116,14 +112,24 @@ export async function detectLocalSubnetPrefix(timeoutMs = 2000): Promise<string 
     }
 }
 
-/** Offered when detection fails — the ranges boat routers actually use. */
-export const COMMON_SUBNET_PREFIXES = [
-    '192.168.1.',
-    '192.168.0.',
-    '192.168.50.',
-    '192.168.4.',
-    '192.168.8.',
-    '10.0.0.',
-    '10.1.1.',
-    '172.20.10.', // iPhone personal hotspot
-];
+/**
+ * Work out the boat's subnet WITHOUT asking the skipper.
+ *
+ *   1. WebRTC, if iOS happens to hand over a real address (instant when it works);
+ *   2. otherwise find the ROUTER — .1/.254 across the common private ranges.
+ *
+ * Shane, on being offered a text box: "no way Claude, I know you can find that
+ * and enter it in." He was right. A router sits at .1 on essentially every
+ * network a boat ever joins, so a couple of dozen probes settles it in about a
+ * second. The manual field stays as a last resort, not the first ask.
+ */
+export async function detectSubnetPrefix(
+    opts: { shouldStop?: () => boolean } = {},
+): Promise<{ prefix: string; via: 'webrtc' | 'router' } | null> {
+    const viaWebRtc = await detectViaWebRtc().catch(() => null);
+    if (viaWebRtc) return { prefix: viaWebRtc, via: 'webrtc' };
+
+    const { detectSubnetByRouterProbe } = await import('./gatewayScan');
+    const prefix = await detectSubnetByRouterProbe(nativeTcpProbe, { shouldStop: opts.shouldStop });
+    return prefix ? { prefix, via: 'router' } : null;
+}

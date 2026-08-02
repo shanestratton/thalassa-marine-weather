@@ -7,6 +7,8 @@ import {
     scanForGateways,
     discoverGateways,
     SCAN_PORTS,
+    detectSubnetByRouterProbe,
+    COMMON_SUBNET_PREFIXES,
     type ScanProbe,
 } from '../services/nmea/gatewayScan';
 
@@ -204,5 +206,55 @@ describe('discoverGateways — phased hunt', () => {
         await discoverGateways({ subnetPrefix: '192.168.1.', probe });
 
         expect([...deepTargets]).toEqual(['192.168.1.151']);
+    });
+});
+
+describe('detectSubnetByRouterProbe — find the network, do not ask for it', () => {
+    it('identifies the subnet from a router at .1', async () => {
+        const probe = probeFrom({ '192.168.50.1:80': '<html>router</html>' });
+        expect(await detectSubnetByRouterProbe(probe)).toBe('192.168.50.');
+    });
+
+    it('finds a router at .254 too', async () => {
+        const probe = probeFrom({ '10.0.0.254:443': '' });
+        expect(await detectSubnetByRouterProbe(probe)).toBe('10.0.0.');
+    });
+
+    it('finds a router that only answers DNS — no web UI needed', async () => {
+        const probe = probeFrom({ '192.168.8.1:53': '' });
+        expect(await detectSubnetByRouterProbe(probe)).toBe('192.168.8.');
+    });
+
+    it('returns null rather than guessing when nothing answers', async () => {
+        expect(await detectSubnetByRouterProbe(probeFrom({}))).toBeNull();
+    });
+
+    it('prefers the earlier candidate when two networks would both answer', async () => {
+        // Ordering is the whole contract: the common ranges are tried first so
+        // the usual case costs one round-trip.
+        const probe = probeFrom({ '192.168.1.1:80': '', '192.168.50.1:80': '' });
+        expect(await detectSubnetByRouterProbe(probe)).toBe('192.168.1.');
+        expect(COMMON_SUBNET_PREFIXES.indexOf('192.168.1.')).toBeLessThan(
+            COMMON_SUBNET_PREFIXES.indexOf('192.168.50.'),
+        );
+    });
+
+    it('stops when cancelled mid-hunt', async () => {
+        let calls = 0;
+        const probe: ScanProbe = vi.fn(async () => {
+            calls++;
+            return { open: false };
+        });
+        await detectSubnetByRouterProbe(probe, { shouldStop: () => calls >= 6 });
+        expect(calls).toBeLessThan(COMMON_SUBNET_PREFIXES.length * 6);
+    });
+
+    it("covers Shane's own network layout — router .1, boat kit high in the range", async () => {
+        // His LAN as actually observed: gateway at 192.168.50.1, Pi at .150.
+        const probe = probeFrom({ '192.168.50.1:80': '<html/>', '192.168.50.150:10110': NMEA_0183 });
+        const prefix = await detectSubnetByRouterProbe(probe);
+        expect(prefix).toBe('192.168.50.');
+        const found = await scanForGateways({ subnetPrefix: prefix as string, probe });
+        expect(found[0]).toMatchObject({ host: '192.168.50.150', port: 10110, confidence: 'confirmed' });
     });
 });

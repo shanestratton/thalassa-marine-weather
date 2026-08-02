@@ -141,6 +141,69 @@ export function isPrivateIpv4(ip: string): boolean {
     return false;
 }
 
+/**
+ * Subnets to try when the platform will not tell us our own address, most
+ * common first. Ordinary home/marina kit, plus the ranges marine routers and
+ * an iPhone hotspot actually hand out.
+ */
+export const COMMON_SUBNET_PREFIXES = [
+    '192.168.1.',
+    '192.168.0.',
+    '192.168.50.',
+    '192.168.2.',
+    '192.168.4.',
+    '192.168.8.',
+    '192.168.10.',
+    '192.168.100.',
+    '10.0.0.',
+    '10.0.1.',
+    '10.1.1.',
+    '172.20.10.', // iPhone personal hotspot
+];
+
+/** Addresses a router actually sits on, in order of likelihood. */
+const ROUTER_HOSTS = [1, 254];
+/** Ports a router answers even when it serves no web UI (53 = DNS). */
+const ROUTER_PORTS = [80, 443, 53];
+
+/**
+ * Work out which /24 we are on by finding the ROUTER, not by asking the
+ * skipper.
+ *
+ * There is no Capacitor API for the local IP and iOS hands WebRTC an mDNS
+ * name instead of an address, so the honest fallback used to be a text box —
+ * which Shane rightly refused ("no way, I know you can find that"). A router
+ * lives at .1 (or .254) on essentially every network a boat ever joins, so
+ * ~24 probes across the candidate list identifies the subnet in about a
+ * second, with no permissions and no guessing.
+ *
+ * Returns the first prefix whose router answers, else null.
+ */
+export async function detectSubnetByRouterProbe(
+    probe: ScanProbe,
+    opts: { prefixes?: string[]; timeoutMs?: number; shouldStop?: () => boolean } = {},
+): Promise<string | null> {
+    const { prefixes = COMMON_SUBNET_PREFIXES, timeoutMs = 600, shouldStop } = opts;
+
+    for (const prefix of prefixes) {
+        if (shouldStop?.()) return null;
+        // All addresses × ports for THIS prefix at once — a live network
+        // answers in one round-trip, a dead one costs a single timeout.
+        const attempts = ROUTER_HOSTS.flatMap((h) => ROUTER_PORTS.map((p) => ({ host: `${prefix}${h}`, port: p })));
+        const results = await Promise.all(
+            attempts.map(async ({ host, port }) => {
+                try {
+                    return (await probe(host, port, timeoutMs)).open;
+                } catch {
+                    return false;
+                }
+            }),
+        );
+        if (results.some(Boolean)) return prefix;
+    }
+    return null;
+}
+
 export interface ScanOptions {
     /** '192.168.50.' — hosts 1..254 on this /24 are probed. */
     subnetPrefix: string;
