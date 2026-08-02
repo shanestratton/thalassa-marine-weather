@@ -3883,77 +3883,83 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Compose chart sources from AvNav (o-charts) + free chart
                             // catalog + local MBTiles + Routes + Tracks so all chart
                             // toggles live in the radial menu's 4th category.
-                            // PARKED (Shane 2026-07-17: "do we really need the Charts
-                            // button under the layer fab — it's all automatic now"): the
-                            // boat's own ENC/o-charts load automatically by zoom, and the
-                            // grab-bag here (Routes/Tracks now live on PLAN/LOG + the
-                            // public page; NOAA/ECDIS/local are niche) only forced the
-                            // category to always show. Empty sources ⇒ buildChartsCategory
-                            // returns [] ⇒ the "Charts" button drops off the radial fan.
-                            // Flip CHARTS_FAB_CATEGORY_VISIBLE to bring the picker back
-                            // (all the pickers/state below stay wired).
-                            sources: !CHARTS_FAB_CATEGORY_VISIBLE
-                                ? []
-                                : [
-                                      // Routes — picker for saved planned passages from
-                                      // the ships log. Tap opens a sheet listing them;
-                                      // selection draws the route as a green dashed line
-                                      // and fits the map to its bounds.
-                                      {
-                                          id: 'routes',
-                                          label: 'Routes',
-                                          iconKind: 'generic' as const,
-                                          enabled: activeChartRoute !== null,
-                                          onToggle: () => setRoutePickerOpen((v) => !v),
-                                      },
-                                      // Tracks — picker for actually-sailed passages.
-                                      // Same UX as Routes; renders amber solid line so
-                                      // the two can be visible together without confusing
-                                      // which is the plan vs the reality.
-                                      {
-                                          id: 'tracks',
-                                          label: 'Tracks',
-                                          iconKind: 'generic' as const,
-                                          enabled: activeChartTrack !== null,
-                                          onToggle: () => setTrackPickerOpen((v) => !v),
-                                      },
-                                      ...skCharts.availableCharts.map((c) => ({
-                                          id: `sk-${c.id}`,
-                                          label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
-                                          iconKind: 'avnav' as const,
-                                          enabled: skChartIds.has(c.id),
-                                          onToggle: () => selectChartExclusive('sk', c.id),
-                                      })),
-                                      ...chartCatalog.sources.map((s) => ({
-                                          id: `cat-${s.id}`,
-                                          label:
-                                              s.id === 'noaa-ncds'
-                                                  ? 'NOAA'
+                            // RE-THOUGHT 2026-08-03 (Shane, hours after the always-on
+                            // follow-route line left OBS: "maybe we should have a toggle
+                            // switch layer for routes… so a punter could select a track
+                            // if he wanted to see what the weather was going to do"):
+                            // Routes + Tracks are back as ALWAYS-AVAILABLE pickers — the
+                            // deliberate pull-up-a-passage-to-read-weather-along-it
+                            // move, which is the right shape: opt-in per look, not
+                            // always-on spaghetti. The chart-source grab-bag (SignalK /
+                            // NOAA / ECDIS / local) stays PARKED behind
+                            // CHARTS_FAB_CATEGORY_VISIBLE (Shane 2026-07-17: the boat's
+                            // own ENC/o-charts load automatically by zoom; those pickers
+                            // are niche). Non-empty sources ⇒ the "Charts" button is
+                            // back on the radial fan.
+                            sources: [
+                                // Routes — picker for saved planned passages from
+                                // the ships log. Tap opens a sheet listing them;
+                                // selection draws the route as a violet dashed line
+                                // and fits the map to its bounds.
+                                {
+                                    id: 'routes',
+                                    label: 'Routes',
+                                    iconKind: 'generic' as const,
+                                    enabled: activeChartRoute !== null,
+                                    onToggle: () => setRoutePickerOpen((v) => !v),
+                                },
+                                // Tracks — picker for actually-sailed passages.
+                                // Same UX as Routes; renders amber solid line so
+                                // the two can be visible together without confusing
+                                // which is the plan vs the reality.
+                                {
+                                    id: 'tracks',
+                                    label: 'Tracks',
+                                    iconKind: 'generic' as const,
+                                    enabled: activeChartTrack !== null,
+                                    onToggle: () => setTrackPickerOpen((v) => !v),
+                                },
+                                ...(!CHARTS_FAB_CATEGORY_VISIBLE
+                                    ? []
+                                    : [
+                                          ...skCharts.availableCharts.map((c) => ({
+                                              id: `sk-${c.id}`,
+                                              label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
+                                              iconKind: 'avnav' as const,
+                                              enabled: skChartIds.has(c.id),
+                                              onToggle: () => selectChartExclusive('sk', c.id),
+                                          })),
+                                          ...chartCatalog.sources.map((s) => ({
+                                              id: `cat-${s.id}`,
+                                              label:
+                                                  s.id === 'noaa-ncds'
+                                                      ? 'NOAA'
+                                                      : s.id === 'noaa-ecdis'
+                                                        ? 'ECDIS'
+                                                        : s.id === 'linz-charts'
+                                                          ? 'NZ'
+                                                          : s.name.length > 10
+                                                            ? s.name.substring(0, 10)
+                                                            : s.name,
+                                              iconKind: (s.id === 'noaa-ncds'
+                                                  ? 'noaa'
                                                   : s.id === 'noaa-ecdis'
-                                                    ? 'ECDIS'
+                                                    ? 'ecdis'
                                                     : s.id === 'linz-charts'
-                                                      ? 'NZ'
-                                                      : s.name.length > 10
-                                                        ? s.name.substring(0, 10)
-                                                        : s.name,
-                                          iconKind: (s.id === 'noaa-ncds'
-                                              ? 'noaa'
-                                              : s.id === 'noaa-ecdis'
-                                                ? 'ecdis'
-                                                : s.id === 'linz-charts'
-                                                  ? 'linz'
-                                                  : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
-                                          enabled: s.enabled && !!s.tileUrl,
-                                          onToggle: () => selectChartExclusive('catalog', s.id),
-                                      })),
-                                      ...localCharts.availableCharts.map((c) => ({
-                                          id: `local-${c.fileName}`,
-                                          label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
-                                          iconKind: 'local' as const,
-                                          enabled: localChartIds.has(c.fileName),
-                                          onToggle: () => selectChartExclusive('local', c.fileName),
-                                      })),
-                                  ],
+                                                      ? 'linz'
+                                                      : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
+                                              enabled: s.enabled && !!s.tileUrl,
+                                              onToggle: () => selectChartExclusive('catalog', s.id),
+                                          })),
+                                          ...localCharts.availableCharts.map((c) => ({
+                                              id: `local-${c.fileName}`,
+                                              label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
+                                              iconKind: 'local' as const,
+                                              enabled: localChartIds.has(c.fileName),
+                                              onToggle: () => selectChartExclusive('local', c.fileName),
+                                          })),
+                                      ]),
+                            ],
                         }}
                     />
                 )}
