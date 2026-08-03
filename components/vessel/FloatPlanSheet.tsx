@@ -16,7 +16,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { composeFloatPlan } from '../../services/floatPlan';
+import { composeFloatPlan, trackDistanceNM } from '../../services/floatPlan';
 import { loadSavedTraces } from '../../services/routeTracer';
 import type { Voyage } from '../../services/VoyageService';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -56,6 +56,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
         () => (etaMs ?? departureMs) + DEFAULT_OVERDUE_BUFFER_H * HOUR_MS,
     );
     const [whoToCall, setWhoToCall] = useState('');
+    const [contactAboard, setContactAboard] = useState('');
     const [personsOnBoard, setPersonsOnBoard] = useState<number>(() => voyage.crew_count || vessel?.crewCount || 1);
     const [sent, setSent] = useState(false);
 
@@ -80,6 +81,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
                     name: voyage.voyage_name,
                     from: voyage.departure_port ?? undefined,
                     to: voyage.destination_port ?? undefined,
+                    distanceNM: waypoints && waypoints.length >= 2 ? trackDistanceNM(waypoints) : undefined,
                     waypoints,
                 },
                 departureMs,
@@ -87,9 +89,23 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
                 overdueMs,
                 personsOnBoard,
                 whoToCall: whoToCall.trim() || undefined,
+                contactAboard: contactAboard.trim() || undefined,
             }),
-        [vessel, voyage, waypoints, departureMs, etaMs, overdueMs, personsOnBoard, whoToCall],
+        [vessel, voyage, waypoints, departureMs, etaMs, overdueMs, personsOnBoard, whoToCall, contactAboard],
     );
+
+    // What the SAFETY section will carry — surfaced here so a missing hex ID
+    // is discovered on the couch, not by the rescue coordinator.
+    const safetyGear: { label: string; value: string | null }[] = [
+        { label: 'EPIRB', value: vessel?.epirbHexId ? `hex ${vessel.epirbHexId}` : null },
+        {
+            label: 'Liferaft',
+            value: vessel?.liferaftCapacity ? `${vessel.liferaftCapacity} person` : null,
+        },
+        { label: 'Flares', value: vessel?.flaresExpiry ? `expire ${vessel.flaresExpiry}` : null },
+        { label: 'Other', value: vessel?.safetyNotes?.trim() || null },
+    ];
+    const missingGear = safetyGear.filter((g) => !g.value && g.label !== 'Other');
 
     const send = async () => {
         triggerHaptic('medium');
@@ -156,6 +172,23 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
 
             <div>
                 <label
+                    htmlFor="float-contact-aboard"
+                    className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-gray-400"
+                >
+                    How to reach you
+                </label>
+                <input
+                    id="float-contact-aboard"
+                    type="text"
+                    value={contactAboard}
+                    onChange={(e) => setContactAboard(e.target.value)}
+                    placeholder="e.g. VHF 16, sat phone +870…, Starlink email"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-sm text-white outline-none focus:border-sky-500"
+                />
+            </div>
+
+            <div>
+                <label
                     htmlFor="float-pob"
                     className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-gray-400"
                 >
@@ -174,7 +207,33 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
                 />
             </div>
 
-            <details className="rounded-xl border border-white/10 bg-black/30">
+            {/* Safety gear the document will carry — a missing hex ID gets
+                discovered on the couch, not by the rescue coordinator. */}
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3" data-testid="float-plan-safety">
+                <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                    Safety gear in this plan
+                </p>
+                <div className="space-y-0.5">
+                    {safetyGear
+                        .filter((g) => g.value)
+                        .map((g) => (
+                            <p key={g.label} className="text-[11px] text-gray-300">
+                                <span className="font-bold text-white">{g.label}</span> — {g.value}
+                            </p>
+                        ))}
+                    {safetyGear.every((g) => !g.value) && (
+                        <p className="text-[11px] text-gray-400">Nothing recorded yet.</p>
+                    )}
+                </div>
+                {missingGear.length > 0 && (
+                    <p className="mt-1.5 text-[10px] text-amber-300">
+                        No {missingGear.map((g) => g.label).join(', ')} recorded — add under Settings → Vessel → Safety
+                        so rescue knows what to look for.
+                    </p>
+                )}
+            </div>
+
+            <details open className="rounded-xl border border-white/10 bg-black/30">
                 <summary className="cursor-pointer px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
                     Preview
                 </summary>

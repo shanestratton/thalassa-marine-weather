@@ -932,6 +932,18 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 />
                             </div>
                         </div>
+                        <div className="mt-3">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                Other Safety Gear
+                            </label>
+                            <textarea
+                                value={vessel?.safetyNotes || ''}
+                                onChange={(e) => updateVessel('safetyNotes', e.target.value)}
+                                placeholder="PLB ×2, drogue, grab bag, Starlink…"
+                                rows={2}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500 resize-none"
+                            />
+                        </div>
                         <p className="text-[11px] text-gray-400 mt-3">
                             Goes into your float plan, which you send to one person ashore. Never shown on your public
                             page.
