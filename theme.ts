@@ -288,7 +288,10 @@ export const typography = {
     dataLg: 'text-lg font-black text-white font-mono',
     dataMd: 'text-base font-black text-white font-mono',
     dataSm: 'text-sm font-black text-white font-mono',
-    label: 'text-[11px] text-slate-400 font-bold uppercase tracking-widest',
+    // label = 12px per the scale above — it sat at 11px, collapsing onto
+    // caption so the two tiers rendered identically (audit 2026-08-03,
+    // twice: the CSS var was fixed first, this token path missed).
+    label: 'text-[12px] text-slate-400 font-bold uppercase tracking-widest',
     labelSm: 'text-[11px] text-slate-500 font-bold uppercase tracking-widest',
     body: 'text-sm text-slate-300',
     bodyMuted: 'text-sm text-slate-400',

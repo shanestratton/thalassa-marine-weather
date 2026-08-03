@@ -63,6 +63,9 @@ export interface VesselProfile {
     /** Free-text extra SAR gear for the float plan — "PLB ×2, drogue,
      *  Starlink, 6-person grab bag". Same never-public rule as the rest. */
     safetyNotes?: string;
+    /** Skipper's mobile — seeds the float plan's "how to reach you" so it
+     *  isn't retyped every voyage. Never rendered on the public page. */
+    contactPhone?: string;
 }
 
 /** Ship's Stores item categories */

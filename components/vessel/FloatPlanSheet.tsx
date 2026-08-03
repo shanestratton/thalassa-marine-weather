@@ -56,7 +56,9 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
         () => (etaMs ?? departureMs) + DEFAULT_OVERDUE_BUFFER_H * HOUR_MS,
     );
     const [whoToCall, setWhoToCall] = useState('');
-    const [contactAboard, setContactAboard] = useState('');
+    // Seeded from the vessel's saved skipper mobile so it isn't retyped
+    // every voyage; still editable per trip (crew swap, sat phone hire).
+    const [contactAboard, setContactAboard] = useState(() => vessel?.contactPhone?.trim() || '');
     const [personsOnBoard, setPersonsOnBoard] = useState<number>(() => voyage.crew_count || vessel?.crewCount || 1);
     const [sent, setSent] = useState(false);
 

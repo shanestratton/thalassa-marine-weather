@@ -9,6 +9,7 @@ import React from 'react';
 import { type CrewMember, REGISTER_ICONS, REGISTER_LABELS } from '../../services/CrewService';
 import { SwipeableCrewCard } from './SwipeableCrewCard';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { EmptyState } from '../ui/EmptyState';
 
 interface CrewRosterProps {
     visibleCrew: CrewMember[];
@@ -171,14 +172,12 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                         ))}
                     </div>
                 ) : (
-                    <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-5 text-center">
-                        <div className="text-3xl mb-2">👥</div>
-                        <p className="text-sm font-bold text-white mb-1">No crew yet</p>
-                        <p className="text-[11px] text-gray-400 leading-relaxed max-w-xs mx-auto">
-                            Tap <strong className="text-sky-400">+ Invite Crew</strong> to share registers and passage
-                            readiness with your crew.
-                        </p>
-                    </div>
+                    <EmptyState
+                        icon="👥"
+                        title="No crew yet"
+                        subtitle="Tap + Invite Crew to share registers and passage readiness with your crew."
+                        compact
+                    />
                 )}
 
                 {/* Disband Group — danger zone */}

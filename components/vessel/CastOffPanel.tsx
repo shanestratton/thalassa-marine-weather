@@ -24,6 +24,7 @@ import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { ChatService } from '../../services/ChatService';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { EmptyState } from '../ui/EmptyState';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { FloatPlanSheet } from './FloatPlanSheet';
 import { composeArrivalMessage } from '../../services/floatPlan';
@@ -569,22 +570,17 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 {step === 'select' && !loading && (
                     <div className="p-5 pt-2 space-y-3">
                         {drafts.length === 0 ? (
-                            <div className="text-center py-6">
-                                <span className="text-4xl">🗺️</span>
-                                <p className="text-sm text-gray-400 mt-3">No draft voyages yet</p>
-                                <p className="text-[11px] text-gray-500 mt-1 mb-4">
-                                    Create your first passage to get started
-                                </p>
-                                <button
-                                    onClick={() => {
-                                        setStep('create');
-                                        triggerHaptic('light');
-                                    }}
-                                    className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-sm font-black text-black uppercase tracking-widest active:scale-[0.97] shadow-lg shadow-amber-500/20"
-                                >
-                                    + New Voyage
-                                </button>
-                            </div>
+                            <EmptyState
+                                icon="🗺️"
+                                title="No draft voyages yet"
+                                subtitle="Create your first passage to get started"
+                                actionLabel="+ New Voyage"
+                                onAction={() => {
+                                    setStep('create');
+                                    triggerHaptic('light');
+                                }}
+                                compact
+                            />
                         ) : (
                             <>
                                 {drafts.map((v) => (

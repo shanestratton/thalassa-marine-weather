@@ -251,6 +251,85 @@ input[type='date']::-webkit-calendar-picker-indicator {
     background-color: rgb(68 64 60 / var(--tw-bg-opacity));
 }
 
+/* Round-2 coverage (audit 2026-08-03 night): the heavily-used slate OPACITY
+   variants and residual gray bg/border families that escaped the override
+   sheet — 117 + 64 uses with zero onshore rules. Same stone ramp. */
+.theme-onshore .bg-slate-900\/95,
+.theme-onshore.bg-slate-900\/95 {
+    background-color: rgb(28 25 23 / 0.95);
+}
+
+.theme-onshore .bg-slate-900\/85,
+.theme-onshore.bg-slate-900\/85 {
+    background-color: rgb(28 25 23 / 0.85);
+}
+
+.theme-onshore .bg-slate-900\/40,
+.theme-onshore.bg-slate-900\/40 {
+    background-color: rgb(28 25 23 / 0.4);
+}
+
+.theme-onshore .bg-slate-800\/80,
+.theme-onshore.bg-slate-800\/80 {
+    background-color: rgb(41 37 36 / 0.8);
+}
+
+.theme-onshore .bg-slate-800\/90,
+.theme-onshore.bg-slate-800\/90 {
+    background-color: rgb(41 37 36 / 0.9);
+}
+
+.theme-onshore .bg-slate-600,
+.theme-onshore.bg-slate-600 {
+    background-color: rgb(87 83 78 / var(--tw-bg-opacity));
+}
+
+.theme-onshore .text-slate-100,
+.theme-onshore.text-slate-100 {
+    --tw-text-opacity: 1;
+    color: rgb(245 245 244 / var(--tw-text-opacity)); /* stone-100 */
+}
+
+.theme-onshore .text-slate-200,
+.theme-onshore.text-slate-200 {
+    --tw-text-opacity: 1;
+    color: rgb(231 229 228 / var(--tw-text-opacity)); /* stone-200 */
+}
+
+.theme-onshore .text-gray-100,
+.theme-onshore.text-gray-100 {
+    --tw-text-opacity: 1;
+    color: rgb(245 245 244 / var(--tw-text-opacity)); /* stone-100 */
+}
+
+.theme-onshore .bg-gray-100,
+.theme-onshore.bg-gray-100 {
+    background-color: rgb(245 245 244 / var(--tw-bg-opacity)); /* stone-100 */
+}
+
+.theme-onshore .bg-gray-500,
+.theme-onshore.bg-gray-500 {
+    background-color: rgb(120 113 108 / var(--tw-bg-opacity)); /* stone-500 */
+}
+
+.theme-onshore .bg-gray-600,
+.theme-onshore.bg-gray-600 {
+    background-color: rgb(87 83 78 / var(--tw-bg-opacity)); /* stone-600 */
+}
+
+.theme-onshore .bg-gray-700,
+.theme-onshore.bg-gray-700 {
+    background-color: rgb(68 64 60 / var(--tw-bg-opacity)); /* stone-700 */
+}
+
+.theme-onshore .border-gray-500 {
+    border-color: rgb(120 113 108 / var(--tw-border-opacity, 1)); /* stone-500 */
+}
+
+.theme-onshore .border-gray-600 {
+    border-color: rgb(87 83 78 / var(--tw-border-opacity, 1)); /* stone-600 */
+}
+
 /* Text color overrides */
 /* gray-* is the codebase's MAJORITY neutral text family (~1,570 uses across
    gray-200/300/400/500) and had ZERO onshore warming — the single biggest
@@ -878,6 +957,38 @@ input[type='date']::-webkit-calendar-picker-indicator {
 
 .display-light .bg-slate-700\/50 {
     background-color: rgb(226 232 240 / 0.5);
+}
+
+/* Round-2 coverage (audit 2026-08-03 night): six wash variants in active
+   use (53 uses) still rendered dark panels on the light shell. */
+.display-light .bg-slate-900\/85,
+.display-light.bg-slate-900\/85 {
+    background-color: rgb(255 255 255 / 0.9);
+}
+
+.display-light .bg-slate-900\/40,
+.display-light.bg-slate-900\/40 {
+    background-color: rgb(226 232 240 / 0.45);
+}
+
+.display-light .bg-slate-900\/30,
+.display-light.bg-slate-900\/30 {
+    background-color: rgb(226 232 240 / 0.35);
+}
+
+.display-light .bg-slate-800\/80,
+.display-light.bg-slate-800\/80 {
+    background-color: rgb(241 245 249 / 0.8);
+}
+
+.display-light .bg-slate-950\/95,
+.display-light.bg-slate-950\/95 {
+    background-color: rgb(255 255 255 / 0.97);
+}
+
+.display-light .bg-slate-950\/85,
+.display-light.bg-slate-950\/85 {
+    background-color: rgb(255 255 255 / 0.9);
 }
 
 /* ── Dashboard gradient overlay that creates the dark band ── */
