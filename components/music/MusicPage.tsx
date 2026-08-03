@@ -656,7 +656,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - ${maskFadeStart}), transparent calc(100% - ${maskBottomEnd}))`;
 
     return (
-        <div className="relative flex flex-col h-full overflow-hidden bg-[#050b12]">
+        <div className="relative flex flex-col h-full overflow-hidden bg-slate-950">
             {/* A restrained deep-water glow keeps this surface tied to the
              * rest of Thalassa without competing with the album artwork. */}
             <div
@@ -664,7 +664,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 className="pointer-events-none absolute inset-x-0 top-0 h-80 opacity-80"
                 style={{
                     background:
-                        'radial-gradient(ellipse at 82% -20%, rgba(14, 165, 233, 0.19), transparent 52%), radial-gradient(ellipse at 4% 0%, rgba(13, 148, 136, 0.11), transparent 48%)',
+                        'radial-gradient(ellipse at 82% -20%, rgba(14, 165, 233, 0.19), transparent 52%), radial-gradient(ellipse at 4% 0%, rgba(2, 132, 199, 0.11), transparent 48%)',
                 }}
             />
             <div className="relative flex min-h-0 flex-1 flex-col">
@@ -674,8 +674,8 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     onBack={onBack}
                     status={
                         authGranted === true ? (
-                            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100">
-                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+                            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-sky-200">
+                                <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
                                 Linked
                             </span>
                         ) : null
@@ -686,7 +686,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 <button
                                     onClick={() => void loadPlaylists()}
                                     disabled={loadingPlaylists}
-                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] text-cyan-100 transition-all hover:border-cyan-300/35 hover:bg-cyan-300/10 active:scale-95 disabled:opacity-40"
+                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] text-sky-200 transition-all hover:border-sky-400/35 hover:bg-sky-500/10 active:scale-95 disabled:opacity-40"
                                     aria-label="Refresh Apple Music library"
                                 >
                                     <RefreshIcon className={`h-4 w-4 ${loadingPlaylists ? 'animate-spin' : ''}`} />
@@ -697,7 +697,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                         setCreateError(null);
                                         setCreateOpen(true);
                                     }}
-                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/35 bg-cyan-300 text-[#04131d] shadow-[0_8px_22px_rgba(34,211,238,0.18)] transition-all hover:bg-cyan-200 active:scale-95"
+                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-400/35 bg-sky-600 text-white shadow-xl transition-all hover:bg-sky-500 active:scale-95"
                                     aria-label="Create playlist"
                                 >
                                     <svg
@@ -733,11 +733,11 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 >
                     {authGranted === false && (
                         <div className="mx-auto flex max-w-md flex-col items-center justify-center pt-12 text-center">
-                            <div className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-[1.7rem] border border-cyan-300/25 bg-gradient-to-br from-cyan-300/20 to-sky-500/10 shadow-[0_18px_45px_rgba(8,145,178,0.16)]">
-                                <div className="absolute inset-2 rounded-2xl border border-cyan-100/10" />
-                                <MusicIcon className="relative h-9 w-9 text-cyan-200" />
+                            <div className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-sky-400/25 bg-gradient-to-br from-sky-400/20 to-sky-500/10 shadow-2xl">
+                                <div className="absolute inset-2 rounded-2xl border border-sky-200/10" />
+                                <MusicIcon className="relative h-9 w-9 text-sky-300" />
                             </div>
-                            <div className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200/75">
+                            <div className="text-[11px] font-black uppercase tracking-[0.2em] text-sky-300/75">
                                 Onboard audio
                             </div>
                             <div className="mt-2 text-xl font-extrabold text-white">Connect Apple Music</div>
@@ -758,7 +758,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                     </p>
                                     <button
                                         onClick={handleOpenMusicSystemSettings}
-                                        className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-200 px-3.5 py-2 text-xs font-extrabold text-[#251603] shadow-[0_8px_18px_rgba(251,191,36,0.13)] active:scale-[0.98]"
+                                        className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-200 px-3.5 py-2 text-xs font-extrabold text-[#251603] shadow-xl active:scale-[0.98]"
                                     >
                                         Open Music settings
                                     </button>
@@ -770,7 +770,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                             ) : (
                                 <button
                                     onClick={() => void handleGrantAccess()}
-                                    className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-extrabold text-[#04131d] shadow-[0_12px_30px_rgba(34,211,238,0.2)] transition-all hover:bg-cyan-200 active:scale-[0.97]"
+                                    className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-2xl bg-sky-600 px-5 py-3 text-sm font-extrabold text-white shadow-xl transition-all hover:bg-sky-500 active:scale-[0.97]"
                                 >
                                     <MusicIcon className="h-4 w-4" />
                                     Connect Apple Music
@@ -790,12 +790,12 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
                     {authGranted === true && loadingPlaylists && playlists.length === 0 && (
                         <div className="pt-3" aria-label="Loading Apple Music playlists">
-                            <div className="mb-4 h-24 animate-pulse rounded-[1.4rem] border border-white/[0.06] bg-white/[0.035]" />
+                            <div className="mb-4 h-24 animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.035]" />
                             <div className="grid grid-cols-2 gap-4">
                                 {[0, 1, 2, 3].map((skeleton) => (
                                     <div
                                         key={skeleton}
-                                        className="aspect-square animate-pulse rounded-[1.35rem] border border-white/[0.06] bg-gradient-to-br from-slate-800/70 to-slate-950/70"
+                                        className="aspect-square animate-pulse rounded-2xl border border-white/[0.06] bg-gradient-to-br from-slate-800/70 to-slate-950/70"
                                     />
                                 ))}
                             </div>
@@ -804,8 +804,8 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
                     {authGranted === true && !loadingPlaylists && playlists.length === 0 && !loadError && (
                         <div className="mx-auto flex max-w-md flex-col items-center justify-center pt-14 px-6 text-center">
-                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-300/10">
-                                <LibraryIcon className="h-6 w-6 text-cyan-200" />
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-400/20 bg-sky-400/10">
+                                <LibraryIcon className="h-6 w-6 text-sky-300" />
                             </div>
                             <div className="text-lg font-extrabold text-white">Your library is clear</div>
                             <div className="mt-2 max-w-xs text-sm leading-relaxed text-slate-400">
@@ -813,7 +813,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                             </div>
                             <button
                                 onClick={() => void loadPlaylists()}
-                                className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100 transition-colors hover:bg-cyan-300/15"
+                                className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2 text-sm font-bold text-sky-200 transition-colors hover:bg-sky-500/15"
                             >
                                 <RefreshIcon className="h-4 w-4" />
                                 Refresh library
@@ -846,11 +846,11 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
                     {playlists.length > 0 && (
                         <div className="pt-1">
-                            <section className="mb-4 rounded-[1.4rem] border border-cyan-300/15 bg-gradient-to-br from-cyan-300/[0.10] via-slate-900/65 to-slate-950/80 px-4 py-3.5 shadow-[0_16px_40px_rgba(3,22,35,0.28)]">
+                            <section className="mb-4 rounded-2xl border border-sky-400/15 bg-gradient-to-br from-sky-400/[0.10] via-slate-900/65 to-slate-950/80 px-4 py-3.5 shadow-xl">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
-                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-100/75">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/75">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
                                             Your library
                                         </div>
                                         <div className="mt-1 text-base font-extrabold text-white">
@@ -901,7 +901,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                         style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
                     >
                         <div className="pointer-events-auto px-3 pb-2">
-                            <div className="overflow-hidden rounded-[1.35rem] border border-cyan-300/20 bg-[#07131f]/90 shadow-[0_18px_45px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+                            <div className="overflow-hidden rounded-2xl border border-sky-400/20 bg-slate-900/90 shadow-2xl backdrop-blur-xl">
                                 <NowPlayingBar
                                     nowPlaying={nowPlaying!}
                                     onPause={() => void handlePause()}
@@ -1036,12 +1036,12 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
                 onMouseLeave={cancelPress}
                 aria-label={playlist.name}
                 aria-describedby={instructionsId}
-                className={`group relative block w-full aspect-square overflow-hidden rounded-[1.35rem] border bg-slate-900 text-left shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050b12] ${
+                className={`group relative block w-full aspect-square overflow-hidden rounded-2xl border bg-slate-900 text-left shadow-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                     pressing ? 'scale-[0.94]' : 'active:scale-[0.97]'
                 } ${
                     active
-                        ? 'border-cyan-200/70 ring-2 ring-cyan-300/35 shadow-[0_14px_32px_rgba(34,211,238,0.16)]'
-                        : 'border-white/10 hover:-translate-y-0.5 hover:border-cyan-200/35 hover:shadow-[0_14px_30px_rgba(0,0,0,0.32)]'
+                        ? 'border-sky-300/70 ring-2 ring-sky-400/35 shadow-2xl'
+                        : 'border-white/10 hover:-translate-y-0.5 hover:border-sky-300/35 hover:shadow-2xl'
                 }`}
             >
                 {showRemote ? (
@@ -1058,21 +1058,21 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
                 ) : (
                     <GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />
                 )}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#02070c] via-[#02070c]/18 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/18 to-transparent" />
                 {/* One visual language for both remote and generated artwork:
                  * a small operational badge, then a strong title treatment at
                  * the waterline. It makes a mixed library feel intentional. */}
-                <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#06111c]/75 px-2 py-1 backdrop-blur-md">
+                <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-950/75 px-2 py-1 backdrop-blur-md">
                     {active ? (
                         <>
-                            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.95)]" />
-                            <span className="text-[9px] font-black uppercase tracking-[0.14em] text-cyan-100">
+                            <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+                            <span className="text-[9px] font-black uppercase tracking-[0.14em] text-sky-200">
                                 Playing
                             </span>
                         </>
                     ) : (
                         <>
-                            <PlayIcon className="h-2.5 w-2.5 text-cyan-100" />
+                            <PlayIcon className="h-2.5 w-2.5 text-sky-200" />
                             <span className="text-[9px] font-black uppercase tracking-[0.14em] text-white/75">
                                 Playlist
                             </span>
@@ -1093,7 +1093,7 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
                     onLongPress();
                 }}
                 aria-label={`More options for ${playlist.name}`}
-                className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-[#06111c]/75 text-white/85 shadow-sm backdrop-blur-md transition-all hover:border-cyan-100/35 hover:bg-cyan-300/[0.14] hover:text-cyan-50 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-slate-950/75 text-white/85 shadow-sm backdrop-blur-md transition-all hover:border-sky-200/35 hover:bg-sky-500/[0.14] hover:text-sky-100 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
                 <MoreIcon className="h-4 w-4" />
             </button>
@@ -1174,7 +1174,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
-                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-transform duration-300 ease-out ${
+                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-sky-300/15 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
                 style={{
@@ -1197,7 +1197,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
 
                 {/* Hero */}
                 <div className="flex items-center gap-4 px-5 py-4">
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl shadow-lg ring-1 ring-cyan-100/20">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl shadow-lg ring-1 ring-sky-200/20">
                         {showRemote ? (
                             <SafeImage
                                 src={playlist.artworkUrl}
@@ -1212,7 +1212,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         )}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div className="mb-1 text-[10px] font-black uppercase tracking-[0.17em] text-cyan-100/65">
+                        <div className="mb-1 text-[10px] font-black uppercase tracking-[0.17em] text-sky-200/65">
                             Playlist
                         </div>
                         <div id={titleId} className="truncate text-lg font-extrabold leading-tight text-white">
@@ -1237,7 +1237,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                         onClick={onPlayAll}
                         disabled={loading || tracks.length === 0}
                         aria-label={`Play all tracks in ${playlist.name}`}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-300 py-3 text-sm font-extrabold text-[#04131d] shadow-[0_10px_24px_rgba(34,211,238,0.16)] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-600 py-3 text-sm font-extrabold text-white shadow-xl transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                     >
                         <PlayIcon className="w-4 h-4" />
                         <span>Play</span>
@@ -1245,7 +1245,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     <button
                         onClick={onAddTracks}
                         aria-label={`Add tracks to ${playlist.name}`}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan-200/25 bg-cyan-300/[0.09] py-3 text-sm font-bold text-cyan-100 transition-transform active:scale-[0.97]"
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-sky-300/25 bg-sky-400/[0.09] py-3 text-sm font-bold text-sky-200 transition-transform active:scale-[0.97]"
                     >
                         <PlusIcon className="w-5 h-5" />
                         <span>Add tracks</span>
@@ -1272,7 +1272,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 >
                     {loading && (
                         <div className="flex flex-col items-center justify-center py-12 text-white/40 text-sm gap-2">
-                            <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-cyan-300" />
+                            <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-sky-400" />
                             Loading tracks…
                         </div>
                     )}
@@ -1282,7 +1282,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                                 key={track.id}
                                 onClick={() => onPlayTrack(track.id)}
                                 aria-label={`Play track ${i + 1}: ${track.title} by ${track.artist}`}
-                                className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-cyan-300/[0.06] active:bg-cyan-300/[0.1]"
+                                className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-sky-500/[0.06] active:bg-sky-400/[0.1]"
                             >
                                 <div className="w-8 text-center text-white/40 text-sm font-medium tabular-nums shrink-0">
                                     {i + 1}
@@ -1418,7 +1418,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                 aria-modal="true"
                 aria-labelledby={titleId}
                 aria-describedby={descriptionId}
-                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-transform duration-300 ease-out ${
+                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-sky-300/15 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
                 style={{
@@ -1483,7 +1483,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Song or artist…"
                         aria-label="Search Apple Music catalog"
-                        className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
+                        className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-sky-300/60 focus:bg-sky-400/[0.07] focus:outline-none"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') void handleSearch();
                         }}
@@ -1491,7 +1491,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                     <button
                         onClick={() => void handleSearch()}
                         disabled={searching || !query.trim()}
-                        className="rounded-xl border border-cyan-200/30 bg-cyan-300 px-4 py-3 text-sm font-extrabold text-[#04131d] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
+                        className="rounded-xl border border-sky-300/30 bg-sky-600 px-4 py-3 text-sm font-extrabold text-white transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                     >
                         {searching ? '…' : 'Search'}
                     </button>
@@ -1558,7 +1558,7 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redi
                     ? 'bg-emerald-500/10'
                     : redirected
                       ? 'bg-amber-500/10'
-                      : 'hover:bg-cyan-300/[0.06] active:bg-cyan-300/[0.1]'
+                      : 'hover:bg-sky-500/[0.06] active:bg-sky-400/[0.1]'
             }`}
         >
             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5">
@@ -1583,13 +1583,13 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redi
             </div>
             <div className="w-8 h-8 flex items-center justify-center shrink-0">
                 {adding ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-cyan-300" />
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-sky-400" />
                 ) : added ? (
                     <CheckIcon className="w-5 h-5 text-emerald-400" />
                 ) : redirected ? (
                     <ExternalLinkIcon className="w-5 h-5 text-amber-300" />
                 ) : (
-                    <PlusIcon className="h-5 w-5 text-cyan-200" />
+                    <PlusIcon className="h-5 w-5 text-sky-300" />
                 )}
             </div>
         </button>
@@ -1634,7 +1634,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                     aria-modal="true"
                     aria-labelledby={titleId}
                     aria-describedby={descriptionId}
-                    className={`relative w-full max-w-sm rounded-3xl border border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+                    className={`relative w-full max-w-sm rounded-3xl border border-sky-300/15 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
                 >
@@ -1660,7 +1660,7 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                                 onClick={onConfirm}
                                 disabled={busy}
                                 aria-label={`Open Apple Music to delete ${playlistName} playlist`}
-                                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-300 py-3 text-sm font-extrabold text-[#04131d] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
+                                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-600 py-3 text-sm font-extrabold text-white transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (
                                     <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
@@ -1732,7 +1732,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                     aria-modal="true"
                     aria-labelledby={titleId}
                     aria-describedby={descriptionId}
-                    className={`relative w-full max-w-sm rounded-3xl border border-cyan-200/15 bg-gradient-to-b from-[#0a1a28] via-[#07111c] to-[#03070c] shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+                    className={`relative w-full max-w-sm rounded-3xl border border-sky-300/15 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
                         mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                     }`}
                 >
@@ -1756,7 +1756,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 aria-label="Playlist name"
                                 disabled={busy}
                                 maxLength={80}
-                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
+                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-sky-300/60 focus:bg-sky-400/[0.07] focus:outline-none"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' && canSubmit) {
                                         onSubmit(name, description);
@@ -1777,7 +1777,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 aria-label="Playlist description"
                                 disabled={busy}
                                 maxLength={140}
-                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-cyan-200/60 focus:bg-cyan-300/[0.07] focus:outline-none"
+                                className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/50 transition-colors focus:border-sky-300/60 focus:bg-sky-400/[0.07] focus:outline-none"
                             />
                         </label>
 
@@ -1800,7 +1800,7 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                                 onClick={() => onSubmit(name, description)}
                                 disabled={!canSubmit}
                                 aria-label="Create new playlist"
-                                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-300 py-3 text-sm font-extrabold text-[#04131d] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
+                                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-600 py-3 text-sm font-extrabold text-white transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (
                                     <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
@@ -2032,24 +2032,24 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     <SafeImage
                         src={nowPlaying.artworkUrl}
                         alt=""
-                        className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-cyan-100/20"
+                        className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-sky-200/20"
                         loading="eager"
                         onError={() => setImageFailed(true)}
                         fallback={
-                            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-cyan-100/20">
+                            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-sky-200/20">
                                 <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
                             </div>
                         }
                     />
                 ) : (
-                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-cyan-100/20">
+                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-sky-200/20">
                         <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
                     </div>
                 )}
                 <div className="flex-1 min-w-0">
-                    <div className="mb-0.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] text-cyan-100/65">
+                    <div className="mb-0.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] text-sky-200/65">
                         <span
-                            className={`h-1.5 w-1.5 rounded-full ${nowPlaying.isPlaying ? 'bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.95)]' : 'bg-slate-500'}`}
+                            className={`h-1.5 w-1.5 rounded-full ${nowPlaying.isPlaying ? 'bg-sky-400' : 'bg-slate-500'}`}
                         />
                         {nowPlaying.isPlaying ? 'Now playing' : 'Paused'}
                     </div>
@@ -2061,7 +2061,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                 <div className="flex items-center gap-1 shrink-0">
                     <button
                         onClick={onPrevious}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-cyan-300/[0.1] hover:text-cyan-100 active:scale-90"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
                         aria-label="Previous"
                     >
                         <SkipPrevIcon className="w-5 h-5" />
@@ -2069,7 +2069,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     {nowPlaying.isPlaying ? (
                         <button
                             onClick={onPause}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-300 text-[#04131d] shadow-[0_8px_18px_rgba(34,211,238,0.17)] transition-transform active:scale-90"
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-transform active:scale-90"
                             aria-label="Pause"
                         >
                             <PauseIcon className="w-5 h-5" />
@@ -2077,7 +2077,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     ) : (
                         <button
                             onClick={onResume}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-300 text-[#04131d] shadow-[0_8px_18px_rgba(34,211,238,0.17)] transition-transform active:scale-90"
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-transform active:scale-90"
                             aria-label="Play"
                         >
                             <PlayIcon className="w-5 h-5 ml-0.5" />
@@ -2085,7 +2085,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     )}
                     <button
                         onClick={onNext}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-cyan-300/[0.1] hover:text-cyan-100 active:scale-90"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
                         aria-label="Next"
                     >
                         <SkipNextIcon className="w-5 h-5" />
@@ -2105,7 +2105,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     <span className="w-8 text-right">{formatPlaybackTime(clamped)}</span>
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
                         <div
-                            className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-teal-300 transition-[width] duration-150 ease-linear"
+                            className="h-full rounded-full bg-gradient-to-r from-sky-500 to-sky-400 transition-[width] duration-150 ease-linear"
                             style={{ width: `${pct}%` }}
                         />
                     </div>
