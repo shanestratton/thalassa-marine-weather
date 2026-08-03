@@ -117,15 +117,22 @@
 	<false/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-    <!-- Scoped from NSAllowsArbitraryLoads (audit 2026-08-02): the blanket
-	     exception was scaffold debris, and the only plaintext endpoints the
-	     app ever fetches are LAN/.local/numeric-IP hosts (calypso.local,
-	     10.0.0.1 Bosun AP, 192.168.x, the 100.x tailnet IP) — all of which
-	     ATS exempts by default, with NSAllowsLocalNetworking kept as the
-	     explicit belt. Every internet host now gets full ATS enforcement,
-	     and the App Review arbitrary-loads justification question goes away. -->
+    <!-- NSAllowsArbitraryLoads RESTORED 2026-08-03: the 08-02 scoping
+	     assumed numeric-IP hosts are ATS-exempt by default. FIELD-FALSIFIED
+	     on device — iOS blocked cleartext to the 100.x Tailscale IP
+	     ("App Transport Security has blocked a cleartext HTTP connection
+	     to 100.76.191.119"). CGNAT/tailnet addresses are NOT covered by
+	     NSAllowsLocalNetworking, and ATS exception domains cannot name raw
+	     IPs, so arbitrary-loads is the only mechanism that reaches the
+	     boat's Pi/Signal K/AvNav gear over Tailscale. App Review
+	     justification: communicates with user-configured marine
+	     electronics and boat-network devices that do not support TLS.
+	     All internet services (Supabase, weather APIs) remain HTTPS by
+	     construction. -->
     <key>NSAppTransportSecurity</key>
     <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
