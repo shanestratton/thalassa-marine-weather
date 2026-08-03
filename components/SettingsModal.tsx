@@ -636,7 +636,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 {onBack && (
                                     <button
                                         onClick={onBack}
-                                        className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                                        className="p-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
                                         aria-label="Go back"
                                     >
                                         <svg

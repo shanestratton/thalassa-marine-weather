@@ -445,10 +445,18 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 /* White/opacity backgrounds → white cards in light mode */
+.display-light .bg-white\/\[0\.02\],
 .display-light .bg-white\/\[0\.03\],
 .display-light .bg-white\/\[0\.04\],
 .display-light .bg-white\/\[0\.05\] {
     background-color: rgb(255 255 255 / 0.7);
+}
+
+/* 0.06/0.08 are the highest-frequency card washes (93 + 41 uses) and had
+   no light override at all — white-on-white-invisible cards. */
+.display-light .bg-white\/\[0\.06\],
+.display-light .bg-white\/\[0\.08\] {
+    background-color: rgb(255 255 255 / 0.75);
 }
 
 .display-light .bg-white\/5 {
@@ -468,6 +476,14 @@ input[type='date']::-webkit-calendar-picker-indicator {
     --tw-text-opacity: 1;
     color: rgb(15 23 42 / var(--tw-text-opacity));
     /* slate-900 */
+}
+
+/* gray-200 is HIGH-emphasis body text in dark mode — map it darker than
+   the gray-300/400 secondary tier, not into it. */
+.display-light .text-gray-200 {
+    --tw-text-opacity: 1;
+    color: rgb(51 65 85 / var(--tw-text-opacity));
+    /* slate-700 */
 }
 
 .display-light .text-gray-300,
@@ -567,7 +583,8 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 /* ── Border inversions ── */
-.display-light .border-white\/5 {
+.display-light .border-white\/5,
+.display-light .border-white\/\[0\.04\] {
     border-color: rgb(15 23 42 / 0.05);
 }
 

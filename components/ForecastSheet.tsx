@@ -14,19 +14,12 @@ interface ForecastSheetProps {
     onViewFull: () => void;
 }
 
-const LOADING_STEPS = [
-    'Contacting Satellite Grid...',
-    'Downloading GRIB Data...',
-    'Calculating Wave Gradients...',
-    'Triangulating Wind Vectors...',
-    'Synthesizing Forecast Model...',
-    'Finalizing Report...',
-];
+// One honest message — this sheet has no visibility into fetch stages, and
+// the old six fabricated "steps" visibly looped every 1.8s on slow links.
 
 export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
     ({ data, isLoading, units, isOpen, onClose, onViewFull }) => {
         const [isVisible, setIsVisible] = useState(false);
-        const [loadingMessage, setLoadingMessage] = useState(LOADING_STEPS[0]);
 
         // GESTURE STATE
         const [offsetY, setOffsetY] = useState(0);
@@ -64,19 +57,6 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                 setIsVisible(false);
             }
         }, [isOpen]);
-
-        // Rotate loading messages to show activity
-        useEffect(() => {
-            if (isLoading && isOpen) {
-                let step = 0;
-                setLoadingMessage(LOADING_STEPS[0]);
-                const interval = setInterval(() => {
-                    step = (step + 1) % LOADING_STEPS.length;
-                    setLoadingMessage(LOADING_STEPS[step]);
-                }, 300);
-                return () => clearInterval(interval);
-            }
-        }, [isLoading, isOpen]);
 
         // --- TOUCH HANDLERS ---
         const handleTouchStart = (e: React.TouchEvent) => {
@@ -172,9 +152,11 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                                         </div>
                                         <div className="text-center">
                                             <p className="text-sm text-white font-bold tracking-wide animate-pulse min-w-[200px]">
-                                                {loadingMessage}
+                                                Fetching forecast…
                                             </p>
-                                            <p className="text-sm text-gray-400 mt-1">Please wait...</p>
+                                            <p className="text-sm text-gray-400 mt-1">
+                                                Slow at sea is normal — this can take a moment.
+                                            </p>
                                         </div>
                                     </div>
                                 ) : current ? (

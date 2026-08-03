@@ -241,7 +241,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 <button
                     type="button"
                     onClick={onBack}
-                    className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-gray-400 hover:bg-white/[0.1]"
+                    className="w-11 h-11 rounded-lg bg-white/[0.06] flex items-center justify-center text-gray-400 hover:bg-white/[0.1]"
                     aria-label="Go back to vessel hub"
                 >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
