@@ -7,6 +7,8 @@ interface ObsLayerLoadingPillProps {
     activeLayers: ReadonlySet<WeatherLayer>;
     windLoading: boolean;
     windReady: boolean;
+    /** A wind grid is currently rendered (may be refreshing behind it). */
+    windHasGrid: boolean;
     windError: unknown;
     rainLoading: boolean;
     rainImageLoading: boolean;
@@ -16,17 +18,24 @@ interface ObsLayerLoadingPillProps {
  * One truthful, map-centred loading state for the OBS surface. The timeline
  * controls deliberately do not own this: opening their lazy chunk is not the
  * same thing as the weather imagery becoming usable.
+ *
+ * `windLoading` alone is NOT enough to claim the wind layer is loading: a
+ * viewport refinement keeps the previous grid animating while the sharper
+ * replacement fetches (WindDataController keepRenderedGrid), and announcing
+ * "Loading wind layer" over a live field reads as a bug. Loading only blocks
+ * when nothing usable is on screen.
  */
 export function getObsLayerLoadingKind({
     activeLayers,
     windLoading,
     windReady,
+    windHasGrid,
     windError,
     rainLoading,
     rainImageLoading,
 }: ObsLayerLoadingPillProps): ObsLayerLoadingKind | null {
     const windActive = activeLayers.has('wind') || activeLayers.has('velocity');
-    const windIsLoading = windActive && !windError && (windLoading || !windReady);
+    const windIsLoading = windActive && !windError && ((windLoading && !windHasGrid) || !windReady);
     const rainIsLoading = activeLayers.has('rain') && (rainLoading || rainImageLoading);
 
     if (windIsLoading && rainIsLoading) return 'weather';

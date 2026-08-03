@@ -9,6 +9,7 @@ function props(overrides: Partial<React.ComponentProps<typeof ObsLayerLoadingPil
         activeLayers: new Set<WeatherLayer>(),
         windLoading: false,
         windReady: true,
+        windHasGrid: true,
         windError: null,
         rainLoading: false,
         rainImageLoading: false,
@@ -42,5 +43,24 @@ describe('ObsLayerLoadingPill', () => {
         expect(
             getObsLayerLoadingKind(props({ activeLayers: new Set(['wind']), windReady: false, windError: 'offline' })),
         ).toBeNull();
+    });
+
+    it('stays silent while a viewport refinement refreshes behind a live wind field', () => {
+        // keepRenderedGrid: loading=true but the previous grid is still
+        // rendered and animating — announcing "Loading wind layer" over a
+        // live field is the bug this pins down.
+        expect(
+            getObsLayerLoadingKind(
+                props({ activeLayers: new Set(['wind']), windLoading: true, windReady: true, windHasGrid: true }),
+            ),
+        ).toBeNull();
+    });
+
+    it('still centres the pill for a first load with nothing on screen', () => {
+        expect(
+            getObsLayerLoadingKind(
+                props({ activeLayers: new Set(['wind']), windLoading: true, windReady: false, windHasGrid: false }),
+            ),
+        ).toBe('wind');
     });
 });

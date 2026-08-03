@@ -202,7 +202,7 @@ export function MapWeatherControls({
                     totalFrames = 1;
                     frameLabel = 'Unavailable';
                     sublabel = 'Wind data';
-                } else if (weather.windState.loading || (usableGrid && !weather.windReady)) {
+                } else if ((weather.windState.loading && !usableGrid) || (usableGrid && !weather.windReady)) {
                     totalFrames = 1;
                     frameLabel = 'Loading…';
                     sublabel = 'Wind data';
