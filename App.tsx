@@ -407,7 +407,7 @@ const App: React.FC = () => {
         return (
             <div className="flex items-center justify-center h-screen w-full bg-slate-950 flex-col gap-4">
                 <img
-                    src="/thalassa-icon-128.webp"
+                    src="/thalassa-icon-128.png"
                     alt=""
                     aria-hidden="true"
                     width={64}
@@ -642,7 +642,7 @@ const App: React.FC = () => {
                                     has a properly sized compass that doesn't
                                     drown next to the wordmark + Skipper pill. */}
                                 <img
-                                    src="/thalassa-icon-128.webp"
+                                    src="/thalassa-icon-128.png"
                                     alt=""
                                     width={64}
                                     height={64}
