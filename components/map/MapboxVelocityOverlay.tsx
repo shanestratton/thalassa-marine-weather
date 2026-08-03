@@ -69,14 +69,34 @@ const PARTICLE_LINE_WIDTH = 1;
 // protects the third-party renderer from the old delayed-start zoom race.
 const MIN_PARTICLE_ZOOM = 3;
 
+/**
+ * The z3 synoptic look Shane signed off on. The library multiplies this by
+ * pow(viewRadianArea, 0.4), and that area shrinks 4× per zoom level — so a
+ * fixed base made particles crawl at ~0.4% of their z3 speed by z12, which
+ * read as "the wind died" whenever you zoomed in.
+ */
+const BASE_VELOCITY_SCALE = 0.015;
+const VELOCITY_SCALE_REF_ZOOM = 3;
+
+/**
+ * Cancel the library's pow(area, 0.4) zoom collapse so apparent particle
+ * speed stays at the z3 look everywhere: area ∝ 4^−z, so pow(area, 0.4)
+ * loses 2^0.8 per level — hand back exactly that. Clamped so a deep ENC
+ * zoom can't wind the multiplier into the stratosphere.
+ */
+function zoomCompensatedVelocityScale(mapboxZoom: number): number {
+    const z = Math.min(12, Math.max(VELOCITY_SCALE_REF_ZOOM, mapboxZoom));
+    return BASE_VELOCITY_SCALE * Math.pow(2, 0.8 * (z - VELOCITY_SCALE_REF_ZOOM));
+}
+
 // ── Helper: Create velocity layer ─────────────────────────────
 
-function createVelocityLayer(data: VelocityGribRecord[]): L.Layer {
+function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number): L.Layer {
     const layer = (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: WIND_MAX_MS,
-        velocityScale: 0.015,
+        velocityScale,
         particleAge: 60,
         particleMultiplier: 1 / 150,
         frameRate: 15,
@@ -90,7 +110,7 @@ function createVelocityLayer(data: VelocityGribRecord[]): L.Layer {
 }
 
 type MutableVelocityLayer = L.Layer & {
-    _windy?: { setData: (data: VelocityGribRecord[]) => void };
+    _windy?: { setData: (data: VelocityGribRecord[]) => void; velocityScale?: number };
     setData?: (data: VelocityGribRecord[]) => void;
 };
 
@@ -145,15 +165,21 @@ function removeVelocityLayer(map: L.Map, layer: L.Layer | null): void {
     if (layer && map.hasLayer(layer)) map.removeLayer(layer);
 }
 
-function applyVelocityData(map: L.Map, layer: L.Layer | null, data: VelocityGribRecord[]): L.Layer {
+function applyVelocityData(
+    map: L.Map,
+    layer: L.Layer | null,
+    data: VelocityGribRecord[],
+    velocityScale: number,
+): L.Layer {
     if (!layer) {
-        const created = createVelocityLayer(data);
+        const created = createVelocityLayer(data, velocityScale);
         created.addTo(map);
         return created;
     }
 
     const mutableLayer = layer as MutableVelocityLayer;
     if (mutableLayer._windy) {
+        mutableLayer._windy.velocityScale = velocityScale;
         mutableLayer._windy.setData(data);
         return layer;
     }
@@ -163,7 +189,7 @@ function applyVelocityData(map: L.Map, layer: L.Layer | null, data: VelocityGrib
     }
 
     removeVelocityLayer(map, layer);
-    const replacement = createVelocityLayer(data);
+    const replacement = createVelocityLayer(data, velocityScale);
     replacement.addTo(map);
     return replacement;
 }
@@ -542,7 +568,12 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         }
 
         try {
-            velocityLayerRef.current = applyVelocityData(leafletMap, velocityLayerRef.current, nextData);
+            velocityLayerRef.current = applyVelocityData(
+                leafletMap,
+                velocityLayerRef.current,
+                nextData,
+                zoomCompensatedVelocityScale(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
+            );
             if (overlayRef.current) overlayRef.current.style.opacity = '1';
             syncRef.current?.();
         } catch (err) {
@@ -554,7 +585,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             if (overlayRef.current) overlayRef.current.style.opacity = '0';
             log.error('[VelocityOverlay] Failed to apply selected wind grid:', err);
         }
-    }, [windHour, windGrid, particlesActive]);
+    }, [windHour, windGrid, particlesActive, mapboxMap]);
 
     // The static heatmap is intentionally quantised to whole forecast frames.
     // Particles can interpolate smoothly, but turning every scrubber fraction
@@ -711,24 +742,39 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // was ready. Read the refs here to cover that race, including hour 0.
             const initialData = windGridFrameToVelocityData(windGridPropRef.current, windHourRef.current);
             if (initialData) {
-                velocityLayerRef.current = applyVelocityData(lMap, null, initialData);
+                velocityLayerRef.current = applyVelocityData(
+                    lMap,
+                    null,
+                    initialData,
+                    zoomCompensatedVelocityScale(mapboxMap.getZoom()),
+                );
             }
 
             // ── Anchor-point geo-locking (performance optimised) ──
-            // MOVE events (every pixel during drag):
-            //   → Lightweight: just measure pixel error + CSS translate (no setView)
-            // MOVEEND / ZOOM events (end of gesture):
-            //   → Full: setView() + measure + correct
+            // MOVE/ZOOM events (every frame during a gesture):
+            //   → Lightweight: CSS translate+scale against the last synced view
+            //     (no setView — a setView per zoom frame made the plugin kill
+            //     and re-seed every particle dozens of times per pinch)
+            // MOVEEND (end of gesture — Mapbox fires it after zooms too):
+            //   → Full: setView() + measure + record the new baseline
             let _syncing = false;
 
-            // Full sync — expensive, only on moveend/zoom
+            // The Leaflet view the canvas was last truly projected at, plus
+            // the sub-pixel residual Leaflet rendered it off-centre by.
+            let lastSync: { lat: number; lng: number; zoom: number; rx: number; ry: number } | null = null;
+
+            // Full sync — expensive, only at gesture end
             const syncFull = () => {
                 if (_syncing || !leafletMapRef.current || !mapboxMap || !overlayRef.current) return;
                 _syncing = true;
                 try {
                     const c = mapboxMap.getCenter();
-                    const z = mapboxMap.getZoom() + 1;
-                    leafletMapRef.current.setView([c.lat, c.lng], z, { animate: false });
+                    const zRaw = mapboxMap.getZoom();
+                    // The restart this setView triggers re-reads velocityScale,
+                    // so hand it the zoom-compensated value first.
+                    const windy = (velocityLayerRef.current as MutableVelocityLayer | null)?._windy;
+                    if (windy) windy.velocityScale = zoomCompensatedVelocityScale(zRaw);
+                    leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
 
                     // Measure residual error and correct
                     const mapboxPx = mapboxMap.project([c.lng, c.lat]);
@@ -740,22 +786,32 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     } else {
                         overlayRef.current.style.transform = '';
                     }
+                    lastSync = { lat: c.lat, lng: c.lng, zoom: zRaw, rx: -dx, ry: -dy };
                 } catch (_) {
                     /* velocity canvas not ready yet */
                 }
                 _syncing = false;
             };
 
-            // Lightweight correction — cheap, runs on every move pixel
-            const correctOnly = () => {
-                if (!leafletMapRef.current || !mapboxMap || !overlayRef.current) return;
+            // Lightweight camera tracking — cheap, runs on every move/zoom
+            // frame. Scales+translates the whole canvas so the field stays
+            // geo-locked through a pinch without touching Leaflet (one real
+            // re-projection then happens at moveend).
+            const trackCamera = () => {
+                if (!leafletMapRef.current || !mapboxMap || !overlayRef.current || !lastSync) return;
                 try {
-                    const c = mapboxMap.getCenter();
-                    const mapboxPx = mapboxMap.project([c.lng, c.lat]);
-                    const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
-                    const dx = mapboxPx.x - leafletPx.x;
-                    const dy = mapboxPx.y - leafletPx.y;
-                    overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+                    const cam = mapboxMap.getCenter();
+                    const camPx = mapboxMap.project([cam.lng, cam.lat]);
+                    const anchorPx = mapboxMap.project([lastSync.lng, lastSync.lat]);
+                    const s = Math.pow(2, mapboxMap.getZoom() - lastSync.zoom);
+                    const tx = anchorPx.x - camPx.x - s * lastSync.rx;
+                    const ty = anchorPx.y - camPx.y - s * lastSync.ry;
+                    // transform-origin is the div centre, which is exactly
+                    // where the camera centre projects (the div is inset:0).
+                    overlayRef.current.style.transform =
+                        Math.abs(s - 1) > 0.001
+                            ? `translate(${tx}px, ${ty}px) scale(${s})`
+                            : `translate(${tx}px, ${ty}px)`;
                 } catch (_) {
                     /* ok */
                 }
@@ -766,10 +822,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 syncFull();
             };
 
-            // Lightweight correction on every drag pixel, full sync only at end
-            mapboxMap.on('move', correctOnly);
+            // Lightweight tracking on every gesture frame, full sync only at end
+            mapboxMap.on('move', trackCamera);
             mapboxMap.on('moveend', syncFull);
-            mapboxMap.on('zoom', syncFull);
+            mapboxMap.on('zoom', trackCamera);
             mapboxMap.on('resize', onResize);
 
             // Single deferred re-sync after zoom/move ends (replaces heavy 200ms×10 interval)
@@ -785,7 +841,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.on('moveend', onViewEnd);
 
             syncRef.current = syncFull;
-            moveRef.current = correctOnly;
+            moveRef.current = trackCamera;
             resizeRef.current = onResize;
             zoomEndRef.current = onViewEnd;
 
@@ -815,11 +871,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
 
             try {
-                if (moveRef.current) mapboxMap.off('move', moveRef.current);
-                if (syncRef.current) {
-                    mapboxMap.off('moveend', syncRef.current);
-                    mapboxMap.off('zoom', syncRef.current);
+                if (moveRef.current) {
+                    mapboxMap.off('move', moveRef.current);
+                    mapboxMap.off('zoom', moveRef.current);
                 }
+                if (syncRef.current) mapboxMap.off('moveend', syncRef.current);
                 if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
                 if (zoomEndRef.current) {
                     mapboxMap.off('zoomend', zoomEndRef.current);
