@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { EmptyState } from '../ui/EmptyState';
+import { PageHeader } from '../ui/PageHeader';
 import {
     getMealsByStatus,
     getMealPlans as _getMealPlans,
@@ -237,30 +238,25 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
 
     return (
         <div className="flex flex-col h-full bg-slate-950 text-white slide-up-enter">
-            {/* Header */}
-            <div className="flex items-center gap-3 p-4 border-b border-white/[0.06]">
-                <button
-                    type="button"
-                    onClick={onBack}
-                    className="w-11 h-11 rounded-lg bg-white/[0.06] flex items-center justify-center text-gray-400 hover:bg-white/[0.1]"
-                    aria-label="Go back to vessel hub"
-                >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                </button>
-                <div className="flex-1">
-                    <h1 className="text-base font-black">Galley</h1>
-                    <p className="text-[11px] text-amber-400/60 uppercase tracking-widest">
-                        {visibleActiveMeals.length} active · {visibleSavedRecipes.length} saved · {reservedCount}{' '}
-                        reserved
-                    </p>
-                </div>
-                <div className="px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/15">
-                    <span className="text-[11px] font-bold text-amber-400/70 tracking-widest uppercase">
-                        Offline Ready
-                    </span>
-                </div>
+            {/* Header — standard PageHeader (title scale: text-xl font-extrabold uppercase) */}
+            <div className="border-b border-white/[0.06]">
+                <PageHeader
+                    title="Galley"
+                    subtitle={
+                        <p className="text-[11px] text-amber-400/60 uppercase tracking-widest">
+                            {visibleActiveMeals.length} active · {visibleSavedRecipes.length} saved · {reservedCount}{' '}
+                            reserved
+                        </p>
+                    }
+                    onBack={onBack}
+                    action={
+                        <div className="px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/15">
+                            <span className="text-[11px] font-bold text-amber-400/70 tracking-widest uppercase">
+                                Offline Ready
+                            </span>
+                        </div>
+                    }
+                />
             </div>
 
             {/* Tab bar */}

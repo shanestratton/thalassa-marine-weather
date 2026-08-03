@@ -5,9 +5,9 @@
 ```mermaid
 graph TB
     subgraph Client["Client (React + Capacitor)"]
-        UI["React UI<br>67 components"]
-        Hooks["31 Custom Hooks"]
-        Services["65 Services"]
+        UI["React UI<br>325 components"]
+        Hooks["47 Custom Hooks"]
+        Services["385 Services"]
         Workers["Web Workers<br>AIS, Wind GL"]
         Context["ThalassaContext<br>WeatherContext"]
     end
@@ -17,7 +17,7 @@ graph TB
         DB["PostgreSQL"]
         RT["Realtime<br>Chat, AIS, Sync"]
         Storage["Storage<br>Photos, Logs"]
-        Edge["26 Edge Functions"]
+        Edge["43 Edge Functions"]
     end
 
     subgraph External["External APIs"]
@@ -41,6 +41,8 @@ graph TB
     UI --> MB & OSM
     Services --> RV
 ```
+
+_Counts verified 2026-08-03: 325 `.tsx` files in `components/`, 385 non-test `.ts` files in `services/`, 47 files in `hooks/`, 12 stores in `stores/`, 43 function dirs in `supabase/functions/`._
 
 ## Data Flow: Weather
 
@@ -115,9 +117,7 @@ graph TD
     Chat --> ChannelList
     Chat --> ChatMessages
     Chat --> ChatDMView
-    Chat --> CrewFinder
-    Chat --> Marketplace
-    Chat --> IntelTicker["MaritimeIntelCard"]
+    Chat --> CrewFinder["LonelyHeartsPage"]
 
     Anchor --> SwingCircle["SwingCircleCanvas"]
     Anchor --> AlarmOverlay["AnchorAlarmOverlay"]
@@ -130,24 +130,23 @@ graph TD
     Settings --> AlertsTab
     Settings --> AestheticsTab
     Settings --> LocationsTab
-    Settings --> PolarManager["PolarManagerTab"]
 ```
 
 ## Service Architecture
 
 ### Core Services
 
-| Service              | Lines  | Responsibility                                        |
-| -------------------- | ------ | ----------------------------------------------------- |
-| `WeatherService`     | ~400   | Multi-source weather orchestration with caching       |
-| `ChatService`        | ~1,400 | Supabase Realtime messaging, DMs, moderation          |
-| `IsochroneRouter`    | ~1,370 | Offshore weather routing with wind-angle optimization |
-| `ShipLogService`     | ~1,990 | Voyage logging, GPS tracks, export (GPX/KML/CSV)      |
-| `AnchorWatchService` | ~500   | GPS geofencing, swing radius, drag detection          |
-| `GpsService`         | ~400   | Capacitor GPS with external device support (Bad Elf)  |
-| `AisStreamService`   | ~300   | Real-time AIS via Supabase, vessel tracking           |
-| `GuardianService`    | ~300   | Vessel security monitoring, geo-fence alerts          |
-| `AlarmAudioService`  | ~200   | Web Audio API alarm with haptic feedback              |
+| Service              | Lines   | Responsibility                                                                    |
+| -------------------- | ------- | --------------------------------------------------------------------------------- |
+| `WeatherService`     | ~18,700 | Multi-source weather orchestration with caching (barrel over `services/weather/`) |
+| `ChatService`        | ~2,070  | Supabase Realtime messaging, DMs, moderation                                      |
+| `IsochroneRouter`    | ~800    | Offshore weather routing with wind-angle optimization                             |
+| `ShipLogService`     | ~2,080  | Voyage logging, GPS tracks, export (GPX/KML/CSV)                                  |
+| `AnchorWatchService` | ~1,160  | GPS geofencing, swing radius, drag detection                                      |
+| `GpsService`         | ~250    | Capacitor GPS with external device support (Bad Elf)                              |
+| `AisStreamService`   | ~100    | Real-time AIS via Supabase, vessel tracking                                       |
+| `GuardianService`    | ~730    | Vessel security monitoring, geo-fence alerts                                      |
+| `AlarmAudioService`  | ~130    | Web Audio API alarm with haptic feedback                                          |
 
 ### Weather Data Pipeline
 
@@ -178,27 +177,28 @@ OpenWeatherMap
 
 ### Routing Engine
 
-The passage planner uses a two-stage approach:
+The passage planner uses a four-tier approach (spec: `docs/THREE_TIER_ROUTING.md`):
 
-1. **Coastal Corridors (A\*)** — Safe-water pathfinding avoiding land, using GEBCO depth data
-2. **Offshore Isochrone** — Weather-optimized routing using GFS wind forecasts and vessel polar data
+1. **Canal/Marina** — centerline routing inside canals and marina basins
+2. **Channel** — marked-channel following from canals/marinas out to deeper water
+3. **Inshore (A\*)** — safe-water bay/coastal pathfinding over ENC depth data
+4. **Offshore Isochrone** — Weather-optimized routing using GFS wind forecasts and vessel polar data
 
 ## Database Schema (Supabase PostgreSQL)
 
 Key tables:
 
-| Table               | Purpose                             |
-| ------------------- | ----------------------------------- |
-| `profiles`          | User profiles with vessel info      |
-| `channels`          | Chat channels (public, private, DM) |
-| `messages`          | Chat messages with read receipts    |
-| `crew_listings`     | Crew finder profiles                |
-| `marketplace_items` | Items for sale with escrow          |
-| `voyage_logs`       | Ship's log entries                  |
-| `community_tracks`  | Shared GPS voyage tracks            |
-| `ais_positions`     | Recent AIS vessel positions         |
-| `guard_zones`       | Guardian geo-fence definitions      |
-| `weather_alerts`    | Automated severe weather alerts     |
+| Table              | Purpose                             |
+| ------------------ | ----------------------------------- |
+| `profiles`         | User profiles with vessel info      |
+| `channels`         | Chat channels (public, private, DM) |
+| `messages`         | Chat messages with read receipts    |
+| `crew_listings`    | Crew finder profiles                |
+| `voyage_logs`      | Ship's log entries                  |
+| `community_tracks` | Shared GPS voyage tracks            |
+| `ais_positions`    | Recent AIS vessel positions         |
+| `guard_zones`      | Guardian geo-fence definitions      |
+| `weather_alerts`   | Automated severe weather alerts     |
 
 ## Security Model
 
@@ -212,7 +212,7 @@ Key tables:
 
 ## Performance Optimizations
 
-- **662 `useMemo`/`useCallback`** calls for render optimization
+- **941 `useMemo`/`useCallback`** calls for render optimization
 - **Lazy loading** via `React.lazy()` for all route-level components
 - **Web Workers** for AIS data ingestion (off-main-thread)
 - **WebGL** particle engine for wind visualization (60fps)
@@ -222,7 +222,7 @@ Key tables:
 
 ## Accessibility
 
-- **300+ ARIA attributes** across components
+- **1,300+ ARIA attributes** across components
 - **Global focus-visible rings** (sky-400 2px ring on keyboard focus)
 - **Skip-to-content** CSS link
 - **Semantic HTML** with `<nav>`, `<main>`, `<section>` landmarks
