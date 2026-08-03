@@ -3,6 +3,7 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
+import { extractPhotoExif } from '../utils/exifGps';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
@@ -418,10 +419,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         });
     }, [abortVoiceSession]);
     // ── GPS helper ─────────────────────────────────────────────
+    // True once an attached photo's EXIF GPS has set the entry position.
+    // The photo's location outranks the device fix: the entry is about
+    // where the photo was TAKEN, not where the skipper sat down to write
+    // it up (which is the berth — i.e. the start of every track). An
+    // openCompose reset or a fresh compose clears it.
+    const locationFromPhotoRef = useRef(false);
     const grabGps = useCallback(async () => {
+        if (locationFromPhotoRef.current) return;
         setGpsLoading(true);
         const loc = await DiaryService.getCurrentLocation();
-        if (loc) {
+        // Re-check after the await — a photo may have been attached while
+        // the fix was in flight (openCompose fires this async).
+        if (loc && !locationFromPhotoRef.current) {
             setLat(loc.lat);
             setLon(loc.lon);
             // Check anchor watch first — if active, use depth info
@@ -489,6 +499,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setRecordingTime(0);
         setShowCompose(true);
         triggerHaptic('light');
+        locationFromPhotoRef.current = false;
         grabGps();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [abortVoiceSession, grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
@@ -496,6 +507,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const openEdit = useCallback(
         (entry: DiaryEntry) => {
             abortVoiceSession();
+            // Fresh edit session: a photo attached DURING this edit may
+            // re-pin the entry from its EXIF (the repair path for entries
+            // pinned at the berth — re-attach the original photo and the
+            // pin moves to where it was taken).
+            locationFromPhotoRef.current = false;
             const locationDisplay =
                 entry.location_name ||
                 (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : '');
@@ -954,6 +970,24 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         const file = e.target.files?.[0];
         if (!file) return;
         setUploading(true);
+        // Harvest EXIF GPS from the ORIGINAL file before upload — the
+        // compressor strips it from the stored copy. If the photo knows
+        // where it was taken, pin the entry there instead of at the
+        // compose-time device fix (the "photo shows at the start of the
+        // track" bug: entries written up back at the berth pinned the
+        // story at the marina). First photo with GPS wins.
+        try {
+            const exif = await extractPhotoExif(file);
+            if (exif && !locationFromPhotoRef.current) {
+                locationFromPhotoRef.current = true;
+                setLat(exif.lat);
+                setLon(exif.lon);
+                const placeName = await DiaryService.reverseGeocode(exif.lat, exif.lon);
+                setLocationName(placeName || formatCoord(exif.lat, exif.lon));
+            }
+        } catch {
+            /* EXIF is best-effort — device fix remains the fallback */
+        }
         const url = await DiaryService.uploadPhoto(file);
         if (url) setPhotos((prev) => [...prev, url]);
         setUploading(false);
@@ -1027,6 +1061,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         mood,
                         photos,
                         audio_url: audioUrl,
+                        // Persist position on edit — OPEN_EDIT seeds these from
+                        // the entry, and a photo attached during the edit may
+                        // have re-pinned them from its EXIF. Previously edits
+                        // silently dropped position changes.
+                        latitude: finalLat,
+                        longitude: finalLon,
+                        location_name: finalLocationName,
                     },
                     { shouldContinue: operationIsCurrent },
                 );
@@ -1042,6 +1083,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                               mood,
                               photos,
                               audio_url: savedAudioUrl,
+                              latitude: finalLat,
+                              longitude: finalLon,
+                              location_name: finalLocationName || prevEntry.location_name,
                           }
                         : null;
                     setEntries((prev) => prev.map((e) => (e.id === editingId && updated ? updated : e)));
