@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { MobService, type MobState } from '../../services/MobService';
+import { GPS_STALE_LIMIT_MS } from '../../services/shiplog/PositionResolver';
 
 function fmtElapsed(sec: number): string {
     const m = Math.floor(sec / 60);
@@ -111,7 +112,12 @@ export function useMobMarker(mapRef: React.MutableRefObject<mapboxgl.Map | null>
             setMobActive(s.active !== null);
             if (chipRef.current && s.active) {
                 const brg = s.bearingDeg != null ? ` · ${Math.round(s.bearingDeg)}°` : '';
-                chipRef.current.textContent = `MOB ${fmtElapsed(s.elapsedSec)} · ${fmtDistance(s.distanceMeters)}${brg}`;
+                // The elapsed clock keeps ticking even when own-ship GPS
+                // stops, which makes a FROZEN recovery vector read as live —
+                // flag distance/bearing the moment the own fix goes stale.
+                const ownStale = !s.own || Date.now() - s.own.timestamp > GPS_STALE_LIMIT_MS;
+                const staleTag = ownStale ? ' · fix old' : '';
+                chipRef.current.textContent = `MOB ${fmtElapsed(s.elapsedSec)} · ${fmtDistance(s.distanceMeters)}${brg}${staleTag}`;
             }
         });
         return unsub;
