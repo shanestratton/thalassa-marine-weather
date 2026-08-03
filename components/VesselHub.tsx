@@ -45,7 +45,6 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
-import { requestSavedRoutesLibraryOpen } from '../services/deepLink';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
@@ -484,7 +483,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // Vessel card is useful offline, then pull-merge the account copy. Every
     // async boundary is fenced to the identity that started it: route names
     // and even their count are private account data.
-    const [savedRouteCount, setSavedRouteCount] = useState(0);
+    // The Saved Routes row this fed is gone (2026-08-04), but the effect
+    // stays: it pull-merges the account's saved routes on Vessel mount,
+    // which Passage Planning relies on being warm.
+    const [_savedRouteCount, setSavedRouteCount] = useState(0);
     useEffect(() => {
         let cancelled = false;
         let requestId = 0;
@@ -841,74 +843,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             style={SAFETY_CONTROL_GROUP}
                             className="grid grid-cols-4 gap-2 rounded-[20px] p-1"
                         >
-                            <button
-                                aria-label="Anchor Watch"
-                                onClick={() => {
-                                    // 'compass', NOT 'anchor' — the Anchor Watch screen
-                                    // has always been routed under the compass key, and
-                                    // there is no 'anchor' route to fall back to, so the
-                                    // guess landed on a blank page.
-                                    triggerHaptic('light');
-                                    onNavigate('compass');
-                                }}
-                                style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
-                            >
-                                <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
-                                    style={{ background: `${anchorColor}1f` }}
-                                >
-                                    <div
-                                        className="h-3 w-3 rounded-full"
-                                        style={{
-                                            backgroundColor: anchorColor,
-                                            boxShadow:
-                                                anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
-                                            animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
-                                        }}
-                                    />
-                                </div>
-                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
-                                <p
-                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
-                                    style={{ color: anchorColor }}
-                                >
-                                    {anchorLabelShort}
-                                </p>
-                            </button>
-
-                            <button
-                                aria-label="Open Guardian bay watch"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('guardian');
-                                }}
-                                style={SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
-                            >
-                                <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
-                                    style={{ background: 'rgba(245, 158, 11, 0.12)' }}
-                                >
-                                    <ShieldIcon color="#f59e0b" />
-                                </div>
-                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">
-                                    Guardian
-                                </h4>
-                                <p
-                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
-                                    style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
-                                >
-                                    {/* The "· N nearby" suffix does not fit here; the
-                                        count replaces the word so it is not lost. */}
-                                    {guardianArmed
-                                        ? guardianNearby > 0
-                                            ? `${guardianNearby} near`
-                                            : 'Watching'
-                                        : 'Off'}
-                                </p>
-                            </button>
-
+                            {/* Order is deliberate (Shane 2026-08-04): MOB
+                                first — the one you reach for in a genuine
+                                emergency — then Radio position, Guardian,
+                                Anchor. */}
                             <button
                                 aria-label="Man Overboard"
                                 onClick={() => {
@@ -948,6 +886,74 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Radio</h4>
                                 <p className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide text-slate-400">
                                     Position
+                                </p>
+                            </button>
+
+                            <button
+                                aria-label="Open Guardian bay watch"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('guardian');
+                                }}
+                                style={SAFETY_CONTROL_CARD}
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                            >
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                >
+                                    <ShieldIcon color="#f59e0b" />
+                                </div>
+                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">
+                                    Guardian
+                                </h4>
+                                <p
+                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                    style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
+                                >
+                                    {/* The "· N nearby" suffix does not fit here; the
+                                        count replaces the word so it is not lost. */}
+                                    {guardianArmed
+                                        ? guardianNearby > 0
+                                            ? `${guardianNearby} near`
+                                            : 'Watching'
+                                        : 'Off'}
+                                </p>
+                            </button>
+
+                            <button
+                                aria-label="Anchor Watch"
+                                onClick={() => {
+                                    // 'compass', NOT 'anchor' — the Anchor Watch screen
+                                    // has always been routed under the compass key, and
+                                    // there is no 'anchor' route to fall back to, so the
+                                    // guess landed on a blank page.
+                                    triggerHaptic('light');
+                                    onNavigate('compass');
+                                }}
+                                style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                            >
+                                <div
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    style={{ background: `${anchorColor}1f` }}
+                                >
+                                    <div
+                                        className="h-3 w-3 rounded-full"
+                                        style={{
+                                            backgroundColor: anchorColor,
+                                            boxShadow:
+                                                anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
+                                            animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                                        }}
+                                    />
+                                </div>
+                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">Anchor</h4>
+                                <p
+                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                    style={{ color: anchorColor }}
+                                >
+                                    {anchorLabelShort}
                                 </p>
                             </button>
                         </div>
@@ -1011,25 +1017,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         }}
                         badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
                     />
-                    <ListDivider />
-                    <OfficeRow
-                        icon={<MapChartIcon color="#fbbf24" />}
-                        label="Saved Routes"
-                        status={savedRouteCount > 0 ? `${savedRouteCount} saved` : 'Open library'}
-                        statusColor={savedRouteCount > 0 ? '#fbbf24' : '#94a3b8'}
-                        onClick={() => {
-                            triggerHaptic('light');
-                            const scope = getAuthIdentityScope();
-                            requestSavedRoutesLibraryOpen(scope);
-                            if (isAuthIdentityScopeCurrent(scope)) {
-                                // `voyage` is the real top-level Plan tab.
-                                // The similarly named `route` view is a
-                                // Vessel sub-page and would light the wrong
-                                // bottom-nav destination.
-                                onNavigate('voyage');
-                            }
-                        }}
-                    />
+                    {/* Saved Routes row removed (Shane 2026-08-04): the
+                        library is one tap away inside Passage Planning, so a
+                        second entry point here was noise. */}
                 </div>
 
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}

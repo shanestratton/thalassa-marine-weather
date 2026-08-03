@@ -180,6 +180,10 @@ export async function fetchRouteMaxConditions(
     pins: LatLon[],
     departureMs: number,
     speedKts: number,
+    /** Open-Meteo model id pinned by the Glass picker; omit for best_match.
+     *  Keeps Max Conditions reading from the SAME model the skipper chose on
+     *  the Glass, so the two never quietly disagree (Shane 2026-08-04). */
+    model?: string | null,
 ): Promise<RouteMaxConditions> {
     if (pins.length < 2 || !Number.isFinite(departureMs)) {
         return { maxWindKts: null, maxWaveM: null, sampledPoints: 0, forecastPoints: 0, beyondForecast: false };
@@ -210,6 +214,9 @@ export async function fetchRouteMaxConditions(
                 wind_speed_unit: 'kn',
                 timeformat: 'unixtime',
                 forecast_days: forecastDays,
+                // Marine wave queries keep their own provider default — the
+                // atmospheric model pin doesn't exist on the marine API.
+                ...(model ? { models: model } : {}),
             }),
             // The wind report remains useful when the marine provider is
             // temporarily unavailable; don't discard it with the waves.
