@@ -24,6 +24,7 @@ import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
+import { useUIStore } from '../stores/uiStore';
 import { triggerHaptic } from '../utils/system';
 import { convertLength } from '../utils/units';
 import { supabase } from '../services/supabase';
@@ -178,7 +179,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const visibility = current?.visibility ?? null;
     const pressureTrend = current?.pressureTrend ?? null;
     const tideTrend = current?.tideTrend ?? null;
-    const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+    // Probe-driven WAN reachability (uiStore.isOffline ← internetProbe),
+    // not navigator.onLine — a boat LAN with a dead uplink reports
+    // onLine=true, which used to green-light weather fetches into a wall.
+    const isOnline = !useUIStore((s) => s.isOffline);
 
     // Extended anchor snapshot for the relative swing viz — vessel
     // offset (m) and bearing FROM anchor TO vessel (deg). Both come
@@ -278,20 +282,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     useEffect(() => {
         const id = setInterval(() => setTick((t) => t + 1), 60_000);
         return () => clearInterval(id);
-    }, []);
-
-    // Online/offline indicator — boats lose connectivity. Show it.
-    // Uses standard browser events; no @capacitor/network dep needed.
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const goOnline = () => setIsOnline(true);
-        const goOffline = () => setIsOnline(false);
-        window.addEventListener('online', goOnline);
-        window.addEventListener('offline', goOffline);
-        return () => {
-            window.removeEventListener('online', goOnline);
-            window.removeEventListener('offline', goOffline);
-        };
     }, []);
 
     // If WeatherContext has no data yet (user landed on Nav Station

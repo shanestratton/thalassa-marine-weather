@@ -62,6 +62,7 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useUIStore } from '../../stores/uiStore';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
@@ -248,12 +249,14 @@ function audioFromBase64(b64: string, mimeType = 'audio/mpeg'): string {
     return URL.createObjectURL(blob);
 }
 
-/** Quick connectivity check for the cloud fallback (any HTTPS reach). */
+/**
+ * Quick connectivity check for the cloud fallback. Probe-driven
+ * (uiStore.isOffline ← internetProbe), NOT navigator.onLine — a boat LAN
+ * with a dead WAN uplink reports onLine=true, which would send the voice
+ * pipeline down the cloud path just to time out.
+ */
 async function checkCloudReachable(): Promise<boolean> {
-    if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
-        return navigator.onLine;
-    }
-    return true;
+    return !useUIStore.getState().isOffline;
 }
 
 export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {

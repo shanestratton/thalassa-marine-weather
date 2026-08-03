@@ -21,6 +21,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { piCache } from '../../services/PiCacheService';
+import { useUIStore } from '../../stores/uiStore';
 
 type Connectivity = 'pi' | 'online' | 'offline';
 
@@ -30,32 +31,23 @@ interface ConnectivityChipProps {
 
 const POLL_INTERVAL_MS = 5_000;
 
-function detect(): Connectivity {
-    if (piCache.isAvailable()) return 'pi';
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
-    return 'online';
-}
-
 export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) => {
-    const [state, setState] = useState<Connectivity>(() => detect());
+    const [piUp, setPiUp] = useState<boolean>(() => piCache.isAvailable());
+    // Probe-driven WAN state, NOT navigator.onLine: on a boat LAN with a
+    // dead uplink the OS still reports "online" (link is up), which is
+    // exactly the case internetProbe exists for. uiStore.isOffline is fed
+    // by the probe, so the chip agrees with the header's offline chip.
+    const isOffline = useUIStore((s) => s.isOffline);
 
     useEffect(() => {
         if (!visible) return;
-        const tick = () => setState(detect());
+        const tick = () => setPiUp(piCache.isAvailable());
         tick();
         const t = setInterval(tick, POLL_INTERVAL_MS);
-        // Also react to the browser's online/offline events for instant
-        // updates when the user toggles airplane mode.
-        const onOnline = () => tick();
-        const onOffline = () => tick();
-        window.addEventListener('online', onOnline);
-        window.addEventListener('offline', onOffline);
-        return () => {
-            clearInterval(t);
-            window.removeEventListener('online', onOnline);
-            window.removeEventListener('offline', onOffline);
-        };
+        return () => clearInterval(t);
     }, [visible]);
+
+    const state: Connectivity = piUp ? 'pi' : isOffline ? 'offline' : 'online';
 
     if (!visible) return null;
     // Plain "Online" is noise (Shane 2026-07-17: "clearly I am online — remove

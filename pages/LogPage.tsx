@@ -1458,7 +1458,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         type="button"
                                                         aria-label="Expand live map"
                                                         onClick={openLiveMap}
-                                                        className="absolute bottom-2 right-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-slate-900/85 text-white/80 shadow-lg backdrop-blur-sm transition-transform active:scale-95"
+                                                        className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-slate-900/85 text-white/80 shadow-lg backdrop-blur-sm transition-transform active:scale-95"
                                                     >
                                                         <svg
                                                             className="h-4 w-4"
