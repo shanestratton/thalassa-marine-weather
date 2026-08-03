@@ -87,21 +87,35 @@ export const PlanOnWebHint: React.FC = () => {
         onEscape: close,
     });
 
+    // Close on any interaction OUTSIDE the card — without swallowing it. The
+    // old full-screen backdrop ate the tap: pressing a nav tab just dismissed
+    // the hint and left you on PLAN (Shane 2026-08-04: "instead of taking me
+    // to that page, the modal box disappears"). A capture-phase listener that
+    // never calls preventDefault means the same tap both closes the hint AND
+    // lands where the skipper aimed.
+    useEffect(() => {
+        if (!open) return;
+        const onPointerDown = (e: PointerEvent) => {
+            const dialog = dialogRef.current;
+            if (dialog && e.target instanceof Node && !dialog.contains(e.target)) close();
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        return () => document.removeEventListener('pointerdown', onPointerDown, true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, dontShow]);
+
     if (!open) return null;
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[10070] flex items-center justify-center bg-black/70 px-4 py-[max(1rem,env(safe-area-inset-bottom))]"
-            onClick={close}
+            className="pointer-events-none fixed inset-0 z-[10070] flex items-center justify-center bg-black/70 px-4 py-[max(1rem,env(safe-area-inset-bottom))]"
             role="presentation"
         >
             <div
                 ref={dialogRef}
                 role="dialog"
-                aria-modal="true"
                 aria-labelledby="plan-on-web-title"
-                className="flex max-h-full w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-sky-500/25 bg-slate-900 shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
+                className="pointer-events-auto flex max-h-full w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-sky-500/25 bg-slate-900 shadow-2xl"
             >
                 <div className="shrink-0 border-b border-white/10 px-5 py-4">
                     <div id="plan-on-web-title" className="text-sm font-black uppercase tracking-widest text-sky-300">

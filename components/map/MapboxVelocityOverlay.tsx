@@ -79,14 +79,18 @@ const BASE_VELOCITY_SCALE = 0.015;
 const VELOCITY_SCALE_REF_ZOOM = 3;
 
 /**
- * Cancel the library's pow(area, 0.4) zoom collapse so apparent particle
- * speed stays at the z3 look everywhere: area ∝ 4^−z, so pow(area, 0.4)
- * loses 2^0.8 per level — hand back exactly that. Clamped so a deep ENC
- * zoom can't wind the multiplier into the stratosphere.
+ * Soften the library's pow(area, 0.4) zoom collapse: area ∝ 4^−z, so the
+ * plugin loses 2^0.8 of apparent speed per zoom level and particles were
+ * near-motionless by z10. Handing back the FULL 2^0.8 (first attempt) held
+ * the z3 apparent speed at every zoom — which turned a 5 kt sea-breeze curl
+ * over the bay into a glowing cyclone at z7.6 (Shane 2026-08-04: "looks like
+ * a cyclone but there is almost no wind"). 0.45 restores roughly a third of
+ * the collapse per level: motion stays alive when zoomed in, but apparent
+ * speed eases down with zoom so light air reads as light air.
  */
 function zoomCompensatedVelocityScale(mapboxZoom: number): number {
     const z = Math.min(12, Math.max(VELOCITY_SCALE_REF_ZOOM, mapboxZoom));
-    return BASE_VELOCITY_SCALE * Math.pow(2, 0.8 * (z - VELOCITY_SCALE_REF_ZOOM));
+    return BASE_VELOCITY_SCALE * Math.pow(2, 0.45 * (z - VELOCITY_SCALE_REF_ZOOM));
 }
 
 // ── Helper: Create velocity layer ─────────────────────────────
