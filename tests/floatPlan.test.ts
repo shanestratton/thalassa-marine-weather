@@ -88,11 +88,54 @@ describe('composeFloatPlan', () => {
         expect(plan).toContain('IF YOU HAVE NOT HEARD FROM US');
     });
 
-    it('lists the intended track in a form that can be read aloud', () => {
+    it('lists the intended track in degrees + decimal minutes with end tags', () => {
         const plan = composeFloatPlan(base);
         expect(plan).toContain('INTENDED TRACK');
-        expect(plan).toContain('1. 27.14S 153.09E');
-        expect(plan).toContain('2. 23.90S 152.40E');
+        // 27.14° = 27°08.4'; marine radio speaks deg + decimal minutes.
+        expect(plan).toContain("1. 27°08.4'S 153°05.4'E (depart)");
+        expect(plan).toContain("2. 23°54.0'S 152°24.0'E (destination)");
+    });
+
+    it('puts the overdue block first — before vessel paint colour', () => {
+        const plan = composeFloatPlan(base);
+        expect(plan.indexOf('IF YOU HAVE NOT HEARD FROM US')).toBeLessThan(plan.indexOf('VESSEL'));
+    });
+
+    it('thins a dense track to departure, major turns, and destination', () => {
+        // A 20-point rhumb line with ONE real 90° dogleg: the wall of
+        // coordinates collapses to the three positions that matter.
+        const leg1 = Array.from({ length: 10 }, (_, i) => ({ lat: -27 - i * 0.05, lon: 153 }));
+        const leg2 = Array.from({ length: 10 }, (_, i) => ({ lat: -27.45, lon: 153.05 + i * 0.05 }));
+        const plan = composeFloatPlan({ ...base, route: { ...base.route, waypoints: [...leg1, ...leg2] } });
+        const trackLines = plan.split('\n').filter((l) => /^\s+\d+\./.test(l));
+        expect(trackLines.length).toBeLessThanOrEqual(12);
+        expect(plan).toContain('(depart)');
+        expect(plan).toContain('(destination)');
+        expect(plan).toContain('full route is aboard');
+        // The dogleg corner survives thinning.
+        expect(plan).toContain("27°27.0'S 153°00.0'E");
+    });
+
+    it('computes passage distance from the waypoints when not supplied', () => {
+        const plan = composeFloatPlan({
+            ...base,
+            route: { ...base.route, distanceNM: undefined },
+        });
+        // 27.14S,153.09E → 23.90S,152.40E ≈ 197 NM great-circle.
+        expect(plan).toMatch(/Distance {2}19[0-9] NM/);
+    });
+
+    it('an explicitly supplied distance wins over the computed one', () => {
+        const plan = composeFloatPlan(base);
+        expect(plan).toContain('Distance  178 NM');
+    });
+
+    it('carries free-text safety notes into the SAFETY section', () => {
+        const plan = composeFloatPlan({
+            ...base,
+            vessel: { ...base.vessel, safetyNotes: 'PLB ×2, drogue, grab bag' },
+        });
+        expect(plan).toContain('PLB ×2, drogue, grab bag');
     });
 
     it('never leaves a dangling separator when identity fields are missing', () => {
@@ -119,9 +162,9 @@ describe('composeFloatPlan', () => {
 });
 
 describe('floatPlanCoord', () => {
-    it('uses hemispheres, not signs', () => {
-        expect(floatPlanCoord({ lat: -27.142, lon: 153.093 })).toBe('27.14S 153.09E');
-        expect(floatPlanCoord({ lat: 41.5, lon: -71.31 })).toBe('41.50N 71.31W');
+    it('uses degrees + decimal minutes with hemispheres, not signed decimals', () => {
+        expect(floatPlanCoord({ lat: -27.142, lon: 153.093 })).toBe("27°08.5'S 153°05.6'E");
+        expect(floatPlanCoord({ lat: 41.5, lon: -71.31 })).toBe("41°30.0'N 71°18.6'W");
     });
 });
 

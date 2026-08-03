@@ -60,6 +60,9 @@ export interface VesselProfile {
     liferaftServiceDate?: string;
     /** ISO date (YYYY-MM-DD) the flares expire. */
     flaresExpiry?: string;
+    /** Free-text extra SAR gear for the float plan — "PLB ×2, drogue,
+     *  Starlink, 6-person grab bag". Same never-public rule as the rest. */
+    safetyNotes?: string;
 }
 
 /** Ship's Stores item categories */
