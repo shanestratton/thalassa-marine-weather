@@ -40,54 +40,93 @@ interface CachedBounds {
     east: number;
     zoom: number;
     fetchedAt: number;
-    /** Published from the fine local-area cache rather than a viewport fetch. */
-    fine?: boolean;
 }
 
 let lastFetchedBounds: CachedBounds | null = null;
 
-// ── Fine local-area grid (zoom-in prefetch) ──
+// ── Multi-resolution grid cache ──
 //
-// The viewport path's resolution floor (0.5°/1.0°) is what a harbour view used
-// to smear across the screen, and the refetch it triggered on zoomDiff>1 is
-// what blanked the field mid-gesture. Instead: as soon as the camera starts
-// zooming in past synoptic, warm a 4°×4° grid at ECMWF-native 0.25° around the
-// punter's position. Any later zoom-in whose viewport fits inside it publishes
-// instantly from memory — zero network, no blank.
+// One cached grid per resolution tier (plus a punter-centred 0.25° prefetch).
+// Any viewport fully covered by a fresh cached grid publishes instantly from
+// memory: zooming home reuses the fine grid, zooming OUT reuses the wide boot
+// grid — which is what stops the previous fetch's hard-edged rectangle
+// floating over a dark map while a ~600-point wide fetch downloads (Shane
+// 2026-08-04 screenshot). The network only runs when no cached grid covers,
+// or a covering grid is coarser than the zoom deserves (refined behind it).
 const FINE_GRID_RES_DEG = 0.25;
 const FINE_GRID_HALF_SPAN_DEG = 2;
-/** Viewport must be zoomed past this to render from the fine grid. */
-const FINE_GRID_MIN_ZOOM = 6;
-/** Camera crossing this (with the layer on) starts the prefetch. */
+/** Camera crossing this (with the layer on) starts the fine prefetch. */
 const FINE_PREFETCH_MIN_ZOOM = 5;
 const CHART_HOURS = 48;
+const MAX_CACHED_GRIDS = 4;
 
-interface FineGridCache {
+interface CachedWindGrid {
     /** Raw sustained+gust grid as fetched — field transform applied at publish. */
     grid: WindGrid;
+    bounds: { north: number; south: number; west: number; east: number };
+    res: number;
     model: ReturnType<typeof WindStore.getState>['model'];
-    centerLat: number;
-    centerLon: number;
     fetchedAt: number;
 }
 
-let fineGrid: FineGridCache | null = null;
+const windGridCache = new Map<string, CachedWindGrid>();
 let fineGridInflight = false;
+/** Identity of the published cache entry, so parked moveends don't re-publish
+ *  (every setGrid restarts the particle overlay). */
+let lastPublishedCacheKey: string | null = null;
 
-function isFineGridFresh(model: FineGridCache['model']): boolean {
-    return Boolean(fineGrid && fineGrid.model === model && Date.now() - fineGrid.fetchedAt < WIND_GRID_MAX_AGE_MS);
+function cacheKeyForRes(res: number): string {
+    return res.toFixed(2);
 }
 
-/** Does the fine grid fully cover this (unpadded) viewport? Date-Line safe. */
-function fineGridCovers(viewport: { north: number; south: number; west: number; east: number }): boolean {
-    if (!fineGrid) return false;
-    const g = fineGrid.grid;
-    const gEast = continuousEastForLongitudeRange(g.west, g.east);
-    const gCenter = (g.west + gEast) / 2;
+function publishKeyFor(res: number, fetchedAt: number, field: string): string {
+    return `${cacheKeyForRes(res)}:${fetchedAt}:${field}`;
+}
+
+function storeCachedGrid(entry: CachedWindGrid): void {
+    windGridCache.set(cacheKeyForRes(entry.res), entry);
+    while (windGridCache.size > MAX_CACHED_GRIDS) {
+        let oldestKey: string | null = null;
+        let oldestAt = Infinity;
+        for (const [key, cached] of windGridCache) {
+            if (cached.fetchedAt < oldestAt) {
+                oldestAt = cached.fetchedAt;
+                oldestKey = key;
+            }
+        }
+        if (!oldestKey) break;
+        windGridCache.delete(oldestKey);
+    }
+}
+
+/** Does `outer` fully cover this (unpadded) viewport? Date-Line safe. */
+function boundsCover(
+    outer: { north: number; south: number; west: number; east: number },
+    viewport: { north: number; south: number; west: number; east: number },
+): boolean {
+    const oEast = continuousEastForLongitudeRange(outer.west, outer.east);
+    const oCenter = (outer.west + oEast) / 2;
     const vEast = continuousEastForLongitudeRange(viewport.west, viewport.east);
-    const shift = Math.round((gCenter - (viewport.west + vEast) / 2) / 360) * 360;
+    const shift = Math.round((oCenter - (viewport.west + vEast) / 2) / 360) * 360;
     const vWest = viewport.west + shift;
-    return viewport.north <= g.north && viewport.south >= g.south && vWest >= g.west && vEast + shift <= gEast;
+    return (
+        viewport.north <= outer.north && viewport.south >= outer.south && vWest >= outer.west && vEast + shift <= oEast
+    );
+}
+
+/** Finest fresh cached grid that fully covers the viewport for this model. */
+function bestCoveringGrid(
+    model: CachedWindGrid['model'],
+    viewport: { north: number; south: number; west: number; east: number },
+): CachedWindGrid | null {
+    let best: CachedWindGrid | null = null;
+    for (const entry of windGridCache.values()) {
+        if (entry.model !== model) continue;
+        if (Date.now() - entry.fetchedAt > WIND_GRID_MAX_AGE_MS) continue;
+        if (!boundsCover(entry.bounds, viewport)) continue;
+        if (!best || entry.res < best.res) best = entry;
+    }
+    return best;
 }
 
 /**
@@ -95,14 +134,16 @@ function fineGridCovers(viewport: { north: number; south: number; west: number; 
  * its own dedupe; when it lands while the camera is still zoomed in, re-runs
  * fetchOnline so the sharper field swaps in without waiting for a gesture.
  */
-async function prefetchLocalFineGrid(map: mapboxgl.Map, model: FineGridCache['model']): Promise<void> {
+async function prefetchLocalFineGrid(map: mapboxgl.Map, model: CachedWindGrid['model']): Promise<void> {
     if (fineGridInflight) return;
     const { lat, lon } = LocationStore.getState();
+    const existing = windGridCache.get(cacheKeyForRes(FINE_GRID_RES_DEG));
     if (
-        fineGrid &&
-        isFineGridFresh(model) &&
-        Math.abs(fineGrid.centerLat - lat) < 0.5 &&
-        Math.abs(fineGrid.centerLon - lon) < 0.5
+        existing &&
+        existing.model === model &&
+        Date.now() - existing.fetchedAt < WIND_GRID_MAX_AGE_MS &&
+        Math.abs((existing.bounds.north + existing.bounds.south) / 2 - lat) < 0.5 &&
+        Math.abs((existing.bounds.west + existing.bounds.east) / 2 - lon) < 0.5
     ) {
         return;
     }
@@ -121,9 +162,9 @@ async function prefetchLocalFineGrid(map: mapboxgl.Map, model: FineGridCache['mo
             'om-fine-grid',
         );
         if (grid) {
-            fineGrid = { grid, model, centerLat: lat, centerLon: lon, fetchedAt: Date.now() };
+            storeCachedGrid({ grid, bounds, res: FINE_GRID_RES_DEG, model, fetchedAt: Date.now() });
             log.info(`[WindController] Fine local grid warmed: ${grid.width}×${grid.height} @ ${FINE_GRID_RES_DEG}°`);
-            if ((map.getZoom?.() ?? 0) > FINE_GRID_MIN_ZOOM) {
+            if ((map.getZoom?.() ?? 0) > FINE_PREFETCH_MIN_ZOOM) {
                 void WindDataController.fetchOnline(map);
             }
         }
@@ -191,6 +232,7 @@ function beginWindGridLoad(request: WindRequestContext, keepRenderedGrid = false
 }
 
 function clearRenderableWindGrid(): void {
+    lastPublishedCacheKey = null;
     WindStore.setState({
         grid: null,
         totalHours: 0,
@@ -303,12 +345,18 @@ export const WindDataController = {
 
         // Determine bounds for the request
         let north: number, south: number, west: number, east: number;
+        /** What is actually VISIBLE — the coverage tests use this, not the
+         *  padded request bounds, so a small pan inside the pad still keeps
+         *  the old field while its replacement loads. */
+        let visibleBounds: { north: number; south: number; west: number; east: number };
+        let desiredRes = 1.0;
 
         if (isGlobalMode && !useOpenMeteoGridded) {
             north = 90;
             south = -90;
             west = -180;
             east = 180;
+            visibleBounds = { north, south, west, east };
         } else {
             // Passage mode: visible viewport with padding
             const currentBounds: CachedBounds = {
@@ -319,23 +367,34 @@ export const WindDataController = {
                 zoom: currentZoom,
                 fetchedAt: Date.now(),
             };
+            visibleBounds = currentBounds;
 
-            // Warm the fine local grid as soon as a zoom-in begins so the
-            // sharp field is (or soon will be) in memory before the user
-            // arrives at harbour zoom. Fire-and-forget; guards inside.
-            if (useOpenMeteoGridded && currentZoom > FINE_PREFETCH_MIN_ZOOM) {
-                void prefetchLocalFineGrid(map, model);
-            }
+            // Add 30% padding along the viewport's short, continuous
+            // longitude axis. A Date-Line viewport can be expressed as
+            // 179…-179; subtracting those raw values gives -358° and used to
+            // pad the request onto the opposite side of the planet at z3.
+            const continuousEast = continuousEastForLongitudeRange(currentBounds.west, currentBounds.east);
+            const latPad = (currentBounds.north - currentBounds.south) * 0.3;
+            const lonPad = (continuousEast - currentBounds.west) * 0.3;
+            north = Math.min(currentBounds.north + latPad, 90);
+            south = Math.max(currentBounds.south - latPad, -90);
+            west = currentBounds.west - lonPad;
+            east = continuousEast + lonPad;
 
-            // Zoomed in over the punter's patch with a fresh fine grid in
-            // memory → publish it instantly instead of fetching anything.
-            if (useOpenMeteoGridded && currentZoom > FINE_GRID_MIN_ZOOM && isFineGridFresh(model) && fineGrid) {
-                if (fineGridCovers(currentBounds)) {
-                    const alreadyFine =
-                        lastFetchedBounds?.fine && !isCacheStale(lastFetchedBounds) && WindStore.getState().grid;
-                    if (alreadyFine) return isCurrentWindRequest(request);
+            // Adaptive resolution: fine when zoomed in, but coarsen for wide
+            // viewports so a zoomed-out (or global) view doesn't explode into
+            // thousands of Open-Meteo point batches. Cap ~24 cells per side.
+            const maxSpan = Math.max(Math.abs(east - west), Math.abs(north - south));
+            desiredRes = Math.max(currentZoom > 8 ? 0.25 : currentZoom > 6 ? 0.5 : 1.0, maxSpan / 24);
 
-                    let grid = fineGrid.grid;
+            // A fresh cached grid that fully covers the viewport publishes
+            // instantly — no network, no blank, no stale rectangle.
+            const covering = useOpenMeteoGridded ? bestCoveringGrid(model, currentBounds) : null;
+            if (covering) {
+                const publishKey = publishKeyFor(covering.res, covering.fetchedAt, field);
+                const alreadyPublished = lastPublishedCacheKey === publishKey && WindStore.getState().grid;
+                if (!alreadyPublished) {
+                    let grid = covering.grid;
                     if (field === 'gust') {
                         const { applyGustField } = await import('./windFieldTransforms');
                         if (!isCurrentWindRequest(request)) return false;
@@ -343,20 +402,15 @@ export const WindDataController = {
                     }
                     if (!isCurrentWindRequest(request)) return false;
                     WindStore.setGrid(grid);
-                    lastFetchedBounds = {
-                        north: grid.north,
-                        south: grid.south,
-                        west: grid.west,
-                        east: grid.east,
-                        zoom: currentZoom,
-                        fetchedAt: fineGrid.fetchedAt,
-                        fine: true,
-                    };
+                    lastPublishedCacheKey = publishKey;
+                    lastFetchedBounds = { ...covering.bounds, zoom: currentZoom, fetchedAt: covering.fetchedAt };
                     log.info(
-                        `[WindController] Fine local grid published: ${grid.width}×${grid.height} @ ${FINE_GRID_RES_DEG}°, field=${field}`,
+                        `[WindController] Cached ${cacheKeyForRes(covering.res)}° grid published instantly (covers viewport)`,
                     );
-                    return true;
                 }
+                // Fine enough for this zoom → done. Coarser than the tier
+                // we'd fetch → keep it on screen and refine behind it.
+                if (covering.res <= desiredRes + 1e-6) return isCurrentWindRequest(request);
             }
 
             // Skip if bounds haven't changed significantly AND the cache is
@@ -375,25 +429,18 @@ export const WindDataController = {
                 const ageMin = Math.round((Date.now() - lastFetchedBounds.fetchedAt) / 60000);
                 log.info(`[WindController] Wind grid is ${ageMin}m old — refetching`);
             }
-
-            // Add 30% padding along the viewport's short, continuous
-            // longitude axis. A Date-Line viewport can be expressed as
-            // 179…-179; subtracting those raw values gives -358° and used to
-            // pad the request onto the opposite side of the planet at z3.
-            const continuousEast = continuousEastForLongitudeRange(currentBounds.west, currentBounds.east);
-            const latPad = (currentBounds.north - currentBounds.south) * 0.3;
-            const lonPad = (continuousEast - currentBounds.west) * 0.3;
-            north = Math.min(currentBounds.north + latPad, 90);
-            south = Math.max(currentBounds.south - latPad, -90);
-            west = currentBounds.west - lonPad;
-            east = continuousEast + lonPad;
         }
 
-        // Viewport refinement (same model/field, recent fetch on screen) keeps
-        // the old field animating while the replacement loads — see
-        // beginWindGridLoad. Anything else clears first.
+        // Viewport refinement keeps the old field animating while the
+        // replacement loads — but ONLY while that field actually covers the
+        // new viewport. Zooming out past its bounds used to leave its
+        // hard-edged rectangle floating over a dark map for the whole wide
+        // fetch; an honest clear (+ the loading pill) reads better there.
         const keepRenderedGrid =
-            Boolean(WindStore.getState().grid) && lastFetchedBounds !== null && !isCacheStale(lastFetchedBounds);
+            Boolean(WindStore.getState().grid) &&
+            lastFetchedBounds !== null &&
+            !isCacheStale(lastFetchedBounds) &&
+            boundsCover(lastFetchedBounds, visibleBounds);
         if (!beginWindGridLoad(request, keepRenderedGrid)) return false;
 
         try {
@@ -404,25 +451,32 @@ export const WindDataController = {
             if (useOpenMeteoGridded) {
                 const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
                 if (!isCurrentWindRequest(request)) return false;
-                // Adaptive resolution: fine when zoomed in, but coarsen for wide
-                // viewports so a zoomed-out (or global) view doesn't explode into
-                // thousands of Open-Meteo point batches. Cap ~24 cells per side.
-                const maxSpan = Math.max(Math.abs(east - west), Math.abs(north - south));
-                const res = Math.max(currentZoom > 8 ? 0.25 : currentZoom > 6 ? 0.5 : 1.0, maxSpan / 24);
-                let grid = await withDeadline(
-                    fetchModelWindGrid(model, { north, south, west, east }, CHART_HOURS, res),
+                const rawGrid = await withDeadline(
+                    fetchModelWindGrid(model, { north, south, west, east }, CHART_HOURS, desiredRes),
                     30_000,
                     'om-model-grid',
                 );
                 if (!isCurrentWindRequest(request)) return false;
+                let grid = rawGrid;
                 if (grid && field === 'gust') {
                     const { applyGustField } = await import('./windFieldTransforms');
                     if (!isCurrentWindRequest(request)) return false;
                     grid = applyGustField(grid);
                 }
                 if (!isCurrentWindRequest(request)) return false;
-                if (grid) {
-                    lastFetchedBounds = { north, south, west, east, zoom: currentZoom, fetchedAt: Date.now() };
+                if (grid && rawGrid) {
+                    const fetchedAt = Date.now();
+                    // Cache the RAW grid (pre-field-transform) so a later
+                    // gust↔wind switch can republish from memory correctly.
+                    storeCachedGrid({
+                        grid: rawGrid,
+                        bounds: { north, south, west, east },
+                        res: desiredRes,
+                        model,
+                        fetchedAt,
+                    });
+                    lastPublishedCacheKey = publishKeyFor(desiredRes, fetchedAt, field);
+                    lastFetchedBounds = { north, south, west, east, zoom: currentZoom, fetchedAt };
                     WindStore.setGrid(grid);
                     log.info(
                         `[WindController] Open-Meteo ${model} grid loaded: ${grid.width}×${grid.height}, ${grid.totalHours}h, field=${field}`,
@@ -563,6 +617,12 @@ export const WindDataController = {
                 // refetch on pan even in global mode.
                 const useOpenMeteoGridded = model !== 'gfs' || field === 'gust';
                 if (isGlobalMode && !useOpenMeteoGridded) return;
+                // Camera behaviour, so it lives with the camera listener:
+                // a zoom-in past synoptic warms the punter-centred fine grid
+                // so harbour zoom publishes from memory. Fire-and-forget.
+                if (useOpenMeteoGridded && (map.getZoom?.() ?? 0) > FINE_PREFETCH_MIN_ZOOM) {
+                    void prefetchLocalFineGrid(map, model);
+                }
                 this.fetchOnline(map);
             }, 800);
         };

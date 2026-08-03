@@ -210,7 +210,16 @@ function splitRouteEndpoints(label: string): [string | undefined, string | undef
     for (const separator of [' → ', ' - ']) {
         const parts = label.split(separator);
         if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
-            return [parts[0].trim(), parts[1].trim()];
+            const departure = parts[0].trim();
+            const arrival = parts[1].trim();
+            // "x → x" is a naming artefact (multi-leg trace legs can carry
+            // the leg title in both ports). A self-to-self passage isn't
+            // real: keep the name as the departure and leave the
+            // destination honestly empty rather than duplicating it into
+            // Cast Off (Shane 2026-08-04: "newport 2nd leg - newport 2nd
+            // leg??????").
+            if (departure.toLocaleLowerCase() === arrival.toLocaleLowerCase()) return [departure, undefined];
+            return [departure, arrival];
         }
     }
     return [undefined, undefined];
