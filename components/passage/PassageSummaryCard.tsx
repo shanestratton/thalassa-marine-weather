@@ -29,6 +29,13 @@ import {
     localTimeValue,
 } from '../../services/passageSummarySchedule';
 import { fetchRouteMaxConditions, type RouteMaxConditions } from '../../services/routeReportWeather';
+import { useSettingsStore } from '../../stores/settingsStore';
+import {
+    AUTO_MODEL,
+    getForecastModelInfo,
+    isSpitfire,
+    resolveForecastModel,
+} from '../../services/weather/forecastModels';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -259,6 +266,14 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         loading: boolean;
         value: RouteMaxConditions | null;
     } | null>(null);
+
+    // Max Conditions reads from the SAME model the skipper pinned on the
+    // Glass, and re-fetches when that pick changes (Shane 2026-08-04). Auto
+    // and Spitfire have no single Open-Meteo id — they query the provider
+    // blend and the label says so.
+    const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+    const conditionsQueryModel = isSpitfire(glassModel) || glassModel === AUTO_MODEL ? null : glassModel;
+    const conditionsModelLabel = getForecastModelInfo(glassModel)?.label ?? 'Auto';
 
     // Update the lower bound while the screen remains open. A time that was
     // valid at 09:15 must not quietly remain selectable at 09:30.
@@ -663,6 +678,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             savedRoutePoints,
             Date.parse(passageSchedule.departureTime),
             passageSchedule.cruisingSpeedKt,
+            conditionsQueryModel,
         )
             .then((value) => {
                 if (disposed || conditionsRequestRef.current !== request) return;
@@ -675,7 +691,13 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         return () => {
             disposed = true;
         };
-    }, [effectiveEta, passageSchedule.cruisingSpeedKt, passageSchedule.departureTime, savedRoutePoints]);
+    }, [
+        effectiveEta,
+        passageSchedule.cruisingSpeedKt,
+        passageSchedule.departureTime,
+        savedRoutePoints,
+        conditionsQueryModel,
+    ]);
 
     const effectiveMaxWind = routeConditions?.value?.maxWindKts ?? null;
     const effectiveMaxWave = routeConditions?.value?.maxWaveM ?? null;
@@ -871,6 +893,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         ) : (
                             <span className="text-xs font-bold text-gray-500">Forecast unavailable</span>
                         )}
+                        <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-gray-500">
+                            {conditionsModelLabel} model
+                        </p>
                     </div>
                 </div>
             </div>
