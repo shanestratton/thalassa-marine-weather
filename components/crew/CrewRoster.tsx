@@ -15,6 +15,10 @@ interface CrewRosterProps {
     visibleCrew: CrewMember[];
     pendingInvites: CrewMember[];
     memberships: CrewMember[];
+    /** Vessel profile's standing complement (incl. skipper). Shown as the
+     *  "N aboard · +M invited" breakdown so the skipper can see exactly
+     *  what feeds provisioning, watches and the float plan. */
+    standingCrewAboard?: number;
     loading: boolean;
     onSoftDeleteCaptain: (member: CrewMember) => void;
     onSoftDeleteCrew: (member: CrewMember) => void;
@@ -32,6 +36,7 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
     visibleCrew,
     pendingInvites,
     memberships,
+    standingCrewAboard,
     loading,
     onSoftDeleteCaptain,
     onSoftDeleteCrew,
@@ -144,10 +149,21 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">My Crew</span>
-                    {visibleCrew.length > 0 && (
+                    {/* Standing complement + invitees, kept separate on
+                        purpose: an invitee isn't a soul on board until they
+                        accept, and this line is what the skipper checks
+                        against provisioning and the float plan. */}
+                    {(standingCrewAboard ?? 0) > 0 ? (
                         <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
-                            {visibleCrew.length}
+                            {standingCrewAboard} aboard
+                            {visibleCrew.length > 0 ? ` · +${visibleCrew.length} invited` : ''}
                         </span>
+                    ) : (
+                        visibleCrew.length > 0 && (
+                            <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
+                                {visibleCrew.length}
+                            </span>
+                        )
                     )}
                     <button
                         type="button"

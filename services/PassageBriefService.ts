@@ -27,6 +27,9 @@ export interface PassageBriefData {
     speed: number; // knots
     vesselName?: string;
     vesselType?: string;
+    /** Souls on board (standing complement incl. skipper) — drives the
+     *  watch-schedule and provisioning sections of the PDF dossier. */
+    crewCount?: number;
     turnWaypoints?: {
         name: string;
         lat: number;

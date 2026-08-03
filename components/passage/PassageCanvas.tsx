@@ -29,6 +29,7 @@ import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import type { VoyagePlan } from '../../types';
 import type { PassageBriefData } from '../../services/PassageBriefService';
 import SharePassageButton from './SharePassageButton';
+import { useSettingsStore } from '../../stores/settingsStore';
 import '../../styles/bioluminescent.css';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
@@ -627,10 +628,14 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
         const track = payload.track;
         const departure = track[0];
         const arrival = track[track.length - 1];
+        const vessel = useSettingsStore.getState().settings.vessel;
         return {
             routeName: `${departure.name} → ${arrival.name}`,
             origin: { name: departure.name, lat: departure.coordinates[1], lon: departure.coordinates[0] },
             destination: { name: arrival.name, lat: arrival.coordinates[1], lon: arrival.coordinates[0] },
+            vesselName: vessel?.name || undefined,
+            vesselType: vessel?.type || undefined,
+            crewCount: Math.max(vessel?.crewCount ?? 1, 1),
             departureTime: payload.summary.departure_time || new Date().toISOString(),
             totalDistanceNM: payload.summary.total_distance_nm,
             estimatedDuration: payload.summary.total_duration_hours,
