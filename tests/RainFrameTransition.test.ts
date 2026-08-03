@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     RAIN_FRAME_FADE_MS,
+    RAIN_FRAME_STAGE_DEADLINE_MS,
     RainFrameTransitionController,
     type RainFrameEventListener,
     type RainFrameMap,
@@ -192,5 +193,42 @@ describe('RainFrameTransitionController', () => {
         expect(map.layout.get('radar-1')).toBe('none');
         expect(map.layout.get('radar-0')).toBe('visible');
         expect(map.opacity.get('radar-0')).toBe(0.75);
+    });
+
+    it('abandons a staged frame whose tiles never arrive so playback is not wedged', () => {
+        // An expired RainViewer path 404s every tile: no commit event ever
+        // fires, and before the stage deadline isTransitioning() stayed true
+        // forever — permanently freezing autoplay's advance guard.
+        const map = new FakeRainMap('radar-0', 'radar-1');
+        const controller = new RainFrameTransitionController();
+        const committed = vi.fn();
+        map.setCommitted('radar-0');
+
+        controller.request(map, 'radar-1', ['radar-0'], committed);
+        expect(controller.isTransitioning()).toBe(true);
+
+        vi.advanceTimersByTime(RAIN_FRAME_STAGE_DEADLINE_MS + 1);
+
+        expect(controller.isTransitioning()).toBe(false);
+        expect(committed).not.toHaveBeenCalled();
+        expect(map.layout.get('radar-1')).toBe('none');
+        expect(map.layout.get('radar-0')).toBe('visible');
+        expect(map.opacity.get('radar-0')).toBe(0.75);
+    });
+
+    it('does not let the stage deadline fire after a successful handoff', () => {
+        const map = new FakeRainMap('radar-0', 'radar-1');
+        const controller = new RainFrameTransitionController();
+        map.setCommitted('radar-0');
+        map.loadedSources.add('radar-1');
+
+        controller.request(map, 'radar-1', ['radar-0'], vi.fn());
+        map.emitSourceData('radar-1', { tile: {}, isSourceLoaded: true });
+        expect(map.layout.get('radar-1')).toBe('visible');
+
+        vi.advanceTimersByTime(RAIN_FRAME_STAGE_DEADLINE_MS + RAIN_FRAME_FADE_MS + 1);
+
+        expect(map.layout.get('radar-1')).toBe('visible');
+        expect(map.opacity.get('radar-1')).toBe(0.75);
     });
 });

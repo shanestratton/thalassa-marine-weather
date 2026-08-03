@@ -9,6 +9,14 @@
 
 export const RAIN_FRAME_OPACITY = 0.75;
 export const RAIN_FRAME_FADE_MS = 220;
+/**
+ * How long a staged frame may sit tile-less before the stage is abandoned.
+ * A frame whose tiles all fail (an expired RainViewer path 404s, offline
+ * blip) never fires the crossfade, and without a deadline `isTransitioning()`
+ * stayed true forever — which permanently froze autoplay's advance guard.
+ * Failing open keeps the committed image on screen and lets playback move on.
+ */
+export const RAIN_FRAME_STAGE_DEADLINE_MS = 6000;
 
 export type RainFrameEventListener = (event?: {
     sourceId?: string;
@@ -99,6 +107,7 @@ export class RainFrameTransitionController {
     private sourceListener: RainFrameEventListener | null = null;
     private renderListener: RainFrameEventListener | null = null;
     private fadeTimer: ReturnType<typeof setTimeout> | null = null;
+    private stageDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
     private fadingOutIds: string[] = [];
 
     constructor(private readonly reportError?: ErrorReporter) {}
@@ -115,6 +124,10 @@ export class RainFrameTransitionController {
         if (this.fadeTimer) {
             clearTimeout(this.fadeTimer);
             this.fadeTimer = null;
+        }
+        if (this.stageDeadlineTimer) {
+            clearTimeout(this.stageDeadlineTimer);
+            this.stageDeadlineTimer = null;
         }
 
         // A staged layer has never been committed, so it must disappear when
@@ -172,6 +185,10 @@ export class RainFrameTransitionController {
             }
 
             detachRequestListeners();
+            if (this.stageDeadlineTimer) {
+                clearTimeout(this.stageDeadlineTimer);
+                this.stageDeadlineTimer = null;
+            }
             if (!showRainFrame(map, targetId, this.reportError)) return;
             transitionStarted = true;
 
@@ -235,6 +252,15 @@ export class RainFrameTransitionController {
             this.stagedId = null;
             return false;
         }
+        // Fail open if the staged frame never produces a tile — see
+        // RAIN_FRAME_STAGE_DEADLINE_MS. The committed frame stays painted.
+        this.stageDeadlineTimer = setTimeout(() => {
+            this.stageDeadlineTimer = null;
+            if (requestGeneration !== this.generation || this.stagedId !== targetId || transitionStarted) return;
+            detachRequestListeners();
+            hideRainFrame(map, targetId, this.reportError);
+            this.stagedId = null;
+        }, RAIN_FRAME_STAGE_DEADLINE_MS);
         return true;
     }
 

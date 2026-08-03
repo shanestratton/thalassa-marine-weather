@@ -50,13 +50,78 @@ function removeRainFrameLayers(map: mapboxgl.Map, maxFrames = 30): void {
     for (let i = 0; i < maxFrames; i++) {
         for (const prefix of ['radar-', 'rainbow-fc-']) {
             const id = `${prefix}${i}`;
+            // Separate try blocks: a throwing removeLayer must not leave the
+            // source behind, or the duplicate guard in the next session skips
+            // recreating that frame and it can never paint again.
             try {
                 if (map.getLayer(id)) map.removeLayer(id);
+            } catch (error) {
+                log.warn('[rain] frame layer cleanup failed', error);
+            }
+            try {
                 if (map.getSource(id)) map.removeSource(id);
             } catch (error) {
-                log.warn('[rain] frame cleanup failed', error);
+                log.warn('[rain] frame source cleanup failed', error);
             }
         }
+    }
+}
+
+const RAIN_FRAME_LAYER_RE = /^(?:radar|rainbow-fc)-\d+$/;
+/** Layers that, when they end up above rain, make it read as "shows nothing". */
+const RAIN_COVER_LAYER_IDS = [
+    'hybrid-base-layer',
+    'satellite-base-layer',
+    'wind-heatmap-layer',
+    'wind-heatmap-layer_r',
+];
+
+/**
+ * Keep every rain frame above the opaque chart. Rain is anchored below the
+ * label stack at creation, but two things legitimately move AFTER it exists:
+ * the hybrid/satellite base is appended to the TOP of the style when no ENC
+ * layer is mounted yet to anchor it (MapHub's imagery healer is a no-op
+ * without an enc-vec-* layer), and a late ENC cell mount re-anchors its whole
+ * stack at the same label rain used. Either way rain keeps painting —
+ * underneath an opaque chart — which is exactly the reported "rain layer
+ * sometimes shows nothing". Mirrors ensureWindHeatmapLayerOrder: writes only
+ * when the invariant is violated, so the coalesced styledata pass terminates.
+ */
+function ensureRainLayerOrder(map: mapboxgl.Map): void {
+    try {
+        const layers = map.getStyle()?.layers ?? [];
+        if (layers.length === 0) return;
+
+        let minRainIdx = -1;
+        let maxCoverIdx = -1;
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i] as { id: string; layout?: { visibility?: string } };
+            if (RAIN_FRAME_LAYER_RE.test(layer.id)) {
+                if (minRainIdx === -1) minRainIdx = i;
+                continue;
+            }
+            if (RAIN_COVER_LAYER_IDS.includes(layer.id) || layer.id.startsWith('enc-vec-')) {
+                let visible = layer.layout?.visibility !== 'none';
+                try {
+                    const visibility = map.getLayoutProperty(layer.id, 'visibility');
+                    if (visibility != null) visible = visibility !== 'none';
+                } catch {
+                    /* keep the style-object reading */
+                }
+                if (visible) maxCoverIdx = i;
+            }
+        }
+        if (minRainIdx === -1 || maxCoverIdx < minRainIdx) return;
+
+        // Slot every rain frame (relative order preserved) immediately above
+        // the topmost covering layer; undefined beforeId means top-of-style.
+        const beforeId = layers.slice(maxCoverIdx + 1).find((layer) => !RAIN_FRAME_LAYER_RE.test(layer.id))?.id;
+        for (const layer of layers) {
+            if (RAIN_FRAME_LAYER_RE.test(layer.id)) map.moveLayer(layer.id, beforeId);
+        }
+        log.info('[rain] z-order healed — frames were under the chart');
+    } catch {
+        // Style in transit; the next styledata pass retries.
     }
 }
 
@@ -304,6 +369,13 @@ export function useWeatherLayers(
      *  moved on. */
     const rainFetchedAtRef = useRef<number>(0);
     const RAIN_MAX_AGE_MS = 10 * 60 * 1000; // RainViewer publishes every 10 min
+    /** Bumped by the self-heal timer to re-enter the rain build: a failed
+     *  index fetch used to blank the layer for the whole session (nothing
+     *  ever retried), and the 10-min staleness gate could only fire on a
+     *  layer toggle — so long sessions kept tile URLs that had expired off
+     *  RainViewer's ~2h window and silently 404'd. */
+    const [rainRefreshNonce, setRainRefreshNonce] = useState(0);
+    const rainLastAttemptRef = useRef(0);
     /** Session-scoped memo of the Rainbow.ai snapshot id. The snapshot endpoint
      *  is idempotent within a 5-minute window, so caching it here saves a
      *  ~200-500ms Supabase Edge Function roundtrip on quick rain re-toggles. */
@@ -1704,6 +1776,7 @@ export function useWeatherLayers(
                 visibleRadarIdxRef.current = null;
                 visibleForecastIdxRef.current = null;
             }
+            rainLastAttemptRef.current = Date.now();
             setRainLoading(true);
             setRainImageLoading(true);
             setRainReady(false);
@@ -2167,7 +2240,52 @@ export function useWeatherLayers(
             // when rain is explicitly toggled off or the component unmounts.
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, mapReady, updateIsobars]);
+    }, [activeKey, mapReady, updateIsobars, rainRefreshNonce]);
+
+    // ── Rain self-heal: retry failures, refresh stale frames ──────────
+    // The build above only runs when the main effect re-runs, which used to
+    // mean "when the user toggles a layer". This timer re-enters it when a
+    // fetch failed (index timeout on marine LTE) or the frames have outlived
+    // RAIN_MAX_AGE_MS. The 55s attempt guard stops a dead network from being
+    // hammered; rainviewerIndex has its own 6s timeout per attempt.
+    useEffect(() => {
+        if (!mapReady || !activeLayers.has('rain')) return;
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            const failed = unifiedFramesRef.current.length === 0 && rainFetchedAtRef.current === 0;
+            const stale = rainFetchedAtRef.current > 0 && Date.now() - rainFetchedAtRef.current > RAIN_MAX_AGE_MS;
+            if ((failed || stale) && Date.now() - rainLastAttemptRef.current > 55_000) {
+                setRainRefreshNonce((n) => n + 1);
+            }
+        }, 60_000);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapReady, activeKey]);
+
+    // ── Rain z-order healer ───────────────────────────────────────────
+    // Deferred out of the styledata callback frame (style mutation inside the
+    // render pass crashes placement) and coalesced like the wind heatmap's.
+    useEffect(() => {
+        if (!mapReady || !activeLayers.has('rain')) return;
+        const map = mapRef.current;
+        if (!map) return;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const reassert = () => {
+            if (timer) return;
+            timer = setTimeout(() => {
+                timer = null;
+                const m = mapRef.current;
+                if (m) ensureRainLayerOrder(m);
+            }, 150);
+        };
+        map.on('styledata', reassert);
+        reassert();
+        return () => {
+            if (timer) clearTimeout(timer);
+            map.off('styledata', reassert);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapReady, activeKey]);
 
     // Global grid covers all zoom levels and viewport positions — no moveend re-fetch needed.
     // It is reused for panning and refreshed on a bounded GFS-cycle TTL.
