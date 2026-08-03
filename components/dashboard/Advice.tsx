@@ -97,7 +97,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
         const showStatus = isBackgroundUpdating;
 
         return (
-            <Card className="bg-slate-900 p-0 overflow-hidden ${t.border.default} relative shadow-2xl group">
+            <Card className={`bg-slate-900 p-0 overflow-hidden ${t.border.default} relative shadow-2xl group`}>
                 {!isPro && (
                     <div className="absolute inset-0 z-20 bg-slate-900/60 flex items-center justify-center">
                         <button

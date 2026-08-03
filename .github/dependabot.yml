@@ -7,7 +7,9 @@ updates:
       schedule:
           interval: 'weekly'
           day: 'monday'
-      target-branch: 'main'
+      # The repo's default (and only) branch — 'main' here silently killed
+      # every npm update PR because the branch doesn't exist.
+      target-branch: 'master'
       open-pull-requests-limit: 10
       labels:
           - 'dependencies'

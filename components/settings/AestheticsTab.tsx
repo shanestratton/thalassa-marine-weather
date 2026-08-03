@@ -101,7 +101,8 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                             const isActive = currentMode === opt.value;
                             return (
                                 <button
-                                    aria-label="Save theme selection"
+                                    aria-label={`${opt.label} display mode — ${opt.desc}`}
+                                    aria-pressed={isActive}
                                     key={opt.value}
                                     onClick={() => onSave({ displayMode: opt.value })}
                                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
@@ -150,7 +151,8 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                             const isActive = currentOrientation === opt.value;
                             return (
                                 <button
-                                    aria-label="Save theme selection"
+                                    aria-label={`${opt.label} orientation`}
+                                    aria-pressed={isActive}
                                     key={opt.value}
                                     onClick={() => onSave({ screenOrientation: opt.value })}
                                     className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${

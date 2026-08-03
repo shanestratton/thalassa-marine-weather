@@ -9,9 +9,14 @@ import { create } from 'zustand';
 import type { TransitionDirection } from '../components/ui/PageTransition';
 import { initialViewFromUrl } from '../services/deepLink';
 
-const TAB_PAGES = new Set(['dashboard', 'map', 'chat', 'vessel']);
+// The Week-2 five-tab IA: Glass / OBS / Plan / Log / Vessel. 'chat'
+// (Scuttlebutt) moved under Vessel → Wardroom, and 'voyage' (Plan) +
+// 'details' (Log) were promoted from overlay/child pages to tabs — this
+// set drifted behind that restructure, so Plan/Log transitions animated
+// as pushes and chat still slid like a tab.
+const TAB_PAGES = new Set(['dashboard', 'map', 'voyage', 'details', 'vessel']);
 const VESSEL_CHILDREN = new Set([
-    'details',
+    'chat',
     'compass',
     'inventory',
     'maintenance',
@@ -21,7 +26,7 @@ const VESSEL_CHILDREN = new Set([
     'documents',
     'diary',
 ]);
-const OVERLAY_PAGES = new Set(['settings', 'warnings', 'voyage']);
+const OVERLAY_PAGES = new Set(['settings', 'warnings']);
 
 interface UIState {
     currentView: string;
