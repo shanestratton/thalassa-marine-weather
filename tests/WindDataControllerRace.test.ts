@@ -375,36 +375,55 @@ describe('WindDataController request generation', () => {
         }
     });
 
-    it('keeps the rendered grid animating through a viewport refinement and swaps atomically', async () => {
-        vi.useFakeTimers();
-        try {
-            const firstGrid = grid('first-viewport');
-            const refined = deferred<ReturnType<typeof grid> | null>();
-            mocks.fetchModelWindGrid.mockResolvedValueOnce(firstGrid).mockReturnValueOnce(refined.promise);
-            const { map, on, setBounds } = makeMap();
+    it('keeps a covering grid through a zoom-in refinement, clears when the view leaves it', async () => {
+        // Drives fetchOnline directly (the debounced moveend path is pinned
+        // by the listener test above) — real timers keep the fire-and-forget
+        // internals deterministic.
+        const wideGrid = grid('wide-initial');
+        const refined = deferred<ReturnType<typeof grid> | null>();
+        const far = deferred<ReturnType<typeof grid> | null>();
+        // Dispatch by requested resolution: the 0.25° fine prefetch stays
+        // pending forever, the 1.0° wide boot fetch resolves immediately,
+        // everything else drains the queue in call order.
+        const queue: Promise<ReturnType<typeof grid> | null>[] = [refined.promise, far.promise];
+        mocks.fetchModelWindGrid.mockImplementation((_m: unknown, _b: unknown, _h: unknown, res: number) => {
+            if (res === 0.25) return new Promise(() => {});
+            if (res === 1.0) return Promise.resolve(wideGrid);
+            return queue.shift() ?? Promise.resolve(null);
+        });
+        const { map, setBounds, setZoom } = makeMap();
 
-            await controller.activate(map as never);
-            expect(mocks.state.current.grid).toBe(firstGrid);
+        await controller.activate(map as never);
+        expect(mocks.state.current.grid).toBe(wideGrid);
 
-            // Pan/zoom far enough to trigger a refetch. The old field must
-            // stay on screen (animating) while the replacement loads — the
-            // grid-null blank here is what made zooming in flaky.
-            setBounds({ north: 0, south: -10, west: 100, east: 110 });
-            const moveEnd = on.mock.calls[0][1] as () => void;
-            moveEnd();
-            await vi.advanceTimersByTimeAsync(800);
-            await vi.waitFor(() => expect(mocks.fetchModelWindGrid).toHaveBeenCalledTimes(2));
+        // Zoom-in refinement: still covered by the wide grid → the old
+        // field keeps animating while the sharper replacement loads.
+        setZoom(8);
+        setBounds({ north: -25, south: -30, west: 150, east: 155 });
+        const refinePass = controller.fetchOnline(map as never);
+        await vi.waitFor(() => expect(mocks.state.current.loading).toBe(true));
+        expect(mocks.state.current.grid).toBe(wideGrid);
 
-            expect(mocks.state.current.grid).toBe(firstGrid);
-            expect(mocks.state.current.loading).toBe(true);
+        const refinedGrid = grid('refined-viewport');
+        refined.resolve(refinedGrid);
+        await refinePass;
+        expect(mocks.state.current.grid).toBe(refinedGrid);
+        expect(mocks.state.current.loading).toBe(false);
 
-            const refinedGrid = grid('refined-viewport');
-            refined.resolve(refinedGrid);
-            await vi.waitFor(() => expect(mocks.state.current.grid).toBe(refinedGrid));
-            expect(mocks.state.current.loading).toBe(false);
-        } finally {
-            vi.useRealTimers();
-        }
+        // Pan clean away: nothing cached covers the new viewport, so the
+        // old grid's hard-edged rectangle must NOT float over it — clear
+        // honestly and let the loading pill own the wait.
+        setBounds({ north: 0, south: -10, west: 100, east: 110 });
+        const farPass = controller.fetchOnline(map as never);
+        await vi.waitFor(() => expect(mocks.state.current.loading).toBe(true));
+        expect(mocks.state.current.grid).toBeNull();
+
+        const farGrid = grid('far-viewport');
+        far.resolve(farGrid);
+        await farPass;
+        expect(mocks.state.current.grid).toBe(farGrid);
+
+        mocks.fetchModelWindGrid.mockReset();
     });
 
     it('publishes the prefetched fine local grid instantly once it covers a zoomed-in viewport', async () => {
@@ -427,17 +446,17 @@ describe('WindDataController request generation', () => {
         setBounds({ north: -27, south: -28, west: 152.5, east: 153.5 });
 
         await controller.activate(map as never);
+        expect(mocks.state.current.grid).toBe(viewportGrid);
 
-        // The un-awaited prefetch republishes the fine grid when it lands.
-        // Interleaving with the concurrent viewport fetch is timing-dependent
-        // (the generation fence may cancel the viewport request outright when
-        // the prefetch wins), so pin outcomes rather than call ordering.
+        // The first zoomed-in moveend warms the punter-centred fine grid;
+        // when it lands, the auto-republish swaps the sharper field in.
+        const moveEnd = on.mock.calls[0][1] as () => void;
+        moveEnd();
+        await new Promise((resolve) => setTimeout(resolve, 900));
         await vi.waitFor(() => expect(mocks.state.current.grid).toBe(fineGrid));
         const callsAfterWarmup = mocks.fetchModelWindGrid.mock.calls.length;
-        expect(callsAfterWarmup).toBeLessThanOrEqual(2);
 
         // Parked over the same patch: the next moveend is served from memory.
-        const moveEnd = on.mock.calls[0][1] as () => void;
         moveEnd();
         await new Promise((resolve) => setTimeout(resolve, 900));
         expect(mocks.fetchModelWindGrid).toHaveBeenCalledTimes(callsAfterWarmup);

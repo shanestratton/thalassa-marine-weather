@@ -70,6 +70,11 @@ export function formatPlannedRouteLabel(
 ): string {
     const cleanDeparture = typeof departure === 'string' && departure.trim() ? departure.trim() : 'Departure';
     const cleanArrival = typeof arrival === 'string' && arrival.trim() ? arrival.trim() : 'Arrival';
+    // Identical endpoints are a naming artefact (multi-leg trace legs can
+    // store the leg title in BOTH ports), and "newport 2nd leg → newport 2nd
+    // leg" reads as a bug (Shane 2026-08-04). A route from a place to itself
+    // collapses to the single name.
+    if (comparable(cleanDeparture) === comparable(cleanArrival)) return cleanDeparture;
     return collapseGeneratedTraceEndpointPair(cleanDeparture, cleanArrival) ?? `${cleanDeparture} → ${cleanArrival}`;
 }
 
