@@ -1427,9 +1427,11 @@ export function useWeatherLayers(
             map.setMaxZoom(18);
             map.setMaxBounds(undefined!);
         } else {
-            // No weather layer → restore the full constructor range so the user
-            // can pinch out to world view (z1) or deep into a harbour (z22).
-            map.setMinZoom(1);
+            // No weather layer → full zoom-in depth, but the zoom-out floor
+            // stays at z3 / the AU+NZ fit (Shane 2026-08-04) — world view at
+            // z1 was disorienting more than useful. Solo pressure above keeps
+            // its deliberate z2 synoptic framing.
+            map.setMinZoom(Math.min(3, ausNzMin));
             map.setMaxZoom(22);
             map.setMaxBounds(undefined!);
         }

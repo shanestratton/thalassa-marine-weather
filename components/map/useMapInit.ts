@@ -279,11 +279,12 @@ export function useMapInit(opts: UseMapInitOptions) {
             center: startCenter,
             zoom: startZoom,
             attributionControl: false,
-            // Full zoom range — user wants to be able to pinch out to world view
-            // and pinch in as deep as Mapbox allows. Opens at `startZoom` (AU+NZ
-            // fit, ~2.87 on a typical portrait phone) but can go anywhere.
+            // Deep zoom-in stays available; zoom-OUT floors at z3 (Shane
+            // 2026-08-04: "prevent the zoom from going past level 3"). The
+            // min() keeps the AU+NZ opening frame reachable on portrait
+            // phones where that fit lands slightly under 3 (~2.87).
             maxZoom: 22,
-            minZoom: embedded ? initialZoom : 1,
+            minZoom: embedded ? initialZoom : Math.min(3, startZoom),
             renderWorldCopies: true,
             projection: 'mercator' as mapboxgl.MapboxOptions['projection'],
             interactive: true,
