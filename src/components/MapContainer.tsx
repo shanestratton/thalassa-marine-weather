@@ -10,7 +10,7 @@ import {
     type VoyageLogTrackPoint,
     type VoyageLogWaypoint,
 } from '../voyageLogApi';
-import { nightPolygon } from '../geo';
+import { nightPolygon, bearingDeg, haversineNm } from '../geo';
 import { CompassRose } from './CompassRose';
 import { WindBarb, windBarbColor } from './WindBarb';
 import { fetchWindGrid, type WindSample } from '../windField';
@@ -234,6 +234,38 @@ export default function MapContainer({
     }, [passageLine]);
 
     const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
+
+    // Major course changes along the SAILED track (owner ask 2026-08-03):
+    // one dot wherever the boat altered course ≥30° with a solid leg
+    // (≥150 m) on both sides — tacks, channel turns, the decisions of the
+    // passage — computed on the simplified segments so GPS jitter never
+    // qualifies. `course` (the new heading) is carried for the tooltip.
+    const courseChangeGeojson = useMemo<FeatureCollection<Point> | null>(() => {
+        const TURN_DEG = 30;
+        const MIN_LEG_NM = 150 / 1852;
+        const feats: Feature<Point>[] = [];
+        for (const seg of trackSegments) {
+            for (let i = 1; i < seg.length - 1; i++) {
+                const [aLon, aLat] = seg[i - 1];
+                const [bLon, bLat] = seg[i];
+                const [cLon, cLat] = seg[i + 1];
+                const inBrg = bearingDeg(aLat, aLon, bLat, bLon);
+                const outBrg = bearingDeg(bLat, bLon, cLat, cLon);
+                let turn = outBrg - inBrg;
+                if (turn > 180) turn -= 360;
+                if (turn < -180) turn += 360;
+                if (Math.abs(turn) < TURN_DEG) continue;
+                if (haversineNm(aLat, aLon, bLat, bLon) < MIN_LEG_NM) continue;
+                if (haversineNm(bLat, bLon, cLat, cLon) < MIN_LEG_NM) continue;
+                feats.push({
+                    type: 'Feature',
+                    properties: { turn: Math.round(turn), course: Math.round(outBrg) },
+                    geometry: { type: 'Point', coordinates: seg[i] },
+                } satisfies Feature<Point>);
+            }
+        }
+        return feats.length > 0 ? { type: 'FeatureCollection', features: feats } : null;
+    }, [trackSegments]);
     const pinnedEntries = useMemo(() => entries.filter(hasCoords), [entries]);
     const allCoords = useMemo<[number, number][]>(
         () => [
@@ -530,6 +562,25 @@ export default function MapContainer({
                     />
                 </Source>
 
+                {/* Course-change marks — a dot at each major alteration
+                    (≥30°) on the sailed line, so the story of the passage
+                    reads at a glance: where the tacks and turns happened. */}
+                {courseChangeGeojson && (
+                    <Source id="course-changes" type="geojson" data={courseChangeGeojson}>
+                        <Layer
+                            id="course-change-dots"
+                            type="circle"
+                            paint={{
+                                'circle-radius': 4,
+                                'circle-color': '#0ea5e9',
+                                'circle-stroke-color': '#e0f2fe',
+                                'circle-stroke-width': 1.5,
+                                'circle-opacity': 0.95,
+                            }}
+                        />
+                    </Source>
+                )}
+
                 {/* Wind barbs — Open-Meteo grid around the boat, toggleable.
                     Standard meteorological barbs coloured by speed; the marker
                     rotates by the wind-FROM bearing. */}
@@ -789,6 +840,35 @@ export default function MapContainer({
                     )}
                     Wind
                 </button>
+            )}
+
+            {/* Legend — what the lines mean (owner ask 2026-08-03). Rows
+                render only for layers actually on the map. Sits above the
+                compass rose in the bottom-left stack. */}
+            {(trackCoords.length >= 2 || passageGeojson) && (
+                <div className="absolute bottom-[116px] left-4 z-10 pointer-events-none select-none rounded-lg border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg px-3 py-2 space-y-1.5 text-[10px] font-semibold tracking-wide text-slate-200">
+                    {passageGeojson && (
+                        <div className="flex items-center gap-2">
+                            <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#c4b5fd' }} />
+                            <span>Planned route</span>
+                        </div>
+                    )}
+                    {trackCoords.length >= 2 && (
+                        <div className="flex items-center gap-2">
+                            <span className="inline-block w-5 h-[3px] rounded-full" style={{ background: '#7dd3fc' }} />
+                            <span>Track sailed</span>
+                        </div>
+                    )}
+                    {courseChangeGeojson && (
+                        <div className="flex items-center gap-2">
+                            <span
+                                className="inline-block w-2.5 h-2.5 rounded-full border"
+                                style={{ background: '#0ea5e9', borderColor: '#e0f2fe' }}
+                            />
+                            <span>Course change</span>
+                        </div>
+                    )}
+                </div>
             )}
 
             {/* Compass rose — chart-style decoration, bottom-left */}
