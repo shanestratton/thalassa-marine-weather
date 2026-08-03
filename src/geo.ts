@@ -23,6 +23,17 @@ export function haversineNm(lat1: number, lon1: number, lat2: number, lon2: numb
     return EARTH_RADIUS_NM * c;
 }
 
+/** Initial great-circle bearing from point 1 to point 2, degrees [0, 360). */
+export function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const toRad = Math.PI / 180;
+    const phi1 = lat1 * toRad;
+    const phi2 = lat2 * toRad;
+    const dLambda = (lon2 - lon1) * toRad;
+    const y = Math.sin(dLambda) * Math.cos(phi2);
+    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 /**
  * Sub-solar point — the (lat, lon) on Earth where the sun is directly
  * overhead at the given UTC moment. Uses the standard NOAA formula
