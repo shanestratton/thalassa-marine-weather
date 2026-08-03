@@ -42,14 +42,17 @@ export default defineConfig({
             ],
             exclude: ['**/*.test.*', '**/*.spec.*', '**/types.ts', '**/*.d.ts'],
             thresholds: {
-                // Ratchet floor — raised to sit just below the verified
-                // full-suite baseline (25.33/20.97/21.00/25.29).
+                // Ratchet floor — raised 2026-08-03 to sit just below the
+                // verified full-suite CI baseline (43.76/38.00/44.13/45.49,
+                // runs 30789257756 + 30791179481; the old 25-floor had gone
+                // 19pts stale after the safety-hook/parity/float-plan test
+                // additions nearly doubled coverage).
                 // These prevent regression. Raise as test coverage improves.
                 // TARGET: 80% across the board.
-                lines: 25,
-                functions: 20.5,
-                branches: 20.5,
-                statements: 25,
+                lines: 42,
+                functions: 36,
+                branches: 42,
+                statements: 43.5,
             },
         },
     },
