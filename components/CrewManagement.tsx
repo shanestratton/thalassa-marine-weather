@@ -1051,7 +1051,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 destination_port: (arrPart ?? '').trim() || null,
                 departure_time: inferredDeparture,
                 eta: inferredEta,
-                crew_count: 1,
+                // Seed from the vessel's standing complement, not a bare 1 —
+                // this row becomes the voyage Cast Off and the float plan
+                // read souls-on-board from (Shane 2026-08-04: "the vessel
+                // profile shows two crew... that is not flowing through").
+                crew_count: Math.max(settings.vessel?.crewCount ?? 1, 1),
                 status: 'planning',
                 weather_master_id: null,
                 notes: null,
@@ -1213,7 +1217,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 });
             }
         }
-    }, [membershipsLoaded, resetReadinessState, scopeStillOwnsPage, settings.vessel?.cruisingSpeed]);
+    }, [
+        membershipsLoaded,
+        resetReadinessState,
+        scopeStillOwnsPage,
+        settings.vessel?.cruisingSpeed,
+        settings.vessel?.crewCount,
+    ]);
 
     useEffect(() => {
         // Wait for auth to land before the cloud refresh. The account-scoped
@@ -1697,7 +1707,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     voyage_name: row.voyage_name,
                     departure_port: row.departure_port,
                     destination_port: row.destination_port,
-                    crew_count: 1,
+                    // Standing complement from the vessel profile — the stub
+                    // row already carries it, but never trust a stale stub
+                    // over live settings at materialisation time.
+                    crew_count: Math.max(settings.vessel?.crewCount ?? row.crew_count ?? 1, 1),
                     departure_time: row.departure_time,
                     eta: row.eta,
                 });
@@ -1737,7 +1750,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setPlanDeparture(row.departure_time ? localDateTimeValue(row.departure_time) : '');
             triggerHaptic('light');
         },
-        [draftVoyages, resetReadinessState, scopeStillOwnsPage],
+        [draftVoyages, resetReadinessState, scopeStillOwnsPage, settings.vessel?.crewCount],
     );
 
     // Filter out declined invites older than 7 days
@@ -1875,6 +1888,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     visibleCrew={visibleCrew}
                     pendingInvites={pendingInvites}
                     memberships={memberships}
+                    standingCrewAboard={standingCrewAboard}
                     loading={loading}
                     onSoftDeleteCaptain={(m) => handleSoftDelete(m, 'captain')}
                     onSoftDeleteCrew={(m) => handleSoftDelete(m, 'crew')}
