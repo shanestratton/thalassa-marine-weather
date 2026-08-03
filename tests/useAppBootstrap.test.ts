@@ -137,7 +137,9 @@ describe('useAppBootstrap', () => {
         const destinations: Array<[string, string]> = [
             ['dm', 'chat'],
             ['weather_alert', 'dashboard'],
-            ['anchor_alarm', 'map'],
+            // 'compass' = the anchor-watch page (alarm UI + silence control);
+            // 'map' had no alarm surface at all (2026-08-03 audit fix).
+            ['anchor_alarm', 'compass'],
             ['bolo_alert', 'guardian'],
             ['hail', 'guardian'],
             ['unknown', 'dashboard'],

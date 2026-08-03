@@ -154,7 +154,10 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
         let label: string;
         let detail: string;
         if (severity === 'error') {
-            label = 'Weather data unavailable';
+            // A GPS/location-pick failure is NOT a weather-data failure — the
+            // on-screen report may be minutes old. Don't scream the wrong thing.
+            const isLocationError = !!error && /gps|location/i.test(error);
+            label = isLocationError ? 'Location unavailable' : 'Weather data unavailable';
             detail = error || 'All sources failed';
         } else if (severity === 'offline') {
             label = 'Offline cache';

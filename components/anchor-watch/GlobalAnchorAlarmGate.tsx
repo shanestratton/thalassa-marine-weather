@@ -11,13 +11,19 @@
  *
  * A dedicated component (rather than subscribing in App) so the 1 Hz-ish
  * watch-state emissions re-render only this null-returning gate, never
- * the App root. The overlay itself stays lazy — it joins the bundle only
- * when an alarm actually fires.
+ * the App root.
+ *
+ * The overlay is imported STATICALLY on purpose: a lazy chunk fetched at
+ * ALARM time can fail (offline PWA at a remote anchorage, stale deploy
+ * hashes) and a rejected React.lazy would throw to the root
+ * ErrorBoundary — unmounting the whole app, mid-alarm, taking the
+ * silence control with it. The alarm path must never depend on a
+ * network fetch; the component is small and this is a life-safety
+ * surface.
  */
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../../services/AnchorWatchService';
-
-const AnchorAlarmOverlay = lazy(() => import('./AnchorAlarmOverlay').then((m) => ({ default: m.AnchorAlarmOverlay })));
+import { AnchorAlarmOverlay } from './AnchorAlarmOverlay';
 
 export const GlobalAnchorAlarmGate: React.FC = () => {
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot>(() => AnchorWatchService.getSnapshot());
@@ -26,9 +32,5 @@ export const GlobalAnchorAlarmGate: React.FC = () => {
 
     if (snapshot.state !== 'alarm') return null;
 
-    return (
-        <Suspense fallback={null}>
-            <AnchorAlarmOverlay snapshot={snapshot} onAcknowledge={() => AnchorWatchService.acknowledgeAlarm()} />
-        </Suspense>
-    );
+    return <AnchorAlarmOverlay snapshot={snapshot} onAcknowledge={() => AnchorWatchService.acknowledgeAlarm()} />;
 };

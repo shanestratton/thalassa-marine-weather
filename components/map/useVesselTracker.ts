@@ -262,7 +262,14 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             const { latitude, longitude, heading, speed } = pos;
             // BEFORE the trail-noise early-return below — a stationary
             // vessel still refreshes its fix age on every callback.
-            lastFixAtRef.current = pos.receivedAt;
+            //
+            // The fix's OWN timestamp, forward-only (shiplog invariant, and
+            // the same guard AnchorWatchService's watchdog applies): NOT
+            // receivedAt, because GpsService replays the cached last
+            // position on every (re)subscribe — a 30-min-old fix arriving
+            // "now" must not reset the staleness clock and re-present a
+            // stale position as live. Min() clamps device clock skew.
+            lastFixAtRef.current = Math.max(lastFixAtRef.current ?? 0, Math.min(pos.timestamp, Date.now()));
 
             // ── Marker ──
             if (!markerRef.current) {

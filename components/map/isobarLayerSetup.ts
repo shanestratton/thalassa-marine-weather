@@ -620,6 +620,13 @@ export const NAV_LAYER_IDS = [
     'trace-line-core',
     'trace-line-arrows',
     'trace-issues-icons',
+    // ── Armed anchor watch (useAnchorSwingLayer) ── added with no beforeId
+    // like the tracer layers, so they need the same promote treatment or a
+    // weather raster/late ENC mount paints straight over the guard ring.
+    // Listed LAST: an armed anchor ring outranks everything else on the water.
+    'anchor-swing-fill',
+    'anchor-swing-line',
+    'anchor-swing-point',
 ] as const;
 
 /**

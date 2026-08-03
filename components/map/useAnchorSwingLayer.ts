@@ -122,25 +122,56 @@ export function useAnchorSwingLayer(mapRef: React.MutableRefObject<mapboxgl.Map 
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
+        // The service only emits on GPS fixes and state transitions — and
+        // GPS can be SILENT in exactly the cases that matter (blind watch,
+        // still boat with distanceFilter suppressing fixes). So healing
+        // after a style boot or basemap swap must come from MAP events
+        // replaying the last snapshot, never from "the next emission".
+        let lastSnap: AnchorWatchSnapshot = AnchorWatchService.getSnapshot();
+        let healTimer: number | null = null;
+
         const apply = (snap: AnchorWatchSnapshot) => {
+            lastSnap = snap;
             if (!map.isStyleLoaded() && !map.getSource(SOURCE_ID)) {
-                // Style still booting — the next emission (≤ a few seconds
-                // away while a watch is set) retries; avoids racing addSource
-                // against style load.
+                // Style still booting — heal once it settles (deferred a
+                // macrotask; never mutate the style inside event dispatch).
+                map.once('idle', deferredHeal);
                 return;
             }
             try {
                 ensureLayers(map);
                 (map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource | undefined)?.setData(buildFeatures(snap));
+                // Z-ORDER OWNER (repo lesson): these layers are added with no
+                // beforeId, so weather rasters and late ENC mounts paint over
+                // them unless re-asserted. moveLayer is idempotent and cheap;
+                // last call ends up on top (fill under line under point).
+                // Also listed in NAV_LAYER_IDS so promoteNavLayers lifts them
+                // when the weather stack mounts.
+                for (const id of LAYER_IDS) if (map.getLayer(id)) map.moveLayer(id);
             } catch {
                 /* map mid-teardown */
             }
         };
 
+        const deferredHeal = () => {
+            if (healTimer !== null) return;
+            healTimer = window.setTimeout(() => {
+                healTimer = null;
+                apply(lastSnap);
+            }, 0);
+        };
+
+        // Basemap swap (setStyle) wipes the source + layers; re-add from the
+        // retained snapshot once the new style is up.
+        map.on('style.load', deferredHeal);
+
         const unsub = AnchorWatchService.subscribe(apply);
 
         return () => {
             unsub();
+            map.off('style.load', deferredHeal);
+            map.off('idle', deferredHeal);
+            if (healTimer !== null) window.clearTimeout(healTimer);
             try {
                 for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
                 if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
