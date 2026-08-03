@@ -26,8 +26,14 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('FloatPlanSheet');
 
 const HOUR_MS = 3_600_000;
-/** Default grace on top of ETA before anyone should start worrying. */
+/** Fallback grace when the voyage has no ETA to size a real buffer from. */
 const DEFAULT_OVERDUE_BUFFER_H = 4;
+/** With an ETA, the grace is 10% of the passage length: a coastal hop earns
+ *  a tight window, an ocean leg a realistic one (Shane 2026-08-04: "a solid
+ *  10% depending on the length of the trip"). Floored at 1h so a short
+ *  harbour run can't page rescue over a slow radio check-in. */
+const OVERDUE_FRACTION = 0.1;
+const MIN_OVERDUE_BUFFER_MS = 1 * HOUR_MS;
 
 function toLocalInput(ms: number): string {
     const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60_000);
@@ -52,9 +58,11 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
         return Number.isFinite(t) ? t : null;
     }, [voyage.eta]);
 
-    const [overdueMs, setOverdueMs] = useState<number>(
-        () => (etaMs ?? departureMs) + DEFAULT_OVERDUE_BUFFER_H * HOUR_MS,
-    );
+    const passageMs = etaMs && etaMs > departureMs ? etaMs - departureMs : null;
+    const overdueBufferMs = passageMs
+        ? Math.max(MIN_OVERDUE_BUFFER_MS, passageMs * OVERDUE_FRACTION)
+        : DEFAULT_OVERDUE_BUFFER_H * HOUR_MS;
+    const [overdueMs, setOverdueMs] = useState<number>(() => (etaMs ?? departureMs) + overdueBufferMs);
     const [whoToCall, setWhoToCall] = useState('');
     // Seeded from the vessel's saved skipper mobile so it isn't retyped
     // every voyage; still editable per trip (crew swap, sat phone hire).
@@ -151,7 +159,9 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, onClose 
                     className="w-full rounded-lg border border-white/10 bg-black/40 px-2.5 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-amber-400"
                 />
                 <p className="mt-1.5 text-[10px] text-gray-400">
-                    Defaults to {DEFAULT_OVERDUE_BUFFER_H} hours after your ETA.
+                    {passageMs
+                        ? `Defaults to ${(overdueBufferMs / HOUR_MS).toFixed(1).replace(/\.0$/, '')} h after your ETA — 10% of the passage time.`
+                        : `Defaults to ${DEFAULT_OVERDUE_BUFFER_H} hours after departure (no ETA set).`}
                 </p>
             </div>
 
