@@ -5025,6 +5025,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         activeLayers={weather.activeLayers}
                         windLoading={weather.windState.loading}
                         windReady={weather.windReady}
+                        windHasGrid={Boolean(weather.windState.grid)}
                         windError={weather.windState.error}
                         rainLoading={weather.rainLoading}
                         rainImageLoading={weather.rainImageLoading}
