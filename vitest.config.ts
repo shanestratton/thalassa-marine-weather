@@ -49,10 +49,13 @@ export default defineConfig({
                 // additions nearly doubled coverage).
                 // These prevent regression. Raise as test coverage improves.
                 // TARGET: 80% across the board.
-                lines: 42,
-                functions: 36,
-                branches: 42,
-                statements: 43.5,
+                // Keyed carefully: the CI summary prints Statements/
+                // Branches/Functions/Lines in THAT order — a transposed
+                // floor (branches vs functions) red-flagged run 30793489231.
+                lines: 44, // actual 45.49
+                functions: 42.5, // actual 44.11
+                branches: 36.5, // actual 38.00
+                statements: 42, // actual 43.75
             },
         },
     },
