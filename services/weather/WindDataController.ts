@@ -14,9 +14,10 @@
 
 import { createLogger } from '../../utils/createLogger';
 import type mapboxgl from 'mapbox-gl';
-import { fetchWindGrid, fetchGlobalWindField } from './windField';
+import { fetchWindGrid, fetchGlobalWindField, type WindGrid } from './windField';
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
+import { LocationStore } from '../../stores/LocationStore';
 import { piCache } from '../PiCacheService';
 import { withDeadline } from '../../utils/deadline';
 import { continuousEastForLongitudeRange } from './windLongitude';
@@ -39,9 +40,99 @@ interface CachedBounds {
     east: number;
     zoom: number;
     fetchedAt: number;
+    /** Published from the fine local-area cache rather than a viewport fetch. */
+    fine?: boolean;
 }
 
 let lastFetchedBounds: CachedBounds | null = null;
+
+// ── Fine local-area grid (zoom-in prefetch) ──
+//
+// The viewport path's resolution floor (0.5°/1.0°) is what a harbour view used
+// to smear across the screen, and the refetch it triggered on zoomDiff>1 is
+// what blanked the field mid-gesture. Instead: as soon as the camera starts
+// zooming in past synoptic, warm a 4°×4° grid at ECMWF-native 0.25° around the
+// punter's position. Any later zoom-in whose viewport fits inside it publishes
+// instantly from memory — zero network, no blank.
+const FINE_GRID_RES_DEG = 0.25;
+const FINE_GRID_HALF_SPAN_DEG = 2;
+/** Viewport must be zoomed past this to render from the fine grid. */
+const FINE_GRID_MIN_ZOOM = 6;
+/** Camera crossing this (with the layer on) starts the prefetch. */
+const FINE_PREFETCH_MIN_ZOOM = 5;
+const CHART_HOURS = 48;
+
+interface FineGridCache {
+    /** Raw sustained+gust grid as fetched — field transform applied at publish. */
+    grid: WindGrid;
+    model: ReturnType<typeof WindStore.getState>['model'];
+    centerLat: number;
+    centerLon: number;
+    fetchedAt: number;
+}
+
+let fineGrid: FineGridCache | null = null;
+let fineGridInflight = false;
+
+function isFineGridFresh(model: FineGridCache['model']): boolean {
+    return Boolean(fineGrid && fineGrid.model === model && Date.now() - fineGrid.fetchedAt < WIND_GRID_MAX_AGE_MS);
+}
+
+/** Does the fine grid fully cover this (unpadded) viewport? Date-Line safe. */
+function fineGridCovers(viewport: { north: number; south: number; west: number; east: number }): boolean {
+    if (!fineGrid) return false;
+    const g = fineGrid.grid;
+    const gEast = continuousEastForLongitudeRange(g.west, g.east);
+    const gCenter = (g.west + gEast) / 2;
+    const vEast = continuousEastForLongitudeRange(viewport.west, viewport.east);
+    const shift = Math.round((gCenter - (viewport.west + vEast) / 2) / 360) * 360;
+    const vWest = viewport.west + shift;
+    return viewport.north <= g.north && viewport.south >= g.south && vWest >= g.west && vEast + shift <= gEast;
+}
+
+/**
+ * Warm the fine local grid around the punter's position. Fire-and-forget with
+ * its own dedupe; when it lands while the camera is still zoomed in, re-runs
+ * fetchOnline so the sharper field swaps in without waiting for a gesture.
+ */
+async function prefetchLocalFineGrid(map: mapboxgl.Map, model: FineGridCache['model']): Promise<void> {
+    if (fineGridInflight) return;
+    const { lat, lon } = LocationStore.getState();
+    if (
+        fineGrid &&
+        isFineGridFresh(model) &&
+        Math.abs(fineGrid.centerLat - lat) < 0.5 &&
+        Math.abs(fineGrid.centerLon - lon) < 0.5
+    ) {
+        return;
+    }
+    fineGridInflight = true;
+    try {
+        const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
+        const bounds = {
+            north: Math.min(lat + FINE_GRID_HALF_SPAN_DEG, 85),
+            south: Math.max(lat - FINE_GRID_HALF_SPAN_DEG, -85),
+            west: lon - FINE_GRID_HALF_SPAN_DEG,
+            east: lon + FINE_GRID_HALF_SPAN_DEG,
+        };
+        const grid = await withDeadline(
+            fetchModelWindGrid(model, bounds, CHART_HOURS, FINE_GRID_RES_DEG),
+            30_000,
+            'om-fine-grid',
+        );
+        if (grid) {
+            fineGrid = { grid, model, centerLat: lat, centerLon: lon, fetchedAt: Date.now() };
+            log.info(`[WindController] Fine local grid warmed: ${grid.width}×${grid.height} @ ${FINE_GRID_RES_DEG}°`);
+            if ((map.getZoom?.() ?? 0) > FINE_GRID_MIN_ZOOM) {
+                void WindDataController.fetchOnline(map);
+            }
+        }
+    } catch (e) {
+        log.warn('[WindController] Fine grid prefetch failed', e);
+    } finally {
+        fineGridInflight = false;
+    }
+}
 
 /**
  * Monotonic fence for every asynchronous wind load.
@@ -71,14 +162,24 @@ function isCurrentWindRequest(request: WindRequestContext): boolean {
 }
 
 /**
- * A request that is going to replace the currently-painted field must remove
- * that field before it starts. Keeping a last-known grid while loading sounds
- * friendly, but without a visible provenance/freshness treatment it makes an
- * offline or failed refresh look live. The particle overlay reads `grid`
- * directly, so null is the only truthful loading/error state.
+ * A request that is going to replace the currently-painted field normally
+ * removes that field before it starts — a retained grid from another mount,
+ * model, or mode must never masquerade as live while its replacement loads.
+ *
+ * The one exception is a VIEWPORT REFINEMENT: same model/field/mode, the
+ * on-screen grid came from a fetch this controller made minutes ago, and the
+ * user just panned or zoomed. Blanking the field there is what made zooming
+ * in "flaky" — the animation died for the whole refetch. That grid was
+ * truthfully live one frame earlier, so it keeps animating until the sharper
+ * replacement swaps in atomically (`keepRenderedGrid`). Model/field switches
+ * still clear instantly via WindStore.setModel/setField.
  */
-function beginWindGridLoad(request: WindRequestContext): boolean {
+function beginWindGridLoad(request: WindRequestContext, keepRenderedGrid = false): boolean {
     if (!isCurrentWindRequest(request)) return false;
+    if (keepRenderedGrid && WindStore.getState().grid) {
+        WindStore.setState({ loading: true, error: null });
+        return true;
+    }
     WindStore.setState({
         grid: null,
         totalHours: 0,
@@ -219,6 +320,45 @@ export const WindDataController = {
                 fetchedAt: Date.now(),
             };
 
+            // Warm the fine local grid as soon as a zoom-in begins so the
+            // sharp field is (or soon will be) in memory before the user
+            // arrives at harbour zoom. Fire-and-forget; guards inside.
+            if (useOpenMeteoGridded && currentZoom > FINE_PREFETCH_MIN_ZOOM) {
+                void prefetchLocalFineGrid(map, model);
+            }
+
+            // Zoomed in over the punter's patch with a fresh fine grid in
+            // memory → publish it instantly instead of fetching anything.
+            if (useOpenMeteoGridded && currentZoom > FINE_GRID_MIN_ZOOM && isFineGridFresh(model) && fineGrid) {
+                if (fineGridCovers(currentBounds)) {
+                    const alreadyFine =
+                        lastFetchedBounds?.fine && !isCacheStale(lastFetchedBounds) && WindStore.getState().grid;
+                    if (alreadyFine) return isCurrentWindRequest(request);
+
+                    let grid = fineGrid.grid;
+                    if (field === 'gust') {
+                        const { applyGustField } = await import('./windFieldTransforms');
+                        if (!isCurrentWindRequest(request)) return false;
+                        grid = applyGustField(grid);
+                    }
+                    if (!isCurrentWindRequest(request)) return false;
+                    WindStore.setGrid(grid);
+                    lastFetchedBounds = {
+                        north: grid.north,
+                        south: grid.south,
+                        west: grid.west,
+                        east: grid.east,
+                        zoom: currentZoom,
+                        fetchedAt: fineGrid.fetchedAt,
+                        fine: true,
+                    };
+                    log.info(
+                        `[WindController] Fine local grid published: ${grid.width}×${grid.height} @ ${FINE_GRID_RES_DEG}°, field=${field}`,
+                    );
+                    return true;
+                }
+            }
+
             // Skip if bounds haven't changed significantly AND the cache is
             // fresh AND we still have a grid. The grid check matters because
             // setModel()/setField() clear the grid without moving the map —
@@ -249,7 +389,12 @@ export const WindDataController = {
             east = continuousEast + lonPad;
         }
 
-        if (!beginWindGridLoad(request)) return false;
+        // Viewport refinement (same model/field, recent fetch on screen) keeps
+        // the old field animating while the replacement loads — see
+        // beginWindGridLoad. Anything else clears first.
+        const keepRenderedGrid =
+            Boolean(WindStore.getState().grid) && lastFetchedBounds !== null && !isCacheStale(lastFetchedBounds);
+        if (!beginWindGridLoad(request, keepRenderedGrid)) return false;
 
         try {
             // ── Open-Meteo gridded path (non-GFS model, or gust field) ──
@@ -263,8 +408,7 @@ export const WindDataController = {
                 // viewports so a zoomed-out (or global) view doesn't explode into
                 // thousands of Open-Meteo point batches. Cap ~24 cells per side.
                 const maxSpan = Math.max(Math.abs(east - west), Math.abs(north - south));
-                const res = Math.max(currentZoom > 6 ? 0.5 : 1.0, maxSpan / 24);
-                const CHART_HOURS = 48;
+                const res = Math.max(currentZoom > 8 ? 0.25 : currentZoom > 6 ? 0.5 : 1.0, maxSpan / 24);
                 let grid = await withDeadline(
                     fetchModelWindGrid(model, { north, south, west, east }, CHART_HOURS, res),
                     30_000,
