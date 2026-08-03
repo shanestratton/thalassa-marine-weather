@@ -238,7 +238,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
             // Compact, right-anchored command pod. Keeping the playback
             // surface separate from the transport buttons avoids nested
             // buttons, which iOS VoiceOver treats inconsistently.
-            className="fixed right-2 z-[850] flex max-w-[300px] items-center gap-1.5 rounded-[1.2rem] border border-cyan-200/20 bg-[#071521]/[0.94] p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+            className="fixed right-2 z-[850] flex max-w-[300px] items-center gap-1.5 rounded-2xl border border-sky-300/20 bg-slate-900/[0.94] p-1.5 shadow-2xl backdrop-blur-xl"
             style={{
                 // Slot above the bottom nav (h-16 = 64px + safe area inset)
                 bottom: 'calc(env(safe-area-inset-bottom) + 68px)',
@@ -248,24 +248,24 @@ export const GlobalNowPlayingBar: React.FC = () => {
                 type="button"
                 onClick={handleBarTap}
                 aria-label={`Now playing: ${nowPlaying.title}${nowPlaying.artist ? ` by ${nowPlaying.artist}` : ''}. Open Apple Music.`}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-left transition-colors hover:bg-cyan-300/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-left transition-colors hover:bg-sky-500/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
                 {/* Artwork */}
                 {artwork ? (
                     <SafeImage
                         src={artwork}
                         alt=""
-                        className="h-10 w-10 shrink-0 rounded-xl object-cover ring-1 ring-cyan-100/20"
+                        className="h-10 w-10 shrink-0 rounded-xl object-cover ring-1 ring-sky-200/20"
                         loading="eager"
                         onError={() => setImageFailed(true)}
                         fallback={
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300/25 to-sky-500/20 ring-1 ring-cyan-100/20">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/25 to-sky-500/20 ring-1 ring-sky-200/20">
                                 <span className="text-base">♪</span>
                             </div>
                         }
                     />
                 ) : (
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300/25 to-sky-500/20 ring-1 ring-cyan-100/20">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/25 to-sky-500/20 ring-1 ring-sky-200/20">
                         <span className="text-base">♪</span>
                     </div>
                 )}
@@ -273,9 +273,9 @@ export const GlobalNowPlayingBar: React.FC = () => {
                 {/* Title + artist — capped so a long title never turns the
                     compact control into a wall across the chart. */}
                 <div className="min-w-0 max-w-[126px] pr-0.5">
-                    <div className="mb-0.5 flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-100/65">
+                    <div className="mb-0.5 flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-sky-200/65">
                         <span
-                            className={`h-1 w-1 rounded-full ${nowPlaying.isPlaying ? 'bg-cyan-300' : 'bg-slate-500'}`}
+                            className={`h-1 w-1 rounded-full ${nowPlaying.isPlaying ? 'bg-sky-400' : 'bg-slate-500'}`}
                         />
                         {nowPlaying.isPlaying ? 'On watch' : 'Paused'}
                     </div>
@@ -293,7 +293,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
                     onClick={(e) => void handleTogglePlayPause(e)}
                     disabled={busy}
                     aria-label={nowPlaying.isPlaying ? 'Pause' : 'Play'}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-300 text-[#04131d] shadow-[0_6px_16px_rgba(34,211,238,0.16)] transition-all hover:bg-cyan-200 active:scale-90 disabled:opacity-50"
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-all hover:bg-sky-500 active:scale-90 disabled:opacity-50"
                 >
                     {nowPlaying.isPlaying ? (
                         // Pause icon
