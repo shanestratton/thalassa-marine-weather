@@ -1,18 +1,28 @@
 /**
- * EssentialMapSlide — Radar map card for the HeroSlide carousel
+ * EssentialMapSlide — Rainbow.ai rain radar card for the HeroSlide carousel.
  *
- * Static Mapbox basemap with looping RainViewer radar + Rainbow.ai nowcast.
- * Zero GPU — pure CSS transitions.
- *
- * Extracted from HeroSlide.tsx to reduce file complexity.
+ * Frames the punter's position ~300 nm in every direction on a static Mapbox
+ * basemap, with observed radar (RainViewer) and Rainbow.ai nowcast frames
+ * pre-composited by radarGlassEngine into container-sized canvases. The
+ * scrubber and playback crossfade between adjacent frames on a plain 2D
+ * canvas — zero WebGL, per this card's no-GPU-heating design.
  */
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { UnitPreferences } from '../../../types';
 import { convertSpeed, degreesToCardinal } from '../../../utils';
-import { piCache } from '../../../services/PiCacheService';
-import { buildRainViewerTileUrl } from '../../../services/weather/api/rainviewerTiles';
+import { getMapboxKey } from '../../../services/weather/keys';
 import { SafeImage } from '../../ui/SafeImage';
+import {
+    RADAR_OPACITY,
+    RadarTimeline,
+    RadarView,
+    buildBasemapUrl,
+    computeRadarView,
+    getFrameCanvas,
+    loadRadarFrames,
+    planRadarFrames,
+} from './radarGlassEngine';
 
 interface EssentialMapSlideProps {
     slideIdx: number;
@@ -27,14 +37,10 @@ interface EssentialMapSlideProps {
     onMapTap?: () => void;
 }
 
-type EssentialFrame = {
-    path: string;
-    time: number;
-    type: 'radar' | 'forecast';
-    forecastSecs?: number;
-    snapshot?: number;
-    host?: string;
-};
+/** Full-range playback duration in real seconds. */
+const PLAY_SWEEP_SECONDS = 10;
+/** Re-plan cadence while the card stays mounted (new snapshot every ~10 min). */
+const REFRESH_MS = 5 * 60 * 1000;
 
 export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     slideIdx: _slideIdx,
@@ -48,180 +54,258 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     units,
     onMapTap,
 }) => {
-    const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-    const lon = coordinates?.lon ?? 151.2;
-    const lat = coordinates?.lat ?? -33.87;
-    const zoom = 5;
-    const tileSize = 256;
+    const lon = coordinates?.lon ?? 153.02;
+    const lat = coordinates?.lat ?? -27.47;
 
-    // Progressive loading: show radar immediately, fade basemap in when ready
-    const [mapLoaded, setMapLoaded] = useState(false);
-
-    const staticUrl = token
-        ? `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/${lon},${lat},${zoom},0/600x400?access_token=${token}&attribution=false&logo=false`
-        : '';
-
-    // Prefetch the static image on mount so the browser cache has it ready
-    useEffect(() => {
-        if (!staticUrl) return;
-        const img = new Image();
-        img.referrerPolicy = 'no-referrer';
-        img.onload = () => setMapLoaded(true);
-        img.src = staticUrl;
-    }, [staticUrl]);
-    const [radarFrames, setRadarFrames] = useState<EssentialFrame[]>([]);
-    const [activeFrame, setActiveFrame] = useState(0);
-    const [nowIdx, setNowIdx] = useState(0);
-    const [isPlaying, setIsPlaying] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
     const scrubberRef = useRef<HTMLDivElement>(null);
 
+    const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+    const [inView, setInView] = useState(false);
+    const [mapLoaded, setMapLoaded] = useState(false);
+    const [timeline, setTimeline] = useState<RadarTimeline | null>(null);
+    const [loadedIds, setLoadedIds] = useState<ReadonlySet<string>>(new Set());
+    const [radarFailed, setRadarFailed] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [posSec, setPosSec] = useState(0);
+    const posRef = useRef(0);
+    const [refreshNonce, setRefreshNonce] = useState(0);
+
+    // ── Measure the card + defer work until it scrolls into view ──
     useEffect(() => {
-        let cancelled = false;
-        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-
-        (async () => {
-            try {
-                // 1. RainViewer radar + nowcast — via shared cache so we
-                // dedup with useEmbeddedRain + useWeatherLayers (rain
-                // scrubber). Avoids hitting the free-tier API three times
-                // when the user navigates Dashboard → Map.
-                const { fetchRainviewerIndex } = await import('../../../services/weather/api/rainviewerIndex');
-                const data = await fetchRainviewerIndex();
-                if (cancelled || !data) return;
-
-                const nowSec = Date.now() / 1000;
-                const maxAge = 3 * 60 * 60;
-                const allPast = (data.radar?.past ?? []).map((f) => ({ path: f.path, time: f.time }));
-                const fresh = allPast.filter((f) => nowSec - f.time < maxAge);
-                const past = fresh.length > 0 ? fresh : allPast;
-                const nowcast = (data.radar?.nowcast ?? []).map((f) => ({ path: f.path, time: f.time }));
-
-                const all: EssentialFrame[] = [
-                    ...past.map((f: { path: string; time: number }) => ({
-                        ...f,
-                        host: data.host,
-                        type: 'radar' as const,
-                    })),
-                    ...nowcast.map((f: { path: string; time: number }) => ({
-                        ...f,
-                        host: data.host,
-                        type: 'radar' as const,
-                    })),
-                ];
-                const ni = Math.max(0, past.length - 1);
-
-                // 2. Rainbow.ai forecast (up to 4hr)
-                if (supabaseUrl) {
-                    try {
-                        const snapResp = await fetch(`${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`);
-                        if (snapResp.ok && !cancelled) {
-                            const snapData = await snapResp.json();
-                            const snapshot = snapData.snapshot;
-                            if (snapshot) {
-                                const FORECAST_MINS = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
-                                for (const mins of FORECAST_MINS) {
-                                    all.push({
-                                        path: '', // Not a RainViewer path — tile URL built from snapshot
-                                        time: nowSec + mins * 60,
-                                        type: 'forecast',
-                                        forecastSecs: mins * 60,
-                                        snapshot,
-                                    });
-                                }
-                            }
-                        }
-                    } catch (_) {
-                        /* Rainbow.ai optional — use radar only */
-                    }
-                }
-
-                if (!cancelled) {
-                    setRadarFrames(all);
-                    setNowIdx(ni);
-                    setActiveFrame(ni);
-                }
-            } catch (_) {
-                /* silent fail */
+        const el = containerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver((entries) => {
+            const rect = entries[0]?.contentRect;
+            if (!rect) return;
+            const w = Math.round(rect.width);
+            const h = Math.round(rect.height);
+            if (w >= 50 && h >= 50) {
+                setSize((prev) => (prev && Math.abs(prev.w - w) < 8 && Math.abs(prev.h - h) < 8 ? prev : { w, h }));
             }
-        })();
+        });
+        ro.observe(el);
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) setInView(true);
+            },
+            { threshold: 0.2 },
+        );
+        io.observe(el);
         return () => {
-            cancelled = true;
+            ro.disconnect();
+            io.disconnect();
         };
     }, []);
 
-    // Auto-play loop: only runs when user presses play — saves battery
-    useEffect(() => {
-        if (!isPlaying || radarFrames.length < 2) return;
-        const timer = setInterval(() => {
-            if (document.hidden) return;
-            setActiveFrame((prev) => {
-                const next = (prev + 1) % radarFrames.length;
-                // Pause when looping back to start
-                if (next === 0) {
-                    setIsPlaying(false);
-                    return nowIdx; // snap back to 'now'
-                }
-                return next;
-            });
-        }, 800);
-        return () => clearInterval(timer);
-    }, [isPlaying, radarFrames.length, nowIdx]);
+    const view: RadarView | null = useMemo(
+        () => (size ? computeRadarView(lat, lon, size.w, size.h) : null),
+        // Round coords so GPS jitter doesn't rebuild the frame cache.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [size, lat.toFixed(3), lon.toFixed(3)],
+    );
 
-    // Compute tile grid for rain overlay
-    const tileGrid = useMemo(() => {
-        const n = Math.pow(2, zoom);
-        const cx = ((lon + 180) / 360) * n;
-        const latRad = (lat * Math.PI) / 180;
-        const cy = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-        const centerTileX = Math.floor(cx);
-        const centerTileY = Math.floor(cy);
-        const pxOffsetX = (cx - centerTileX) * tileSize;
-        const pxOffsetY = (cy - centerTileY) * tileSize;
-        const containerW = 600,
-            containerH = 400;
-        const tiles: { left: number; top: number; tx: number; ty: number; key: string }[] = [];
-        // Calculate the smallest grid that fully covers the card at this
-        // fractional tile offset. Combined with the three-frame preload
-        // window below, this stays comfortably inside RainViewer's request
-        // budget without leaving transparent strips at the card edges.
-        const minDx = Math.floor((pxOffsetX - containerW / 2) / tileSize);
-        const maxDx = Math.ceil((pxOffsetX + containerW / 2) / tileSize) - 1;
-        const minDy = Math.floor((pxOffsetY - containerH / 2) / tileSize);
-        const maxDy = Math.ceil((pxOffsetY + containerH / 2) / tileSize) - 1;
-        for (let dy = minDy; dy <= maxDy; dy++) {
-            for (let dx = minDx; dx <= maxDx; dx++) {
-                const rawTx = centerTileX + dx;
-                const tx = ((rawTx % n) + n) % n;
-                const ty = centerTileY + dy;
-                if (ty < 0 || ty >= n) continue;
-                tiles.push({
-                    left: containerW / 2 - pxOffsetX + dx * tileSize,
-                    top: containerH / 2 - pxOffsetY + dy * tileSize,
-                    tx,
-                    ty,
-                    key: `${dx}-${ty}`,
-                });
+    // ── Basemap ───────────────────────────────────────────────
+    const token = getMapboxKey();
+    const basemapUrl = view && token && inView ? buildBasemapUrl(view, token) : '';
+    useEffect(() => {
+        if (!basemapUrl) return;
+        setMapLoaded(false);
+        const img = new Image();
+        img.referrerPolicy = 'no-referrer';
+        img.onload = () => setMapLoaded(true);
+        img.src = basemapUrl;
+    }, [basemapUrl]);
+
+    // ── Painter: crossfade the two frames bracketing posRef ───
+    const paint = useCallback(() => {
+        const canvas = canvasRef.current;
+        const v = view;
+        if (!canvas || !v) return;
+        if (canvas.width !== v.wCss || canvas.height !== v.hCss) {
+            canvas.width = v.wCss;
+            canvas.height = v.hCss;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const frames = timeline?.frames ?? [];
+        if (frames.length === 0) return;
+
+        const t0 = frames[0].time;
+        const tN = frames[frames.length - 1].time;
+        const pos = Math.min(tN, Math.max(t0, posRef.current));
+        let i = 0;
+        while (i < frames.length - 1 && frames[i + 1].time <= pos) i++;
+
+        // Nearest loaded frame at or below i, and the next loaded one above.
+        let below = -1;
+        for (let k = i; k >= 0; k--) {
+            if (getFrameCanvas(frames[k], v)) {
+                below = k;
+                break;
             }
         }
-        return tiles;
-    }, [lat, lon]);
-
-    // Time label for current frame — human-readable
-    const timeLabel = useMemo(() => {
-        if (!radarFrames.length) return '';
-        const now = Date.now() / 1000;
-        const diffMin = Math.round((radarFrames[activeFrame]?.time - now) / 60);
-        if (Math.abs(diffMin) < 3) return 'NOW';
-        if (diffMin < 0) {
-            const absMins = Math.abs(diffMin);
-            if (absMins < 60) return `-${absMins}m`;
-            return `-${(absMins / 60).toFixed(1).replace(/\.0$/, '')}h`;
+        let above = -1;
+        for (let k = i + 1; k < frames.length; k++) {
+            if (getFrameCanvas(frames[k], v)) {
+                above = k;
+                break;
+            }
         }
-        if (diffMin < 60) return `+${diffMin}m`;
-        return `+${(diffMin / 60).toFixed(1).replace(/\.0$/, '')}h`;
-    }, [radarFrames, activeFrame]);
+        if (below === -1 && above === -1) return;
 
-    // Wind display
+        const a = below !== -1 ? frames[below] : frames[above];
+        const b = above !== -1 ? frames[above] : frames[below];
+        const ca = getFrameCanvas(a, v);
+        const cb = getFrameCanvas(b, v);
+        if (!ca || !cb) return;
+        if (a === b || b.time <= a.time) {
+            ctx.globalAlpha = RADAR_OPACITY;
+            ctx.drawImage(ca, 0, 0);
+        } else {
+            const frac = Math.min(1, Math.max(0, (pos - a.time) / (b.time - a.time)));
+            ctx.globalAlpha = RADAR_OPACITY * (1 - frac);
+            ctx.drawImage(ca, 0, 0);
+            ctx.globalAlpha = RADAR_OPACITY * frac;
+            ctx.drawImage(cb, 0, 0);
+        }
+        ctx.globalAlpha = 1;
+    }, [view, timeline]);
+
+    const setPos = useCallback(
+        (sec: number) => {
+            posRef.current = sec;
+            setPosSec(sec);
+            paint();
+        },
+        [paint],
+    );
+
+    // ── Plan + load frames ────────────────────────────────────
+    useEffect(() => {
+        if (!view || !inView) return;
+        let cancelled = false;
+        const abort = new AbortController();
+        (async () => {
+            const tl = await planRadarFrames();
+            if (cancelled) return;
+            if (tl.frames.length === 0) {
+                setRadarFailed(true);
+                return;
+            }
+            setRadarFailed(false);
+            setTimeline(tl);
+            // Land on NOW (keep the user's scrub position across refreshes).
+            const nowTime = tl.frames[tl.nowIdx].time;
+            const prev = posRef.current;
+            const keepPos =
+                refreshNonce > 0 && prev >= tl.frames[0].time && prev <= tl.frames[tl.frames.length - 1].time;
+            posRef.current = keepPos ? prev : nowTime;
+            setPosSec(posRef.current);
+            await loadRadarFrames(tl, view, abort.signal, (frame) => {
+                if (cancelled) return;
+                setLoadedIds((prevIds) => {
+                    const next = new Set(prevIds);
+                    next.add(frame.id);
+                    return next;
+                });
+            });
+        })();
+        return () => {
+            cancelled = true;
+            abort.abort();
+        };
+    }, [view, inView, refreshNonce]);
+
+    // Repaint whenever a frame lands or the timeline/view changes.
+    useEffect(() => {
+        paint();
+    }, [paint, loadedIds]);
+
+    // Periodic refresh — picks up new Rainbow snapshots / radar history.
+    useEffect(() => {
+        if (!inView) return;
+        const timer = setInterval(() => {
+            if (!document.hidden) setRefreshNonce((n) => n + 1);
+        }, REFRESH_MS);
+        return () => clearInterval(timer);
+    }, [inView]);
+
+    // ── Playback ──────────────────────────────────────────────
+    useEffect(() => {
+        if (!isPlaying || !timeline || timeline.frames.length < 2) return;
+        const t0 = timeline.frames[0].time;
+        const tN = timeline.frames[timeline.frames.length - 1].time;
+        const speed = (tN - t0) / PLAY_SWEEP_SECONDS;
+        let raf = 0;
+        let last = performance.now();
+        const step = (now: number) => {
+            const dt = (now - last) / 1000;
+            last = now;
+            if (!document.hidden) {
+                let next = posRef.current + dt * speed;
+                if (next > tN) next = t0;
+                posRef.current = next;
+                setPosSec(next);
+                paint();
+            }
+            raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [isPlaying, timeline, paint]);
+
+    // ── Scrubber ──────────────────────────────────────────────
+    const range = useMemo(() => {
+        const frames = timeline?.frames ?? [];
+        if (frames.length < 2) return null;
+        return { t0: frames[0].time, tN: frames[frames.length - 1].time };
+    }, [timeline]);
+
+    const handleScrub = useCallback(
+        (clientX: number) => {
+            if (!scrubberRef.current || !range) return;
+            const rect = scrubberRef.current.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+            setIsPlaying(false);
+            setPos(range.t0 + pct * (range.tN - range.t0));
+        },
+        [range, setPos],
+    );
+
+    const nowSec = Date.now() / 1000;
+    const progressPct = range ? ((posSec - range.t0) / (range.tN - range.t0)) * 100 : 0;
+    const nowPct =
+        range && timeline ? ((timeline.frames[timeline.nowIdx].time - range.t0) / (range.tN - range.t0)) * 100 : 0;
+
+    const activeFrame = useMemo(() => {
+        const frames = timeline?.frames ?? [];
+        if (frames.length === 0) return null;
+        let best = frames[0];
+        for (const f of frames) {
+            if (Math.abs(f.time - posSec) < Math.abs(best.time - posSec)) best = f;
+        }
+        return best;
+    }, [timeline, posSec]);
+    const isLive = !!timeline && !!activeFrame && activeFrame === timeline.frames[timeline.nowIdx];
+
+    const relativeLabel = useMemo(() => {
+        if (!activeFrame) return '';
+        const diffMin = Math.round((posSec - nowSec) / 60);
+        if (Math.abs(diffMin) < 3) return 'NOW';
+        const sign = diffMin < 0 ? '-' : '+';
+        const abs = Math.abs(diffMin);
+        return abs < 60 ? `${sign}${abs}m` : `${sign}${(abs / 60).toFixed(1).replace(/\.0$/, '')}h`;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeFrame, posSec]);
+    const clockLabel = useMemo(() => {
+        if (!range) return '';
+        return new Date(posSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }, [range, posSec]);
+
+    // ── Wind + misc display ───────────────────────────────────
     const displaySpeed = useMemo(() => {
         if (windSpeed == null) return null;
         const s = units?.speed ?? 'knots';
@@ -230,110 +314,74 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     const speedUnit = units?.speed === 'mph' ? 'mph' : units?.speed === 'kmh' ? 'km/h' : 'kts';
     const windLabel = windDirection != null ? degreesToCardinal(windDirection) : '';
 
-    const isLive = activeFrame === nowIdx;
-    const progress = radarFrames.length > 1 ? activeFrame / (radarFrames.length - 1) : 0;
-
-    // Scrubber drag handler
-    const handleScrub = useCallback(
-        (clientX: number) => {
-            if (!scrubberRef.current || radarFrames.length < 2) return;
-            const rect = scrubberRef.current.getBoundingClientRect();
-            const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-            const idx = Math.round(pct * (radarFrames.length - 1));
-            setActiveFrame(idx);
-            setIsPlaying(false); // pause on manual scrub
-        },
-        [radarFrames.length],
-    );
+    // Range rings: 300 nm = half the smaller dimension by construction.
+    const rings = useMemo(() => {
+        if (!size) return null;
+        const half = Math.min(size.w, size.h) / 2;
+        return { cx: size.w / 2, cy: size.h / 2, radii: [half / 3, (2 * half) / 3, half] };
+    }, [size]);
 
     return (
         <div className="relative w-full h-full flex flex-col">
             <div
+                ref={containerRef}
                 className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
             >
-                {/* Layer 1: Dark basemap — fades in progressively when loaded */}
-                {staticUrl && (
+                {/* Layer 1: basemap — rendered at the exact container size/zoom */}
+                {basemapUrl && (
                     <SafeImage
-                        src={staticUrl}
+                        src={basemapUrl}
                         alt="Location map"
                         className="absolute inset-0 w-full h-full"
-                        style={{
-                            opacity: mapLoaded ? 1 : 0,
-                            transition: 'opacity 600ms ease-in',
-                            objectFit: 'cover',
-                        }}
+                        style={{ opacity: mapLoaded ? 1 : 0, transition: 'opacity 600ms ease-in' }}
                         loading="eager"
                         draggable={false}
                     />
                 )}
 
-                {/* Layer 2: Looping rain radar + forecast */}
-                {radarFrames.length > 0 &&
-                    tileGrid.length > 0 &&
-                    (() => {
-                        const supabaseUrl =
-                            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-                        return (
-                            <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                                {radarFrames.map((frame, idx) => {
-                                    const isForecst = frame.type === 'forecast';
-                                    const frameKey = isForecst ? `fc-${frame.forecastSecs}` : frame.path;
-                                    return (
-                                        <div
-                                            key={frameKey}
-                                            className="absolute inset-0"
-                                            style={{
-                                                opacity: idx === activeFrame ? 0.65 : 0,
-                                                transition: 'opacity 400ms ease',
-                                            }}
-                                        >
-                                            {/* Preload nearby frames for smooth scrubbing */}
-                                            {Math.abs(idx - activeFrame) <= 1 &&
-                                                tileGrid.map((t) => {
-                                                    const directSrc = isForecst
-                                                        ? `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${frame.snapshot}&forecast=${frame.forecastSecs}&z=${zoom}&x=${t.tx}&y=${t.ty}&color=6`
-                                                        : buildRainViewerTileUrl(frame.path, {
-                                                              host: frame.host,
-                                                              zoom,
-                                                              x: t.tx,
-                                                              y: t.ty,
-                                                          });
-                                                    const src = piCache.passthroughTileUrl(directSrc) || directSrc;
-                                                    return (
-                                                        <SafeImage
-                                                            key={`${frameKey}-${t.key}`}
-                                                            src={src}
-                                                            allowLocalNetworkHttp
-                                                            alt=""
-                                                            className="absolute"
-                                                            style={{
-                                                                left: t.left,
-                                                                top: t.top,
-                                                                width: tileSize,
-                                                                height: tileSize,
-                                                            }}
-                                                            loading="lazy"
-                                                            draggable={false}
-                                                            onError={(e) => {
-                                                                (e.target as HTMLImageElement).style.display = 'none';
-                                                            }}
-                                                        />
-                                                    );
-                                                })}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        );
-                    })()}
+                {/* Layer 2: radar crossfade canvas */}
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
 
-                {/* Layer 3: Vignette */}
+                {/* Layer 3: range rings — 100/200/300 nm */}
+                {rings && (
+                    <svg
+                        className="absolute inset-0 pointer-events-none"
+                        width={size?.w}
+                        height={size?.h}
+                        viewBox={`0 0 ${size?.w} ${size?.h}`}
+                        aria-hidden="true"
+                    >
+                        {rings.radii.map((r, i) => (
+                            <circle
+                                key={i}
+                                cx={rings.cx}
+                                cy={rings.cy}
+                                r={r}
+                                fill="none"
+                                stroke="rgba(255,255,255,0.07)"
+                                strokeWidth={1}
+                                strokeDasharray={i === 2 ? 'none' : '3 5'}
+                            />
+                        ))}
+                        <text
+                            x={rings.cx}
+                            y={rings.cy - rings.radii[2] + 14}
+                            textAnchor="middle"
+                            fill="rgba(255,255,255,0.25)"
+                            style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}
+                        >
+                            300 nm
+                        </text>
+                    </svg>
+                )}
+
+                {/* Layer 4: vignette */}
                 <div
                     className="absolute inset-0 pointer-events-none"
                     style={{ background: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%)' }}
                 />
 
-                {/* Layer 4: Location dot */}
+                {/* Layer 5: location dot */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                     <div className="relative">
                         <div
@@ -352,27 +400,18 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     <button
                         aria-label="Open full map"
                         onClick={onMapTap}
-                        className="absolute inset-0 bottom-10 cursor-pointer z-[1]"
+                        className="absolute inset-0 bottom-12 cursor-pointer z-[1]"
                         style={{ background: 'transparent' }}
                     />
                 )}
 
-                {/* Layer 5: Radar scrubber bar + play control */}
-                {radarFrames.length > 1 && (
+                {/* Layer 6: scrubber — play, buffered ticks, thumb, clock */}
+                {range && timeline && (
                     <div className="absolute bottom-0 left-0 right-0 px-2.5 pb-2" style={{ pointerEvents: 'auto' }}>
                         <div className="flex items-center gap-2">
-                            {/* Play/Pause button */}
                             <button
-                                aria-label="Play weather animation"
-                                onClick={() => {
-                                    if (!isPlaying) {
-                                        // Start from beginning if at end or at 'now'
-                                        if (activeFrame >= radarFrames.length - 1) setActiveFrame(0);
-                                        setIsPlaying(true);
-                                    } else {
-                                        setIsPlaying(false);
-                                    }
-                                }}
+                                aria-label={isPlaying ? 'Pause radar animation' : 'Play radar animation'}
+                                onClick={() => setIsPlaying((p) => !p)}
                                 className="w-7 h-7 shrink-0 rounded-full bg-white/10 backdrop-blur-md border border-white/[0.12] flex items-center justify-center active:scale-90 transition-all"
                             >
                                 {isPlaying ? (
@@ -391,60 +430,78 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                 )}
                             </button>
 
-                            {/* Scrubber track */}
                             <div
                                 ref={scrubberRef}
-                                className="flex-1 relative h-7 flex items-center cursor-pointer"
-                                onClick={(e) => handleScrub(e.clientX)}
-                                onTouchMove={(e) => {
-                                    e.preventDefault();
-                                    handleScrub(e.touches[0].clientX);
+                                className="flex-1 relative h-9 flex items-center cursor-pointer"
+                                style={{ touchAction: 'none' }}
+                                onPointerDown={(e) => {
+                                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                                    handleScrub(e.clientX);
                                 }}
-                                onTouchStart={(e) => handleScrub(e.touches[0].clientX)}
+                                onPointerMove={(e) => {
+                                    if (e.buttons > 0) handleScrub(e.clientX);
+                                }}
                             >
-                                {/* Track background */}
                                 <div className="w-full h-[3px] rounded-full bg-white/[0.08] relative overflow-visible">
-                                    {/* Progress fill */}
+                                    {/* Progress fill: sky for observed, amber past NOW */}
                                     <div
-                                        className="absolute inset-y-0 left-0 rounded-full"
-                                        style={{
-                                            width: `${progress * 100}%`,
-                                            background:
-                                                'linear-gradient(90deg, rgba(56,189,248,0.15) 0%, rgba(56,189,248,0.5) 100%)',
-                                            transition: isPlaying ? 'width 400ms ease' : 'width 100ms ease',
-                                        }}
-                                    />
-                                    {/* 'Now' marker tick */}
-                                    {nowIdx > 0 && (
+                                        className="absolute inset-y-0 left-0 rounded-full overflow-hidden"
+                                        style={{ width: `${progressPct}%` }}
+                                    >
+                                        {/* Inner bar spans the full track so the sky→amber
+                                            hard stop stays anchored at NOW while the outer
+                                            div clips to the playhead. */}
                                         <div
-                                            className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/25"
-                                            style={{ left: `${(nowIdx / (radarFrames.length - 1)) * 100}%` }}
+                                            className="absolute inset-y-0 left-0"
+                                            style={{
+                                                width: progressPct > 0 ? `${(100 / progressPct) * 100}%` : '0%',
+                                                background: `linear-gradient(90deg, rgba(56,189,248,0.35) 0%, rgba(56,189,248,0.6) ${nowPct}%, rgba(251,191,36,0.6) ${nowPct}%, rgba(251,191,36,0.45) 100%)`,
+                                            }}
                                         />
-                                    )}
+                                    </div>
+                                    {/* Buffered frame ticks */}
+                                    {timeline.frames.map((f) => {
+                                        const left = ((f.time - range.t0) / (range.tN - range.t0)) * 100;
+                                        return (
+                                            <div
+                                                key={f.id}
+                                                className="absolute top-1/2 -translate-y-1/2 w-[2px] h-[2px] rounded-full"
+                                                style={{
+                                                    left: `${left}%`,
+                                                    background: loadedIds.has(f.id)
+                                                        ? 'rgba(255,255,255,0.45)'
+                                                        : 'rgba(255,255,255,0.12)',
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                    {/* NOW marker */}
+                                    <div
+                                        className="absolute top-1/2 -translate-y-1/2 w-px h-3 bg-white/30"
+                                        style={{ left: `${nowPct}%` }}
+                                    />
                                     {/* Thumb */}
                                     <div
-                                        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-sky-400 border-2 border-white/30"
+                                        className="absolute top-1/2 w-3.5 h-3.5 rounded-full bg-sky-400 border-2 border-white/30"
                                         style={{
-                                            left: `${progress * 100}%`,
+                                            left: `${progressPct}%`,
                                             transform: 'translateX(-50%) translateY(-50%)',
                                             boxShadow: '0 0 8px rgba(56,189,248,0.5)',
-                                            transition: isPlaying ? 'left 400ms ease' : 'left 100ms ease',
                                         }}
                                     />
                                 </div>
                             </div>
 
-                            {/* Time label */}
-                            <div className="shrink-0 min-w-[36px] text-right">
-                                <span className="text-[11px] text-white/40 font-mono font-semibold tabular-nums">
-                                    {timeLabel}
+                            <div className="shrink-0 min-w-[44px] text-right">
+                                <span className="text-[11px] text-white/50 font-mono font-semibold tabular-nums">
+                                    {clockLabel}
                                 </span>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Layer 6: Time label + LIVE/FORECAST badge — top-left */}
+                {/* Layer 7: LIVE / FORECAST / history badge — top-left */}
                 <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                     {isLive && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/20">
@@ -452,25 +509,32 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                             <span className="text-[11px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
                         </div>
                     )}
-                    {radarFrames[activeFrame]?.type === 'forecast' && (
+                    {!isLive && activeFrame?.kind === 'forecast' && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/20">
                             <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                             <span className="text-[11px] text-amber-300/80 font-bold tracking-wider">FORECAST</span>
-                            <span className="text-[11px] text-amber-300/50 font-mono font-semibold">{timeLabel}</span>
+                            <span className="text-[11px] text-amber-300/50 font-mono font-semibold">
+                                {relativeLabel}
+                            </span>
                         </div>
                     )}
-                    {timeLabel && !isLive && radarFrames[activeFrame]?.type !== 'forecast' && (
+                    {!isLive && activeFrame?.kind === 'past' && (
                         <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
                             <span className="text-[11px] text-white/50 font-mono font-semibold tabular-nums">
-                                {timeLabel}
+                                {relativeLabel}
                             </span>
+                        </div>
+                    )}
+                    {radarFailed && (
+                        <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
+                            <span className="text-[11px] text-white/40 font-medium">Radar unavailable</span>
                         </div>
                     )}
                 </div>
 
-                {/* Layer 7: Wind badge — bottom-left */}
+                {/* Layer 8: wind badge — bottom-left, above scrubber */}
                 {displaySpeed != null && (
-                    <div className="absolute bottom-10 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
+                    <div className="absolute bottom-12 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
                         {windDirection != null && (
                             <div
                                 className="w-3.5 h-3.5 flex items-center justify-center"
@@ -488,23 +552,36 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     </div>
                 )}
 
-                {/* Layer 8: Condition — top-right */}
+                {/* Layer 9: condition — top-right */}
                 {condition && (
                     <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
                         <span className="text-[11px] text-white/50 font-medium tracking-wide">{condition}</span>
                     </div>
                 )}
 
-                {radarFrames[activeFrame]?.type === 'radar' && (
+                {/* Attribution follows the active frame's source */}
+                {activeFrame?.source === 'rainviewer' && (
                     <a
                         href="https://www.rainviewer.com/"
                         target="_blank"
                         rel="noreferrer"
                         onClick={(event) => event.stopPropagation()}
-                        className="absolute bottom-10 right-2.5 z-[2] rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-sm"
+                        className="absolute bottom-12 right-2.5 z-[2] rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-sm"
                         aria-label="Rain radar data by RainViewer"
                     >
                         RainViewer
+                    </a>
+                )}
+                {activeFrame?.source === 'rainbow' && (
+                    <a
+                        href="https://rainbow.ai/"
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="absolute bottom-12 right-2.5 z-[2] rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-sm"
+                        aria-label="Nowcast data by Rainbow.ai"
+                    >
+                        Rainbow.ai
                     </a>
                 )}
             </div>

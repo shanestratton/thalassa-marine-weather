@@ -27,3 +27,14 @@ verify_jwt = false
 # which cannot attach an Authorization header, so verification is impossible
 # rather than merely undesirable.
 verify_jwt = false
+
+[functions.proxy-rainbow]
+# Rainbow.ai proxy (Glass radar card + RainForecastCard). Matches deployed
+# reality as of 2026-08-04: credentialless requests reach the function (the
+# Pi cache passthrough fetches tiles server-side with no Supabase credential
+# at all, so platform verification must stay off). The function self-guards
+# via requireAuthenticatedOrPublicQuota — real user JWTs get the full
+# 240/hr + 4000 tiles/hr buckets; anon-key or credentialless callers land in
+# small per-IP public buckets (30/hr snapshots — exhausting THAT is what
+# killed the old dashboard radar, which fetched its snapshot with no auth).
+verify_jwt = false
