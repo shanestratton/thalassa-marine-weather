@@ -15,6 +15,7 @@ import { getMapboxKey } from '../../../services/weather/keys';
 import { SafeImage } from '../../ui/SafeImage';
 import {
     RADAR_OPACITY,
+    RADAR_RADIUS_NM,
     RadarTimeline,
     RadarView,
     buildBasemapUrl,
@@ -41,6 +42,8 @@ interface EssentialMapSlideProps {
 const PLAY_SWEEP_SECONDS = 10;
 /** Re-plan cadence while the card stays mounted (new snapshot every ~10 min). */
 const REFRESH_MS = 5 * 60 * 1000;
+/** Pinch ceiling: 6× ≈ a 50 nm view radius from the 300 nm base frame. */
+const MAX_ZOOM_FACTOR = 6;
 
 export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     slideIdx: _slideIdx,
@@ -71,6 +74,16 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     const [posSec, setPosSec] = useState(0);
     const posRef = useRef(0);
     const [refreshNonce, setRefreshNonce] = useState(0);
+
+    // Pinch zoom-in. 1 = the 300 nm base frame, which is also the hard
+    // zoom-OUT floor. Always north-up, always centred on the punter — zoom
+    // only, no pan, no rotation. Radar zoom is a painter crop of the already-
+    // composited frames (instant, zero refetch); the basemap CSS-scales
+    // during the gesture and re-renders crisp once the factor settles.
+    const [zoomFactor, setZoomFactor] = useState(1);
+    const zoomFactorRef = useRef(1);
+    const [settledFactor, setSettledFactor] = useState(1);
+    const [displayedBasemap, setDisplayedBasemap] = useState<{ url: string; factor: number } | null>(null);
 
     // ── Measure the card + defer work until it scrolls into view ──
     useEffect(() => {
@@ -107,16 +120,26 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     );
 
     // ── Basemap ───────────────────────────────────────────────
+    // Preload the target URL and only then swap it in, so a zoom settle never
+    // blanks the img while the sharper render is still in flight.
     const token = getMapboxKey();
-    const basemapUrl = view && token && inView ? buildBasemapUrl(view, token) : '';
+    const targetBasemapUrl = view && token && inView ? buildBasemapUrl(view, token, Math.log2(settledFactor)) : '';
     useEffect(() => {
-        if (!basemapUrl) return;
-        setMapLoaded(false);
+        if (!targetBasemapUrl) return;
+        let cancelled = false;
+        const factor = settledFactor;
         const img = new Image();
         img.referrerPolicy = 'no-referrer';
-        img.onload = () => setMapLoaded(true);
-        img.src = basemapUrl;
-    }, [basemapUrl]);
+        img.onload = () => {
+            if (cancelled) return;
+            setDisplayedBasemap({ url: targetBasemapUrl, factor });
+            setMapLoaded(true);
+        };
+        img.src = targetBasemapUrl;
+        return () => {
+            cancelled = true;
+        };
+    }, [targetBasemapUrl, settledFactor]);
 
     // ── Painter: crossfade the two frames bracketing posRef ───
     const paint = useCallback(() => {
@@ -161,15 +184,37 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         const ca = getFrameCanvas(a, v);
         const cb = getFrameCanvas(b, v);
         if (!ca || !cb) return;
+
+        // Pinch zoom = crop a centred sub-rect of the composited frame. The
+        // frames themselves never re-render for zoom; radar data is coarser
+        // than css pixels so the upscale reads as normal radar softness.
+        const f = zoomFactorRef.current;
+        const drawFrame = (c: HTMLCanvasElement, alpha: number) => {
+            ctx.globalAlpha = alpha;
+            if (f > 1.001) {
+                const sw = canvas.width / f;
+                const sh = canvas.height / f;
+                ctx.drawImage(
+                    c,
+                    (canvas.width - sw) / 2,
+                    (canvas.height - sh) / 2,
+                    sw,
+                    sh,
+                    0,
+                    0,
+                    canvas.width,
+                    canvas.height,
+                );
+            } else {
+                ctx.drawImage(c, 0, 0);
+            }
+        };
         if (a === b || b.time <= a.time) {
-            ctx.globalAlpha = RADAR_OPACITY;
-            ctx.drawImage(ca, 0, 0);
+            drawFrame(ca, RADAR_OPACITY);
         } else {
             const frac = Math.min(1, Math.max(0, (pos - a.time) / (b.time - a.time)));
-            ctx.globalAlpha = RADAR_OPACITY * (1 - frac);
-            ctx.drawImage(ca, 0, 0);
-            ctx.globalAlpha = RADAR_OPACITY * frac;
-            ctx.drawImage(cb, 0, 0);
+            drawFrame(ca, RADAR_OPACITY * (1 - frac));
+            drawFrame(cb, RADAR_OPACITY * frac);
         }
         ctx.globalAlpha = 1;
     }, [view, timeline]);
@@ -182,6 +227,96 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         },
         [paint],
     );
+
+    // ── Pinch zoom ────────────────────────────────────────────
+    const applyZoomFactor = useCallback(
+        (next: number) => {
+            const clamped = Math.min(MAX_ZOOM_FACTOR, Math.max(1, next));
+            zoomFactorRef.current = clamped;
+            setZoomFactor(clamped);
+            paint();
+        },
+        [paint],
+    );
+
+    // Re-render the basemap crisp shortly after the fingers settle.
+    useEffect(() => {
+        const timer = setTimeout(() => setSettledFactor(zoomFactorRef.current), 350);
+        return () => clearTimeout(timer);
+    }, [zoomFactor]);
+
+    // A location/size change re-frames at the 300 nm base.
+    useEffect(() => {
+        zoomFactorRef.current = 1;
+        setZoomFactor(1);
+        setSettledFactor(1);
+    }, [view?.key]);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        let gestureStartFactor = 1;
+
+        // WKWebView reports pinches through WebKit's proprietary gesture
+        // events with a ready-made scale — use them when present.
+        type WebKitGestureEvent = Event & { scale?: number };
+        if (typeof window !== 'undefined' && 'GestureEvent' in window) {
+            const onStart = (e: WebKitGestureEvent) => {
+                e.preventDefault();
+                gestureStartFactor = zoomFactorRef.current;
+            };
+            const onChange = (e: WebKitGestureEvent) => {
+                e.preventDefault();
+                if (typeof e.scale === 'number') applyZoomFactor(gestureStartFactor * e.scale);
+            };
+            const onEnd = (e: WebKitGestureEvent) => e.preventDefault();
+            el.addEventListener('gesturestart', onStart as EventListener);
+            el.addEventListener('gesturechange', onChange as EventListener);
+            el.addEventListener('gestureend', onEnd as EventListener);
+            return () => {
+                el.removeEventListener('gesturestart', onStart as EventListener);
+                el.removeEventListener('gesturechange', onChange as EventListener);
+                el.removeEventListener('gestureend', onEnd as EventListener);
+            };
+        }
+
+        // Pointer-pair fallback for dev browsers. Single-pointer input is
+        // deliberately untouched so the hero carousel still swipes.
+        const pointers = new Map<number, { x: number; y: number }>();
+        let startDist = 0;
+        const currentDist = () => {
+            const [a, b] = [...pointers.values()];
+            return Math.hypot(a.x - b.x, a.y - b.y);
+        };
+        const onDown = (e: PointerEvent) => {
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pointers.size === 2) {
+                startDist = currentDist();
+                gestureStartFactor = zoomFactorRef.current;
+            }
+        };
+        const onMove = (e: PointerEvent) => {
+            if (!pointers.has(e.pointerId)) return;
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pointers.size === 2 && startDist > 0) {
+                applyZoomFactor((gestureStartFactor * currentDist()) / startDist);
+            }
+        };
+        const onUp = (e: PointerEvent) => {
+            pointers.delete(e.pointerId);
+            startDist = 0;
+        };
+        el.addEventListener('pointerdown', onDown);
+        el.addEventListener('pointermove', onMove);
+        el.addEventListener('pointerup', onUp);
+        el.addEventListener('pointercancel', onUp);
+        return () => {
+            el.removeEventListener('pointerdown', onDown);
+            el.removeEventListener('pointermove', onMove);
+            el.removeEventListener('pointerup', onUp);
+            el.removeEventListener('pointercancel', onUp);
+        };
+    }, [applyZoomFactor]);
 
     // ── Plan + load frames ────────────────────────────────────
     useEffect(() => {
@@ -314,12 +449,20 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     const speedUnit = units?.speed === 'mph' ? 'mph' : units?.speed === 'kmh' ? 'km/h' : 'kts';
     const windLabel = windDirection != null ? degreesToCardinal(windDirection) : '';
 
-    // Range rings: 300 nm = half the smaller dimension by construction.
+    // Range rings adapt to zoom: the smaller dimension's edge is 300/zoom nm
+    // out, and the spacing steps down (100→50→25→10) so at least two rings
+    // stay visible however far in the punter pinches.
     const rings = useMemo(() => {
         if (!size) return null;
         const half = Math.min(size.w, size.h) / 2;
-        return { cx: size.w / 2, cy: size.h / 2, radii: [half / 3, (2 * half) / 3, half] };
-    }, [size]);
+        const visibleNm = RADAR_RADIUS_NM / zoomFactor;
+        const spacing = [100, 50, 25, 10].find((s) => s * 2 <= visibleNm) ?? 10;
+        const radii: { nm: number; px: number }[] = [];
+        for (let nm = spacing; nm <= visibleNm * 1.02 && radii.length < 6; nm += spacing) {
+            radii.push({ nm, px: (nm / visibleNm) * half });
+        }
+        return { cx: size.w / 2, cy: size.h / 2, radii };
+    }, [size, zoomFactor]);
 
     return (
         <div className="relative w-full h-full flex flex-col">
@@ -327,13 +470,20 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 ref={containerRef}
                 className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
             >
-                {/* Layer 1: basemap — rendered at the exact container size/zoom */}
-                {basemapUrl && (
+                {/* Layer 1: basemap — rendered at the exact container size/zoom.
+                    Mid-pinch it CSS-scales from the last rendered factor; once
+                    settled, the crisp re-render swaps in at scale(1). */}
+                {displayedBasemap && (
                     <SafeImage
-                        src={basemapUrl}
+                        src={displayedBasemap.url}
                         alt="Location map"
                         className="absolute inset-0 w-full h-full"
-                        style={{ opacity: mapLoaded ? 1 : 0, transition: 'opacity 600ms ease-in' }}
+                        style={{
+                            opacity: mapLoaded ? 1 : 0,
+                            transition: 'opacity 600ms ease-in',
+                            transform: `scale(${(zoomFactor / displayedBasemap.factor).toFixed(4)})`,
+                            transformOrigin: 'center center',
+                        }}
                         loading="eager"
                         draggable={false}
                     />
@@ -342,8 +492,8 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 {/* Layer 2: radar crossfade canvas */}
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
 
-                {/* Layer 3: range rings — 100/200/300 nm */}
-                {rings && (
+                {/* Layer 3: range rings — spacing adapts to pinch zoom */}
+                {rings && rings.radii.length > 0 && (
                     <svg
                         className="absolute inset-0 pointer-events-none"
                         width={size?.w}
@@ -353,24 +503,24 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     >
                         {rings.radii.map((r, i) => (
                             <circle
-                                key={i}
+                                key={r.nm}
                                 cx={rings.cx}
                                 cy={rings.cy}
-                                r={r}
+                                r={r.px}
                                 fill="none"
                                 stroke="rgba(255,255,255,0.07)"
                                 strokeWidth={1}
-                                strokeDasharray={i === 2 ? 'none' : '3 5'}
+                                strokeDasharray={i === rings.radii.length - 1 ? 'none' : '3 5'}
                             />
                         ))}
                         <text
                             x={rings.cx}
-                            y={rings.cy - rings.radii[2] + 14}
+                            y={rings.cy - rings.radii[rings.radii.length - 1].px + 14}
                             textAnchor="middle"
                             fill="rgba(255,255,255,0.25)"
                             style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}
                         >
-                            300 nm
+                            {rings.radii[rings.radii.length - 1].nm} nm
                         </text>
                     </svg>
                 )}

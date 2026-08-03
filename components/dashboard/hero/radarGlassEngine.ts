@@ -112,10 +112,11 @@ export function planTiles(view: RadarView): TilePlan[] {
 
 /**
  * Mapbox Static Images URL matching the view exactly. The Static API uses
- * the 512-px tile convention, hence the −1 on the zoom.
+ * the 512-px tile convention, hence the −1 on the zoom. `extraZoom` (log2 of
+ * the pinch factor) re-renders the basemap crisp at a zoomed-in view.
  */
-export function buildBasemapUrl(view: RadarView, token: string): string {
-    const zStatic = Math.max(0, view.z - 1).toFixed(2);
+export function buildBasemapUrl(view: RadarView, token: string, extraZoom = 0): string {
+    const zStatic = Math.max(0, view.z - 1 + extraZoom).toFixed(2);
     const w = Math.min(1280, view.wCss);
     const h = Math.min(1280, view.hCss);
     return (
