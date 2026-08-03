@@ -567,7 +567,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     >
                         ‹
                     </button>
-                    <span className="text-lg font-black tracking-wide text-white">Boat Binder</span>
+                    <span className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
                     {/* — Passage subgroup — */}
