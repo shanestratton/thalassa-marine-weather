@@ -135,7 +135,9 @@ export function formatGpsAccessoryName(accessory: ConnectedExternalAccessory): s
     return manufacturer ?? model;
 }
 
-function formatAge(ageMs: number): string {
+// Exported: the canonical short age formatter ("45s" / "3m" / "2h") —
+// import it rather than re-rolling per surface.
+export function formatAge(ageMs: number): string {
     if (ageMs < 60_000) return `${Math.max(1, Math.round(ageMs / 1000))}s`;
     if (ageMs < 3_600_000) return `${Math.round(ageMs / 60_000)}m`;
     return `${Math.round(ageMs / 3_600_000)}h`;

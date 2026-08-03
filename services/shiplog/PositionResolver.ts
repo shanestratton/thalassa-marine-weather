@@ -18,8 +18,11 @@ import { BgGeoManager } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { NmeaGpsProvider } from '../NmeaGpsProvider';
 
-const GPS_STALE_LIMIT_MS = 60_000;
-const GPS_VERY_STALE_MS = 5 * 60 * 1000;
+// Exported: these are THE app-wide GPS-age tiers (<60s locked, <5min
+// stale, beyond = lost) — consumers (vessel marker staleness, GPS chips)
+// must import rather than mint their own thresholds.
+export const GPS_STALE_LIMIT_MS = 60_000;
+export const GPS_VERY_STALE_MS = 5 * 60 * 1000;
 const MS_TO_KTS = 1.94384;
 
 /**

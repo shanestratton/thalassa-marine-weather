@@ -81,7 +81,7 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
                         No GPS fix is arriving — dragging can no longer be detected. Check your position and GPS signal
                         now.
                     </div>
-                    <div className="text-xs text-red-400/50 mt-3 font-mono">
+                    <div className="text-xs text-red-200/90 mt-3 font-mono">
                         last known {formatDistance(snapshot.distanceFromAnchor)} from anchor
                     </div>
                 </div>
@@ -143,7 +143,9 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
                 Silence Alarm
             </button>
 
-            <p className="text-red-400/40 text-sm mt-4 tracking-wider">Monitoring continues after silencing</p>
+            {/* Safety instruction read at 3am — was text-red-400/40 (~1.9:1
+                on the near-black alarm gradient), far under WCAG 4.5:1. */}
+            <p className="text-red-200/90 text-sm mt-4 tracking-wider">Monitoring continues after silencing</p>
         </OverlayPortal>
     );
 });

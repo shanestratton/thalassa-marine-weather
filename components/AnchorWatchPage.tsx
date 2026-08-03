@@ -27,7 +27,6 @@ import {
 import { AlarmAudioService } from '../services/AlarmAudioService';
 import { triggerHaptic } from '../utils/system';
 import { SwingCircleCanvas, type AisTargetDot } from './anchor-watch/SwingCircleCanvas';
-import { AnchorAlarmOverlay } from './anchor-watch/AnchorAlarmOverlay';
 import { ScopeRadar } from './anchor-watch/ScopeRadar';
 import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
@@ -384,10 +383,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         }
     }, [viewMode]);
 
-    const handleAcknowledgeAlarm = useCallback(() => {
-        AnchorWatchService.acknowledgeAlarm();
-    }, []);
-
     const handleCreateSession = useCallback(async () => {
         try {
             const code = await AnchorWatchSyncService.createSession();
@@ -528,10 +523,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         }
     }, [isDragging]);
 
-    // ---- RENDER: ALARM OVERLAY ----
-    if (snapshot?.state === 'alarm') {
-        return <AnchorAlarmOverlay snapshot={snapshot} onAcknowledge={handleAcknowledgeAlarm} />;
-    }
+    // ---- ALARM OVERLAY ----
+    // Rendered app-level by GlobalAnchorAlarmGate (App.tsx) so the alarm
+    // covers every page, not just this one. The page-local early return
+    // here would stack a second copy of the same critical portal.
     // ---- RENDER: SETUP (IDLE) — Instrument-Grade Dashboard ----
 
     // Derived values for the scope quality indicator (used in context strip)

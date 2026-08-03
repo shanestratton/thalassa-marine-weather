@@ -210,7 +210,9 @@ export function useAppBootstrap() {
                     setPage('dashboard');
                     break;
                 case 'anchor_alarm':
-                    setPage('map');
+                    // 'compass' = the anchor-watch page — the surface with the
+                    // alarm overlay + silence control ('map' has neither).
+                    setPage('compass');
                     break;
                 case 'bolo_alert':
                 case 'suspicious_alert':

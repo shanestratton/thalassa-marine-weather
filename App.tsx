@@ -25,6 +25,7 @@ import { SystemStatusButton } from './components/SystemStatusButton';
 import { canAccess } from './services/SubscriptionService';
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
+import { GlobalAnchorAlarmGate } from './components/anchor-watch/GlobalAnchorAlarmGate';
 import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
@@ -576,6 +577,11 @@ const App: React.FC = () => {
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
 
+                {/* ANCHOR ALARM — app-level gate so a drag/GPS-lost alarm
+                    covers WHATEVER page is up, not just the anchor-watch
+                    page it used to be local to. */}
+                <GlobalAnchorAlarmGate />
+
                 {/* Departure prompts — fire on cast-off from any view. */}
                 <Suspense fallback={null}>
                     <DeparturePrompts />
@@ -598,7 +604,11 @@ const App: React.FC = () => {
                                 setPage('dashboard');
                                 break;
                             case 'anchor_alarm':
-                                setPage('map');
+                                // 'compass' is the anchor-watch page (swing circle,
+                                // silence control). 'map' had NO alarm UI at all —
+                                // an alarm tap used to land on a chart with nothing
+                                // to acknowledge.
+                                setPage('compass');
                                 break;
                             case 'bolo_alert':
                             case 'suspicious_alert':

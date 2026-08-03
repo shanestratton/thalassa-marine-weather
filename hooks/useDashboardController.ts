@@ -6,7 +6,7 @@ import { generateTacticalAdvice, getSkipperLockerItems } from '../utils/advisory
 import { toast } from '../components/Toast';
 
 export const useDashboardController = (viewMode: 'overview' | 'details' = 'overview') => {
-    const { weatherData: data, refreshData, loading: _loading, staleRefresh } = useWeather();
+    const { weatherData: data, refreshData, loading: _loading, staleRefresh, error } = useWeather();
     const { settings } = useSettings();
     const { setPage } = useUI();
     const { isPro } = settings;
@@ -190,6 +190,10 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
         handleAudioBroadcast,
         shareReport,
         staleRefresh,
+        // Fetch-failure signal — feeds the StalenessBanner's loud 'error'
+        // tier on the Glass (the banner's top severity was unreachable
+        // while this wasn't threaded through).
+        error,
         setPage, // for 'Open Map' actions
 
         // Calculated — dynamic refresh interval based on location type & weather severity
