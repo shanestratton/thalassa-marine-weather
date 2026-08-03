@@ -11,6 +11,8 @@ import mapboxgl from 'mapbox-gl';
 import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 import { BgGeoManager, type CachedPosition } from '../../services/BgGeoManager';
 import { GpsService } from '../../services/GpsService';
+import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../../services/shiplog/PositionResolver';
+import { formatAge } from '../../services/GpsReceiverStatusService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('VesselTracker');
@@ -104,7 +106,63 @@ function createVesselElement(): HTMLDivElement {
     badge.textContent = '0.0 kts';
     el.appendChild(badge);
 
+    // GPS-age chip (top) — hidden while the fix is fresh. Surfaces the
+    // audit's "own-ship marker freezes silently on GPS loss" finding:
+    // a stale position must never be indistinguishable from a live one.
+    const ageChip = document.createElement('div');
+    ageChip.className = 'vessel-age-chip';
+    ageChip.style.cssText = `
+        position: absolute; top: -18px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(245, 158, 11, 0.5);
+        border-radius: 8px;
+        padding: 1px 6px;
+        font-size: 9px; font-weight: 800;
+        color: #f59e0b;
+        white-space: nowrap;
+        letter-spacing: 0.05em;
+        backdrop-filter: blur(8px);
+        z-index: 3;
+        display: none;
+    `;
+    el.appendChild(ageChip);
+
     return el;
+}
+
+/**
+ * Apply the GPS-age tier to the marker element. Styles are mutated
+ * directly (the element is built with inline cssText, so CSS classes
+ * would lose the specificity fight without !important).
+ *
+ *   locked (<60s): normal cyan, chip hidden
+ *   stale (60s–5min): greyed arrow/ring, amber "GPS 2m" chip
+ *   lost (>5min): greyed, red chip — position is history, not truth
+ */
+function applyGpsAgeTier(el: HTMLDivElement, ageMs: number): void {
+    const tier = ageMs >= GPS_VERY_STALE_MS ? 'lost' : ageMs >= GPS_STALE_LIMIT_MS ? 'stale' : 'locked';
+    const arrow = el.querySelector('.vessel-arrow') as HTMLElement | null;
+    const ring = el.querySelector('.vessel-accuracy-ring') as HTMLElement | null;
+    const chip = el.querySelector('.vessel-age-chip') as HTMLElement | null;
+    if (!arrow || !ring || !chip) return;
+
+    if (tier === 'locked') {
+        arrow.style.filter = '';
+        ring.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+        ring.style.background = 'rgba(56, 189, 248, 0.06)';
+        chip.style.display = 'none';
+        return;
+    }
+
+    arrow.style.filter = 'grayscale(1) brightness(0.85)';
+    ring.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+    ring.style.background = 'rgba(148, 163, 184, 0.08)';
+    chip.style.display = 'block';
+    chip.textContent = `GPS ${formatAge(ageMs)}`;
+    const colour = tier === 'lost' ? '#ef4444' : '#f59e0b';
+    chip.style.color = colour;
+    chip.style.borderColor = tier === 'lost' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(245, 158, 11, 0.5)';
 }
 
 // ── Trail layer setup ──
@@ -191,6 +249,10 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     const elementRef = useRef<HTMLDivElement | null>(null);
     const lastHeadingRef = useRef<number>(0);
     const trailCoordsRef = useRef<[number, number][]>([]);
+    // receivedAt of the newest fix — read by the staleness ticker. A ref,
+    // not state: a frozen GPS means the watch callback stops firing
+    // entirely, so staleness MUST come from an interval, not callbacks.
+    const lastFixAtRef = useRef<number | null>(null);
 
     const updateMarker = useCallback(
         (pos: CachedPosition) => {
@@ -198,6 +260,9 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             if (!map || !visible) return;
 
             const { latitude, longitude, heading, speed } = pos;
+            // BEFORE the trail-noise early-return below — a stationary
+            // vessel still refreshes its fix age on every callback.
+            lastFixAtRef.current = pos.receivedAt;
 
             // ── Marker ──
             if (!markerRef.current) {
@@ -294,7 +359,17 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             { ensureRunning: true },
         );
 
+        // Staleness ticker — the only path that can grey the marker once
+        // fixes STOP arriving (see lastFixAtRef comment).
+        const staleTicker = window.setInterval(() => {
+            const el = elementRef.current;
+            const last = lastFixAtRef.current;
+            if (!el || last == null) return;
+            applyGpsAgeTier(el, Date.now() - last);
+        }, 1000);
+
         return () => {
+            window.clearInterval(staleTicker);
             unsub?.();
             if (markerRef.current) {
                 markerRef.current.remove();

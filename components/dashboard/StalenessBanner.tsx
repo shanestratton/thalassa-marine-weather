@@ -209,7 +209,7 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
                         onClick={onRefresh}
                         disabled={isSyncing}
                         aria-label="Retry fetching weather data"
-                        className={`${textSize} font-bold uppercase tracking-wider px-2 py-1 rounded-lg border ${theme.border} ${theme.text} hover:bg-white/5 active:scale-[0.95] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                        className={`${textSize} min-h-[44px] font-bold uppercase tracking-wider px-4 py-1 rounded-lg border ${theme.border} ${theme.text} hover:bg-white/5 active:scale-[0.95] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                         {isSyncing ? 'Syncing' : 'Retry'}
                     </button>

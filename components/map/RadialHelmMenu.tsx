@@ -48,6 +48,12 @@ export interface RadialHelmMenuProps {
     selectInGroup: (layer: WeatherLayer, group: WeatherLayer[]) => void;
     /** Additional tactical toggles */
     tacticalState?: {
+        /** True while a Man-Overboard is active (marker on chart, page live). */
+        mobActive?: boolean;
+        /** Opens the MOB page (navigation, not a toggle — activation stays a
+         *  deliberate act on that page; a radial drag-menu tap is too easy
+         *  to mis-fire for something that sounds an alarm). */
+        onOpenMob?: () => void;
         aisVisible?: boolean;
         onToggleAis?: () => void;
         cycloneVisible?: boolean;
@@ -187,6 +193,17 @@ function buildCategories(
     // ─────────────────────────────────────────────────────────────────
 
     // ── Threat-critical (top of the fan) ──
+    // MOB first, always, ungated: the 2026-08-03 audit's top safety
+    // finding was MOB being three taps away via the Vessel hub with no
+    // chart affordance at all. From the helm it is now radial → MOB.
+    if (tacticalState?.onOpenMob) {
+        tactical.push({
+            id: 'mob',
+            label: 'MOB',
+            icon: <MobIcon />,
+            action: tacticalState.onOpenMob,
+        });
+    }
     if (tacticalState?.onToggleLightning) {
         tactical.push({
             id: 'lightning',
@@ -710,6 +727,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const isItemActive = useCallback(
         (item: HelmMenuItem): boolean => {
             if (item.layerKey) return activeLayers.has(item.layerKey);
+            if (item.id === 'mob') return tacticalState?.mobActive ?? false;
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;
@@ -928,7 +946,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                             triggerHaptic('medium');
                                             closeMenu();
                                         }}
-                                        className="mt-1 w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
+                                        className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
                                     >
                                         Clear All · {totalActive} active
                                     </button>
@@ -1068,7 +1086,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             triggerHaptic('medium');
                             closeMenu();
                         }}
-                        className="fixed right-[16px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
+                        className="fixed right-[16px] min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
                         style={{ top: 384 }}
                     >
                         Clear All · {totalActive}
@@ -1204,6 +1222,15 @@ const ChartGenericIcon = () => (
 );
 
 // Layer item icons
+const MobIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        {/* Lifebuoy ring */}
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="4" />
+        <path strokeLinecap="round" d="M12 3v5M12 16v5M3 12h5M16 12h5" />
+    </svg>
+);
+
 const AisIcon = () => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" />

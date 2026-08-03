@@ -186,6 +186,9 @@ const IMAGERY_SCRUB_OWNED: ReadonlySet<string> = new Set([ENC_VEC_LAYERS.LNDARE_
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useDestinationFlag } from './useDestinationFlag';
+import { useMobMarker } from './useMobMarker';
+import { useAnchorSwingLayer } from './useAnchorSwingLayer';
+import { MobService } from '../../services/MobService';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { RadialHelmMenu } from './RadialHelmMenu';
@@ -1671,6 +1674,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [vesselTrackingVisible] = usePersistedState('thalassa_map_vessel_tracking_visible', true);
     const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
     const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
+    // Active-MOB flag for the radial menu's MOB item highlight. MobService
+    // emits ~1 Hz while active; setState with an unchanged boolean bails
+    // before re-render, so this costs nothing in steady state.
+    const [mobActive, setMobActive] = useState<boolean>(() => MobService.isActive());
+    useEffect(() => MobService.subscribe((s) => setMobActive(s.active !== null)), []);
     // Satellite BASE imagery (Esri World Imagery raster under every custom
     // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
     // "satellite overlay instead of the enc overlay when running a route".
@@ -2559,6 +2567,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // OBS after the follow-route line was removed: one flag is the
     // glanceable "going there" without the spaghetti.
     useDestinationFlag(mapRef, mapReady && !planningSurface);
+    // Active MOB fix — plain mapReady, NOT gated on planningSurface: an
+    // active MOB must never vanish because the planner happens to be open.
+    useMobMarker(mapRef, mapReady);
 
     // Routes (planned) and Tracks (sailed) chart layers. Both come
     // from the user's ship-log entries — Routes are voyageIds prefixed
@@ -3062,6 +3073,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Tide Station Markers ──
     useTideStationLayer(mapRef, mapReady, browseTideStationsVisible);
     useAnchorageLayer(mapRef, mapReady, browseAnchorageVisible);
+    // Armed anchor watch — anchor point + swing-radius ring (self-subscribes).
+    useAnchorSwingLayer(mapRef, mapReady);
 
     // ── Notices to Mariners + low bridges on the chart (📄 / 🌉 tap-to-read) ──
     // Curated standing notices (MSQ-class, e.g. Mooloolah River bar); broadcast
@@ -3868,6 +3881,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             anchorageVisible,
                             onToggleAnchorage: () => setAnchorageVisible((v) => !v),
                             onOpenWeatherWindow: () => setPage('weatherWindow'),
+                            mobActive,
+                            onOpenMob: () => setPage('mob'),
                             // Marine Protected Areas — only surface in the
                             // radial menu when the feature flag is on, so
                             // the button doesn't taunt users on builds

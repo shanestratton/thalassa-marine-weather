@@ -122,6 +122,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         handleAudioBroadcast,
         shareReport,
         staleRefresh,
+        error,
         refreshData,
         refreshInterval,
         settings,
@@ -130,9 +131,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
 
-    // Freshness/error signals previously fed the StalenessBanner — removed
-    // along with the banner. The data is still in WeatherContext if any
-    // future inline indicator (eg. tinting the model badge) needs it.
+    // Freshness/error signals feed the StalenessBanner below via the
+    // controller (error) and the report itself (_stale/_staleAgeMinutes).
+    // They were dropped when the banner was removed, and when it was
+    // re-mounted 2026-06-21 only the age props came back — the loud
+    // 'error' and 'offline-cache' tiers were unreachable until 2026-08-03.
 
     // Live reverse-geocode of the user's GPS — polls every 10s, only
     // calls the geocoder if the punter has actually moved > 50m since
@@ -1105,6 +1108,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         location whose cached report is an hour or two old. */}
                                     <StalenessBanner
                                         generatedAt={data.generatedAt}
+                                        stale={data._stale}
+                                        staleAgeMinutes={data._staleAgeMinutes}
+                                        error={error}
                                         locationType={data.locationType}
                                         isOffline={isOffline}
                                         onRefresh={refreshData}
@@ -1140,8 +1146,16 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             <div className="absolute inset-0 overflow-hidden">
                                 <React.Suspense
                                     fallback={
-                                        <div className="flex items-center justify-center h-full bg-slate-950">
-                                            <div className="text-white/60 text-sm">Loading Log…</div>
+                                        // Skeleton cards, not text — the house loading
+                                        // discipline (see LogPage's own rule).
+                                        <div className="h-full bg-slate-950 p-4 space-y-3 overflow-hidden">
+                                            {[0, 1, 2, 3].map((i) => (
+                                                <div
+                                                    key={i}
+                                                    className="rounded-2xl bg-white/[0.05] border border-white/[0.06] h-28 animate-pulse"
+                                                    style={{ animationDelay: `${i * 120}ms` }}
+                                                />
+                                            ))}
                                         </div>
                                     }
                                 >
