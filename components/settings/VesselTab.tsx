@@ -934,6 +934,18 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div className="mt-3">
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                Skipper Mobile
+                            </label>
+                            <input
+                                type="tel"
+                                value={vessel?.contactPhone || ''}
+                                onChange={(e) => updateVessel('contactPhone', e.target.value)}
+                                placeholder="04xx xxx xxx"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                            />
+                        </div>
+                        <div className="mt-3">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
                                 Other Safety Gear
                             </label>
                             <textarea

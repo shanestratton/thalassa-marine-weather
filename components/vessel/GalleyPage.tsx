@@ -7,6 +7,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { EmptyState } from '../ui/EmptyState';
 import {
     getMealsByStatus,
     getMealPlans as _getMealPlans,
@@ -311,13 +312,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         className="space-y-4 p-4"
                     >
                         {visibleActiveMeals.length === 0 ? (
-                            <div className="text-center py-12">
-                                <span className="text-5xl">🍽️</span>
-                                <p className="text-sm font-bold text-gray-300 mt-4">No Active Meals</p>
-                                <p className="text-[11px] text-gray-500 mt-1">
-                                    Schedule recipes from the Saved Recipes tab or use a passage meal plan
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon="🍽️"
+                                title="No Active Meals"
+                                subtitle="Schedule recipes from the Saved Recipes tab or use a passage meal plan"
+                            />
                         ) : (
                             visibleActiveMeals.map((meal) => (
                                 <div
@@ -486,13 +485,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         </div>
 
                         {visibleSavedRecipes.length === 0 ? (
-                            <div className="text-center py-12">
-                                <span className="text-5xl">📖</span>
-                                <p className="text-sm font-bold text-gray-300 mt-4">No Saved Recipes</p>
-                                <p className="text-[11px] text-gray-500 mt-1">
-                                    Create your own recipe or save one when you schedule a meal plan
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon="📖"
+                                title="No Saved Recipes"
+                                subtitle="Create your own recipe or save one when you schedule a meal plan"
+                            />
                         ) : (
                             visibleSavedRecipes.map((recipe) => (
                                 <div
