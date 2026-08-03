@@ -5,7 +5,8 @@ import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../servic
 import { triggerHaptic } from '../utils/system';
 import { extractPhotoExif } from '../utils/exifGps';
 import { SlideToAction } from './ui/SlideToAction';
-import { AnchorWatchService } from '../services/AnchorWatchService';
+import { AnchorWatchService, haversineDistance } from '../services/AnchorWatchService';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
@@ -235,6 +236,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // Default 'polished' (middle option) on first run.
     // Publish-to-Voyage-Log prompt — holds the just-saved entry while the modal is open
     const [publishPromptEntry, setPublishPromptEntry] = useState<DiaryEntry | null>(null);
+    // A GPS-tagged photo attached while EDITING an entry that already has a
+    // pin — ask before moving it (never silently relocate an existing pin).
+    const [photoPinPrompt, setPhotoPinPrompt] = useState<{ lat: number; lon: number; movedM: number } | null>(null);
     // Weather context
     const { weatherData } = useWeather();
     const { settings, updateSettings } = useSettings();
@@ -975,15 +979,30 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // where it was taken, pin the entry there instead of at the
         // compose-time device fix (the "photo shows at the start of the
         // track" bug: entries written up back at the berth pinned the
-        // story at the marina). First photo with GPS wins.
+        // story at the marina). First photo with GPS wins — but ONLY
+        // silently for a NEW entry or one with no position. An EXISTING
+        // pin is never moved without asking (Shane 2026-08-03: "editing
+        // shouldn't update the gps position") — a dinner photo added at
+        // home must not quietly re-pin a voyage entry to the house on a
+        // public page. The confirm keeps the deliberate repair path:
+        // re-attach the original photo, accept the prompt, pin fixed.
         try {
             const exif = await extractPhotoExif(file);
             if (exif && !locationFromPhotoRef.current) {
-                locationFromPhotoRef.current = true;
-                setLat(exif.lat);
-                setLon(exif.lon);
-                const placeName = await DiaryService.reverseGeocode(exif.lat, exif.lon);
-                setLocationName(placeName || formatCoord(exif.lat, exif.lon));
+                const hasExistingPin = editingId !== null && lat !== null && lon !== null;
+                if (hasExistingPin) {
+                    const movedM = haversineDistance(lat, lon, exif.lat, exif.lon);
+                    // Same spot (GPS scatter) — nothing worth asking about.
+                    if (movedM > 200) {
+                        setPhotoPinPrompt({ lat: exif.lat, lon: exif.lon, movedM });
+                    }
+                } else {
+                    locationFromPhotoRef.current = true;
+                    setLat(exif.lat);
+                    setLon(exif.lon);
+                    const placeName = await DiaryService.reverseGeocode(exif.lat, exif.lon);
+                    setLocationName(placeName || formatCoord(exif.lat, exif.lon));
+                }
             }
         } catch {
             /* EXIF is best-effort — device fix remains the fallback */
@@ -1581,6 +1600,34 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
                 duration={5000}
+            />
+            {/* Move-the-pin checkpoint — a GPS-tagged photo was attached while
+                editing an entry that already has a position. Declining keeps
+                the pin exactly where it was. */}
+            <ConfirmDialog
+                isOpen={photoPinPrompt !== null}
+                title="Move this entry's pin?"
+                message={
+                    photoPinPrompt
+                        ? `This photo was taken ${
+                              photoPinPrompt.movedM >= 1852
+                                  ? `${(photoPinPrompt.movedM / 1852).toFixed(1)} NM`
+                                  : `${Math.round(photoPinPrompt.movedM)} m`
+                          } from where this entry is pinned. Move the entry to the photo's location?`
+                        : ''
+                }
+                confirmLabel="Move pin"
+                onConfirm={async () => {
+                    const p = photoPinPrompt;
+                    setPhotoPinPrompt(null);
+                    if (!p) return;
+                    locationFromPhotoRef.current = true;
+                    setLat(p.lat);
+                    setLon(p.lon);
+                    const placeName = await DiaryService.reverseGeocode(p.lat, p.lon);
+                    setLocationName(placeName || formatCoord(p.lat, p.lon));
+                }}
+                onCancel={() => setPhotoPinPrompt(null)}
             />
             {/* Publish-to-Voyage-Log checkpoint — shown after saving a new or edited entry */}
             {publishPromptEntry && (
