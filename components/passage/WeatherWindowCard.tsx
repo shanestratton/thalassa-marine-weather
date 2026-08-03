@@ -15,6 +15,7 @@ import {
 } from '../../services/WeatherWindowService';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
+import { calculateBearing } from '../../utils/navigationCalculations';
 import {
     useReadinessIdentityScope,
     useScopedReadinessStorageState,
@@ -129,12 +130,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
 
     let courseBearing: number | undefined;
     if (lat != null && lon != null && destLat != null && destLon != null) {
-        const dLon = ((destLon - lon) * Math.PI) / 180;
-        const lat1 = (lat * Math.PI) / 180;
-        const lat2 = (destLat * Math.PI) / 180;
-        const y = Math.sin(dLon) * Math.cos(lat2);
-        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-        courseBearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+        courseBearing = calculateBearing(lat, lon, destLat, destLon);
     }
 
     useLayoutEffect(() => {

@@ -1,3 +1,9 @@
+// --- Canonical Distance Constants ---
+
+// The repo hardcoded 1852 in ~12 places — import these instead.
+export const NM_TO_M = 1852;
+export const M_TO_NM = 1 / 1852;
+
 // --- Specific Converters (Testable) ---
 
 export const ktsToMph = (kts: number) => kts * 1.15078;

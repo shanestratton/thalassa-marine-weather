@@ -25,17 +25,7 @@ import { fetchRealTides } from '../../weather/api/tides';
 import { AisStore } from '../../AisStore';
 import { NmeaStore } from '../../NmeaStore';
 import { getCurrentFix } from './voyage';
-
-const EARTH_NM = 3440.065;
-function toRad(d: number): number {
-    return (d * Math.PI) / 180;
-}
-function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * EARTH_NM * Math.asin(Math.sqrt(a));
-}
+import { calculateDistance } from '../../../utils/navigationCalculations';
 
 export async function dailyBriefing(): Promise<{ content: string; isError: boolean }> {
     const fix = await getCurrentFix();
@@ -98,7 +88,7 @@ export async function dailyBriefing(): Promise<{ content: string; isError: boole
             const inRange = Array.from(targets.values())
                 .map((t) => ({
                     target: t,
-                    range_nm: distanceNm(fix.lat, fix.lon, t.lat, t.lon),
+                    range_nm: calculateDistance(fix.lat, fix.lon, t.lat, t.lon),
                 }))
                 .filter((x) => x.range_nm <= 10)
                 .sort((a, b) => a.range_nm - b.range_nm);

@@ -25,6 +25,7 @@ import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { isFeatureLockedSync } from '../../managers/FeatureGate';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { destinationPoint } from '../../utils/navigationCalculations';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -485,24 +486,11 @@ export function buildGuardZoneCircle(lat: number, lon: number, radiusNm: number,
         return [];
     }
 
-    const angularDistance = radiusNm / 3440.065;
-    const latRad = (lat * Math.PI) / 180;
-    const lonRad = (lon * Math.PI) / 180;
     const points: [number, number][] = [];
     for (let index = 0; index <= segments; index += 1) {
-        const bearing = (index / segments) * Math.PI * 2;
-        const pointLat = Math.asin(
-            Math.sin(latRad) * Math.cos(angularDistance) +
-                Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearing),
-        );
-        const pointLon =
-            lonRad +
-            Math.atan2(
-                Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(latRad),
-                Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(pointLat),
-            );
-        const wrappedLon = (((((pointLon * 180) / Math.PI + 180) % 360) + 360) % 360) - 180;
-        points.push([wrappedLon, (pointLat * 180) / Math.PI]);
+        const bearingDeg = (index / segments) * 360;
+        const p = destinationPoint(lat, lon, bearingDeg, radiusNm);
+        points.push([p.lon, p.lat]);
     }
     return points;
 }

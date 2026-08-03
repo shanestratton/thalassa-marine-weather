@@ -13,6 +13,7 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Preferences } from '@capacitor/preferences';
 import { GpsService, type GpsPosition } from './GpsService';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -55,32 +56,6 @@ interface PersistedMobSnapshot {
     ownerKey: string;
     ownerUserId: string | null;
     snapshot: MobSnapshot;
-}
-
-// ── Great-circle math (haversine) ────────────────────────────────────────────
-const EARTH_M = 6371008.8; // WGS-84 mean radius in metres
-
-function toRad(d: number): number {
-    return (d * Math.PI) / 180;
-}
-function toDeg(r: number): number {
-    return (r * 180) / Math.PI;
-}
-
-function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * EARTH_M * Math.asin(Math.sqrt(a));
-}
-
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const φ1 = toRad(lat1);
-    const φ2 = toRad(lat2);
-    const Δλ = toRad(lon2 - lon1);
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
 function isValidSnapshot(value: unknown): value is MobSnapshot {
@@ -294,8 +269,11 @@ class MobServiceClass {
         let distance: number | null = null;
         let bearing: number | null = null;
         if (snap && own) {
-            distance = distanceMeters(own.latitude, own.longitude, snap.fixLat, snap.fixLon);
-            bearing = bearingDeg(own.latitude, own.longitude, snap.fixLat, snap.fixLon);
+            // Canonical haversine (R = 3440.065 NM = 6 371 000.4 m). The old
+            // private copy used the WGS-84 mean radius 6 371 008.8 m — the repo's
+            // one radius outlier; the ~1.4 mm/km shift is irrelevant at MOB range.
+            distance = calculateDistance(own.latitude, own.longitude, snap.fixLat, snap.fixLon) * 1852;
+            bearing = calculateBearing(own.latitude, own.longitude, snap.fixLat, snap.fixLon);
         }
         return {
             active: snap ? { ...snap } : null,

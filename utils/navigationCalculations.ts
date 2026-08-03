@@ -45,6 +45,39 @@ export function calculateBearing(lat1: number, lon1: number, lat2: number, lon2:
 }
 
 /**
+ * Project a destination point from a start position along an initial bearing
+ * for a great-circle distance. Spherical Earth (R = 3440.065 NM), matching
+ * calculateDistance/calculateBearing so project→measure round-trips agree.
+ * @param lat Starting latitude in decimal degrees
+ * @param lon Starting longitude in decimal degrees
+ * @param bearingDeg Initial bearing in degrees (0-360, clockwise from north)
+ * @param distanceNM Distance in nautical miles
+ * @returns Destination as { lat, lon }; longitude normalised to [-180, 180]
+ */
+export function destinationPoint(
+    lat: number,
+    lon: number,
+    bearingDeg: number,
+    distanceNM: number,
+): { lat: number; lon: number } {
+    const R = 3440.065; // Earth radius in nautical miles
+    const d = distanceNM / R; // angular distance
+    const brng = toRadians(bearingDeg);
+    const lat1 = toRadians(lat);
+    const lon1 = toRadians(lon);
+
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(brng));
+    const lon2 =
+        lon1 + Math.atan2(Math.sin(brng) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+
+    // Normalise longitude to [-180, 180] (antimeridian safety)
+    let lonDeg = toDegrees(lon2);
+    while (lonDeg > 180) lonDeg -= 360;
+    while (lonDeg < -180) lonDeg += 360;
+    return { lat: toDegrees(lat2), lon: lonDeg };
+}
+
+/**
  * Format coordinates as Degrees, Minutes, Seconds (DMS)
  * @param lat Latitude in decimal degrees
  * @param lon Longitude in decimal degrees

@@ -27,6 +27,7 @@ import { useWeather } from '../context/WeatherContext';
 import { useUIStore } from '../stores/uiStore';
 import { triggerHaptic } from '../utils/system';
 import { convertLength } from '../utils/units';
+import { calculateDistance } from '../utils/navigationCalculations';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
@@ -1811,16 +1812,7 @@ const NavStationHero: React.FC<{
     // destination. Only when underway and we have both points.
     let distRemainingNm: number | null = null;
     if (state.label === 'Underway' && position && destCoords) {
-        // Inline haversine — avoids dragging in navigationCalculations
-        // for one call. Earth radius in NM (3440.065).
-        const toRad = (d: number) => (d * Math.PI) / 180;
-        const dLat = toRad(destCoords.lat - position.latitude);
-        const dLon = toRad(destCoords.lon - position.longitude);
-        const a =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(position.latitude)) * Math.cos(toRad(destCoords.lat)) * Math.sin(dLon / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        distRemainingNm = 3440.065 * c;
+        distRemainingNm = calculateDistance(position.latitude, position.longitude, destCoords.lat, destCoords.lon);
     }
     // Fall back to total route NM if we have the route but no GPS yet.
     const showRouteNm = !distRemainingNm && routeNm !== null && state.label === 'Underway';

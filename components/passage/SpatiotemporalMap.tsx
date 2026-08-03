@@ -22,6 +22,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
 import { WindParticleLayer } from '../map/WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';
+import { calculateBearing as calcBearing } from '../../utils/navigationCalculations';
 import { FONT, SIZE } from '../../styles/typeScale';
 import '../../styles/bioluminescent.css';
 
@@ -272,16 +273,6 @@ function generateCorridorPolygon(track: TrackPoint[], corridorNM: number): GeoJS
             coordinates: [ring],
         },
     };
-}
-
-/** Simple forward bearing calculation (degrees) */
-function calcBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const y = Math.sin(dLon) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 // ── Waypoint Badge ──────────────────────────────────────────────

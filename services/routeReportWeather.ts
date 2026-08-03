@@ -15,6 +15,7 @@
 import { fetchOpenMeteoPoints } from './weather/openMeteoProxy';
 import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance } from '../utils/navigationCalculations';
 
 const log = createLogger('routeReportWeather');
 
@@ -53,16 +54,6 @@ interface LatLon {
     lon: number;
 }
 
-function haversineNM(a: LatLon, b: LatLon): number {
-    const R = 3440.065; // Earth radius in NM
-    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-    const dLon = ((b.lon - a.lon) * Math.PI) / 180;
-    const la1 = (a.lat * Math.PI) / 180;
-    const la2 = (b.lat * Math.PI) / 180;
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
 const num = (v: unknown): number | null => {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
@@ -73,7 +64,7 @@ function schedule(pins: LatLon[], departureMs: number, speedKts: number) {
     const spd = speedKts > 0 ? speedKts : 6;
     let cum = 0;
     return pins.map((p, i) => {
-        if (i > 0) cum += haversineNM(pins[i - 1], p);
+        if (i > 0) cum += calculateDistance(pins[i - 1].lat, pins[i - 1].lon, p.lat, p.lon);
         const hoursFromDep = cum / spd;
         return { index: i, distanceNM: cum, hoursFromDep, etaMs: departureMs + hoursFromDep * 3_600_000 };
     });

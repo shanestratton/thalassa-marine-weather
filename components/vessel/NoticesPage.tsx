@@ -18,6 +18,7 @@ import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { triggerHaptic } from '../../utils/system';
 import { NoticeToMarinersService, labelFor, type Notice } from '../../services/NoticeToMarinersService';
 import { GpsService } from '../../services/GpsService';
+import { calculateDistance } from '../../utils/navigationCalculations';
 
 interface NoticesPageProps {
     onBack: () => void;
@@ -31,15 +32,6 @@ type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A' | 'X' | 'I' | 'WZ' | 'XIV
  *  generous for awareness without flooding the list with irrelevance. */
 const NEAR_ME_RADIUS_NM = 500;
 
-function distanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R_NM = 3440.065;
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 /** Minimum distance (NM) from `pos` to any coordinate parsed out of
  *  the notice's body. Returns Infinity when the notice has no parsed
  *  coordinates — those notices are excluded by Near-me. */
@@ -47,7 +39,7 @@ function minNoticeDistanceNM(notice: Notice, pos: { lat: number; lon: number }):
     if (notice.coordinates.length === 0) return Infinity;
     let min = Infinity;
     for (const c of notice.coordinates) {
-        const d = distanceNM(c.lat, c.lon, pos.lat, pos.lon);
+        const d = calculateDistance(c.lat, c.lon, pos.lat, pos.lon);
         if (d < min) min = d;
     }
     return min;

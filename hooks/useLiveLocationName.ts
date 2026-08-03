@@ -28,6 +28,8 @@ import { GpsService } from '../services/GpsService';
 import { LocationStore } from '../stores/LocationStore';
 import { reverseGeocode } from '../services/weatherService';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance } from '../utils/navigationCalculations';
+import { NM_TO_M } from '../utils/units';
 
 const log = createLogger('useLiveLocationName');
 
@@ -45,16 +47,6 @@ const log = createLogger('useLiveLocationName');
 // (currently 5nm); only the location LABEL is sped up here.
 const POLL_INTERVAL_MS = 3_000;
 const MIN_MOVEMENT_M = 25;
-
-/** Approximate great-circle distance in metres between two coords. */
-function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6_371_000; // Earth radius in metres
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(a));
-}
 
 /**
  * Format a lat/lon pair as a human-readable marine coordinate, e.g.
@@ -108,7 +100,7 @@ export function useLiveLocationName(): string | null {
             if (!latest) return;
 
             const last = lastGeocodedRef.current;
-            if (last && distanceMeters(last.lat, last.lon, latest.lat, latest.lon) < MIN_MOVEMENT_M) {
+            if (last && calculateDistance(last.lat, last.lon, latest.lat, latest.lon) * NM_TO_M < MIN_MOVEMENT_M) {
                 return;
             }
 

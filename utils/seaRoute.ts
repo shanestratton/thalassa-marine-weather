@@ -10,6 +10,8 @@
  * on Mercator/Web-Mercator map projections, giving a realistic look.
  */
 
+import { calculateDistance } from './navigationCalculations';
+
 interface Coord {
     lat: number;
     lon: number;
@@ -64,17 +66,6 @@ function greatCircleArc(from: Coord, to: Coord, numPoints: number = 20): Coord[]
 }
 
 /**
- * Calculate the distance in nautical miles between two coordinates (Haversine).
- */
-function distanceNM(from: Coord, to: Coord): number {
-    const R = 3440.065; // Earth radius in NM
-    const dLat = toRad(to.lat - from.lat);
-    const dLon = toRad(to.lon - from.lon);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
  * Generate a smooth route through all waypoints using great circle arcs.
  *
  * Adaptively chooses the number of intermediate points based on segment
@@ -92,7 +83,7 @@ export function generateSeaRoute(waypoints: Coord[]): Coord[] {
     for (let i = 0; i < waypoints.length - 1; i++) {
         const from = waypoints[i];
         const to = waypoints[i + 1];
-        const dist = distanceNM(from, to);
+        const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
 
         // Adaptive point density: more points for longer segments
         const numPoints =

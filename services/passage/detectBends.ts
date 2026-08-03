@@ -28,10 +28,11 @@
  * order.
  */
 
+import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
+
 const TURN_THRESHOLD_DEG = 22.5;
 const MIN_SPACING_NM = 1.0; // one nautical mile — keeps synthetic WPs from doubling up
 const RDP_EPSILON_M = 200; // ~0.1nm tolerance — drops digital noise, keeps real geometry
-const NM_PER_DEG_LAT = 60; // close enough for the spacing heuristic
 
 export interface DetectedBend {
     /** Coordinate where the boat changes heading. */
@@ -78,8 +79,8 @@ export function detectBends(coordinates: Array<[number, number]>, options: Detec
         const prev = simplified[i - 1];
         const here = simplified[i];
         const next = simplified[i + 1];
-        const incoming = bearing(prev[1], prev[0], here[1], here[0]);
-        const outgoing = bearing(here[1], here[0], next[1], next[0]);
+        const incoming = calculateBearing(prev[1], prev[0], here[1], here[0]);
+        const outgoing = calculateBearing(here[1], here[0], next[1], next[0]);
         const delta = headingDelta(incoming, outgoing);
         if (delta < thresholdDeg) continue;
         candidates.push({
@@ -94,7 +95,7 @@ export function detectBends(coordinates: Array<[number, number]>, options: Detec
     //    earlier bends win when they cluster.
     const accepted: DetectedBend[] = [];
     const isClose = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
-        haversineNm(a.lat, a.lon, b.lat, b.lon) < minSpacingNm;
+        calculateDistance(a.lat, a.lon, b.lat, b.lon) < minSpacingNm;
 
     for (const c of candidates) {
         if (existing.some((wp) => isClose(c.coordinates, wp))) continue;
@@ -107,15 +108,6 @@ export function detectBends(coordinates: Array<[number, number]>, options: Detec
 
 // ── Geometry helpers ─────────────────────────────────────────────────
 
-function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const y = Math.sin(dLon) * Math.cos((lat2 * Math.PI) / 180);
-    const x =
-        Math.cos((lat1 * Math.PI) / 180) * Math.sin((lat2 * Math.PI) / 180) -
-        Math.sin((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
 function headingDelta(a: number, b: number): number {
     let d = Math.abs(a - b) % 360;
     if (d > 180) d = 360 - d;
@@ -123,19 +115,7 @@ function headingDelta(a: number, b: number): number {
 }
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6_371_000;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    return haversineMeters(lat1, lon1, lat2, lon2) / 1852;
-    // 1852 m = 1 nautical mile (international definition)
-    void NM_PER_DEG_LAT;
+    return calculateDistance(lat1, lon1, lat2, lon2) * 1852; // 1852 m = 1 NM
 }
 
 /** Perpendicular distance from P to line A→B in meters. */
@@ -150,8 +130,8 @@ function perpendicularDistanceMeters(
     const dAP = haversineMeters(aLat, aLon, pLat, pLon);
     const dAB = haversineMeters(aLat, aLon, bLat, bLon);
     if (dAB < 0.01) return dAP;
-    const bearAB = bearing(aLat, aLon, bLat, bLon);
-    const bearAP = bearing(aLat, aLon, pLat, pLon);
+    const bearAB = calculateBearing(aLat, aLon, bLat, bLon);
+    const bearAP = calculateBearing(aLat, aLon, pLat, pLon);
     const R = 6_371_000;
     const cross = Math.asin(Math.sin(dAP / R) * Math.sin(((bearAP - bearAB) * Math.PI) / 180)) * R;
     return Math.abs(cross);

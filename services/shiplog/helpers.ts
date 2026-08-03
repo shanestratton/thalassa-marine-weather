@@ -12,6 +12,7 @@
 
 import { ShipLogEntry } from '../../types';
 import { windToBeaufort, waveToSeaState, getWatchPeriod } from '../../utils/marineFormatters';
+import { calculateDistance as gcDistance, calculateBearing as gcBearing } from '../../utils/navigationCalculations';
 import { loadLargeDataSync, DATA_CACHE_KEY } from '../nativeStorage';
 
 import { createLogger } from '../../utils/createLogger';
@@ -19,7 +20,6 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('helpers');
 
 // --- CONSTANTS ---
-const EARTH_RADIUS_NM = 3440.065;
 
 // Shore distance thresholds in kilometers (1nm = 1.852km)
 const NEARSHORE_THRESHOLD_KM = 1.852; // < 1nm from shore
@@ -60,13 +60,7 @@ export const SHIP_LOGS_TABLE = 'ship_logs';
  * @returns Distance in nautical miles
  */
 export function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return EARTH_RADIUS_NM * c;
+    return gcDistance(lat1, lon1, lat2, lon2);
 }
 
 /**
@@ -74,19 +68,7 @@ export function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lo
  * @returns Bearing in degrees True (0-360)
  */
 export function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const lat1Rad = (lat1 * Math.PI) / 180;
-    const lat2Rad = (lat2 * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
-    const x = Math.sin(dLon) * Math.cos(lat2Rad);
-    const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
-
-    let bearing = (Math.atan2(x, y) * 180) / Math.PI;
-
-    // Normalize to 0-360
-    bearing = (bearing + 360) % 360;
-
-    return bearing;
+    return gcBearing(lat1, lon1, lat2, lon2);
 }
 
 /**

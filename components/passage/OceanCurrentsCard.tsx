@@ -12,6 +12,7 @@ import { OceanCurrentService, type CurrentBriefing } from '../../services/OceanC
 import { useSettings } from '../../context/SettingsContext';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
+import { calculateBearing } from '../../utils/navigationCalculations';
 import {
     useReadinessIdentityScope,
     useScopedReadinessStorageState,
@@ -56,12 +57,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     // Course bearing
     let courseBearing = 0;
     if (hasCoords) {
-        const dLon = ((destLon! - depLon!) * Math.PI) / 180;
-        const lat1 = (depLat! * Math.PI) / 180;
-        const lat2 = (destLat! * Math.PI) / 180;
-        const y = Math.sin(dLon) * Math.cos(lat2);
-        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-        courseBearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+        courseBearing = calculateBearing(depLat!, depLon!, destLat!, destLon!);
     }
 
     // Route distance + vessel speed

@@ -14,25 +14,13 @@ import { GpsService } from '../../services/GpsService';
 import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../../services/shiplog/PositionResolver';
 import { formatAge } from '../../services/GpsReceiverStatusService';
 import { createLogger } from '../../utils/createLogger';
+import { calculateDistance } from '../../utils/navigationCalculations';
 
 const log = createLogger('VesselTracker');
 
 // ── Trail config ──
 const MAX_TRAIL_POINTS = 500; // Trim beyond this to keep memory in check
 const MIN_TRAIL_DISTANCE_M = 5; // Don't add points closer than 5m (noise filter)
-
-/**
- * Haversine distance in metres between two lat/lon pairs.
- */
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6_371_000;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 // ── Source/layer IDs ──
 const TRAIL_SOURCE = 'vessel-trail';
@@ -311,7 +299,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             // Noise filter: skip if too close to last point
             if (trail.length > 0) {
                 const last = trail[trail.length - 1];
-                const dist = haversineM(last[1], last[0], latitude, longitude);
+                const dist = calculateDistance(last[1], last[0], latitude, longitude) * 1852; // NM → metres
                 if (dist < MIN_TRAIL_DISTANCE_M) return;
             }
 

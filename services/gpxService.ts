@@ -11,6 +11,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { createLogger } from '../utils/createLogger';
 import { isTrackworthyEntry } from './shiplog/helpers';
+import { calculateDistance as haversineNM, formatDMS } from '../utils/navigationCalculations';
 
 const log = createLogger('GPX');
 
@@ -504,34 +505,6 @@ function escapeXml(str: string): string {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
-}
-
-/**
- * Haversine formula — distance between two coordinates in nautical miles
- */
-function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 3440.065; // Earth radius in NM
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-}
-
-/**
- * Format coordinates as DMS for imported entries
- */
-function formatDMS(lat: number, lon: number): string {
-    const formatCoord = (value: number, posChar: string, negChar: string): string => {
-        const absVal = Math.abs(value);
-        const degrees = Math.floor(absVal);
-        const minutes = (absVal - degrees) * 60;
-        const dir = value >= 0 ? posChar : negChar;
-        return `${degrees}°${minutes.toFixed(1)}'${dir}`;
-    };
-    return `${formatCoord(lat, 'N', 'S')} ${formatCoord(lon, 'E', 'W')}`;
 }
 
 // --- FILE SHARING ---

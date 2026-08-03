@@ -357,7 +357,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
         }
 
-        // Forward / reverse bearings (needed for both short and long route paths)
+        // Forward bearing (needed for both short and long route paths)
         const dLon = ((arrival.lon - departure.lon) * Math.PI) / 180;
         const φ1 = (departure.lat * Math.PI) / 180;
         const φ2 = (arrival.lat * Math.PI) / 180;
@@ -365,14 +365,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             (Math.atan2(
                 Math.sin(dLon) * Math.cos(φ2),
                 Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon),
-            ) *
-                180) /
-            Math.PI;
-        const dLonRev = ((departure.lon - arrival.lon) * Math.PI) / 180;
-        const _revBearing =
-            (Math.atan2(
-                Math.sin(dLonRev) * Math.cos(φ1),
-                Math.cos(φ2) * Math.sin(φ1) - Math.sin(φ2) * Math.cos(φ1) * Math.cos(dLonRev),
             ) *
                 180) /
             Math.PI;

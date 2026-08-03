@@ -27,6 +27,7 @@ import { BgGeoManager } from './BgGeoManager';
 import { AnchorWatchSyncService } from './AnchorWatchSyncService';
 import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS, nextDragState } from './anchorGpsWatchdog';
@@ -148,29 +149,19 @@ interface PersistedWatchState {
 
 // ------- HELPERS -------
 
-/** Haversine distance in meters between two lat/lng points */
+/**
+ * Haversine distance in meters between two lat/lng points.
+ * Delegates to the canonical utils/navigationCalculations haversine
+ * (R = 3440.065 NM = 6 371 000.4 m vs the old local 6 371 000 m — a
+ * sub-millimetre-per-km drift, irrelevant at geofence scale).
+ */
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371000; // Earth radius in meters
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return calculateDistance(lat1, lon1, lat2, lon2) * 1852;
 }
 
 /** Bearing from point 1 to point 2 in degrees (0-360) */
 function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    return calculateBearing(lat1, lon1, lat2, lon2);
 }
 
 /**
