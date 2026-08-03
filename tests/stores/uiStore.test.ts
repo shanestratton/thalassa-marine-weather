@@ -27,10 +27,13 @@ describe('uiStore', () => {
             expect(useUIStore.getState().transitionDirection).toBe('tab');
         });
 
-        it('uses tab direction from chat to vessel', () => {
+        // Week-2 five-tab IA: chat (Scuttlebutt) moved under Vessel →
+        // Wardroom, so leaving it for the Vessel hub is a POP up the
+        // hierarchy, not a tab slide.
+        it('uses pop direction from chat back to vessel', () => {
             useUIStore.setState({ currentView: 'chat' });
             useUIStore.getState().setPage('vessel');
-            expect(useUIStore.getState().transitionDirection).toBe('tab');
+            expect(useUIStore.getState().transitionDirection).toBe('pop');
         });
 
         it('uses push direction to overlay pages', () => {
@@ -38,9 +41,16 @@ describe('uiStore', () => {
             expect(useUIStore.getState().transitionDirection).toBe('push');
         });
 
-        it('uses push direction to voyage overlay', () => {
+        // voyage (Plan) was promoted from an overlay to a top-level tab in
+        // the Week-2 restructure — dashboard → voyage is now tab-to-tab.
+        it('uses tab direction to the voyage (Plan) tab', () => {
             useUIStore.getState().setPage('voyage');
-            expect(useUIStore.getState().transitionDirection).toBe('push');
+            expect(useUIStore.getState().transitionDirection).toBe('tab');
+        });
+
+        it('uses tab direction to the details (Log) tab', () => {
+            useUIStore.getState().setPage('details');
+            expect(useUIStore.getState().transitionDirection).toBe('tab');
         });
 
         it('uses pop direction from overlay back to tab', () => {
