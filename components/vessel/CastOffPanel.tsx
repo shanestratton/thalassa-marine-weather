@@ -15,6 +15,7 @@ import {
     castOff,
     endVoyage,
     createVoyage,
+    updateVoyage,
     type Voyage,
 } from '../../services/VoyageService';
 import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } from '../../services/VoyageLegService';
@@ -238,6 +239,53 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         setStep('active');
     }, []);
 
+    // Standard header back navigation — every step has a chevron home.
+    const handleBack = useCallback(() => {
+        triggerHaptic('light');
+        if (step === 'create') {
+            setStep('select');
+        } else if (step === 'preflight') {
+            setStep('select');
+            setSelected(null);
+        } else if (step === 'arrive' || step === 'depart_leg') {
+            setArrivalPort('');
+            setStep('active');
+        } else {
+            // 'select' and 'active' are the roots of their flows.
+            onClose();
+        }
+    }, [step, onClose]);
+
+    // ── Editable voyage endpoints ──
+    // From/To come from splitting the route label at creation time, and a
+    // tracer route named without the "A - B" form leaves the WHOLE name in
+    // departure_port and nothing in destination_port — which then reads as
+    // hard-coded nonsense on this screen (Shane 2026-08-04: "the origin and
+    // destination is incorrect"). The cells are now inputs (and always
+    // rendered — a null destination used to hide its cell entirely, so it
+    // could never be fixed), persisting on blur.
+    const [editFrom, setEditFrom] = useState('');
+    const [editTo, setEditTo] = useState('');
+    useEffect(() => {
+        setEditFrom(activeVoyage?.departure_port ?? '');
+        setEditTo(activeVoyage?.destination_port ?? '');
+        // Reseed only when the voyage itself changes — not on every row update.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeVoyage?.id]);
+    const persistPorts = useCallback(async () => {
+        if (!activeVoyage) return;
+        const departure_port = editFrom.trim() || null;
+        const destination_port = editTo.trim() || null;
+        if (
+            departure_port === (activeVoyage.departure_port ?? null) &&
+            destination_port === (activeVoyage.destination_port ?? null)
+        ) {
+            return;
+        }
+        const { voyage } = await updateVoyage(activeVoyage.id, { departure_port, destination_port });
+        if (voyage) setActiveVoyage(voyage);
+    }, [activeVoyage, editFrom, editTo]);
+
     return (
         <OverlayPortal className="bg-black/80 flex items-stretch justify-center" role="presentation">
             <div
@@ -245,12 +293,29 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="cast-off-title"
-                className="w-full max-w-lg bg-[#0a0e14] overflow-y-auto pb-24"
+                className="w-full max-w-lg bg-[#0a0e14] overflow-y-auto pb-24 pt-[max(0.75rem,env(safe-area-inset-top))]"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
+                {/* Header — safe-area padded like every other screen, with the
+                    standard back chevron (Shane 2026-08-04: heading sat under
+                    the status bar and there was no way back). */}
                 <div className="flex items-center justify-between p-5 pb-3">
                     <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleBack}
+                            className="w-9 h-9 -ml-1 shrink-0 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
+                            aria-label="Back"
+                        >
+                            <svg
+                                className="w-5 h-5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
                         <div className="p-2 rounded-xl bg-amber-500/10">
                             <span className="text-xl">⛵</span>
                         </div>
@@ -321,25 +386,41 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </div>
                             <h3 className="text-lg font-black text-white">{activeVoyage.voyage_name}</h3>
                             <div className="grid grid-cols-2 gap-2 text-[11px]">
-                                {currentLeg ? (
-                                    <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                        <span className="text-gray-500">From</span>
-                                        <p className="text-white font-bold">{currentLeg.departure_port}</p>
-                                    </div>
-                                ) : (
-                                    activeVoyage.departure_port && (
-                                        <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                            <span className="text-gray-500">From</span>
-                                            <p className="text-white font-bold">{activeVoyage.departure_port}</p>
-                                        </div>
-                                    )
-                                )}
-                                {activeVoyage.destination_port && (
-                                    <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                        <span className="text-gray-500">To</span>
-                                        <p className="text-white font-bold">{activeVoyage.destination_port}</p>
-                                    </div>
-                                )}
+                                {/* Voyage endpoints — editable in place, and always
+                                    rendered so an empty destination can be filled
+                                    rather than silently hidden. These feed the
+                                    float plan's From/To, so getting them right
+                                    matters beyond cosmetics. */}
+                                <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                    <label htmlFor="voyage-from" className="text-gray-500">
+                                        From{currentLeg ? ` · Leg ${currentLeg.leg_number}` : ''}
+                                    </label>
+                                    <input
+                                        id="voyage-from"
+                                        type="text"
+                                        value={editFrom}
+                                        onChange={(e) => setEditFrom(e.target.value)}
+                                        onBlur={persistPorts}
+                                        onFocus={scrollInputAboveKeyboard}
+                                        placeholder="Departure port"
+                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-none placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
+                                    />
+                                </div>
+                                <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                    <label htmlFor="voyage-to" className="text-gray-500">
+                                        To
+                                    </label>
+                                    <input
+                                        id="voyage-to"
+                                        type="text"
+                                        value={editTo}
+                                        onChange={(e) => setEditTo(e.target.value)}
+                                        onBlur={persistPorts}
+                                        onFocus={scrollInputAboveKeyboard}
+                                        placeholder="Destination"
+                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-none placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
+                                    />
+                                </div>
                                 <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
                                     <span className="text-gray-500">Crew</span>
                                     <p className="text-white font-bold">{activeVoyage.crew_count}</p>
