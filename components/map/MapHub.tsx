@@ -29,8 +29,6 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 import { useLocationStore } from '../../stores/LocationStore';
 import { useWeather } from '../../context/WeatherContext';
-import { WindStore } from '../../stores/WindStore';
-import type { ConsensusMatrixData } from '../../services/ConsensusMatrixEngine';
 import { LocationStore } from '../../stores/LocationStore';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
@@ -53,6 +51,9 @@ import {
 import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
+import { useMapFitRequest } from './useMapFitRequest';
+import { useConsensusMatrix } from './useConsensusMatrix';
+import { usePinViewMode, readCurrentPinView, type PinViewHandoff } from './usePinViewMode';
 // useRouteNudge removed 2026-05-05 — long-press-to-drag the route line was
 // half-implemented (the dispatched 'route-nudge' just set arrival to the
 // via-point, dropping the actual destination) and unreliable in practice.
@@ -71,7 +72,7 @@ import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useTraceHistory } from './useTraceHistory';
 import { useTraceDraft } from './useTraceDraft';
-import { useActiveCyclones } from './useActiveCyclones';
+import { useMapHubLayerVisibility } from './useMapHubLayerVisibility';
 import { useAnchorageLayer } from './useAnchorageLayer';
 import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
@@ -81,7 +82,7 @@ import { useSstRasterLayer } from './useSstRasterLayer';
 import { useChlRasterLayer } from './useChlRasterLayer';
 import { useSeaIceRasterLayer } from './useSeaIceRasterLayer';
 import { useMldRasterLayer } from './useMldRasterLayer';
-import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
+import { useMpaLayer } from './useMpaLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 // Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
 import {
@@ -184,15 +185,13 @@ import {
 // imagery. Passed to applyChartDetailLevel so its restore side yields (audit
 // rank 8: LNDARE_ISLET was the ~8 Hz default-config styledata loop).
 const IMAGERY_SCRUB_OWNED: ReadonlySet<string> = new Set([ENC_VEC_LAYERS.LNDARE_ISLET]);
-import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
-import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useMobMarker } from './useMobMarker';
 import { useAnchorSwingLayer } from './useAnchorSwingLayer';
-import { MobService } from '../../services/MobService';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { RadialHelmMenu } from './RadialHelmMenu';
+import { buildTacticalState } from './buildTacticalState';
 import { MapActionFabs } from './MapActionFabs';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 
@@ -292,22 +291,7 @@ const StormPickerLoading: React.FC = () => (
 );
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { usePersistedState, usePersistedStringSet } from '../../hooks/usePersistedState';
-type PinViewHandoff = {
-    lat: number;
-    lng: number;
-    identity: AuthIdentityScope;
-};
-
-function readCurrentPinView(): PinViewHandoff | null {
-    if (typeof window === 'undefined') return null;
-    const pinView = window.__thalassaPinView;
-    if (!pinView) return null;
-    if (!isAuthIdentityScopeCurrent(pinView.identity)) {
-        if (window.__thalassaPinView === pinView) delete window.__thalassaPinView;
-        return null;
-    }
-    return pinView;
-}
+// PinViewHandoff + readCurrentPinView moved to ./usePinViewMode (imported above).
 
 // ── Component ──────────────────────────────────────────────────
 export const MapHub: React.FC<MapHubProps> = ({
@@ -1573,9 +1557,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         phase?: string;
     } | null>(null);
     const [passageNotice, setPassageNotice] = useState<PassageNotice | null>(null);
-    const [showConsensus, setShowConsensus] = useState(false);
-    const [consensusData, setConsensusData] = useState<ConsensusMatrixData | null>(null);
-    const playheadMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     // ── Weather Inspect Popup ──
     // An imperative Mapbox popup with its own detached React root, in
@@ -1603,6 +1584,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // RoutePlanner handoff makes showPassage true on this first render, so
     // every downstream layer sees a planning surface from frame one.
     const passage = usePassagePlanner(mapRef, mapReady);
+    // Consensus matrix state + effects — components/map/useConsensusMatrix.ts.
+    // Called here rather than at the old state position above because it needs
+    // `passage`, which is only in scope from the line above down.
+    const { showConsensus, setShowConsensus, consensusData, handleScrubPosition } = useConsensusMatrix({
+        mapRef,
+        passage,
+        setIsoProgress,
+    });
     const planningSurface = shouldSuppressChartOverlays(cleanPlanningMap, coordCaptureMode, passage.showPassage);
     const planChartKeyVisible = shouldShowPlanChartKey(
         cleanPlanningMap,
@@ -1613,11 +1602,46 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
     const browseWeatherInspectMode = weatherInspectMode && !planningSurface;
     const deviceMode = useDeviceMode();
-    // Map state persisted across Charts tab switches so the user comes
-    // back to exactly what they left on. Time-critical overlays that
-    // are meant to be session-only (cyclone / squall / weather inspect)
-    // deliberately stay as plain useState.
-    const [aisVisible, setAisVisible] = usePersistedState('thalassa_map_ais_visible', false);
+    // ── Browse-layer visibility — components/map/useMapHubLayerVisibility.ts ──
+    // Per-layer toggles, MOB highlight, storm picker + cyclone catalogue,
+    // the storm-select handler, and the browse* planning-surface gates.
+    // Called exactly where aisVisible used to be declared so hook order at
+    // this position is unchanged.
+    const {
+        aisVisible,
+        setAisVisible,
+        setChokepointVisible,
+        cycloneVisible,
+        setCycloneVisible,
+        squallVisible,
+        setSquallVisible,
+        vesselTrackingVisible,
+        seamarkVisible,
+        setSeamarkVisible,
+        anchorageVisible,
+        setAnchorageVisible,
+        mobActive,
+        tideStationsVisible,
+        setTideStationsVisible,
+        lightningVisible,
+        setLightningVisible,
+        closestStorm,
+        setClosestStorm,
+        skipAutoFlyRef,
+        stormPickerOpen,
+        setStormPickerOpen,
+        allCyclones,
+        cyclonePickerPendingRef,
+        handleSelectStorm,
+        browseAisVisible,
+        browseChokepointVisible,
+        browseCycloneVisible,
+        browseSquallVisible,
+        browseSeamarkVisible,
+        browseAnchorageVisible,
+        browseTideStationsVisible,
+        browseLightningVisible,
+    } = useMapHubLayerVisibility({ mapRef, planningSurface });
     // ENC vector chart visibility.
     //
     // PINNED ON 2026-07-22, for the same reason as encChartDetail below: the
@@ -1663,23 +1687,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // state used to be declared: below mapReady, above chokepointVisible, so
     // hook order is unchanged.
     const { encCellCount, encHydration, encNoCoverage } = useEncChartInventory(mapRef, mapReady, encVisible);
-    const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
-    const [cycloneVisible, setCycloneVisible] = useState(false);
-    const [squallVisible, setSquallVisible] = useState(false);
-    // Vessel tracking now defaults to TRUE so a new user always sees
-    // their own boat on the chart from the first frame — without having
-    // to discover the toggle in the radial menu. Existing users who
-    // explicitly turned it off keep their preference (usePersistedState
-    // reads localStorage first). Toggle still works to dim down to the
-    // simpler GPS dot via useLocationDot.
-    const [vesselTrackingVisible] = usePersistedState('thalassa_map_vessel_tracking_visible', true);
-    const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
-    const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
-    // Active-MOB flag for the radial menu's MOB item highlight. MobService
-    // emits ~1 Hz while active; setState with an unchanged boolean bails
-    // before re-render, so this costs nothing in steady state.
-    const [mobActive, setMobActive] = useState<boolean>(() => MobService.isActive());
-    useEffect(() => MobService.subscribe((s) => setMobActive(s.active !== null)), []);
     // Satellite BASE imagery (Esri World Imagery raster under every custom
     // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
     // "satellite overlay instead of the enc overlay when running a route".
@@ -2198,11 +2205,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         'thalassa_map_chart_controls_hidden',
         false,
     );
-    const [tideStationsVisible, setTideStationsVisible] = usePersistedState(
-        'thalassa_map_tide_stations_visible',
-        false,
-    );
-    const [lightningVisible, setLightningVisible] = usePersistedState('thalassa_map_lightning_visible', false);
     // Seaway Graph debug overlay (masterplan Stage IV Phase 10) — gates/
     // edges compiled from installed ENC cells. Per-device flag, never
     // SESSION-ONLY, deliberately NOT persisted (2026-07-10, second offence):
@@ -2223,23 +2225,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // AvNavService still discovers available charts in the background so
     // the layer menu can list them, but nothing renders until toggled on.
 
-    const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
-    const skipAutoFlyRef = useRef(false);
-    // Storm picker modal — opens when the user taps Storms in the radial menu
-    // AND there are multiple active cyclones to choose from.
-    const [stormPickerOpen, setStormPickerOpen] = useState(false);
-    const { cyclones: allCyclones } = useActiveCyclones(
-        !planningSurface && (cycloneVisible || squallVisible || stormPickerOpen),
-    );
-    // The catalogue is now demand-loaded. Remember a skipper's first Storms
-    // tap while it arrives, so multiple systems still open the chooser on that
-    // same tap rather than making them tap the radial control again.
-    const cyclonePickerPendingRef = useRef(false);
-    useEffect(() => {
-        if (!cyclonePickerPendingRef.current || !cycloneVisible || allCyclones.length <= 1) return;
-        cyclonePickerPendingRef.current = false;
-        setStormPickerOpen(true);
-    }, [allCyclones.length, cycloneVisible]);
     /** One-time toast surfaced when PerfGuardian downtiered the device
      *  on the previous session. Cleared on dismiss / first render. */
     const [perfToast, setPerfToast] = useState<boolean>(() => consumePerfDowntierToast());
@@ -2392,37 +2377,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const weatherRef = useRef<{ toggleLayer: (k: any) => void; activeLayers: Set<any> } | null>(null);
 
-    // Handle storm selection from the picker menu
-    const handleSelectStorm = useCallback(
-        (storm: ActiveCyclone) => {
-            // Signal useCycloneLayer to skip its auto-fly on the next load.
-            // We handle the flyTo here to the user-selected storm.
-            skipAutoFlyRef.current = true;
-            if (!cycloneVisible) setCycloneVisible(true);
-            setSquallVisible(false); // Mutually exclusive with squall
-            setClosestStorm(storm);
-            const map = mapRef.current;
-            if (map) {
-                map.flyTo({
-                    center: [storm.currentPosition.lon, storm.currentPosition.lat],
-                    zoom: 4,
-                    duration: 2000,
-                    essential: true,
-                });
-            }
-        },
-        [mapRef, cycloneVisible],
-    );
-
     // ── Passage Planner ──
-    const browseAisVisible = aisVisible && !planningSurface;
-    const browseChokepointVisible = chokepointVisible && !planningSurface;
-    const browseCycloneVisible = cycloneVisible && !planningSurface;
-    const browseSquallVisible = squallVisible && !planningSurface;
-    const browseSeamarkVisible = seamarkVisible && !planningSurface;
-    const browseAnchorageVisible = anchorageVisible && !planningSurface;
-    const browseTideStationsVisible = tideStationsVisible && !planningSurface;
-    const browseLightningVisible = lightningVisible && !planningSurface;
     const noChartIds = useMemo(() => new Set<string>(), []);
 
     // ── Course frame: resolve From/To typed in the tracer panel ──
@@ -2623,72 +2578,6 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.off('zoomend', onZoomEnd);
         };
     }, [browseCycloneVisible, closestStorm, mapReady, mapRef]);
-
-    // Clear isochrone progress when route completes
-    useEffect(() => {
-        if (passage.isoResultRef.current) setIsoProgress(null);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [passage.routeAnalysis]);
-
-    // Generate consensus data when route completes
-    // Dynamic import — ConsensusMatrixEngine is heavy computation, only needed post-route
-    useEffect(() => {
-        const isoResult = passage.isoResultRef.current;
-        if (!isoResult || !passage.routeAnalysis) {
-            setConsensusData(null);
-            return;
-        }
-        const windGrid = WindStore.getState().grid;
-        if (!windGrid) return;
-
-        (async () => {
-            try {
-                const { generateConsensusMatrix } = await import('../../services/ConsensusMatrixEngine');
-                const data = await generateConsensusMatrix(
-                    isoResult,
-                    windGrid,
-                    passage.departureTime || new Date().toISOString(),
-                    undefined,
-                    6,
-                );
-                setConsensusData(data);
-            } catch (err) {
-                log.warn('[Consensus] Failed to generate matrix:', err);
-            }
-        })();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [passage.routeAnalysis, passage.departureTime]);
-
-    // Route-sync playhead marker
-    const handleScrubPosition = useCallback((lat: number, lon: number) => {
-        const map = mapRef.current;
-        if (!map) return;
-
-        if (!playheadMarkerRef.current) {
-            const el = document.createElement('div');
-            el.style.cssText = `
-                width: 20px; height: 20px;
-                background: linear-gradient(135deg, #38bdf8, #a78bfa);
-                border: 3px solid #fff;
-                border-radius: 50%;
-                box-shadow: 0 0 16px rgba(56,189,248,0.5), 0 4px 12px rgba(0,0,0,0.3);
-                transition: opacity 0.2s;
-            `;
-            playheadMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
-                .setLngLat([lon, lat])
-                .addTo(map);
-        } else {
-            playheadMarkerRef.current.setLngLat([lon, lat]);
-        }
-    }, []);
-
-    // Clean up playhead when consensus closes
-    useEffect(() => {
-        if (!showConsensus && playheadMarkerRef.current) {
-            playheadMarkerRef.current.remove();
-            playheadMarkerRef.current = null;
-        }
-    }, [showConsensus]);
 
     // ── Weather-inspect popup (tap gesture, inspect mode only) ──
     // Hoisted out of the handler map so onMapTap stays a thin router now
@@ -3388,48 +3277,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // cells for the viewport whenever the toggle is on (Phase 10).
     useSeawayDebugLayer(mapRef, mapReady, seawayDebugVisible);
 
-    // ── Pending fit-to-bbox request ──
-    // Used by EncCellManager (and any future "show me on the map"
-    // entry point) to fit the viewport to a bbox after navigating
-    // to the map. We consume on mount (if a request was staged
-    // before navigation) and on subscription bumps (if one comes
-    // in while the map is already mounted).
-    useEffect(() => {
-        if (!mapReady) return;
-        const apply = () => {
-            const map = mapRef.current;
-            if (!map) return;
-            const target = consumeMapFit();
-            if (!target) return;
-            const [minLon, minLat, maxLon, maxLat] = target.bbox;
-            try {
-                map.fitBounds(
-                    [
-                        [minLon, minLat],
-                        [maxLon, maxLat],
-                    ],
-                    {
-                        padding: target.paddingPx ?? 60,
-                        maxZoom: target.maxZoom ?? 11,
-                        duration: 1200,
-                        essential: true,
-                    },
-                );
-            } catch (err) {
-                // Mapbox throws on degenerate bboxes (single point).
-                // Fall back to a simple flyTo at the centre.
-                map.flyTo({
-                    center: [(minLon + maxLon) / 2, (minLat + maxLat) / 2],
-                    zoom: target.maxZoom ?? 11,
-                    essential: true,
-                });
-            }
-        };
-        // Apply any request staged before mount.
-        if (peekMapFit()) apply();
-        // Apply any future requests dispatched while we're mounted.
-        return subscribeMapFit(apply);
-    }, [mapReady]);
+    // Pending fit-to-bbox requests (EncCellManager "show me on the map") —
+    // components/map/useMapFitRequest.ts.
+    useMapFitRequest(mapRef, mapReady);
 
     // ── Hide OpenSeaMap raster overlays when another source draws navaids ──
     // Both raster overlays — 'openseamap-overlay' (baked into the map style,
@@ -3496,151 +3346,24 @@ export const MapHub: React.FC<MapHubProps> = ({
         };
     }, [mapRef, mapReady, chartsActive, encActive, weather.activeLayers]);
 
-    // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
-    useEffect(() => {
-        const pv = readCurrentPinView();
-        if (!isPinView || !pv || !mapReady || !mapRef.current) return;
-        ownedPinViewRef.current = pv;
-        const map = mapRef.current;
-
-        // Remove any existing pin
-        if (pinMarkerRef.current) pinMarkerRef.current.remove();
-
-        // Create visual pin marker
-        const el = document.createElement('div');
-        el.className = 'mapbox-pin-marker';
-        const pinDiv = document.createElement('div');
-        pinDiv.style.cssText =
-            'width:32px;height:32px;background:linear-gradient(135deg,#f59e0b,#ef4444);border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 4px 16px rgba(245,158,11,0.5);animation:pinBounce 0.4s ease-out;';
-        el.appendChild(pinDiv);
-        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([pv.lng, pv.lat]).addTo(map);
-        pinMarkerRef.current = marker;
-
-        // Fly to the pin
-        map.flyTo({ center: [pv.lng, pv.lat], zoom: 7, duration: 1200 });
-        return () => {
-            if (pinMarkerRef.current === marker) {
-                marker.remove();
-                pinMarkerRef.current = null;
-            }
-        };
-    }, [isPinView, mapReady]);
-
-    // ── Pin View: temporarily clear weather overlays for a clean map ──
-    // Shane: "when the punter does click the pin, we need to ensure
-    // there are no other layers showing. at the moment, all the layers
-    // that where on stay there." Solution: snapshot the user's active
-    // weather layers + cyclone/squall toggles when entering pin view,
-    // turn them off, restore on exit. The user's chart-catalog
-    // selection (their chosen vector charts) stays — that's
-    // legitimate context for navigating to a pin.
-    const savedLayersRef = useRef<{
-        weather: Set<WeatherLayer> | null;
-        cyclone: boolean;
-        squall: boolean;
-    } | null>(null);
-    useEffect(() => {
-        if (!isPinView) return;
-        // Snapshot
-        savedLayersRef.current = {
-            // userLayers, not activeLayers — the latter reads empty under any
-            // suppressing surface, and this snapshot is restored on exit.
-            weather: new Set(weather.userLayers),
-            cyclone: cycloneVisible,
-            squall: squallVisible,
-        };
-        // Clear
-        weather.setActiveLayer('none');
-        setCycloneVisible(false);
-        setSquallVisible(false);
-        return () => {
-            // Restore on exit
-            const saved = savedLayersRef.current;
-            if (!saved) return;
-            // Restore weather layers one by one (toggleLayer preserves
-            // cross-group selections, which is how the user had them).
-            saved.weather?.forEach((layer) => {
-                if (!weather.activeLayers.has(layer)) weather.toggleLayer(layer);
-            });
-            setCycloneVisible(saved.cyclone);
-            setSquallVisible(saved.squall);
-            savedLayersRef.current = null;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isPinView]);
-
-    // ── Pin View: Get Directions handler ──
-    // Builds a Mapbox driving route from current GPS to the pin and
-    // saves it as a VoyagePlan. Exits pin view on success so the
-    // user's normal layers come back along with the route, ready to
-    // navigate.
-    const [pinDirectionsBusy, setPinDirectionsBusy] = useState(false);
-    const [pinDirectionsError, setPinDirectionsError] = useState<string | null>(null);
-
-    useEffect(() => {
-        const syncIdentity = () => {
-            const pinView = readCurrentPinView();
-            ownedPinViewRef.current = pinView;
-            setIsPinView(!!pinView);
-            setPinDirectionsBusy(false);
-            setPinDirectionsError(null);
-        };
-        const unsubscribeIdentity = subscribeAuthIdentityScope(syncIdentity);
-        return () => {
-            unsubscribeIdentity();
-            const ownedPinView = ownedPinViewRef.current;
-            if (ownedPinView && window.__thalassaPinView === ownedPinView) {
-                delete window.__thalassaPinView;
-            }
-            ownedPinViewRef.current = null;
-        };
-    }, []);
-
-    const handlePinDirections = useCallback(async () => {
-        const pv = readCurrentPinView();
-        if (!pv || pinDirectionsBusy) return;
-        ownedPinViewRef.current = pv;
-        const actionScope = pv.identity;
-        const destination = Object.freeze({ lat: pv.lat, lng: pv.lng });
-        setPinDirectionsBusy(true);
-        setPinDirectionsError(null);
-        try {
-            const { GpsService } = await import('../../services/GpsService');
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            if (!pos) {
-                setPinDirectionsError('Could not get your GPS position.');
-                return;
-            }
-            const { buildDirectionsVoyagePlan } = await import('../../services/MapboxDirectionsService');
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const plan = await buildDirectionsVoyagePlan(
-                { lat: pos.latitude, lon: pos.longitude, name: 'My Location' },
-                { lat: destination.lat, lon: destination.lng, name: 'Pin' },
-                'driving',
-            );
-            if (!isAuthIdentityScopeCurrent(actionScope) || window.__thalassaPinView !== pv) return;
-            if (!plan) {
-                setPinDirectionsError('No driving route found.');
-                return;
-            }
-            saveVoyagePlan(plan);
-            // Exit pin view so layers/route are visible normally.
-            delete window.__thalassaPinView;
-            ownedPinViewRef.current = null;
-            setIsPinView(false);
-        } catch (e) {
-            if (isAuthIdentityScopeCurrent(actionScope)) {
-                setPinDirectionsError(e instanceof Error ? e.message : 'Directions failed.');
-            }
-        } finally {
-            if (isAuthIdentityScopeCurrent(actionScope)) {
-                setPinDirectionsBusy(false);
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pinDirectionsBusy]);
+    // ── Pin View (chat pin tap) — components/map/usePinViewMode.ts ──
+    // Pin marker, weather-layer snapshot/restore, identity sync, and the
+    // Get Directions handler. isPinView/ownedPinViewRef stay declared above
+    // (the tracer region reads them); this hook only consumes them.
+    const { pinDirectionsBusy, pinDirectionsError, handlePinDirections } = usePinViewMode({
+        mapRef,
+        mapReady,
+        isPinView,
+        setIsPinView,
+        ownedPinViewRef,
+        pinMarkerRef,
+        weather,
+        cycloneVisible,
+        setCycloneVisible,
+        squallVisible,
+        setSquallVisible,
+        saveVoyagePlan,
+    });
 
     // Picker hosts still need a fully interactive map, so they cannot use the
     // static `embedded` contract. Treat pickerMode as its own chrome boundary:
@@ -3767,129 +3490,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // wins, which is the bug rather than the fix.
                         toggleLayer={helmToggleLayer}
                         selectInGroup={helmSelectInGroup}
-                        tacticalState={{
+                        tacticalState={buildTacticalState({
                             aisVisible,
-                            onToggleAis: () => {
-                                setAisVisible((v) => {
-                                    if (!v) {
-                                        setSquallVisible(false);
-                                        setCycloneVisible(false);
-                                    }
-                                    return !v;
-                                });
-                            },
+                            setAisVisible,
                             cycloneVisible,
-                            onToggleCyclones: () => {
-                                // When MULTIPLE cyclones are active, open the picker modal
-                                // instead of just toggling — otherwise the user has no way
-                                // to switch between storms (previous behaviour auto-focused
-                                // only the closest one). With 0 or 1 storms, fall back to
-                                // the simple toggle.
-                                if (allCyclones.length > 1) {
-                                    cyclonePickerPendingRef.current = false;
-                                    setStormPickerOpen(true);
-                                    // Also enable the layer if it's off so the picked storm
-                                    // becomes visible immediately.
-                                    if (!cycloneVisible) {
-                                        setCycloneVisible(true);
-                                        setSquallVisible(false);
-                                        setAisVisible(false);
-                                        setChokepointVisible(false);
-                                        setSeamarkVisible(false);
-                                        setTideStationsVisible(false);
-                                        setWeatherInspectMode(false);
-                                        weather.setActiveLayer('none');
-                                    }
-                                    return;
-                                }
-                                // Single- or zero-storm case — plain toggle (existing behaviour)
-                                const willBeVisible = !cycloneVisible;
-                                cyclonePickerPendingRef.current = willBeVisible;
-                                setCycloneVisible(willBeVisible);
-                                if (willBeVisible) {
-                                    setSquallVisible(false);
-                                    setAisVisible(false);
-                                    setChokepointVisible(false);
-                                    setSeamarkVisible(false);
-                                    setTideStationsVisible(false);
-                                    setWeatherInspectMode(false);
-                                    weather.setActiveLayer('none');
-                                }
-                            },
+                            setCycloneVisible,
                             squallVisible,
-                            onToggleSquall: () => {
-                                const willBeVisible = !squallVisible;
-                                setSquallVisible(willBeVisible);
-                                if (willBeVisible) {
-                                    setCycloneVisible(false);
-                                    setAisVisible(false);
-                                    setChokepointVisible(false);
-                                    setSeamarkVisible(false);
-                                    setTideStationsVisible(false);
-                                    setWeatherInspectMode(false);
-                                    weather.setActiveLayer('none');
-                                }
-                            },
-                            lightningVisible,
-                            onToggleLightning: () => {
-                                const next = !lightningVisible;
-                                // The other half of the wind/lightning exclusion
-                                // wired on toggleLayer above. 'velocity' is a
-                                // legacy alias for the same overlay, so both
-                                // keys have to be cleared or the particles
-                                // survive under a different name.
-                                if (next) {
-                                    if (weather.activeLayers.has('wind')) weather.toggleLayer('wind');
-                                    if (weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
-                                }
-                                setLightningVisible(next);
-                            },
-                            weatherInspectMode,
-                            onToggleWeatherInspect: () => {
-                                setWeatherInspectMode((v) => {
-                                    if (!v) {
-                                        setSquallVisible(false);
-                                        setCycloneVisible(false);
-                                    }
-                                    return !v;
-                                });
-                            },
+                            setSquallVisible,
+                            allCyclones,
+                            cyclonePickerPendingRef,
+                            setStormPickerOpen,
+                            setChokepointVisible,
                             seamarkVisible,
-                            onToggleSeamark: () => {
-                                setSeamarkVisible((v) => {
-                                    if (!v) {
-                                        setSquallVisible(false);
-                                        setCycloneVisible(false);
-                                    }
-                                    return !v;
-                                });
-                            },
+                            setSeamarkVisible,
                             tideStationsVisible,
-                            onToggleTideStations: () => {
-                                setTideStationsVisible((v) => {
-                                    if (!v) {
-                                        setSquallVisible(false);
-                                        setCycloneVisible(false);
-                                    }
-                                    return !v;
-                                });
-                            },
+                            setTideStationsVisible,
                             anchorageVisible,
-                            onToggleAnchorage: () => setAnchorageVisible((v) => !v),
-                            onOpenWeatherWindow: () => setPage('weatherWindow'),
+                            setAnchorageVisible,
+                            lightningVisible,
+                            setLightningVisible,
+                            weatherInspectMode,
+                            setWeatherInspectMode,
+                            weather,
                             mobActive,
-                            onOpenMob: () => setPage('mob'),
-                            // Marine Protected Areas — only surface in the
-                            // radial menu when the feature flag is on, so
-                            // the button doesn't taunt users on builds
-                            // without the data pipeline live yet.
-                            ...(isMpaEnabled()
-                                ? {
-                                      mpaVisible: weather.mpaVisible,
-                                      onToggleMpa: () => weather.setMpaVisible(!weather.mpaVisible),
-                                  }
-                                : {}),
-                        }}
+                            setPage,
+                        })}
                         chartsState={{
                             // Compose chart sources from AvNav (o-charts) + free chart
                             // catalog + local MBTiles + Routes + Tracks so all chart
