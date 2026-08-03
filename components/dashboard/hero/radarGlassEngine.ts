@@ -331,7 +331,17 @@ async function fetchTileDrawable(
                     const bin = atob(res.data);
                     const bytes = new Uint8Array(bin.length);
                     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                    return await blobToDrawable(new Blob([bytes], { type: 'image/png' }));
+                    // proxy-rainbow serves PNG or WebP — label by signature so
+                    // the native decoder isn't handed WebP bytes marked PNG.
+                    const isWebp =
+                        bytes.length > 11 &&
+                        bytes[0] === 0x52 &&
+                        bytes[1] === 0x49 &&
+                        bytes[8] === 0x57 &&
+                        bytes[9] === 0x45 &&
+                        bytes[10] === 0x42 &&
+                        bytes[11] === 0x50;
+                    return await blobToDrawable(new Blob([bytes], { type: isWebp ? 'image/webp' : 'image/png' }));
                 }
             } catch {
                 /* give up on this tile */
