@@ -213,12 +213,18 @@ const onshoreColors: ThemeColors = {
         disabled: 'text-stone-600',
     },
     accent: {
+        // Sky stays SKY on shore. This block used to be a byte-copy of
+        // amber (and purple of red), which collapsed colour-as-information:
+        // an info chip and a warning chip rendered identically, a "special"
+        // purple state read as an error. Two audits billed it (2026-06-21,
+        // 2026-08-03). Warmth comes from the stone surfaces + amber where
+        // amber is MEANT; semantic hues keep their identity.
         sky: {
-            bg: 'bg-amber-500/10',
-            bgActive: 'bg-amber-500/20',
-            text: 'text-amber-400',
-            border: 'border-amber-500/20',
-            borderActive: 'border-amber-500/40',
+            bg: 'bg-sky-500/10',
+            bgActive: 'bg-sky-500/20',
+            text: 'text-sky-400',
+            border: 'border-sky-500/20',
+            borderActive: 'border-sky-500/40',
         },
         amber: {
             bg: 'bg-amber-500/10',
@@ -242,11 +248,11 @@ const onshoreColors: ThemeColors = {
             borderActive: 'border-red-500/40',
         },
         purple: {
-            bg: 'bg-red-500/10',
-            bgActive: 'bg-red-500/30',
-            text: 'text-red-400',
-            border: 'border-red-500/20',
-            borderActive: 'border-red-500/60',
+            bg: 'bg-purple-500/10',
+            bgActive: 'bg-purple-500/30',
+            text: 'text-purple-400',
+            border: 'border-purple-500/20',
+            borderActive: 'border-purple-500/60',
         },
         teal: {
             bg: 'bg-teal-500/10',
@@ -391,7 +397,13 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
         },
 
         header: {
-            bar: `${colors.bg.base}/90 backdrop-blur-lg border-b border-white/5 px-4 py-2 shrink-0`,
+            // Same purge trap as `glass` below: `${colors.bg.base}/90` builds
+            // the class at runtime, so Tailwind's scanner never sees the
+            // onshore variant — bg-stone-950/90 was ABSENT from compiled CSS
+            // and the onshore header bar shipped transparent. Full literals.
+            bar: `${
+                env === 'offshore' ? 'bg-slate-950/90' : 'bg-stone-950/90'
+            } backdrop-blur-lg border-b border-white/5 px-4 py-2 shrink-0`,
             // NOTE: Tailwind only keeps classes it sees as COMPLETE literal
             // strings. Interpolating the colour family (`via-${env}-950/90`)
             // purged every gradient stop, so this header rendered flat on

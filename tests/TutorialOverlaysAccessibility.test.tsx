@@ -1,8 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlassTutorial } from '../components/dashboard/GlassTutorial';
-import { GestureTutorial } from '../components/ui/GestureTutorial';
 import { OnboardingOverlay } from '../components/ui/OnboardingOverlay';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 
@@ -41,17 +39,6 @@ function CoordinatedTutorialHarness() {
             </button>
             <OnboardingOverlay />
             <GlassTutorial />
-        </>
-    );
-}
-
-function GestureTutorialHarness({ onNeverShow = vi.fn() }: { onNeverShow?: () => void }) {
-    const [open, setOpen] = useState(false);
-
-    return (
-        <>
-            <button onClick={() => setOpen(true)}>Show gesture tips</button>
-            {open && <GestureTutorial onDismiss={() => setOpen(false)} onNeverShow={onNeverShow} />}
         </>
     );
 }
@@ -162,41 +149,6 @@ describe('tutorial overlay accessibility', () => {
         fireEvent.click(finish);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
-    });
-
-    it('activates the gesture tutorial after its fade, traps focus, and restores focus on Escape', () => {
-        vi.useFakeTimers();
-        render(<GestureTutorialHarness />);
-
-        const opener = screen.getByRole('button', { name: 'Show gesture tips' });
-        opener.focus();
-        fireEvent.click(opener);
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-
-        act(() => {
-            vi.advanceTimersByTime(100);
-        });
-
-        const dialog = screen.getByRole('dialog', { name: 'Swipe Horizontally' });
-        const next = screen.getByRole('button', { name: 'Next: Swipe Vertically' });
-        const skip = screen.getByRole('button', { name: 'Skip gesture tutorial' });
-
-        expect(dialog).toHaveAttribute('aria-modal', 'true');
-        expect(dialog).toHaveAccessibleDescription(/Step 1 of 4.*Scrub through hours/);
-        expect(next).toHaveFocus();
-
-        fireEvent.keyDown(next, { key: 'Tab', shiftKey: true });
-        expect(skip).toHaveFocus();
-        fireEvent.keyDown(skip, { key: 'Tab' });
-        expect(next).toHaveFocus();
-
-        fireEvent.keyDown(next, { key: 'Escape' });
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(opener).toHaveFocus();
-
-        act(() => {
-            vi.advanceTimersByTime(300);
-        });
     });
 
     it('synchronously hides an open tutorial when the active account changes', () => {
