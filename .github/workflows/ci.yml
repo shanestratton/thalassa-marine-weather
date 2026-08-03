@@ -38,6 +38,13 @@ jobs:
             - name: Dependency audit (high = warn)
               run: npm audit --audit-level=high || echo "::warning::High-severity vulnerabilities found — run npm audit for details"
 
+            # Two-way hygiene: dead-declared prod deps AND phantom imports
+            # (undeclared packages riding hoisted trees — removing an
+            # unrelated dep breaks the build, as @turf/line-intersect proved
+            # 2026-08-03). Allowlists live in the script.
+            - name: Dependency hygiene (dead + phantom)
+              run: node scripts/check-deps.mjs
+
             - name: Lint
               run: npm run lint
 
