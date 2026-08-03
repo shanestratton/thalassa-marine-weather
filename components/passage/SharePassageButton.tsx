@@ -31,6 +31,21 @@ interface SharePassageButtonProps {
 const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, className = '' }) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [sharing, setSharing] = useState(false);
+    // Nothing prints or shares until the passage plan is actually complete —
+    // a float plan naming "?" as the destination or carrying no departure
+    // time is worse than none, because someone ashore will act on it
+    // (Shane 2026-08-04: "do not allow it to be printed unless the passage
+    // plan has been completed").
+    const planComplete = Boolean(
+        briefData &&
+        briefData.origin?.name &&
+        briefData.destination?.name &&
+        briefData.departureTime &&
+        Number.isFinite(briefData.totalDistanceNM) &&
+        briefData.totalDistanceNM > 0 &&
+        Number.isFinite(briefData.estimatedDuration) &&
+        briefData.estimatedDuration > 0,
+    );
     const triggerRef = useRef<HTMLButtonElement>(null);
     const menuId = useId();
     const closeMenu = useCallback(() => setMenuOpen(false), []);
@@ -162,17 +177,19 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         </p>
                     </div>
 
-                    {/* Quick Brief (text) */}
+                    {/* Float Plan (text) — renamed from "Quick Brief" */}
                     <button
                         role="menuitem"
                         onClick={handleShareText}
-                        disabled={sharing}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10"
+                        disabled={sharing || !planComplete}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
                     >
                         <span className="text-xl">💬</span>
                         <div className="flex-1">
-                            <p className="text-sm font-bold text-white">Quick Brief</p>
-                            <p className="text-[11px] text-gray-500">Plain text · WhatsApp, iMessage</p>
+                            <p className="text-sm font-bold text-white">Float Plan</p>
+                            <p className="text-[11px] text-gray-500">
+                                {planComplete ? 'Plain text · WhatsApp, iMessage' : 'Finish the passage plan first'}
+                            </p>
                         </div>
                     </button>
 
@@ -182,13 +199,15 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     <button
                         role="menuitem"
                         onClick={handleSharePdf}
-                        disabled={sharing}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10"
+                        disabled={sharing || !planComplete}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
                     >
                         <span className="text-xl">📄</span>
                         <div className="flex-1">
                             <p className="text-sm font-bold text-white">Full PDF</p>
-                            <p className="text-[11px] text-gray-500">Professional brief · Email, AirDrop</p>
+                            <p className="text-[11px] text-gray-500">
+                                {planComplete ? 'Professional brief · Email, AirDrop' : 'Finish the passage plan first'}
+                            </p>
                         </div>
                     </button>
 
