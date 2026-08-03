@@ -8,30 +8,18 @@
  * All pure functions — no React, no SDK deps.
  */
 import type { Feature, Polygon } from 'geojson';
-
-const EARTH_RADIUS_NM = 3440.065;
+// navigationCalculations is dependency-free, so this stays safe as a
+// rollup input for the standalone logs.html bundle.
+import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
 
 /** Great-circle distance between two points, in nautical miles. */
 export function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const toRad = Math.PI / 180;
-    const phi1 = lat1 * toRad;
-    const phi2 = lat2 * toRad;
-    const dPhi = (lat2 - lat1) * toRad;
-    const dLambda = (lon2 - lon1) * toRad;
-    const a = Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return EARTH_RADIUS_NM * c;
+    return calculateDistance(lat1, lon1, lat2, lon2);
 }
 
 /** Initial great-circle bearing from point 1 to point 2, degrees [0, 360). */
 export function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const toRad = Math.PI / 180;
-    const phi1 = lat1 * toRad;
-    const phi2 = lat2 * toRad;
-    const dLambda = (lon2 - lon1) * toRad;
-    const y = Math.sin(dLambda) * Math.cos(phi2);
-    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    return calculateBearing(lat1, lon1, lat2, lon2);
 }
 
 /**

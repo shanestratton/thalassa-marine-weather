@@ -34,6 +34,7 @@ import { piCache } from '../../PiCacheService';
 import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
 import { withTimeout } from '../../../utils/deadline';
 import { createLogger } from '../../../utils/createLogger';
+import { calculateDistance } from '../../../utils/navigationCalculations';
 
 const log = createLogger('Marine');
 
@@ -100,16 +101,6 @@ export interface MarineReading {
     via: 'pi' | 'supabase';
 }
 
-function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-    const R = 6371;
-    const dLat = ((bLat - aLat) * Math.PI) / 180;
-    const dLon = ((bLon - aLon) * Math.PI) / 180;
-    const s =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(s));
-}
-
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const mToFt = (v: unknown): number | null => {
     const n = num(v);
@@ -157,7 +148,7 @@ export function mapMarine(
             return kmh === null ? null : parseFloat((kmh * KMH_TO_MS).toFixed(3));
         })(),
         currentDirection: num(c.ocean_current_direction),
-        snappedKm: parseFloat(haversineKm(reqLat, reqLon, gotLat, gotLon).toFixed(2)),
+        snappedKm: parseFloat((calculateDistance(reqLat, reqLon, gotLat, gotLon) * 1.852).toFixed(2)),
         gridLat: gotLat,
         gridLon: gotLon,
         via,

@@ -8,6 +8,8 @@
  * Reference: COLREGS / ITU-R M.1371-5
  */
 
+import { calculateDistance, calculateBearing } from './navigationCalculations';
+
 const DEG_TO_RAD = Math.PI / 180;
 const NM_PER_DEG_LAT = 60; // 1° latitude ≈ 60 NM
 
@@ -46,8 +48,8 @@ export function computeCpa(
     if (!isFinite(targetLat) || !isFinite(targetLon)) return null;
 
     // Current distance & bearing
-    const distance = haversineNm(ownLat, ownLon, targetLat, targetLon);
-    const bearing = initialBearing(ownLat, ownLon, targetLat, targetLon);
+    const distance = calculateDistance(ownLat, ownLon, targetLat, targetLon);
+    const bearing = calculateBearing(ownLat, ownLon, targetLat, targetLon);
 
     // ── Both vessels stationary → nobody is going anywhere ──
     if (ownSog < 0.5 && targetSog < 0.5) {
@@ -175,26 +177,4 @@ function riskLevel(
     // CAUTION: CPA < 0.5 NM within 60 min (approaching close quarters)
     if (cpaNm < 0.5 && tcpaMinutes < 60) return 'CAUTION';
     return 'SAFE';
-}
-
-/** Haversine distance in nautical miles */
-function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLat = (lat2 - lat1) * DEG_TO_RAD;
-    const dLon = (lon2 - lon1) * DEG_TO_RAD;
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return c * 3440.065; // Earth radius in NM
-}
-
-/** Initial bearing from point 1 to point 2 (degrees true, 0-360) */
-function initialBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLon = (lon2 - lon1) * DEG_TO_RAD;
-    const y = Math.sin(dLon) * Math.cos(lat2 * DEG_TO_RAD);
-    const x =
-        Math.cos(lat1 * DEG_TO_RAD) * Math.sin(lat2 * DEG_TO_RAD) -
-        Math.sin(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.cos(dLon);
-    const brng = Math.atan2(y, x) / DEG_TO_RAD;
-    return (brng + 360) % 360;
 }

@@ -24,6 +24,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import type { MarineWeatherReport } from '../../types';
 import { degreesToCardinal } from '../../utils/format';
 import { createLogger } from '../../utils/createLogger';
+import { calculateDistance } from '../../utils/navigationCalculations';
 
 const log = createLogger('spitfire');
 
@@ -112,16 +113,6 @@ export interface SpitfireLocation {
     generatedAt: string;
 }
 
-function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-    const R = 6371;
-    const dLat = ((bLat - aLat) * Math.PI) / 180;
-    const dLon = ((bLon - aLon) * Math.PI) / 180;
-    const s =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(s));
-}
-
 /**
  * The SPITFIRE location covering these coordinates, or null if the boat is
  * outside every one. Exported for tests and for the picker's gating.
@@ -129,7 +120,7 @@ function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): nu
 export function spitfireLocationFor(lat: number | null, lon: number | null): (typeof SPITFIRE_LOCATIONS)[0] | null {
     if (lat == null || lon == null) return null;
     for (const loc of SPITFIRE_LOCATIONS) {
-        if (haversineKm(lat, lon, loc.lat, loc.lon) <= AVAILABILITY_RADIUS_KM) return loc;
+        if (calculateDistance(lat, lon, loc.lat, loc.lon) * 1.852 <= AVAILABILITY_RADIUS_KM) return loc;
     }
     return null;
 }

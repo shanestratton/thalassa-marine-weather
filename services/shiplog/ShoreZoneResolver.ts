@@ -20,6 +20,7 @@
 import pointToLineDistance from '@turf/point-to-line-distance';
 import { lineString, point as turfPoint } from '@turf/helpers';
 
+import { calculateDistance } from '../../utils/navigationCalculations';
 import { fetchCoastlineSegments } from '../weather/shelter/coastlineSource';
 import type { Segment } from '../weather/shelter/shelterGeometry';
 import type { LoggingZone } from './helpers';
@@ -93,11 +94,7 @@ interface RequestedObservation {
 
 /** Great-circle distance in nautical miles for cache-coverage checks. */
 export function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-    const dLat = toRadians(lat2 - lat1);
-    const dLon = toRadians(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 3440.065 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return calculateDistance(lat1, lon1, lat2, lon2);
 }
 
 /** True only for a real, ocean-water response — fail-open is not evidence. */

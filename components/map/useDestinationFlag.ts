@@ -23,30 +23,9 @@ import mapboxgl from 'mapbox-gl';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { GpsService } from '../../services/GpsService';
 import { createLogger } from '../../utils/createLogger';
+import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 
 const log = createLogger('DestinationFlag');
-
-const KM_PER_NM = 1.852;
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371;
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const toDeg = (r: number) => (r * 180) / Math.PI;
-    const φ1 = toRad(lat1);
-    const φ2 = toRad(lat2);
-    const Δλ = toRad(lon2 - lon1);
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
 
 function compass(bearing: number): string {
     const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -182,9 +161,8 @@ export function useDestinationFlag(mapRef: React.MutableRefObject<mapboxgl.Map |
             if (now - lastGpsAt < 1000) return;
             lastGpsAt = now;
             if (!labelChipRef.current) return;
-            const km = haversineKm(pos.latitude, pos.longitude, dest.lat, dest.lon);
-            const nm = km / KM_PER_NM;
-            const bearing = bearingDeg(pos.latitude, pos.longitude, dest.lat, dest.lon);
+            const nm = calculateDistance(pos.latitude, pos.longitude, dest.lat, dest.lon);
+            const bearing = calculateBearing(pos.latitude, pos.longitude, dest.lat, dest.lon);
             const dest_label = voyagePlan.destination || 'Destination';
             // Format: "Newport · 47 NM SE"
             const distLabel = nm < 10 ? nm.toFixed(1) : Math.round(nm).toString();

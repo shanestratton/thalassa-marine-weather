@@ -30,6 +30,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { subscribeLightningStrikes, type LightningStrike } from '../../services/weather/api/blitzortungLightning';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
+import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 
 interface ThreatBannerProps {
     visible: boolean;
@@ -66,29 +67,6 @@ const STRIKE_WINDOW_MS = 5 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 10_000; // re-evaluate threats every 10s
 
 // ── Geo helpers ─────────────────────────────────────────────────────
-
-const KM_PER_NM = 1.852;
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371; // km
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const toDeg = (r: number) => (r * 180) / Math.PI;
-    const φ1 = toRad(lat1);
-    const φ2 = toRad(lat2);
-    const λ1 = toRad(lon1);
-    const λ2 = toRad(lon2);
-    const y = Math.sin(λ2 - λ1) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ2 - λ1);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
 
 function compass(bearing: number): string {
     const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -139,7 +117,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
             let lightningThreat: Threat | null = null;
             if (lightningActive) {
                 const cutoff = Date.now() - STRIKE_WINDOW_MS;
-                let nearestKm = Infinity;
+                let nearestNm = Infinity;
                 let nearestStrike: LightningStrike | null = null;
                 let countWithin = 0;
                 for (const s of strikesRef.current.values()) {
@@ -147,18 +125,18 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                         strikesRef.current.delete(s.id);
                         continue;
                     }
-                    const km = haversineKm(userLat, userLon, s.lat, s.lon);
-                    if (km / KM_PER_NM <= RADIUS_LIGHTNING_NM) {
+                    const nm = calculateDistance(userLat, userLon, s.lat, s.lon);
+                    if (nm <= RADIUS_LIGHTNING_NM) {
                         countWithin++;
-                        if (km < nearestKm) {
-                            nearestKm = km;
+                        if (nm < nearestNm) {
+                            nearestNm = nm;
                             nearestStrike = s;
                         }
                     }
                 }
                 if (nearestStrike && countWithin > 0) {
-                    const distNm = nearestKm / KM_PER_NM;
-                    const bearing = bearingDeg(userLat, userLon, nearestStrike.lat, nearestStrike.lon);
+                    const distNm = nearestNm;
+                    const bearing = calculateBearing(userLat, userLon, nearestStrike.lat, nearestStrike.lon);
                     const severity: Threat['severity'] = distNm < 5 ? 'danger' : distNm < 15 ? 'warning' : 'caution';
                     lightningThreat = {
                         kind: 'lightning',
@@ -179,21 +157,21 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
             // 2. Cyclone proximity
             let cycloneThreat: Threat | null = null;
             if (cyclones && cyclones.length > 0) {
-                let nearestKm = Infinity;
+                let nearestNm = Infinity;
                 let nearestCyclone: ActiveCyclone | null = null;
                 for (const c of cyclones) {
                     const lat = c.currentPosition?.lat;
                     const lon = c.currentPosition?.lon;
                     if (typeof lat !== 'number' || typeof lon !== 'number') continue;
-                    const km = haversineKm(userLat, userLon, lat, lon);
-                    if (km < nearestKm) {
-                        nearestKm = km;
+                    const nm = calculateDistance(userLat, userLon, lat, lon);
+                    if (nm < nearestNm) {
+                        nearestNm = nm;
                         nearestCyclone = c;
                     }
                 }
-                if (nearestCyclone && nearestKm / KM_PER_NM <= RADIUS_CYCLONE_NM) {
-                    const distNm = nearestKm / KM_PER_NM;
-                    const bearing = bearingDeg(
+                if (nearestCyclone && nearestNm <= RADIUS_CYCLONE_NM) {
+                    const distNm = nearestNm;
+                    const bearing = calculateBearing(
                         userLat,
                         userLon,
                         nearestCyclone.currentPosition.lat,

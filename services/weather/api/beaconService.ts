@@ -4,6 +4,7 @@ import { MAJOR_BUOYS } from '../config';
 import { piCache } from '../../PiCacheService';
 
 import { createLogger } from '../../../utils/createLogger';
+import { calculateDistance } from '../../../utils/navigationCalculations';
 
 const _log = createLogger('beaconService');
 
@@ -25,23 +26,6 @@ const QLD_SITE_MAPPING: Record<string, string> = {
     Byron: 'Tweed River',
     DoubleIsland: 'Caloundra',
 };
-
-// --- HELPER FUNCTIONS ---
-
-/**
- * Calculate distance between two coordinates in nautical miles
- * Uses Haversine formula
- */
-function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 3440.065; // Earth's radius in nautical miles
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-}
 
 // --- NDBC (NOAA) BUOY FETCHING ---
 
@@ -545,7 +529,7 @@ export async function findAndFetchNearestBeacon(
         // Calculate distances and sort
         const buoysWithDistance = MAJOR_BUOYS.map((buoy) => ({
             buoy,
-            distance: calculateDistanceNM(lat, lon, buoy.lat, buoy.lon),
+            distance: calculateDistance(lat, lon, buoy.lat, buoy.lon),
         })).sort((a, b) => a.distance - b.distance);
 
         // Filter within range

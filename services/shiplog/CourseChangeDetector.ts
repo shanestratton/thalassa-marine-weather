@@ -41,6 +41,7 @@
  * high-precision GPS (Bad Elf Pro+) is connected.
  */
 import { createLogger } from '../../utils/createLogger';
+import { calculateDistance } from '../../utils/navigationCalculations';
 import type { CachedPosition } from '../BgGeoManager';
 import { bearing, headingDelta } from './GpsTrackBuffer';
 import { GpsPrecision } from './GpsPrecisionTracker';
@@ -203,7 +204,8 @@ export class CourseChangeDetector {
         // 2. Distance check — filters GPS jitter when stationary.
         // Threshold adapts to GPS precision (loosens for noisy phone GPS,
         // tightens for high-precision external GPS).
-        const distM = haversine(this.lastValidPos.lat, this.lastValidPos.lon, currentPos.lat, currentPos.lon);
+        const distM =
+            calculateDistance(this.lastValidPos.lat, this.lastValidPos.lon, currentPos.lat, currentPos.lon) * 1852;
         const minMovement = GpsPrecision.getAdaptedThresholds().courseChangeMinMovementM;
         if (distM < minMovement) return;
 
@@ -311,15 +313,4 @@ function lonLatMidpoint(
     if (lon > 180) lon -= 360;
     if (lon < -180) lon += 360;
     return { lat, lon };
-}
-
-/** Haversine distance in meters between two lat/lon points. */
-function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6_371_000;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }

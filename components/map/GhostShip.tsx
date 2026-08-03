@@ -11,6 +11,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createGhostShipEl } from '../../utils/createMarkerEl';
 import { windHoursFromNow } from './windTimeAxis';
+import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 
 interface GhostShipProps {
     map: mapboxgl.Map | null;
@@ -32,25 +33,12 @@ interface GhostShipProps {
 
 /** Haversine distance between two [lon, lat] points in nautical miles */
 function haversineNM(a: number[], b: number[]): number {
-    const R_NM = 3440.065;
-    const dLat = ((b[1] - a[1]) * Math.PI) / 180;
-    const dLon = ((b[0] - a[0]) * Math.PI) / 180;
-    const lat1 = (a[1] * Math.PI) / 180;
-    const lat2 = (b[1] * Math.PI) / 180;
-    const sinDLat = Math.sin(dLat / 2);
-    const sinDLon = Math.sin(dLon / 2);
-    const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
-    return R_NM * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    return calculateDistance(a[1], a[0], b[1], b[0]);
 }
 
 /** Compute bearing from point a to point b in degrees */
 function bearing(a: number[], b: number[]): number {
-    const lat1 = (a[1] * Math.PI) / 180;
-    const lat2 = (b[1] * Math.PI) / 180;
-    const dLon = ((b[0] - a[0]) * Math.PI) / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    return calculateBearing(a[1], a[0], b[1], b[0]);
 }
 
 /** Linearly interpolate between two [lon, lat] points */

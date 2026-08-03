@@ -30,6 +30,7 @@
 import { AisStore } from '../../AisStore';
 import type { AisTarget } from '../../../types/navigation';
 import { getCurrentFix } from './voyage';
+import { calculateDistance, calculateBearing } from '../../../utils/navigationCalculations';
 
 interface AisReport {
     mmsi: number;
@@ -43,28 +44,8 @@ interface AisReport {
     age_sec: number;
 }
 
-const EARTH_NM = 3440.065;
 function toRad(d: number): number {
     return (d * Math.PI) / 180;
-}
-function toDeg(r: number): number {
-    return (r * 180) / Math.PI;
-}
-
-function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * EARTH_NM * Math.asin(Math.sqrt(a));
-}
-
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const φ1 = toRad(lat1);
-    const φ2 = toRad(lat2);
-    const Δλ = toRad(lon2 - lon1);
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
 /**
@@ -165,9 +146,9 @@ export async function aisProximity(
     const reports: AisReport[] = [];
     const now = Date.now();
     for (const target of targets.values()) {
-        const r = distanceNm(fix.lat, fix.lon, target.lat, target.lon);
+        const r = calculateDistance(fix.lat, fix.lon, target.lat, target.lon);
         if (r > range) continue;
-        const b = bearingDeg(fix.lat, fix.lon, target.lat, target.lon);
+        const b = calculateBearing(fix.lat, fix.lon, target.lat, target.lon);
         let cpaNm: number | null = null;
         let tcpaMin: number | null = null;
         if (typeof ownCog === 'number' && typeof ownSog === 'number' && ownSog > 0.2) {

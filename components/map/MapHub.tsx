@@ -20,6 +20,7 @@ import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } fr
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
+import { calculateDistance } from '../../utils/navigationCalculations';
 import { lazyRetry } from '../../utils/lazyRetry';
 
 const log = createLogger('MapHub');
@@ -2448,12 +2449,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // Marina del Rey, California (proximity bias lost to the word
             // "Marina"). Don't block a genuine ocean passage; just make a
             // wrong-hemisphere match impossible to miss.
-            const toRad = (x: number): number => (x * Math.PI) / 180;
-            const dLat = toRad(d.lat - o.lat);
-            const dLon = toRad(d.lon - o.lon);
-            const a =
-                Math.sin(dLat / 2) ** 2 + Math.cos(toRad(o.lat)) * Math.cos(toRad(d.lat)) * Math.sin(dLon / 2) ** 2;
-            const nmApart = 3440.065 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const nmApart = calculateDistance(o.lat, o.lon, d.lat, d.lon);
             flashTraceFeedback(
                 nmApart > 1500
                     ? `Heads up — "${d.name}" is ${Math.round(nmApart).toLocaleString()} NM away. Wrong match? ✕ the course and retype.`

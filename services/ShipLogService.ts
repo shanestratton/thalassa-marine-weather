@@ -26,6 +26,7 @@ import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
 import { EnvironmentService } from './EnvironmentService';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance } from '../utils/navigationCalculations';
 
 // --- Extracted modules ---
 import { savePassagePlanToLogbook as _savePassagePlanToLogbook } from './shiplog/PassagePlanSave';
@@ -787,14 +788,7 @@ class ShipLogServiceClass {
     private waterStatusFor(pos: CachedPosition): WaterCheckResult | undefined {
         const status = this.lastWaterCheck;
         if (!status) return undefined;
-        const earthRadiusNm = 3440.065;
-        const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-        const dLat = toRadians(pos.latitude - status.lat);
-        const dLon = toRadians(pos.longitude - status.lon);
-        const a =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRadians(status.lat)) * Math.cos(toRadians(pos.latitude)) * Math.sin(dLon / 2) ** 2;
-        const distanceNm = earthRadiusNm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distanceNm = calculateDistance(status.lat, status.lon, pos.latitude, pos.longitude);
         return distanceNm <= 1 ? status : undefined;
     }
 

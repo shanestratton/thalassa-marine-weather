@@ -24,6 +24,7 @@
 import { ShipLogService } from '../../ShipLogService';
 import { NmeaStore } from '../../NmeaStore';
 import { BgGeoManager } from '../../BgGeoManager';
+import { calculateDistance, calculateBearing } from '../../../utils/navigationCalculations';
 
 export interface VesselFix {
     lat: number;
@@ -81,33 +82,6 @@ export async function getCurrentFix(): Promise<VesselFix | null> {
 
 function msToKts(ms: number): number {
     return ms * 1.94384;
-}
-
-/** Great-circle distance in nautical miles using the haversine formula. */
-function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 3440.065; // Earth radius in nautical miles
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-/**
- * Initial bearing (forward azimuth) from point 1 to point 2 in
- * compass degrees [0,360). Used for "head one-three-five" style
- * read-backs when Calypso narrates the bearing to a destination.
- */
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const toDeg = (r: number) => (r * 180) / Math.PI;
-    const φ1 = toRad(lat1);
-    const φ2 = toRad(lat2);
-    const λ1 = toRad(lon1);
-    const λ2 = toRad(lon2);
-    const y = Math.sin(λ2 - λ1) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ2 - λ1);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
 // ── Tool: log_entry ────────────────────────────────────────────────
@@ -219,8 +193,8 @@ export async function passageEta(
         };
     }
 
-    const distance_nm = distanceNm(fix.lat, fix.lon, destLat, destLon);
-    const bearing_true = bearingDeg(fix.lat, fix.lon, destLat, destLon);
+    const distance_nm = calculateDistance(fix.lat, fix.lon, destLat, destLon);
+    const bearing_true = calculateBearing(fix.lat, fix.lon, destLat, destLon);
     const sog = fix.sog ?? 0;
 
     if (sog < 0.2) {

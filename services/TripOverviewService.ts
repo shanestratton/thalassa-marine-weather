@@ -18,6 +18,7 @@
  */
 
 import type { Voyage } from './VoyageService';
+import { calculateDistance } from '../utils/navigationCalculations';
 
 /** Per-leg breakdown for the overview. */
 export interface TripOverviewLeg {
@@ -125,17 +126,6 @@ export function detectCountry(portName: string | null | undefined): string | und
     return undefined;
 }
 
-/** Greatcircle distance in NM between two coords. */
-function haversineNm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
-    const R = 3440.065;
-    const φ1 = (a.lat * Math.PI) / 180;
-    const φ2 = (b.lat * Math.PI) / 180;
-    const dφ = ((b.lat - a.lat) * Math.PI) / 180;
-    const dλ = ((b.lon - a.lon) * Math.PI) / 180;
-    const aa = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
-}
-
 /** Voyage row enriched by CrewManagement with departure/arrival coords. */
 type EnrichedVoyage = Voyage & {
     departureCoords?: { lat: number; lon: number };
@@ -147,7 +137,12 @@ type EnrichedVoyage = Voyage & {
  *  Caller can substitute a real route polyline distance if it has one. */
 function inferLegDistanceNm(v: EnrichedVoyage): number {
     if (v.departureCoords && v.arrivalCoords) {
-        return haversineNm(v.departureCoords, v.arrivalCoords);
+        return calculateDistance(
+            v.departureCoords.lat,
+            v.departureCoords.lon,
+            v.arrivalCoords.lat,
+            v.arrivalCoords.lon,
+        );
     }
     return 0;
 }

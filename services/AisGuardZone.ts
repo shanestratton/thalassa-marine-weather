@@ -14,6 +14,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
 
 const STORAGE_KEY = 'thalassa_guard_zone';
 const STORAGE_VERSION = 2;
@@ -57,24 +58,6 @@ function cloneState(state: GuardZoneState): GuardZoneState {
 function clampRadius(radiusNm: number): number {
     if (!Number.isFinite(radiusNm)) return DEFAULT_RADIUS_NM;
     return Math.max(0.1, Math.min(50, radiusNm));
-}
-
-// ── Haversine distance (NM) ──
-function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const DEG = Math.PI / 180;
-    const dLat = (lat2 - lat1) * DEG;
-    const dLon = (lon2 - lon1) * DEG;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.sin(dLon / 2) ** 2;
-    return 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 3440.065;
-}
-
-function initialBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const DEG = Math.PI / 180;
-    const dLon = (lon2 - lon1) * DEG;
-    const y = Math.sin(dLon) * Math.cos(lat2 * DEG);
-    const x =
-        Math.cos(lat1 * DEG) * Math.sin(lat2 * DEG) - Math.sin(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.cos(dLon);
-    return (Math.atan2(y, x) / DEG + 360) % 360;
 }
 
 // ── Singleton state ──
@@ -257,7 +240,7 @@ export const AisGuardZone = {
                 ) {
                     continue;
                 }
-                const dist = haversineNm(ownLat, ownLon, lat, lon);
+                const dist = calculateDistance(ownLat, ownLon, lat, lon);
                 if (dist > existingState.radiusNm) continue;
 
                 const mmsi = Number(p.mmsi);
@@ -273,7 +256,7 @@ export const AisGuardZone = {
                         mmsi,
                         name: p.name ? String(p.name) : `MMSI ${mmsi}`,
                         distanceNm: Math.round(dist * 100) / 100,
-                        bearing: Math.round(initialBearing(ownLat, ownLon, lat, lon)),
+                        bearing: Math.round(calculateBearing(ownLat, ownLon, lat, lon)),
                         sog: Number.isFinite(sog) ? sog : 0,
                         cog: Number.isFinite(cog) ? cog : 0,
                         shipType: p.shipType ? String(p.shipType) : '0',

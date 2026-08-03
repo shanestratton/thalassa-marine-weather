@@ -14,6 +14,7 @@
  */
 
 import type { CachedPosition } from '../BgGeoManager';
+import { calculateDistance, calculateBearing } from '../../utils/navigationCalculations';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────
 
@@ -39,13 +40,7 @@ const MS_TO_KTS = 1.94384;
 
 /** Haversine distance in meters between two lat/lon points */
 export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6_371_000; // Earth radius in meters
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return calculateDistance(lat1, lon1, lat2, lon2) * 1852; // NM → metres
 }
 
 /**
@@ -79,12 +74,7 @@ function perpendicularDistanceMeters(
 
 /** Bearing in degrees from point A to point B */
 export function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const y = Math.sin(dLon) * Math.cos((lat2 * Math.PI) / 180);
-    const x =
-        Math.cos((lat1 * Math.PI) / 180) * Math.sin((lat2 * Math.PI) / 180) -
-        Math.sin((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    return calculateBearing(lat1, lon1, lat2, lon2);
 }
 
 /**

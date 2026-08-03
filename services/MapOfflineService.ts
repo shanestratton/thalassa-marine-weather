@@ -18,6 +18,7 @@
 
 import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance } from '../utils/navigationCalculations';
 
 const log = createLogger('MapOffline');
 
@@ -251,12 +252,7 @@ export function boundsAroundPoint(centerLat: number, centerLon: number, radiusNm
  * far enough to warrant re-caching" — we don't need millimetre accuracy.
  */
 export function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R_NM = 3440.065; // Earth radius in NM
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(a)));
+    return calculateDistance(lat1, lon1, lat2, lon2);
 }
 
 // ── Auto-cache bookkeeping ──

@@ -13,20 +13,45 @@
  * honest. It also pins the canonical unit constants against the `3.281` vs
  * `3.28084` foot-conversion drift the audit flagged.
  *
- * NOTE: many haversine copies are PRIVATE (unexported) inside service files
- * (AnchorWatchService, InshoreRouter, inshoreRouterEngine, MobService, ...)
- * and cannot be imported here. Those remain the consolidation target — see
- * docs/CODE_AUDIT_CANDIDATES.md #2. This guard covers every exported copy.
+ * NOTE: some haversine copies are PRIVATE (unexported) inside service files
+ * (InshoreRouter, inshoreRouterEngine, ...) and cannot be imported here. Those
+ * remain the consolidation target — see docs/CODE_AUDIT_CANDIDATES.md #2.
+ * This guard covers every exported copy. MobService's distance/bearing are
+ * private but now delegate to the canonical navigationCalculations functions;
+ * their behaviour is asserted through the MobState seams in
+ * tests/MobService.test.ts.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// AnchorWatchService transitively imports AnchorWatchSyncService, whose
+// module-level singleton calls `App.addListener(...).catch(...)`. The global
+// mock in tests/setup.ts returns a synchronous handle (the pre-Capacitor-3
+// contract), but @capacitor/app v8 returns Promise<PluginListenerHandle>, so
+// the import crashes before any test runs. Override locally with the real
+// async contract. (Same workaround as tests/anchorWatch.test.ts.)
+vi.mock('@capacitor/app', () => ({
+    App: {
+        addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
+        removeAllListeners: vi.fn().mockResolvedValue(undefined),
+        getInfo: vi.fn().mockResolvedValue({ name: 'Thalassa', id: 'dev.thalassa.app', build: '1', version: '1.0.0' }),
+        exitApp: vi.fn(),
+    },
+}));
 
 // Exported great-circle distance implementations (the ones a test can reach)
-import { calculateDistance as navDistanceNm } from '../utils/navigationCalculations';
+import { calculateDistance as navDistanceNm, calculateBearing as navBearingDeg } from '../utils/navigationCalculations';
 import { calculateDistanceKm as mathDistanceKm } from '../utils/math';
 import { calculateDistanceNM as shiplogDistanceNm } from '../services/shiplog/helpers';
 import { haversineMeters as gpsBufferMeters } from '../services/shiplog/GpsTrackBuffer';
 import { haversineNm as isochroneDistanceNm } from '../services/isochrone/geodesy';
 import { haversineNM as gpsFollowDistanceNm } from '../utils/gpsFollow';
+import { haversineNm as geoDistanceNm, bearingDeg as geoBearingDeg } from '../src/geo';
+import { distanceNm as mapOfflineDistanceNm } from '../services/MapOfflineService';
+// Safety-critical: the anchor-drag geofence distance + bearing (delegates to canonical)
+import {
+    haversineDistance as anchorWatchMeters,
+    bearing as anchorWatchBearingDeg,
+} from '../services/AnchorWatchService';
 // Planar (equirectangular) channel-follow helpers — valid only at short range
 import { distM as fairleadDistM, type LatLon } from '../services/fairlead';
 import { distM as leadingLineDistM } from '../services/leadingLine';
@@ -73,6 +98,9 @@ const GREAT_CIRCLE: { name: string; meters: (f: Fixture['p']) => number }[] = [
     { name: 'shiplog/GpsTrackBuffer.haversineMeters', meters: (p) => gpsBufferMeters(...p) },
     { name: 'isochrone/geodesy.haversineNm', meters: (p) => isochroneDistanceNm(...p) * NM_TO_M },
     { name: 'gpsFollow.haversineNM', meters: (p) => gpsFollowDistanceNm(...p) * NM_TO_M },
+    { name: 'src/geo.haversineNm', meters: (p) => geoDistanceNm(...p) * NM_TO_M },
+    { name: 'MapOfflineService.distanceNm', meters: (p) => mapOfflineDistanceNm(...p) * NM_TO_M },
+    { name: 'AnchorWatchService.haversineDistance', meters: (p) => anchorWatchMeters(...p) },
 ];
 
 describe('great-circle distance parity (single-source-of-truth guard)', () => {
@@ -88,6 +116,40 @@ describe('great-circle distance parity (single-source-of-truth guard)', () => {
             it(`${impl.name} matches reference @ ${fx.name}`, () => {
                 const got = impl.meters(fx.p);
                 expect(Math.abs(got - ref)).toBeLessThanOrEqual(Math.max(ABS_TOL, REL_TOL * ref));
+            });
+        }
+    }
+});
+
+describe('initial-bearing parity (single-source-of-truth guard)', () => {
+    /** Authoritative initial great-circle bearing, degrees [0, 360). */
+    function refBearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const dLon = toRad(lon2 - lon1);
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x =
+            Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+            Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+        return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    }
+
+    const BEARINGS: { name: string; deg: (f: Fixture['p']) => number }[] = [
+        { name: 'navigationCalculations.calculateBearing', deg: (p) => navBearingDeg(...p) },
+        { name: 'src/geo.bearingDeg', deg: (p) => geoBearingDeg(...p) },
+        { name: 'AnchorWatchService.bearing', deg: (p) => anchorWatchBearingDeg(...p) },
+    ];
+
+    const ANGLE_TOL = 0.01; // degrees — same-formula copies must agree to numerical noise
+
+    // Bearing is undefined at zero distance — skip the identical-point fixture.
+    for (const fx of FIXTURES.filter((f) => refMeters(...f.p) > 0)) {
+        const ref = refBearingDeg(...fx.p);
+        for (const impl of BEARINGS) {
+            it(`${impl.name} matches reference @ ${fx.name}`, () => {
+                const got = impl.deg(fx.p);
+                // Compare on the circle so 359.999° vs 0.001° counts as 0.002° apart.
+                const diff = Math.abs(((got - ref + 540) % 360) - 180);
+                expect(diff).toBeLessThanOrEqual(ANGLE_TOL);
             });
         }
     }

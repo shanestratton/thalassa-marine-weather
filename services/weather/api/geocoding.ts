@@ -7,6 +7,7 @@ import { piCache } from '../../PiCacheService';
 import { createLogger } from '../../../utils/createLogger';
 import { parseCoordinateString } from '../../../utils/coordParse';
 import { extractCoords } from '../../../utils/savedLocations';
+import { calculateDistance } from '../../../utils/navigationCalculations';
 
 const log = createLogger('geocoding');
 // geminiService dynamically imported to avoid bundling @google/generative-ai in main chunk
@@ -592,17 +593,9 @@ export const parseLocation = async (
         if (looksLikePlace) {
             const cleanedPrefix = sanitizeLocationQuery(namePrefix);
 
-            // Distance helper — quick haversine in km. Stays inline
-            // to avoid pulling in turf for what's a 4-line maths bit.
-            const kmBetween = (la1: number, lo1: number, la2: number, lo2: number): number => {
-                const R = 6371;
-                const toRad = (d: number) => (d * Math.PI) / 180;
-                const dLat = toRad(la2 - la1);
-                const dLon = toRad(lo2 - lo1);
-                const a =
-                    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon / 2) ** 2;
-                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            };
+            // Distance helper — canonical great-circle NM converted to km.
+            const kmBetween = (la1: number, lo1: number, la2: number, lo2: number): number =>
+                calculateDistance(la1, lo1, la2, lo2) * 1.852;
             const OVERRIDE_MAX_KM = 5;
 
             log.warn(
