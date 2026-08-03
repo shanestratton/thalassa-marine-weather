@@ -556,6 +556,10 @@ class DiaryServiceClass {
                 | 'mood'
                 | 'photos'
                 | 'audio_url'
+                // Position is editable: a photo attached during an edit can
+                // re-pin the entry from its EXIF (the berth-pin repair path).
+                | 'latitude'
+                | 'longitude'
                 | 'location_name'
                 | 'weather_summary'
                 | 'tags'
@@ -2525,6 +2529,24 @@ class DiaryServiceClass {
     // ── GPS ────────────────────────────────────────────────────
 
     async getCurrentLocation(): Promise<{ lat: number; lon: number } | null> {
+        // While a voyage is RECORDING, the track's own last accepted fix is
+        // the most-trustworthy position in the app — it cleared the full
+        // shiplog acceptance gate (accuracy + monotonic own-timestamp +
+        // anti-replay). The 31-July bug: an entry composed 6.6 km out in
+        // Moreton Bay pinned at the Newport berth because the one-shot
+        // platform fetch handed back a cached berth fix — while the ship's
+        // log had a live bay fix six seconds earlier.
+        try {
+            const { ShipLogService } = await import('./ShipLogService');
+            if (ShipLogService.isTracking()) {
+                const fix = ShipLogService.getLastAcceptedFix();
+                if (fix && Date.now() - fix.timestamp < 60_000) {
+                    return { lat: fix.latitude, lon: fix.longitude };
+                }
+            }
+        } catch {
+            /* shiplog unavailable — fall through to the one-shot fetch */
+        }
         try {
             // Use GpsService which handles web (navigator.geolocation with permission
             // prompt) vs native (BgGeoManager/Transistorsoft) automatically

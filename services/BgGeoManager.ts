@@ -397,16 +397,30 @@ class BgGeoManagerClass {
 
         if (!this.isNativeSupported()) return this._cachedWithin(staleLimitMs);
 
-        // Fallback to on-demand fetch
+        // Fallback to on-demand fetch.
+        // samples: 3, NOT 1 — iOS's FIRST delivery is routinely the cached
+        // last-known location (the 31-July diary bug: a berth fix handed to
+        // an entry composed 6.6 km out in the bay). Multiple samples force
+        // the radio to produce a current fix; the plugin returns the best.
         try {
             await this.ensureReady();
             const loc = await BackgroundGeolocation.getCurrentPosition({
-                samples: 1,
+                samples: 3,
                 persist: false,
                 desiredAccuracy: 10,
                 timeout: timeoutSec,
             });
-            return this._locationToCache(loc);
+            const cached = this._locationToCache(loc);
+            // Bound by the fix's OWN timestamp (allowing for the fetch
+            // itself taking up to timeoutSec): a cached fix re-served by
+            // the OS is "wrong data wearing a fresh timestamp" — reject it
+            // the same way every other path here fails closed.
+            const fixAge = Date.now() - cached.timestamp;
+            if (fixAge > staleLimitMs + timeoutSec * 1000) {
+                log.warn(`getFreshPosition: on-demand fix is ${Math.round(fixAge / 1000)}s old — rejecting`);
+                return this._cachedWithin(staleLimitMs);
+            }
+            return cached;
         } catch (e) {
             log.warn('getFreshPosition failed:', String(e));
             // Last resort is still BOUNDED: a fix outside the caller's window is

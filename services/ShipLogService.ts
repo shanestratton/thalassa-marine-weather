@@ -1709,6 +1709,18 @@ class ShipLogServiceClass {
     }
 
     /**
+     * The latest fix that cleared the FULL shiplog acceptance gate
+     * (accuracy, monotonic own-timestamp, anti-replay), or null. While a
+     * voyage is recording this is the most-trustworthy position in the
+     * app — consumers pinning user content mid-voyage (diary entries)
+     * should prefer it over a one-shot platform fetch, which can hand
+     * back a cached berth fix wearing a fresh timestamp.
+     */
+    getLastAcceptedFix(): CachedPosition | null {
+        return this.lastAcceptedLocation;
+    }
+
+    /**
      * Declare the engine on/off while tracking. Sticky — stamped onto
      * subsequent auto track points (CapturePipeline) so the voyage's
      * sail/motor split is real data, not a guess. No-op when not tracking.
