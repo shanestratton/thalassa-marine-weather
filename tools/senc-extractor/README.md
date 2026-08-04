@@ -48,7 +48,39 @@ Permits are read from where the plugin already put them — `Userpermit` and
 `Installpermit` in `opencpn.conf`, per-cell permits from the `cellpermit:`
 line of each `.os63` — so there is nothing to pass on the command line.
 
-### Importing a new cell without the OpenCPN GUI
+### Installing a purchased exchange set (`installS63.ts`)
+
+One command takes a ChartWorld download to a chart the app can use:
+
+```bash
+npx tsx src/installS63.ts \
+    --exchange ~/Charts/DC40966ACES_ORDER_26_31_01.S63.ZIP \
+    --permit   ~/Charts/Serene_Summer_DC40966_latest.prm.zip
+```
+
+Both arguments take a `.zip` or an unpacked directory. It walks `ENC_ROOT`,
+groups each cell's base and updates, writes the `.os63`, and builds the eSENC —
+then stops. The pi-cache watcher notices the new `.es57` and publishes the
+GeoJSON within ~30 s, so the whole path is:
+
+```
+buy → download → installS63 → watcher extracts → /api/enc/installed → app
+```
+
+`--dry-run` lists what it would install without writing anything. Permits are
+read from `opencpn.conf` and the bundle's `PERMIT.TXT`, never passed on the
+command line.
+
+Verified against a GUI-imported cell: the generated `.os63` matches the one
+OpenCPN's own import wrote (all 14 updates, same order, same EDTN/UPDN), and
+the resulting chart is identical — 2804 features, 30 layers, same bbox.
+
+**Caveat worth knowing:** the `.os63` records absolute paths to the `ENC_ROOT`
+files, so the unpacked exchange set must stay where it was when you installed.
+Move or delete it and the cell can't be rebuilt (the already-built `.es57` keeps
+working until the cell is updated).
+
+### The two artefacts, if you need to do it by hand
 
 The plugin's "Import Cell Permits / Import Charts" dialogs only produce two
 artefacts, and both can be made headlessly — useful on a Pi with no screen,
@@ -56,24 +88,24 @@ and the reason the watcher below has something to watch:
 
 1. **The `.os63` descriptor**, plain text under `s63charts/<dataserver>/`:
 
-   ```
-   cellpermit:<the cell's line from PERMIT.TXT>
-   cellbase:<abs path>/<CELL>.000;VERSION=1.0,EDTN=<n>,UPDN=0,UADT=<date>,ISDT=<date>;
-   cellupdate:<abs path>/<CELL>.001;VERSION=1.0,EDTN=<n>,UPDN=1,ISDT=<date>;   ← one per update
-   ```
+    ```
+    cellpermit:<the cell's line from PERMIT.TXT>
+    cellbase:<abs path>/<CELL>.000;VERSION=1.0,EDTN=<n>,UPDN=0,UADT=<date>,ISDT=<date>;
+    cellupdate:<abs path>/<CELL>.001;VERSION=1.0,EDTN=<n>,UPDN=1,ISDT=<date>;   ← one per update
+    ```
 
 2. **The eSENC**, built by OCPNsenc's `-c` (create secure SENC) mode:
 
-   ```bash
-   OCPNsenc -c -i <ENC_ROOT>/<CC>/<CELL>/<ed>/0/<CELL>.000 \
-            -o ~/.opencpn/s63/s63SENC/<CELL>.es57 \
-            -p "<cell permit>" -u <UserPermit> -e <InstallPermit> \
-            -r /usr/share/opencpn/s57data -g <path to .os63> \
-            -z ~/.local/lib/opencpn/libs63_pi.so
-   ```
+    ```bash
+    OCPNsenc -c -i <ENC_ROOT>/<CC>/<CELL>/<ed>/0/<CELL>.000 \
+             -o ~/.opencpn/s63/s63SENC/<CELL>.es57 \
+             -p "<cell permit>" -u <UserPermit> -e <InstallPermit> \
+             -r /usr/share/opencpn/s57data -g <path to .os63> \
+             -z ~/.local/lib/opencpn/libs63_pi.so
+    ```
 
-   It prints `eSENC built OK` on success. Writing that `.es57` is what trips
-   the watcher, so extraction and publication follow on their own.
+    It prints `eSENC built OK` on success. Writing that `.es57` is what trips
+    the watcher, so extraction and publication follow on their own.
 
 Reference: bdbcat/s63_pi `s63chart.cpp` — `BuildSENCFile` builds the command
 line; the `.os63` format is parsed in the `cellpermit:` / `cellbase:` reader.
