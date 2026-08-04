@@ -34,8 +34,9 @@ import {
     getHydrationProgress as getEncHydrationProgress,
     hasCoverageFor as encHasCoverageFor,
 } from '../../services/enc/EncHazardService';
-import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
+import { bootstrapEncSamplesIfNeeded, isEncDemoSampleOptedIn } from '../../services/enc/bootstrapEncSamples';
 import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
+import { backfillCatzocRanges } from '../../services/enc/EncHazardService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('MapHub');
@@ -118,17 +119,22 @@ export function useEncChartInventory(
             unsub();
         };
     }, []);
-    // One-shot import of any bundled sample cells the dev server is serving.
-    // No-op once the localStorage flag is set or when real cells already exist.
+    // Explicit dev/test/demo preview only. Production never auto-seeds a chart,
+    // and demo-tagged cells are excluded from live coverage/hazard confidence.
     useEffect(() => {
-        void bootstrapEncSamplesIfNeeded();
-        // After the bundled NOAA demo lands, also check if the user's Bosun
-        // Pi is reachable on local wifi and silently pull any AU/NZ/EU cells
+        if (isEncDemoSampleOptedIn()) void bootstrapEncSamplesIfNeeded();
+        // Check if the user's Bosun Pi is reachable on local wifi and silently pull any AU/NZ/EU cells
         // they've decrypted there. Polling — runs immediately + every 10 min
         // while foregrounded so a user who buys a chart at the marina cafe
         // walks back to the boat and the cells flow in within a poll cycle.
         // Throttled to never hit the Pi more than once per 5 min.
         startAutoSyncPolling();
+        // One-off repair for cells imported before CATZOC was derived at
+        // import: without it the attribution chip claims "no CATZOC" on
+        // charts whose stored M_QUAL actually states a zone of confidence.
+        // Local-only and Pi-independent, so it must sit outside the Pi gate;
+        // deferred past the boot window like the sync above.
+        setTimeout(() => void backfillCatzocRanges(), 12_000);
         // Web default = the white depth chart (Shane 2026-07-11: "show our
         // new layer as the default on our routing web page"). Cloud cells
         // used to register only when the tracer opened, so a signed-in
