@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import { decryptEsenc, S63Permits } from './s63Decrypt.js';
 import { parseS63Senc } from './s63SencParser.js';
 import { emitCell } from './geojsonEmitter.js';
@@ -34,6 +34,12 @@ interface Args {
     allClasses: boolean;
     /** When set, also write pi-cache's chart-store format — see piCacheStore.ts. */
     piCacheStore?: string;
+    /**
+     * Restrict the run to these cell ids. The watcher passes the cells it saw
+     * change so a single new import doesn't re-extract the whole library.
+     * Empty means every cell found in `sencDir`.
+     */
+    only: Set<string>;
 }
 
 function parseArgs(argv: string[]): Args | null {
@@ -45,6 +51,7 @@ function parseArgs(argv: string[]): Args | null {
         outDir: '',
         sourceHO: '',
         allClasses: false,
+        only: new Set<string>(),
     };
     for (let i = 0; i < argv.length; i += 1) {
         const next = () => argv[++i];
@@ -69,6 +76,11 @@ function parseArgs(argv: string[]): Args | null {
                 break;
             case '--pi-cache-store':
                 args.piCacheStore = next();
+                break;
+            case '--only':
+                for (const id of next().split(',')) {
+                    if (id.trim()) args.only.add(id.trim().toUpperCase());
+                }
                 break;
             case '--help':
                 return null;
@@ -114,22 +126,36 @@ async function main(): Promise<void> {
     if (!args) {
         console.error('usage: extractS63 --out <dir> [--senc-dir <dir>] [--chart-dir <dir>] [--conf <file>]');
         console.error('                  [--source-ho <code>] [--all-classes] [--pi-cache-store <dir>]');
+        console.error('                  [--only <cellId>[,<cellId>...]]');
         process.exit(1);
         return;
     }
 
     const { userPermit, installPermit } = await readPluginPermits(args.confPath);
     const cellPermits = await readCellPermits(args.chartDir);
-    const esencFiles = (await readdir(args.sencDir)).filter((f) => f.toLowerCase().endsWith('.es57')).sort();
+    const allEsencFiles = (await readdir(args.sencDir)).filter((f) => f.toLowerCase().endsWith('.es57')).sort();
+    const esencFiles =
+        args.only.size > 0
+            ? allEsencFiles.filter((f) => args.only.has(basename(f, extname(f)).toUpperCase()))
+            : allEsencFiles;
 
-    console.log(`Found ${esencFiles.length} eSENC file(s) in ${args.sencDir}`);
+    if (args.only.size > 0) {
+        console.log(
+            `Found ${allEsencFiles.length} eSENC file(s) in ${args.sencDir}; ` +
+                `${esencFiles.length} matched --only (${[...args.only].join(', ')})`,
+        );
+    } else {
+        console.log(`Found ${esencFiles.length} eSENC file(s) in ${args.sencDir}`);
+    }
     await mkdir(args.outDir, { recursive: true });
     const piCacheIndex = args.piCacheStore ? await loadPiCacheIndex(args.piCacheStore) : null;
 
     let written = 0;
     const failedCells: string[] = [];
     for (const file of esencFiles) {
-        const cellId = basename(file, '.es57').toUpperCase();
+        // extname rather than a literal '.es57' — Node's basename suffix strip
+        // is case-sensitive, and the directory scan matched case-insensitively.
+        const cellId = basename(file, extname(file)).toUpperCase();
         const cellPermit = cellPermits.get(cellId);
         if (!cellPermit) {
             console.warn(`  ${cellId}: no cell permit found under ${args.chartDir} — skipped`);
