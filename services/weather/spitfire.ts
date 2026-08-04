@@ -194,12 +194,15 @@ export async function fetchSpitfire(lat: number | null, lon: number | null): Pro
         // stamped an artifact of unknown age as though it had just been made —
         // the one substitution guaranteed to hide the failure it was covering.
         // A missing timestamp is now a refusal, not a fresh one.
+        // Narrowed on `stamp` itself, not on a derived number: TypeScript
+        // cannot infer non-undefined from Number.isFinite(generatedMs), and a
+        // cast here would be papering over exactly the case this guards.
         const stamp = doc?.generated_at as string | undefined;
-        const generatedMs = stamp ? Date.parse(stamp) : NaN;
-        if (!Number.isFinite(generatedMs)) {
+        if (!stamp || !Number.isFinite(Date.parse(stamp))) {
             log.warn('SPITFIRE artifact has no usable generated_at — declining');
             return null;
         }
+        const generatedMs = Date.parse(stamp);
         const ageMs = Date.now() - generatedMs;
         if (ageMs > MAX_ARTIFACT_AGE_MS) {
             log.warn(
