@@ -407,7 +407,10 @@ export async function querySegmentCautions(
  *
  * Used by the ChartLocker import flow once Pi conversion succeeds.
  */
-export async function importCell(blob: EncConversionResult): Promise<EncCell> {
+export async function importCell(
+    blob: EncConversionResult,
+    options: { usage?: 'navigation' | 'demo' } = {},
+): Promise<EncCell> {
     // sizeBytes rides back from the save — it used to be re-measured
     // with a SECOND full JSON.stringify of the multi-MB blob right
     // after the save's own (2026-07-12 audit: ~2× CPU + a transient
@@ -451,6 +454,7 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
         bbox: blob.bbox,
         geojsonPath: path,
         hazardCount,
+        usage: options.usage ?? 'navigation',
         catzocRange,
         sizeBytes,
     };
@@ -460,7 +464,9 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
     dropIndex(cell.id);
 
     const catzocStr = catzocRange ? ` CATZOC ${catzocRange[0]}..${catzocRange[1]}` : '';
-    log.info(`imported cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features${catzocStr}`);
+    log.info(
+        `imported ${cell.usage === 'demo' ? 'demo ' : ''}cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features${catzocStr}`,
+    );
     return cell;
 }
 
@@ -1430,3 +1436,66 @@ export const subscribe = cellMeta.subscribe;
  * a React hook dependency so re-renders pick up cell-list changes.
  */
 export const getVersion = cellMeta.getVersion;
+
+/**
+ * Backfill `catzocRange` on cells that were imported before it was computed.
+ *
+ * CATZOC (survey confidence) is derived once, at import, from the cell's
+ * M_QUAL polygons. Cells imported before that step existed — or before the
+ * SENC extractor emitted M_QUAL at all — carry no `catzocRange`, and because
+ * nothing ever recomputes it, the attribution chip reports "no CATZOC"
+ * indefinitely even after a correct blob is sitting on disk. The re-sync that
+ * would fix it never fires either: `syncEncFromPi` skips cells matching on
+ * cellId + edition + sizeBytes, which an unchanged blob does.
+ *
+ * Observed on OC-61-051031 (AU ed.16), whose stored blob has four M_QUAL
+ * polygons at CATZOC 6 — the chart says "ZOC U, unassessed", the chip said
+ * "no CATZOC", and those are not the same claim: one is the hydrographic
+ * office declaring the area unsurveyed, the other is us admitting we don't
+ * know. On a navigation surface that distinction is the whole point.
+ *
+ * Reads each candidate's stored GeoJSON, so it is deliberately lazy and
+ * bounded: call it off the boot path, and it only touches cells whose
+ * `catzocRange` is `undefined` (never computed). A computed `null` — M_QUAL
+ * genuinely absent — is left alone and never re-examined.
+ */
+export async function backfillCatzocRanges(maxCells = 25): Promise<number> {
+    const candidates = cellMeta.listCells().filter((c) => c.catzocRange === undefined);
+    if (candidates.length === 0) return 0;
+
+    let updated = 0;
+    for (const cell of candidates.slice(0, maxCells)) {
+        try {
+            // Local blob only — a missing cell must not trigger a network pull.
+            const blob = await cellStore.loadCellGeoJSON(cell.id, false);
+            if (!blob) continue;
+
+            const zones = buildCatzocZones(blob);
+            let range: [EncCatzoc, EncCatzoc] | null = null;
+            if (zones.length > 0) {
+                let best = zones[0].catzoc;
+                let worst = zones[0].catzoc;
+                for (const z of zones) {
+                    if (z.catzoc < best) best = z.catzoc;
+                    if (z.catzoc > worst) worst = z.catzoc;
+                }
+                range = [best, worst];
+            }
+            // Write even when null: that records "checked, no M_QUAL" so the
+            // cell drops out of the candidate set instead of being re-read
+            // on every launch.
+            cellMeta.putCell({ ...cell, catzocRange: range });
+            updated += 1;
+            if (range) log.info(`backfilled CATZOC ${range[0]}..${range[1]} for ${cell.id}`);
+        } catch (err) {
+            log.warn(`CATZOC backfill failed for ${cell.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+    if (updated > 0) {
+        log.warn(
+            `CATZOC backfill: updated ${updated} cell(s)` +
+                (candidates.length > maxCells ? `, ${candidates.length - maxCells} remaining for next run` : ''),
+        );
+    }
+    return updated;
+}
