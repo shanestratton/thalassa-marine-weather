@@ -55,7 +55,7 @@ import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
-import { sendSignedJson } from './pair.js';
+import { sendSignedJson, routeRequestBinding } from './pair.js';
 import type { PiIdentity } from '../identity.js';
 
 // ── Job state ─────────────────────────────────────────────────────
@@ -872,7 +872,10 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         if (!job) return res.status(404).json({ error: 'Job not found' });
 
         // Public job summary — exclude server-only fields like workDir.
-        return res.json({
+        // Signed: the app trusts `status`/`resultUrl` to decide when to fetch
+        // and import a converted cell, so an on-path attacker must not be able
+        // to steer that. See sendSignedJson.
+        const summary = {
             id: job.id,
             filename: job.filename,
             status: job.status,
@@ -888,7 +891,9 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             cellsDone: job.cellsDone,
             skippedCells: job.skippedCells,
             resultUrl: job.status === 'done' ? `/api/enc/result/${job.id}` : undefined,
-        });
+        };
+        if (identity) return sendSignedJson(identity, req, res, summary);
+        return res.json(summary);
     });
 
     /** GET /api/enc/result/:id — fetch the converted JSON. */
@@ -902,6 +907,9 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         }
         try {
             const text = await fs.readFile(job.resultPath, 'utf8');
+            // Signed: this is converted chart geometry heading straight into
+            // the device's hazard model.
+            if (identity) return sendSignedJson(identity, req, res, text);
             res.setHeader('Content-Type', 'application/json');
             return res.send(text);
         } catch (err) {
@@ -1255,7 +1263,10 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             if ('error' in result) {
                 return res.status(422).json({ ...result, cellsUsed, elapsedMs });
             }
-            return res.json({ ...result, cellsUsed, elapsedMs });
+            // Signed for the same reason as /route-prepped above.
+            const payload = { ...result, cellsUsed, elapsedMs };
+            if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
+            return res.json(payload);
         } catch (err) {
             return res
                 .status(500)
@@ -1353,7 +1364,12 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             if ('error' in result) {
                 return res.status(422).json({ ...result, cellsUsed: [], elapsedMs });
             }
-            return res.json({ ...result, cellsUsed: [], elapsedMs });
+            // Signed: this polyline is the course the boat follows. An
+            // on-path attacker who relays the identity challenge could
+            // otherwise substitute a route across a charted hazard.
+            const payload = { ...result, cellsUsed: [], elapsedMs };
+            if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
+            return res.json(payload);
         } catch (err) {
             return res
                 .status(500)

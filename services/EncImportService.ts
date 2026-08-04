@@ -33,7 +33,7 @@ import { CapacitorHttp } from '@capacitor/core';
 
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
-import { getPairing, verifySignedResponse } from './PiPairingService';
+import { fetchVerifiedFromPi } from './PiPairingService';
 import * as EncHazardService from './enc/EncHazardService';
 import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
 
@@ -400,39 +400,6 @@ export interface SyncEncFromPiOptions {
     cellIds?: string[];
 }
 
-/**
- * GET a Pi endpoint that ships navigation data and return the PARSED JSON,
- * having first verified its detached signature against the paired key.
- *
- * This is the integrity half of the pairing defence: the identity challenge
- * (PiCacheService.passesIdentityGate) stops an impostor at connect, but an
- * on-path attacker can let the real Pi authenticate and still rewrite the
- * bytes in flight. Here the body hash and requested path are bound into a
- * signature, so tampered depth data or a cell blob replayed under another
- * cell's URL fails verification and is thrown out.
- *
- * We fetch as TEXT, not JSON, so the bytes we hash are exactly the bytes the
- * Pi signed — re-serialising a parsed object risks a key-order or whitespace
- * mismatch. When unpaired (legacy grace) the response is parsed unverified,
- * exactly as before pairing existed.
- */
-async function getVerifiedJson<T>(url: string, connectTimeout: number, readTimeout: number): Promise<T> {
-    const res = await CapacitorHttp.get({ url, connectTimeout, readTimeout, responseType: 'text' });
-    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
-    const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-
-    const pairing = getPairing();
-    if (pairing) {
-        const path = new URL(url).pathname;
-        const headers = (res.headers ?? {}) as Record<string, string | undefined>;
-        const check = await verifySignedResponse(pairing, body, path, headers);
-        if (!check.ok) {
-            throw new Error(`Pi response for ${path} failed signature check (${check.reason}) — refusing the data`);
-        }
-    }
-    return JSON.parse(body) as T;
-}
-
 export async function syncEncFromPi(
     onProgress?: (p: EncImportProgress) => void,
     options: SyncEncFromPiOptions = {},
@@ -456,7 +423,11 @@ export async function syncEncFromPi(
 
     let installed: PiInstalledCell[];
     try {
-        const data = await getVerifiedJson<{ cells?: PiInstalledCell[] }>(`${piBase}/api/enc/installed`, 5000, 10000);
+        const data = await fetchVerifiedFromPi<{ cells?: PiInstalledCell[] }>({
+            url: `${piBase}/api/enc/installed`,
+            connectTimeout: 5000,
+            readTimeout: 10000,
+        });
         installed = (data?.cells ?? []) as PiInstalledCell[];
     } catch (err) {
         const error = `Failed to list Pi charts: ${err instanceof Error ? err.message : String(err)}`;
@@ -554,11 +525,11 @@ export async function syncEncFromPi(
             bbox: remote.bbox,
         });
         try {
-            const blob = await getVerifiedJson<EncConversionBatch>(
-                `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
-                10000,
-                120000,
-            );
+            const blob = await fetchVerifiedFromPi<EncConversionBatch>({
+                url: `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
+                connectTimeout: 10000,
+                readTimeout: 120000,
+            });
             if (!blob || !Array.isArray(blob.cells) || blob.cells.length === 0) {
                 throw new Error('Pi returned malformed cell data');
             }
@@ -636,24 +607,32 @@ async function pollAndFetchAndStore(
 
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        let res;
+        // Signature-verified: `status` and `resultUrl` decide when we fetch
+        // and import converted chart data, so an attacker must not be able to
+        // steer them. A 404 is surfaced from the thrown message.
+        let job: PiJobStatus | null;
         try {
-            res = await CapacitorHttp.get({
+            job = await fetchVerifiedFromPi<PiJobStatus>({
                 url: `${piBase}/api/enc/jobs/${jobId}`,
                 connectTimeout: 5000,
                 readTimeout: 10000,
             });
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('HTTP 404')) {
+                const error = 'Pi lost the conversion job (server may have restarted)';
+                emit({ phase: 'error', progress: 0, error });
+                throw new Error(error);
+            }
+            // A signature failure is fatal, not a flaky poll — do not retry
+            // into an attacker's hands.
+            if (msg.includes('signature check')) {
+                emit({ phase: 'error', progress: 0, error: msg });
+                throw new Error(msg);
+            }
             log.warn(`[Poll] attempt ${attempt} failed`, err);
             continue;
         }
-        if (res.status === 404) {
-            const error = 'Pi lost the conversion job (server may have restarted)';
-            emit({ phase: 'error', progress: 0, error });
-            throw new Error(error);
-        }
-        if (res.status < 200 || res.status >= 300) continue;
-        const job = res.data as PiJobStatus | null;
         if (!job) continue;
         lastJobState = job;
         if (job.status === 'done') {
@@ -693,14 +672,12 @@ async function pollAndFetchAndStore(
 
     let batch: EncConversionBatch;
     try {
-        const res = await CapacitorHttp.get({
+        // Signature-verified: converted chart geometry bound for the hazard model.
+        const raw = await fetchVerifiedFromPi<EncConversionBatch | EncConversionResult>({
             url: `${piBase}/api/enc/result/${jobId}`,
             connectTimeout: 10000,
             readTimeout: 180000,
-            responseType: 'json',
         });
-        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status} fetching result`);
-        const raw = res.data as EncConversionBatch | EncConversionResult;
         if ('cells' in raw && Array.isArray(raw.cells)) batch = raw;
         else if ('cellId' in raw) batch = { cells: [raw as EncConversionResult] };
         else throw new Error('Pi returned malformed conversion result');

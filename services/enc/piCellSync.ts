@@ -15,11 +15,12 @@
  * Pi's http origin is blocked) — the caller just falls through to the cloud.
  */
 
-import { CapacitorHttp } from '@capacitor/core';
 import { piCache } from '../PiCacheService';
+import { fetchVerifiedFromPi } from '../PiPairingService';
 import type { EncConversionBatch } from './types';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
+import { PI_INTEGRATION_ENABLED } from '../piPublicBetaBoundary';
 
 const log = createLogger('piCellSync');
 
@@ -35,19 +36,21 @@ const inflight = new Map<string, Promise<boolean>>();
  * Returns true when the blob is saved locally (importCell succeeded).
  */
 export async function downloadPiCell(cellId: string): Promise<boolean> {
-    if (!piCache.isAvailable()) return false;
+    if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable()) return false;
     const existing = inflight.get(cellId);
     if (existing) return existing;
     const p = (async () => {
         try {
-            const res = await CapacitorHttp.get({
+            // Signature-verified: this blob is imported straight into the
+            // hazard model and routed over. The connect-time identity
+            // challenge does NOT cover response bytes — an on-path attacker
+            // can relay it and still tamper — so per-payload verification is
+            // the defence. See PiPairingService.fetchVerifiedFromPi.
+            const blob = await fetchVerifiedFromPi<EncConversionBatch>({
                 url: `${piCache.baseUrl}/api/enc/installed/${encodeURIComponent(cellId)}/data`,
                 connectTimeout: 5_000,
                 readTimeout: PI_PULL_DEADLINE_MS,
-                responseType: 'json',
             });
-            if (res.status < 200 || res.status >= 300) return false;
-            const blob = res.data as EncConversionBatch;
             if (!blob || !Array.isArray(blob.cells) || blob.cells.length === 0) return false;
             // Dynamic import breaks the would-be cycle EncCellStore → piCellSync
             // → EncHazardService → EncCellStore (same pattern as the cloud rung).
