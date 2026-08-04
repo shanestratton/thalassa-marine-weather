@@ -52,6 +52,7 @@ import { existsSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename, dirname, extname, resolve } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
+import { startChartworldSync, stopChartworldSync } from './chartworldSync.js';
 
 const HOME = homedir();
 
@@ -141,6 +142,10 @@ export function startEncWatcher(): void {
     });
 
     startS63Watcher();
+
+    // Upstream of both watchers: pull new purchases off the chart vendor so
+    // there is nothing to download or copy by hand. No-op unless configured.
+    void startChartworldSync();
 }
 
 /**
@@ -273,6 +278,7 @@ function runExtractS63(cellIds: string[]): Promise<void> {
  * In-flight decrypts are NOT aborted (they're short and harmless to let finish).
  */
 export async function stopEncWatcher(): Promise<void> {
+    stopChartworldSync();
     if (pendingTimer) {
         clearTimeout(pendingTimer);
         pendingTimer = null;
