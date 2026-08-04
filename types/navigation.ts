@@ -153,6 +153,9 @@ export interface PassageLeg {
     leg_number: number; // 1-indexed
     departure_port: string;
     arrival_port: string | null; // null while leg is active (at sea)
+    /** Where this leg is PLANNED to end (from the trip's saved legs) — seeds
+     *  the arrival box; `arrival_port` remains the actual arrival. */
+    planned_destination?: string | null;
     departure_time: string; // ISO timestamp
     arrival_time: string | null; // null while leg is active
     distance_nm: number | null; // Calculated on leg close from cumulative ship log

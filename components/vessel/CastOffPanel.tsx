@@ -209,7 +209,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const handleArriveAtPort = useCallback(() => {
         if (!activeVoyage || !currentLeg) return;
         triggerHaptic('light');
-        setArrivalPort(activeVoyage.destination_port || '');
+        // The leg's own planned destination (from the trip's saved legs)
+        // beats the voyage-level destination: on a multi-leg passage the
+        // voyage says "Auckland" while leg 1 actually ends at Noumea.
+        setArrivalPort(currentLeg.planned_destination || activeVoyage.destination_port || '');
         setStep('arrive');
     }, [activeVoyage, currentLeg]);
 
@@ -224,15 +227,24 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         }
     }, [activeVoyage, arrivalPort]);
 
-    const handleDepartNextLeg = useCallback(() => {
+    const handleDepartNextLeg = useCallback(async () => {
         if (!activeVoyage || !arrivalPort.trim()) return;
         triggerHaptic('heavy');
-        // The departure port for the next leg = the arrival port of the previous leg
-        const newLeg = startLeg(activeVoyage.id, arrivalPort.trim());
+        // The departure port for the next leg = the arrival port of the
+        // previous leg. Its planned destination comes from the trip's saved
+        // legs, so the NEXT "Arrive at Port" opens pre-filled too.
+        let plannedDestination: string | null = null;
+        try {
+            const { tripLegPlannedDestination } = await import('../../services/routeTracer');
+            plannedDestination = tripLegPlannedDestination(activeVoyage.saved_route_id, completedLegs.length + 1);
+        } catch {
+            /* best effort */
+        }
+        const newLeg = startLeg(activeVoyage.id, arrivalPort.trim(), plannedDestination);
         setCurrentLeg(newLeg);
         setArrivalPort('');
         setStep('active');
-    }, [activeVoyage, arrivalPort]);
+    }, [activeVoyage, arrivalPort, completedLegs.length]);
 
     const handleSkipToActive = useCallback(() => {
         setArrivalPort('');

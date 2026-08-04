@@ -67,7 +67,7 @@ export function getCurrentLegNumber(voyageId: string): number {
  * @param departurePort  Name of the port being departed from
  * @returns The newly created leg
  */
-export function startLeg(voyageId: string, departurePort: string): PassageLeg {
+export function startLeg(voyageId: string, departurePort: string, plannedDestination?: string | null): PassageLeg {
     const legs = loadLegs();
     const voyageLegs = legs.filter((l) => l.voyage_id === voyageId);
     const nextNumber = voyageLegs.length > 0 ? Math.max(...voyageLegs.map((l) => l.leg_number)) + 1 : 1;
@@ -78,6 +78,7 @@ export function startLeg(voyageId: string, departurePort: string): PassageLeg {
         leg_number: nextNumber,
         departure_port: departurePort,
         arrival_port: null,
+        planned_destination: plannedDestination ?? null,
         departure_time: new Date().toISOString(),
         arrival_time: null,
         distance_nm: null,
