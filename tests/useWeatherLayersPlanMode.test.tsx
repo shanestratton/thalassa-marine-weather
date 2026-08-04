@@ -55,18 +55,29 @@ describe('useWeatherLayers plan-mode boundary', () => {
     });
 
     it('does not persist the suppressed empty set when the app unmounts on Plan', async () => {
+        // Startup is wind-only regardless of the stored selection (Shane
+        // 2026-08-04: "the wind is the only layer that starts up EVERY
+        // time"), so a Plan-mode mount must persist ['wind'] — the USER
+        // selection — never the suppressed empty ACTIVE set.
         localStorage.setItem(STORAGE_KEY, JSON.stringify(['rain', 'wind']));
         const planning = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, true));
 
         expect(sortedLayers(planning.result.current.activeLayers)).toEqual([]);
-        expect(sortedLayers(planning.result.current.userLayers)).toEqual(['rain', 'wind']);
-        await waitFor(() => expect(storedLayers()).toEqual(['rain', 'wind']));
+        expect(sortedLayers(planning.result.current.userLayers)).toEqual(['wind']);
+        await waitFor(() => expect(storedLayers()).toEqual(['wind']));
 
         planning.unmount();
 
         const chart = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, false));
-        expect(sortedLayers(chart.result.current.activeLayers)).toEqual(['rain', 'wind']);
-        expect(sortedLayers(chart.result.current.userLayers)).toEqual(['rain', 'wind']);
-        expect(storedLayers()).toEqual(['rain', 'wind']);
+        expect(sortedLayers(chart.result.current.activeLayers)).toEqual(['wind']);
+        expect(sortedLayers(chart.result.current.userLayers)).toEqual(['wind']);
+        expect(storedLayers()).toEqual(['wind']);
+    });
+
+    it('ignores a stored multi-layer selection at startup — wind only, every time', () => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(['rain', 'pressure', 'wind']));
+        const chart = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, false));
+
+        expect(sortedLayers(chart.result.current.userLayers)).toEqual(['wind']);
     });
 });

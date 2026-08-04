@@ -92,6 +92,12 @@ export function startAnimationBudgetGuard(): () => void {
 
     let dieting = false;
     let peak = 0;
+    // Canvas backing-store telemetry. A sized canvas allocates width×height×4
+    // bytes of UNPURGEABLE renderer memory; 226 hero-carousel canvases
+    // (~130MB) was a jetsam-shaped kill — and iOS writes NO WebContent crash
+    // report for jetsam, so the only way to see this class of problem is for
+    // the app to measure itself. Logged on meaningful growth (+8MB steps).
+    let canvasPeakMb = 0;
 
     const check = () => {
         // A hidden page cannot drain its queue; it also cannot usefully be
@@ -106,6 +112,21 @@ export function startAnimationBudgetGuard(): () => void {
             return;
         }
         const count = animations.length;
+
+        try {
+            const canvases = document.querySelectorAll('canvas');
+            let bytes = 0;
+            canvases.forEach((canvas) => {
+                bytes += canvas.width * canvas.height * 4;
+            });
+            const mb = bytes / 1_048_576;
+            if (mb > canvasPeakMb + 8) {
+                canvasPeakMb = mb;
+                log.warn(`canvas backing grew to ~${Math.round(mb)}MB across ${canvases.length} canvases`);
+            }
+        } catch {
+            /* measurement is best-effort */
+        }
 
         if (count > peak) {
             peak = count;

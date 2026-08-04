@@ -2225,11 +2225,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Deliberately user-opened on the Plan-owned map. It must never appear on
     // Chart, including as a one-shot auto-open when ENC cells first hydrate.
     const [chartKeyOpen, setChartKeyOpen] = useState(false);
-    // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
-    const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
-        'thalassa_map_chart_controls_hidden',
-        false,
-    );
+    // Declutter: collapse the bottom weather cluster (model selector +
+    // scrubber + legend) behind a pop-out. CLOSED on every mount and
+    // deliberately no longer persisted (Shane 2026-08-04: "ensure that the
+    // weather controls are closed by default") — the punter opens it when
+    // they want it, and a previous session's open state never leaks forward.
+    const [chartControlsHidden, setChartControlsHidden] = useState(true);
     // Seaway Graph debug overlay (masterplan Stage IV Phase 10) — gates/
     // edges compiled from installed ENC cells. Per-device flag, never
     // SESSION-ONLY, deliberately NOT persisted (2026-07-10, second offence):
