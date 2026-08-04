@@ -538,7 +538,11 @@ describe('CrewManagement shared passage ownership', () => {
             window.dispatchEvent(new Event('thalassa:passage-plan-saved'));
         });
 
-        await waitFor(() => expect(mocks.getDraftVoyages).toHaveBeenCalled());
+        // Change events coalesce to at most one reload per 1.5s (the
+        // 2026-08-04 storm-proofing that stops an event burst remounting the
+        // animated row list until WebKit kills the page) — so the refresh
+        // lands after the interval, not instantly.
+        await waitFor(() => expect(mocks.getDraftVoyages).toHaveBeenCalled(), { timeout: 4000 });
         expect(screen.getByText('No saved routes yet')).toBeInTheDocument();
         expect(screen.queryByText('Loading saved routes…')).not.toBeInTheDocument();
 

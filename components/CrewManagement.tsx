@@ -1120,8 +1120,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const distanceNm = routeDistanceNm(routeCoordinates) ?? undefined;
             const speedKt = settings.vessel?.cruisingSpeed || 5.5;
             const durationHours = distanceNm ? distanceNm / speedKt : undefined;
-            const nowIso = new Date().toISOString();
-            const eta = durationHours ? new Date(Date.now() + durationHours * 3_600_000).toISOString() : null;
+            // DETERMINISTIC stamps (newest member leg), NOT Date.now(): a
+            // fresh timestamp per reload made every pass produce a
+            // "different" row, and downstream effects keyed on row content
+            // re-fired on each one — churn this page cannot afford (see the
+            // storm-proofing note on the reload listeners).
+            const memberTraces = canonicalTraces.filter((trace) => (trace.tripId ?? trace.id) === rollup.tripId);
+            const newestIso = memberTraces.reduce(
+                (acc, trace) => {
+                    const stamp = trace.updatedAt ?? trace.createdAt;
+                    return stamp > acc ? stamp : acc;
+                },
+                memberTraces[0]?.createdAt ?? new Date(0).toISOString(),
+            );
+            const newestMs = Date.parse(newestIso);
+            const eta =
+                durationHours && Number.isFinite(newestMs)
+                    ? new Date(newestMs + durationHours * 3_600_000).toISOString()
+                    : null;
             ownRows.push({
                 id: `logbook:${rollup.id}`,
                 user_id: '',
@@ -1129,14 +1145,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 voyage_name: rollup.name,
                 departure_port: rollup.originName,
                 destination_port: rollup.destName,
-                departure_time: nowIso,
+                departure_time: newestIso,
                 eta,
                 crew_count: Math.max(settings.vessel?.crewCount ?? 1, 1),
                 status: 'planning',
                 weather_master_id: null,
                 notes: null,
-                created_at: nowIso,
-                updated_at: nowIso,
+                created_at: newestIso,
+                updated_at: newestIso,
                 saved_route_id: rollup.tripId,
                 departureCoords: routeCoordinates[0],
                 arrivalCoords: routeCoordinates[routeCoordinates.length - 1],
@@ -1276,13 +1292,32 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const scope = getAuthIdentityScope();
         if (!authUserId || privateScopeKey !== scope.key || !scopeStillOwnsPage(scope)) return;
         void reloadDropdown();
+        // ── Storm-proofing (Shane 2026-08-04: planning page killed by an
+        // IPC flood — "129 DrawingArea_AcceleratedAnimationDidStart" — then
+        // rebooted to the Glass). These change events can arrive in bursts
+        // (sync round-trips, repair cascades firing saved-routes-changed per
+        // repaired row); each direct reload re-rendered the whole animated
+        // row list. Coalesce to at most one reload per interval, trailing-
+        // edge, so a burst of ANY size costs one repaint.
+        const RELOAD_MIN_INTERVAL_MS = 1_500;
+        let lastReloadAt = Date.now();
+        let pendingReload: ReturnType<typeof setTimeout> | null = null;
+        const scheduleReload = () => {
+            if (pendingReload) return;
+            const wait = Math.max(0, lastReloadAt + RELOAD_MIN_INTERVAL_MS - Date.now());
+            pendingReload = setTimeout(() => {
+                pendingReload = null;
+                lastReloadAt = Date.now();
+                void reloadDropdown();
+            }, wait);
+        };
         // Refresh when a passage plan is saved while this page is
         // already mounted — e.g. user saves on the Route Planner and
         // navigates straight here without unmounting. Without this,
         // the new route doesn't appear in the dropdown until the
         // component fully remounts.
         const onSaved = () => {
-            void reloadDropdown();
+            scheduleReload();
         };
         // Also refresh when the departure time changes elsewhere
         // (RoutePlanner date input, WeatherWindowCard accept). Without
@@ -1295,7 +1330,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             // optimistically. Refetching before Supabase confirms them can
             // briefly repaint the old ETA.
             if (detail?.source === 'crew-management') return;
-            void reloadDropdown();
+            scheduleReload();
         };
         // Canonical trace deletion/rebase and its asynchronous Log/Voyage
         // cleanup can land while Passage Planning stays mounted. Both events
@@ -1311,7 +1346,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             ) {
                 return;
             }
-            void reloadDropdown();
+            scheduleReload();
         };
         if (typeof window !== 'undefined') {
             window.addEventListener('thalassa:passage-plan-saved', onSaved);
@@ -1321,6 +1356,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             window.addEventListener('thalassa:routes-and-tracks-changed', onSavedRoutesChanged);
             return () => {
                 dropdownReloadVersion.current += 1;
+                if (pendingReload) clearTimeout(pendingReload);
                 window.removeEventListener('thalassa:passage-plan-saved', onSaved);
                 window.removeEventListener('thalassa:departure-time-updated', onDepartureUpdate);
                 window.removeEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
