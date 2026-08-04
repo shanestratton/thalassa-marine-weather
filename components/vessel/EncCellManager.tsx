@@ -425,12 +425,25 @@ export const EncCellManager: React.FC = () => {
     // simplification — same name, newer content. Without edition awareness
     // the Sync button stays hidden and the device keeps running against
     // the stale local copy.
-    const [piCellsSummary, setPiCellsSummary] = useState<{ cellId: string; edition: number }[] | null>(null);
+    // sourceHO and featureCount ride along so the per-chart picker below can
+    // show which office issued a cell and roughly how big the pull is —
+    // "FR466870" alone doesn't tell you it's Nouméa.
+    const [piCellsSummary, setPiCellsSummary] = useState<
+        { cellId: string; edition: number; sourceHO?: string; sizeBytes?: number }[] | null
+    >(null);
     useEffect(() => {
         let cancelled = false;
         listPiInstalledCharts()
             .then((piCells) => {
-                if (!cancelled) setPiCellsSummary(piCells.map((c) => ({ cellId: c.cellId, edition: c.edition ?? 0 })));
+                if (!cancelled)
+                    setPiCellsSummary(
+                        piCells.map((c) => ({
+                            cellId: c.cellId,
+                            edition: c.edition ?? 0,
+                            sourceHO: c.sourceHO,
+                            sizeBytes: c.sizeBytes,
+                        })),
+                    );
             })
             .catch(() => {
                 if (!cancelled) setPiCellsSummary(null);
@@ -448,6 +461,39 @@ export const EncCellManager: React.FC = () => {
         [piCellsSummary, localCellKeys],
     );
     const piHasMoreThanLocal = missingOnDevice.length > 0;
+
+    // Per-chart pull. Auto-sync only fetches the 20 cells nearest the current
+    // fix, so charts for a passage you haven't started yet are unreachable
+    // without an uncapped sync of everything the Pi holds. This picker is the
+    // targeted path: filter, tap, one cell.
+    const [showPicker, setShowPicker] = useState(false);
+    const [pickerFilter, setPickerFilter] = useState('');
+    const [pullingCellId, setPullingCellId] = useState<string | null>(null);
+
+    const pickerMatches = useMemo(() => {
+        const q = pickerFilter.trim().toUpperCase();
+        const matches = q ? missingOnDevice.filter((c) => c.cellId.toUpperCase().includes(q)) : missingOnDevice;
+        // Cap the rendered rows — the Pi can hold 900+ cells and this list
+        // lives inside a settings sheet. Filtering narrows it.
+        return { rows: matches.slice(0, 40), total: matches.length };
+    }, [missingOnDevice, pickerFilter]);
+
+    const handleGetCell = useCallback(
+        async (cellId: string) => {
+            setError(null);
+            setPullingCellId(cellId);
+            try {
+                await syncEncFromPi((p) => setProgress(p), { cellIds: [cellId] });
+                refreshCells();
+            } catch (err) {
+                setError(err instanceof Error ? err.message : String(err));
+            } finally {
+                setPullingCellId(null);
+                setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+            }
+        },
+        [refreshCells],
+    );
 
     // Auto-expand when there are cells on the Pi the device doesn't
     // have yet — surfaces the Sync button immediately on page load
@@ -581,6 +627,74 @@ export const EncCellManager: React.FC = () => {
                                         </span>
                                     </span>
                                 </button>
+                            )}
+
+                            {/* Targeted pull — see `showPicker` above. */}
+                            {piHasMoreThanLocal && (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            setShowPicker((v) => !v);
+                                        }}
+                                        className="w-full py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 hover:text-white/70 transition-colors"
+                                    >
+                                        {showPicker ? 'Hide chart picker' : 'Or pick one chart…'}
+                                    </button>
+
+                                    {showPicker && (
+                                        <div className="space-y-2">
+                                            <input
+                                                type="text"
+                                                value={pickerFilter}
+                                                onChange={(e) => setPickerFilter(e.target.value)}
+                                                placeholder="Filter by cell id (e.g. FR46)"
+                                                className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[11px] text-white/80 placeholder:text-white/25 focus:outline-none focus:border-amber-500/40"
+                                            />
+                                            <div className="max-h-56 overflow-y-auto space-y-1">
+                                                {pickerMatches.rows.map((c) => (
+                                                    <div
+                                                        key={`${c.cellId}@${c.edition}`}
+                                                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <p className="font-mono text-[11px] text-white/80 truncate">
+                                                                {c.cellId}
+                                                            </p>
+                                                            <p className="text-[10px] text-white/35">
+                                                                {c.sourceHO ? `${c.sourceHO} · ` : ''}ed. {c.edition}
+                                                                {c.sizeBytes
+                                                                    ? ` · ${(c.sizeBytes / 1_048_576).toFixed(1)} MB`
+                                                                    : ''}
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                triggerHaptic('light');
+                                                                void handleGetCell(c.cellId);
+                                                            }}
+                                                            disabled={importing || pullingCellId !== null}
+                                                            className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 active:scale-95 disabled:opacity-40 transition-all"
+                                                        >
+                                                            {pullingCellId === c.cellId ? '…' : 'Get'}
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                {pickerMatches.total === 0 && (
+                                                    <p className="px-3 py-2 text-[10px] text-white/35 italic">
+                                                        No pending charts match that filter.
+                                                    </p>
+                                                )}
+                                            </div>
+                                            {pickerMatches.total > pickerMatches.rows.length && (
+                                                <p className="text-[10px] text-white/30 italic">
+                                                    Showing {pickerMatches.rows.length} of {pickerMatches.total} — type
+                                                    to narrow.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
                             )}
 
                             {error && (
