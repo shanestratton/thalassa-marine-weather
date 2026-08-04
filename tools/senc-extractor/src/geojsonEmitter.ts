@@ -26,6 +26,7 @@ interface GeoJsonFeature {
         | { type: 'Point'; coordinates: [number, number] }
         | { type: 'MultiPoint'; coordinates: [number, number][] }
         | { type: 'LineString'; coordinates: [number, number][] }
+        | { type: 'MultiLineString'; coordinates: [number, number][][] }
         | { type: 'Polygon'; coordinates: [number, number][][] }
         | { type: 'MultiPolygon'; coordinates: [number, number][][][] }
         | null;
@@ -242,6 +243,28 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
                 type: 'Feature',
                 id: f.rcid,
                 geometry: { type: 'LineString', coordinates: coords },
+                properties,
+            };
+        }
+
+        case 'MultiLine': {
+            // Deliberately disjoint parts — never bridge them. A single
+            // surviving part degrades to a plain LineString so consumers that
+            // predate MultiLineString keep working on the common case.
+            const parts = f.geometry.parts.map((part) => part.map(roundPt)).filter((part) => part.length >= 2);
+            if (parts.length === 0) return null;
+            if (parts.length === 1) {
+                return {
+                    type: 'Feature',
+                    id: f.rcid,
+                    geometry: { type: 'LineString', coordinates: parts[0] },
+                    properties,
+                };
+            }
+            return {
+                type: 'Feature',
+                id: f.rcid,
+                geometry: { type: 'MultiLineString', coordinates: parts },
                 properties,
             };
         }

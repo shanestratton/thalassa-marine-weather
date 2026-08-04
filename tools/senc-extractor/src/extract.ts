@@ -86,6 +86,10 @@ function geomSummary(g: NonNullable<SencFeature['geometry']>): string {
             const firstStr = first ? ` first=[${first[0].toFixed(5)}, ${first[1].toFixed(5)}]` : '';
             return `Line points=${g.coordinates.length}${firstStr} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
         }
+        case 'MultiLine': {
+            const pts = g.parts.reduce((a, p) => a + p.length, 0);
+            return `MultiLine parts=${g.parts.length} points=${pts} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
+        }
         case 'LineRaw':
             return `LineRaw edges=${g.edgeVectorCount} (UNRESOLVED) bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
     }
