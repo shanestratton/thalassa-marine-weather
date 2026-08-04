@@ -39,6 +39,21 @@ import { createLogger } from './createLogger';
 
 const log = createLogger('AnimBudget');
 
+/** Detached-canvas accountants: modules that hold canvases OUTSIDE the DOM
+ *  (frame caches etc.) register a cheap stats callback so the memory
+ *  telemetry can see backing store the document query can't. */
+const detachedAccountants = new Map<string, () => { count: number; bytes: number }>();
+
+export function registerDetachedCanvasAccountant(
+    name: string,
+    accountant: () => { count: number; bytes: number },
+): () => void {
+    detachedAccountants.set(name, accountant);
+    return () => {
+        detachedAccountants.delete(name);
+    };
+}
+
 /** Shed above this many live animations — well clear of WebKit's 129 cap so
  *  a burst arriving between polls still has headroom. */
 export const ANIMATION_BUDGET = 55;
@@ -119,10 +134,32 @@ export function startAnimationBudgetGuard(): () => void {
             canvases.forEach((canvas) => {
                 bytes += canvas.width * canvas.height * 4;
             });
-            const mb = bytes / 1_048_576;
-            if (mb > canvasPeakMb + 8) {
-                canvasPeakMb = mb;
-                log.warn(`canvas backing grew to ~${Math.round(mb)}MB across ${canvases.length} canvases`);
+            // GL contexts are the expensive kind — Mapbox tags its canvas, so
+            // count instances WITHOUT calling getContext (which would CREATE
+            // a context on a virgin canvas). More than the expected one or
+            // two alive at once is the finding, not the byte estimate.
+            const glMaps = document.querySelectorAll('canvas.mapboxgl-canvas').length;
+            // Detached canvases (e.g. the radar frame cache) hold backing
+            // store the DOM query can't see — modules that keep them report
+            // through registerDetachedCanvasAccountant below.
+            let detachedBytes = 0;
+            let detachedCount = 0;
+            for (const accountant of detachedAccountants.values()) {
+                try {
+                    const stats = accountant();
+                    detachedBytes += stats.bytes;
+                    detachedCount += stats.count;
+                } catch {
+                    /* one broken accountant must not kill the guard */
+                }
+            }
+            const totalMb = (bytes + detachedBytes) / 1_048_576;
+            if (totalMb > canvasPeakMb + 8) {
+                canvasPeakMb = totalMb;
+                log.warn(
+                    `canvas backing ~${Math.round(totalMb)}MB ` +
+                        `(${canvases.length} in DOM + ${detachedCount} detached, ${glMaps} GL maps alive)`,
+                );
             }
         } catch {
             /* measurement is best-effort */
