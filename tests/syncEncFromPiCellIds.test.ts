@@ -53,7 +53,7 @@ function wireHttp(): void {
 /** Cell ids actually fetched, in order. */
 function fetchedCellIds(): string[] {
     return h.get.mock.calls
-        .map(([arg]: [{ url: string }]) => /\/api\/enc\/installed\/([^/]+)\/data$/.exec(arg.url)?.[1])
+        .map((call) => /\/api\/enc\/installed\/([^/]+)\/data$/.exec((call[0] as { url: string }).url)?.[1])
         .filter((v): v is string => Boolean(v))
         .map((v) => decodeURIComponent(v));
 }
