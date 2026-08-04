@@ -7,6 +7,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useUI } from '../context/UIContext';
 import { pushForegroundToast } from '../components/PushToast';
+import { startAnimationBudgetGuard } from '../utils/animationBudget';
 import { useAuthStore } from '../stores/authStore';
 import {
     getAuthIdentityScope,
@@ -238,6 +239,13 @@ export function useAppBootstrap() {
             unbind?.();
         };
     }, [identityScope, setPage]);
+
+    // ── Animation budget guard ─────────────────────────────────────
+    // Measures the LIVE compositor-animation count and sheds decorative
+    // motion before WebKit's 129-message cap kills the renderer. Also logs
+    // the top offenders, which is how the next crash report will name the
+    // source instead of narrowing it a guess at a time.
+    useEffect(() => startAnimationBudgetGuard(), []);
 
     // ── Freeze all animation while backgrounded ────────────────────
     // Shane's 2026-08-04 crash logs: 28 minutes of "markAllLayersVolatile:
