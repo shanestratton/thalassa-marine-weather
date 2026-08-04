@@ -10,14 +10,14 @@
  * (separate service) — the iPhone pulls each user's own decrypted cells from
  * their own Bosun Pi over local wifi. Their license, their device.
  *
- * This bootstrap stays in the App Store / TestFlight build as a "demo mode"
- * so first-launch users without a Pi see a working chart somewhere — even if
- * it's Savannah River and they're sailing the Whitsundays.
+ * Public-beta/production builds do not run this bootstrap. It is available
+ * only when a development, test, or dedicated demo build explicitly sets
+ * VITE_ENABLE_ENC_DEMO_SAMPLES=true. Imported samples are tagged `demo`, and
+ * EncCellMetadata excludes them from every live coverage/hazard consumer.
  */
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
 import { importCell } from './EncHazardService';
-import { listCells } from './EncCellMetadata';
 import type { EncConversionResult } from './types';
 
 const log = createLogger('bootstrapEncSamples');
@@ -39,7 +39,17 @@ let bootstrapPromise: Promise<void> | null = null;
  */
 const SAMPLE_CELLS: string[] = ['US5GA22M'];
 
+export function isEncDemoSampleOptedIn(): boolean {
+    const explicit = String(import.meta.env?.VITE_ENABLE_ENC_DEMO_SAMPLES ?? 'false').toLowerCase() === 'true';
+    const mode = String(import.meta.env?.MODE ?? 'production').toLowerCase();
+    return explicit && (import.meta.env?.DEV === true || mode === 'test' || mode === 'demo');
+}
+
 export function bootstrapEncSamplesIfNeeded(): Promise<void> {
+    if (!isEncDemoSampleOptedIn()) {
+        log.info('demo ENC bootstrap disabled');
+        return Promise.resolve();
+    }
     // React StrictMode deliberately remounts effects in development. Keep the
     // import single-flight so both mounts share one fetch/parse/IndexedDB job
     // instead of racing a second 4.7 MB chart import before the flag is set.
@@ -58,11 +68,8 @@ async function runBootstrap(): Promise<void> {
         // older triangle-soup or earlier-edition cells get clobbered by importCell
         // (it overwrites by cellId). User-imported cells outside SAMPLE_CELLS are
         // never touched.
-        const existing = new Set(listCells().map((c) => c.id));
         const platform = Capacitor.getPlatform();
-        log.info(
-            `bootstrap starting on ${platform} — ${SAMPLE_CELLS.length} sample cells, ${existing.size} cells in store (will overwrite any matching sample IDs)`,
-        );
+        log.info(`explicit demo bootstrap starting on ${platform} — ${SAMPLE_CELLS.length} sample cell(s)`);
 
         let imported = 0;
         const alreadyHave = 0;
@@ -89,7 +96,7 @@ async function runBootstrap(): Promise<void> {
                     log.warn(`  ${cellId}: malformed sample (no cellId/layers), skipping`);
                     continue;
                 }
-                await importCell(blob);
+                await importCell(blob, { usage: 'demo' });
                 imported += 1;
                 log.info(
                     `  ${cellId}: IMPORTED (${blob.sourceHO} edition ${blob.edition}, ${Object.keys(blob.layers).length} layers)`,
